@@ -432,14 +432,27 @@
                     background: rgba(255, 255, 255, 0.15) !important;
                 }
                 
-                .pip-window-content .pip-close-button {
+                .pip-window-content .pip-compact-button {
                     background: rgba(255, 255, 255, 0.2) !important;
                     color: rgba(255, 255, 255, 0.9) !important;
                 }
                 
-                .pip-window-content .pip-close-button:hover {
-                    background: rgba(255, 0, 0, 0.8) !important;
+                .pip-window-content .pip-compact-button:hover {
+                    background: rgba(108, 92, 231, 0.8) !important;
                     color: white !important;
+                }
+                
+                .pip-window-content .pip-compact-display {
+                    background: rgba(225, 112, 85, 0.3) !important;
+                    border-color: rgba(225, 112, 85, 0.5) !important;
+                }
+                
+                .pip-window-content .pip-compact-time {
+                    color: #fab1a0 !important;
+                }
+                
+                .pip-window-content .pip-compact-label {
+                    color: rgba(225, 112, 85, 0.9) !important;
                 }
             }
             
@@ -490,14 +503,27 @@
                     background: rgba(0, 0, 0, 0.1) !important;
                 }
                 
-                .pip-window-content .pip-close-button {
+                .pip-window-content .pip-compact-button {
                     background: rgba(0, 0, 0, 0.1) !important;
                     color: rgba(0, 0, 0, 0.7) !important;
                 }
                 
-                .pip-window-content .pip-close-button:hover {
-                    background: rgba(255, 0, 0, 0.8) !important;
+                .pip-window-content .pip-compact-button:hover {
+                    background: rgba(108, 92, 231, 0.8) !important;
                     color: white !important;
+                }
+                
+                .pip-window-content .pip-compact-display {
+                    background: rgba(225, 112, 85, 0.2) !important;
+                    border-color: rgba(225, 112, 85, 0.4) !important;
+                }
+                
+                .pip-window-content .pip-compact-time {
+                    color: #e17055 !important;
+                }
+                
+                .pip-window-content .pip-compact-label {
+                    color: rgba(225, 112, 85, 0.8) !important;
                 }
                 
                 .pip-window-content .gap-warning {
@@ -567,15 +593,15 @@
                 margin-top: 16px;
             }
             
-            .pip-close-button {
+            .pip-compact-button {
                 position: absolute !important;
                 top: 8px !important;
                 right: 8px !important;
                 background: rgba(255, 255, 255, 0.2) !important;
                 border: none !important;
-                border-radius: 50% !important;
-                width: 28px !important;
-                height: 28px !important;
+                border-radius: 6px !important;
+                width: 32px !important;
+                height: 24px !important;
                 cursor: pointer !important;
                 font-size: 12px !important;
                 z-index: 1000 !important;
@@ -586,13 +612,65 @@
                 color: white !important;
             }
             
-            .pip-close-button:hover {
-                background: rgba(255, 0, 0, 0.7) !important;
-                transform: scale(1.1) !important;
+            .pip-compact-button:hover {
+                background: rgba(108, 92, 231, 0.8) !important;
+                transform: scale(1.05) !important;
+            }
+            
+            /* Compact Mode Styles */
+            .pip-window-content.compact-mode {
+                padding: 8px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                min-height: auto !important;
+                height: auto !important;
+            }
+            
+            .pip-compact-display {
+                text-align: center !important;
+                background: rgba(225, 112, 85, 0.2) !important;
+                border: 1px solid rgba(225, 112, 85, 0.4) !important;
+                border-radius: 12px !important;
+                padding: 12px 16px !important;
+                backdrop-filter: blur(10px) !important;
+                -webkit-backdrop-filter: blur(10px) !important;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+                transition: all 0.3s ease !important;
+                cursor: pointer !important;
+            }
+            
+            .pip-compact-display:hover {
+                transform: scale(1.02) !important;
+                background: rgba(225, 112, 85, 0.3) !important;
+            }
+            
+            .pip-compact-time {
+                font-size: 1.5rem !important;
+                font-weight: 700 !important;
+                color: #e17055 !important;
+                margin: 0 !important;
+                line-height: 1 !important;
+            }
+            
+            .pip-compact-label {
+                font-size: 0.7rem !important;
+                font-weight: 500 !important;
+                color: rgba(225, 112, 85, 0.8) !important;
+                margin: 2px 0 0 0 !important;
+                text-transform: uppercase !important;
+                letter-spacing: 0.05em !important;
+            }
+            
+            .pip-compact-emoji {
+                font-size: 1.2rem !important;
+                margin-left: 8px !important;
+                display: inline-block !important;
+                animation: emojiPulse 2s ease-in-out infinite !important;
             }
             
             /* Performance optimization for dynamic elements */
-            .stat-value, .countdown-time, .emoji-display, .progress-fill {
+            .stat-value, .emoji-display, .progress-fill {
                 will-change: transform;
             }
             
@@ -751,14 +829,6 @@
                 .pip-window-content .progress-bar {
                     height: 5px;
                     margin: 12px 0;
-                }
-                
-                .pip-close-button {
-                    top: 6px !important;
-                    right: 6px !important;
-                    width: 24px !important;
-                    height: 24px !important;
-                    font-size: 10px !important;
                 }
             }
             
@@ -1247,13 +1317,14 @@
                     developerInfoClone.remove();
                 }
                 
-                // Add close button to PiP window
-                const closeButton = document.createElement('button');
-                closeButton.className = 'pip-close-button';
-                closeButton.innerHTML = '×';
-                closeButton.onclick = () => pipWindow.close();
+                // Add compact mode button to PiP window
+                const compactButton = document.createElement('button');
+                compactButton.className = 'pip-compact-button';
+                compactButton.innerHTML = '🔲';
+                compactButton.title = 'Toggle Compact Mode';
+                compactButton.onclick = () => toggleCompactMode(pipWindow, summaryClone);
                 
-                summaryClone.appendChild(closeButton);
+                summaryClone.appendChild(compactButton);
                 
                 // Append to PiP window
                 pipWindow.document.body.appendChild(summaryClone);
@@ -1366,6 +1437,88 @@
         });
         
         pipWindow.document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+    }
+    
+    // Toggle compact mode in PiP window
+    function toggleCompactMode(pipWindow, summaryElement) {
+        if (!pipWindow || pipWindow.closed || !summaryElement) return;
+        
+        const isCompact = summaryElement.classList.contains('compact-mode');
+        
+        if (isCompact) {
+            // Switch back to full mode - regenerate content instead of cloning from placeholder
+            summaryElement.classList.remove('compact-mode');
+            summaryElement.className = 'attendance-summary pip-window-content';
+            
+            // Trigger a fresh calculation and render
+            const tableDiv = document.querySelector('.main-attendance-table');
+            if (tableDiv) {
+                // Create a temporary container to generate fresh content
+                const tempContainer = document.createElement('div');
+                tempContainer.id = 'temp-pip-content';
+                tempContainer.className = 'attendance-summary';
+                
+                // Calculate and render fresh content to temp container
+                calculateTotalTime(tempContainer);
+                
+                // Copy the fresh content to PiP window
+                if (tempContainer.innerHTML) {
+                    summaryElement.innerHTML = tempContainer.innerHTML;
+                    
+                    // Remove PiP button and developer info from PiP content
+                    const pipButtonClone = summaryElement.querySelector('.pip-button');
+                    if (pipButtonClone) pipButtonClone.remove();
+                    
+                    const developerInfoClone = summaryElement.querySelector('.developer-info');
+                    if (developerInfoClone) developerInfoClone.remove();
+                    
+                    // Add compact button back
+                    const compactButton = document.createElement('button');
+                    compactButton.className = 'pip-compact-button';
+                    compactButton.innerHTML = '🔲';
+                    compactButton.title = 'Toggle Compact Mode';
+                    compactButton.onclick = () => toggleCompactMode(pipWindow, summaryElement);
+                    
+                    summaryElement.appendChild(compactButton);
+                }
+                
+                // Clean up temp container
+                tempContainer.remove();
+            }
+        } else {
+            // Switch to compact mode
+            summaryElement.classList.add('compact-mode');
+            
+            // Get current remaining time and emoji from the actual content
+            const remainingTimeElement = summaryElement.querySelector('#remaining-time');
+            const emojiElement = summaryElement.querySelector('.emoji-display');
+            const remainingTime = remainingTimeElement ? remainingTimeElement.textContent : '00:00:00';
+            const currentEmoji = emojiElement ? emojiElement.textContent : '⏰';
+            
+            // Create compact display
+            const compactHTML = `
+                <div class="pip-compact-display" title="Click to expand">
+                    <div class="pip-compact-time">${remainingTime}<span class="pip-compact-emoji">${currentEmoji}</span></div>
+                    <div class="pip-compact-label">Time until freedom</div>
+                </div>
+            `;
+            
+            summaryElement.innerHTML = compactHTML;
+            
+            // Add expand functionality to the compact display
+            const compactDisplay = summaryElement.querySelector('.pip-compact-display');
+            if (compactDisplay) {
+                compactDisplay.onclick = () => toggleCompactMode(pipWindow, summaryElement);
+            }
+            
+            // Resize window for compact mode
+            try {
+                // Note: PiP API doesn't support dynamic resizing, but we optimize the content
+                console.log('Compact mode activated - content optimized for minimal space');
+            } catch (error) {
+                console.log('Could not resize PiP window:', error);
+            }
+        }
     }
     
     // Adjust PiP window size to fit content
@@ -1492,41 +1645,57 @@
                 return;
             }
             
-            // Get current data
+            // Get current data from the original container
             const originalContainer = document.getElementById('total-time-summary');
             if (originalContainer) {
-                // Update dynamic content in PiP window
-                const pipTotalWorked = pipContent.querySelector('#total-worked-time');
-                const pipRemainingTime = pipContent.querySelector('#remaining-time');
-                const pipCompletionTime = pipContent.querySelector('#completion-time');
-                const pipEmojiDisplay = pipContent.querySelector('.emoji-display');
-                const pipProgressFill = pipContent.querySelector('.progress-fill');
                 
-                const originalTotalWorked = originalContainer.querySelector('#total-worked-time');
-                const originalRemainingTime = originalContainer.querySelector('#remaining-time');
-                const originalCompletionTime = originalContainer.querySelector('#completion-time');
-                const originalEmojiDisplay = originalContainer.querySelector('.emoji-display');
-                const originalProgressFill = originalContainer.querySelector('.progress-fill');
-                
-                // Sync content
-                if (pipTotalWorked && originalTotalWorked) {
-                    pipTotalWorked.textContent = originalTotalWorked.textContent;
-                }
-                if (pipRemainingTime && originalRemainingTime) {
-                    pipRemainingTime.textContent = originalRemainingTime.textContent;
-                }
-                if (pipCompletionTime && originalCompletionTime) {
-                    pipCompletionTime.textContent = originalCompletionTime.textContent;
-                }
-                if (pipEmojiDisplay && originalEmojiDisplay) {
-                    pipEmojiDisplay.textContent = originalEmojiDisplay.textContent;
-                }
-                if (pipProgressFill && originalProgressFill) {
-                    pipProgressFill.style.width = originalProgressFill.style.width;
+                // Check if we're in compact mode
+                if (pipContent.classList.contains('compact-mode')) {
+                    // Update compact mode display
+                    const compactTimeElement = pipContent.querySelector('.pip-compact-time');
+                    
+                    const originalRemainingTime = originalContainer.querySelector('#remaining-time');
+                    const originalEmojiDisplay = originalContainer.querySelector('.emoji-display');
+                    
+                    if (compactTimeElement && originalRemainingTime) {
+                        const remainingTime = originalRemainingTime.textContent;
+                        const emoji = originalEmojiDisplay ? originalEmojiDisplay.textContent : '⏰';
+                        compactTimeElement.innerHTML = `${remainingTime}<span class="pip-compact-emoji">${emoji}</span>`;
+                    }
+                } else {
+                    // Update full mode display - simple sync approach
+                    const pipTotalWorked = pipContent.querySelector('#total-worked-time');
+                    const pipRemainingTime = pipContent.querySelector('#remaining-time');
+                    const pipCompletionTime = pipContent.querySelector('#completion-time');
+                    const pipEmojiDisplay = pipContent.querySelector('.emoji-display');
+                    const pipProgressFill = pipContent.querySelector('.progress-fill');
+                    
+                    const originalTotalWorked = originalContainer.querySelector('#total-worked-time');
+                    const originalRemainingTime = originalContainer.querySelector('#remaining-time');
+                    const originalCompletionTime = originalContainer.querySelector('#completion-time');
+                    const originalEmojiDisplay = originalContainer.querySelector('.emoji-display');
+                    const originalProgressFill = originalContainer.querySelector('.progress-fill');
+                    
+                    // Sync content if original elements exist (not in placeholder mode)
+                    if (originalTotalWorked && pipTotalWorked) {
+                        pipTotalWorked.textContent = originalTotalWorked.textContent;
+                    }
+                    if (originalRemainingTime && pipRemainingTime) {
+                        pipRemainingTime.textContent = originalRemainingTime.textContent;
+                    }
+                    if (originalCompletionTime && pipCompletionTime) {
+                        pipCompletionTime.textContent = originalCompletionTime.textContent;
+                    }
+                    if (originalEmojiDisplay && pipEmojiDisplay) {
+                        pipEmojiDisplay.textContent = originalEmojiDisplay.textContent;
+                    }
+                    if (originalProgressFill && pipProgressFill) {
+                        pipProgressFill.style.width = originalProgressFill.style.width;
+                    }
                 }
             }
             
-            // Continue updating
+            // Continue updating every second
             setTimeout(updatePipContent, 1000);
         };
         

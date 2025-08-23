@@ -310,11 +310,11 @@
                 color: white;
                 border: none;
                 border-radius: 12px;
-                padding: 12px 16px;
+                padding: 10px 14px;
                 cursor: pointer;
                 transition: all 0.3s ease;
                 z-index: 10;
-                font-size: 1rem;
+                font-size: 0.875rem;
                 font-weight: 600;
                 display: none; /* Hidden by default, shown when PiP is supported */
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
@@ -343,8 +343,8 @@
             
             .pip-icon {
                 display: inline-block;
-                margin-right: 8px;
-                font-size: 1.1rem;
+                margin-right: 6px;
+                font-size: 1rem;
             }
             
             /* PiP Active State Styles */
@@ -358,7 +358,7 @@
                 flex-direction: column;
                 align-items: center;
                 justify-content: center;
-                min-height: 300px;
+                min-height: 200px;
                 text-align: center;
                 color: rgba(255, 255, 255, 0.7);
             }
@@ -368,20 +368,227 @@
             }
             
             .pip-placeholder-icon {
-                font-size: 4rem;
-                margin-bottom: 16px;
+                font-size: 3rem;
+                margin-bottom: 12px;
                 opacity: 0.6;
             }
             
             .pip-placeholder-text {
-                font-size: 1.25rem;
+                font-size: 1.1rem;
                 font-weight: 600;
-                margin-bottom: 8px;
+                margin-bottom: 6px;
             }
             
             .pip-placeholder-desc {
-                font-size: 0.875rem;
+                font-size: 0.8rem;
                 opacity: 0.7;
+            }
+            
+            /* PiP Window Specific Styles */
+            .pip-window-content {
+                padding: 16px !important;
+                margin: 0 !important;
+                max-width: none !important;
+                border-radius: 0 !important;
+                box-shadow: none !important;
+                border: none !important;
+                background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05)) !important;
+                backdrop-filter: blur(20px) !important;
+                -webkit-backdrop-filter: blur(20px) !important;
+                min-height: auto !important;
+                height: auto !important;
+                overflow: visible !important;
+                transition: all 0.3s ease !important;
+            }
+            
+            /* PiP Window Dark Mode */
+            @media (prefers-color-scheme: dark) {
+                .pip-window-content {
+                    background: linear-gradient(135deg, rgba(30, 30, 30, 0.95), rgba(20, 20, 20, 0.9)) !important;
+                    color: rgba(255, 255, 255, 0.95) !important;
+                }
+                
+                .pip-window-content .modern-table {
+                    background: rgba(0, 0, 0, 0.3) !important;
+                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+                }
+                
+                .pip-window-content .modern-table td {
+                    color: rgba(255, 255, 255, 0.85) !important;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+                }
+                
+                .pip-window-content .stat-card {
+                    background: rgba(0, 0, 0, 0.4) !important;
+                    border-color: rgba(255, 255, 255, 0.15) !important;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+                }
+                
+                .pip-window-content .stat-label {
+                    color: rgba(255, 255, 255, 0.7) !important;
+                }
+                
+                .pip-window-content .progress-bar {
+                    background: rgba(255, 255, 255, 0.15) !important;
+                }
+                
+                .pip-window-content .pip-close-button {
+                    background: rgba(255, 255, 255, 0.2) !important;
+                    color: rgba(255, 255, 255, 0.9) !important;
+                }
+                
+                .pip-window-content .pip-close-button:hover {
+                    background: rgba(255, 0, 0, 0.8) !important;
+                    color: white !important;
+                }
+            }
+            
+            /* PiP Window Light Mode */
+            @media (prefers-color-scheme: light) {
+                .pip-window-content {
+                    background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 248, 248, 0.95)) !important;
+                    color: rgba(0, 0, 0, 0.9) !important;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+                }
+                
+                .pip-window-content .modern-table {
+                    background: rgba(255, 255, 255, 0.9) !important;
+                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1) !important;
+                }
+                
+                .pip-window-content .modern-table td {
+                    color: rgba(0, 0, 0, 0.8) !important;
+                    border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
+                }
+                
+                .pip-window-content .stat-card {
+                    background: rgba(255, 255, 255, 0.8) !important;
+                    border-color: rgba(0, 0, 0, 0.1) !important;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+                }
+                
+                .pip-window-content .stat-card.worked-time-card {
+                    background: linear-gradient(135deg, rgba(0, 184, 148, 0.15), rgba(0, 184, 148, 0.08)) !important;
+                    border-color: rgba(0, 184, 148, 0.3) !important;
+                }
+                
+                .pip-window-content .stat-card.remaining-time-card {
+                    background: linear-gradient(135deg, rgba(225, 112, 85, 0.15), rgba(225, 112, 85, 0.08)) !important;
+                    border-color: rgba(225, 112, 85, 0.3) !important;
+                }
+                
+                .pip-window-content .stat-card.completion-time-card {
+                    background: linear-gradient(135deg, rgba(108, 92, 231, 0.15), rgba(108, 92, 231, 0.08)) !important;
+                    border-color: rgba(108, 92, 231, 0.3) !important;
+                }
+                
+                .pip-window-content .stat-label {
+                    color: rgba(0, 0, 0, 0.6) !important;
+                }
+                
+                .pip-window-content .progress-bar {
+                    background: rgba(0, 0, 0, 0.1) !important;
+                }
+                
+                .pip-window-content .pip-close-button {
+                    background: rgba(0, 0, 0, 0.1) !important;
+                    color: rgba(0, 0, 0, 0.7) !important;
+                }
+                
+                .pip-window-content .pip-close-button:hover {
+                    background: rgba(255, 0, 0, 0.8) !important;
+                    color: white !important;
+                }
+                
+                .pip-window-content .gap-warning {
+                    background: linear-gradient(135deg, #ffeaa7, #fab1a0) !important;
+                    color: #2d3436 !important;
+                }
+            }
+            
+            .pip-window-content .summary-header {
+                margin-bottom: 20px;
+                gap: 12px;
+            }
+            
+            .pip-window-content .emoji-display {
+                font-size: 2.5rem;
+            }
+            
+            .pip-window-content .summary-title {
+                font-size: 1.5rem;
+            }
+            
+            .pip-window-content .modern-table {
+                margin: 16px 0;
+                font-size: 0.8rem;
+            }
+            
+            .pip-window-content .modern-table th,
+            .pip-window-content .modern-table td {
+                padding: 10px 12px;
+                font-size: 0.75rem;
+            }
+            
+            .pip-window-content .time-stats {
+                grid-template-columns: 1fr;
+                gap: 12px;
+                margin: 20px 0;
+            }
+            
+            .pip-window-content .stat-card {
+                padding: 16px;
+                border-radius: 12px;
+            }
+            
+            .pip-window-content .stat-label {
+                font-size: 0.75rem;
+                margin-bottom: 6px;
+            }
+            
+            .pip-window-content .stat-value {
+                font-size: 1.2rem;
+                margin-bottom: 2px;
+            }
+            
+            .pip-window-content .remaining-desc {
+                font-size: 0.7rem;
+                opacity: 0.8;
+            }
+            
+            .pip-window-content .progress-bar {
+                height: 6px;
+                margin: 16px 0;
+            }
+            
+            .pip-window-content .completion-message {
+                padding: 16px;
+                font-size: 1rem;
+                margin-top: 16px;
+            }
+            
+            .pip-close-button {
+                position: absolute !important;
+                top: 8px !important;
+                right: 8px !important;
+                background: rgba(255, 255, 255, 0.2) !important;
+                border: none !important;
+                border-radius: 50% !important;
+                width: 28px !important;
+                height: 28px !important;
+                cursor: pointer !important;
+                font-size: 12px !important;
+                z-index: 1000 !important;
+                transition: all 0.3s ease !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                color: white !important;
+            }
+            
+            .pip-close-button:hover {
+                background: rgba(255, 0, 0, 0.7) !important;
+                transform: scale(1.1) !important;
             }
             
             /* Performance optimization for dynamic elements */
@@ -475,6 +682,84 @@
                     grid-template-columns: 1fr;
                     gap: 16px;
                 }
+                
+                .pip-button {
+                    top: 12px;
+                    left: 12px;
+                    padding: 8px 12px;
+                    font-size: 0.8rem;
+                }
+                
+                .pip-icon {
+                    margin-right: 4px;
+                    font-size: 0.9rem;
+                }
+            }
+            
+            /* Extra small screens (mobile) */
+            @media (max-width: 480px) {
+                .pip-window-content {
+                    padding: 12px !important;
+                }
+                
+                .pip-window-content .summary-header {
+                    margin-bottom: 16px;
+                    gap: 8px;
+                }
+                
+                .pip-window-content .emoji-display {
+                    font-size: 2rem;
+                }
+                
+                .pip-window-content .summary-title {
+                    font-size: 1.2rem;
+                }
+                
+                .pip-window-content .modern-table {
+                    font-size: 0.7rem;
+                    margin: 12px 0;
+                }
+                
+                .pip-window-content .modern-table th,
+                .pip-window-content .modern-table td {
+                    padding: 8px 6px;
+                    font-size: 0.65rem;
+                }
+                
+                .pip-window-content .time-stats {
+                    gap: 8px;
+                    margin: 16px 0;
+                }
+                
+                .pip-window-content .stat-card {
+                    padding: 12px;
+                }
+                
+                .pip-window-content .stat-label {
+                    font-size: 0.7rem;
+                    margin-bottom: 4px;
+                }
+                
+                .pip-window-content .stat-value {
+                    font-size: 1rem;
+                }
+                
+                .pip-window-content .remaining-desc {
+                    font-size: 0.65rem;
+                }
+                
+                .pip-window-content .progress-bar {
+                    height: 5px;
+                    margin: 12px 0;
+                }
+                
+                .pip-close-button {
+                    top: 6px !important;
+                    right: 6px !important;
+                    width: 24px !important;
+                    height: 24px !important;
+                    font-size: 10px !important;
+                }
             }
             
             /* Dark mode enhancements */
@@ -512,6 +797,26 @@
                         0 16px 48px rgba(0, 0, 0, 0.2),
                         0 4px 12px rgba(0, 0, 0, 0.15),
                         inset 0 1px 0 rgba(255, 255, 255, 0.2);
+                }
+                
+                .pip-placeholder {
+                    color: rgba(255, 255, 255, 0.7);
+                }
+                
+                .pip-button {
+                    background: linear-gradient(135deg, #667eea, #764ba2);
+                    border-color: rgba(255, 255, 255, 0.2);
+                    color: white;
+                }
+                
+                .pip-button:hover {
+                    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+                }
+                
+                .pip-button.active {
+                    background: linear-gradient(135deg, #e17055, #fab1a0);
+                    box-shadow: 0 6px 20px rgba(225, 112, 85, 0.4);
+                    color: white;
                 }
             }
             
@@ -606,6 +911,7 @@
                 .pip-button {
                     background: linear-gradient(135deg, #667eea, #764ba2);
                     border-color: rgba(255, 255, 255, 0.2);
+                    color: white;
                 }
                 
                 .pip-button:hover {
@@ -615,6 +921,7 @@
                 .pip-button.active {
                     background: linear-gradient(135deg, #e17055, #fab1a0);
                     box-shadow: 0 6px 20px rgba(225, 112, 85, 0.4);
+                    color: white;
                 }
             }
         </style>
@@ -887,10 +1194,30 @@
                 return;
             }
             
-            // Create PiP window
+            // Calculate optimal window size based on screen size
+            const screenWidth = window.screen.width;
+            const screenHeight = window.screen.height;
+            
+            // Responsive window sizing
+            let windowWidth, windowHeight;
+            if (screenWidth <= 480) {
+                // Extra small screens
+                windowWidth = Math.min(screenWidth * 0.9, 280);
+                windowHeight = Math.min(screenHeight * 0.7, 400);
+            } else if (screenWidth <= 768) {
+                // Mobile screens
+                windowWidth = Math.min(screenWidth * 0.8, 320);
+                windowHeight = Math.min(screenHeight * 0.75, 450);
+            } else {
+                // Desktop screens
+                windowWidth = 320;
+                windowHeight = 480;
+            }
+            
+            // Create compact PiP window with dynamic sizing
             pipWindow = await documentPictureInPicture.requestWindow({
-                width: 400,
-                height: 600,
+                width: windowWidth,
+                height: windowHeight,
                 disallowReturnToOpener: false
             });
             
@@ -905,11 +1232,8 @@
                 // Clone the element to avoid moving it completely
                 const summaryClone = attendanceSummary.cloneNode(true);
                 
-                // Add PiP-specific styling
-                summaryClone.style.margin = '16px';
-                summaryClone.style.maxWidth = 'none';
-                summaryClone.style.height = 'calc(100vh - 32px)';
-                summaryClone.style.overflow = 'auto';
+                // Add PiP-specific styling for compact design
+                summaryClone.className = 'attendance-summary pip-window-content';
                 
                 // Remove PiP button from cloned content
                 const pipButtonClone = summaryClone.querySelector('.pip-button');
@@ -917,35 +1241,27 @@
                     pipButtonClone.remove();
                 }
                 
+                // Remove developer info from cloned content for more space
+                const developerInfoClone = summaryClone.querySelector('.developer-info');
+                if (developerInfoClone) {
+                    developerInfoClone.remove();
+                }
+                
                 // Add close button to PiP window
                 const closeButton = document.createElement('button');
-                closeButton.innerHTML = '❌';
-                closeButton.style.cssText = `
-                    position: absolute;
-                    top: 10px;
-                    right: 10px;
-                    background: rgba(255, 255, 255, 0.2);
-                    border: none;
-                    border-radius: 50%;
-                    width: 30px;
-                    height: 30px;
-                    cursor: pointer;
-                    font-size: 14px;
-                    z-index: 1000;
-                    transition: all 0.3s ease;
-                `;
-                closeButton.onmouseover = () => {
-                    closeButton.style.background = 'rgba(255, 0, 0, 0.7)';
-                };
-                closeButton.onmouseout = () => {
-                    closeButton.style.background = 'rgba(255, 255, 255, 0.2)';
-                };
+                closeButton.className = 'pip-close-button';
+                closeButton.innerHTML = '×';
                 closeButton.onclick = () => pipWindow.close();
                 
                 summaryClone.appendChild(closeButton);
                 
                 // Append to PiP window
                 pipWindow.document.body.appendChild(summaryClone);
+                
+                // Adjust window size to content after a brief delay
+                setTimeout(() => {
+                    adjustPipWindowSize(pipWindow, summaryClone);
+                }, 100);
                 
                 // Show placeholder in main window
                 showPipPlaceholder(attendanceSummary);
@@ -969,6 +1285,12 @@
     
     // Copy styles to PiP window
     function copyStylesToPip(pipWindow) {
+        // Add color-scheme meta tag for proper theme inheritance
+        const metaColorScheme = pipWindow.document.createElement('meta');
+        metaColorScheme.name = 'color-scheme';
+        metaColorScheme.content = 'light dark';
+        pipWindow.document.head.appendChild(metaColorScheme);
+        
         // Copy the custom styles
         const styleElement = document.getElementById('attendance-modern-styles');
         if (styleElement) {
@@ -977,15 +1299,93 @@
             pipWindow.document.head.appendChild(pipStyleElement);
         }
         
-        // Set body styles for PiP window
-        pipWindow.document.body.style.cssText = `
+        // Detect current color scheme
+        const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        
+        // Set body styles for PiP window - borderless and theme-aware
+        if (isDarkMode) {
+            pipWindow.document.body.style.cssText = `
+                margin: 0;
+                padding: 0;
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: linear-gradient(135deg, #2d3436 0%, #636e72 100%);
+                min-height: 100vh;
+                overflow: hidden;
+                border: none;
+                border-radius: 0;
+                color-scheme: dark;
+                transition: background 0.3s ease, color 0.3s ease;
+            `;
+        } else {
+            pipWindow.document.body.style.cssText = `
+                margin: 0;
+                padding: 0;
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: linear-gradient(135deg, #ddd6fe 0%, #8b5cf6 100%);
+                min-height: 100vh;
+                overflow: hidden;
+                border: none;
+                border-radius: 0;
+                color-scheme: light;
+                transition: background 0.3s ease, color 0.3s ease;
+            `;
+        }
+        
+        // Set html styles to remove any default margins/padding
+        pipWindow.document.documentElement.style.cssText = `
             margin: 0;
             padding: 0;
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            overflow-x: hidden;
+            border: none;
+            overflow: hidden;
+            color-scheme: ${isDarkMode ? 'dark' : 'light'};
         `;
+        
+        // Listen for color scheme changes and update PiP window accordingly
+        const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        colorSchemeQuery.addEventListener('change', (e) => {
+            updatePipColorScheme(pipWindow, e.matches);
+        });
+    }
+    
+    // Update PiP window color scheme dynamically
+    function updatePipColorScheme(pipWindow, isDark) {
+        if (!pipWindow || pipWindow.closed) return;
+        
+        const bodyStyle = isDark ? `
+            background: linear-gradient(135deg, #2d3436 0%, #636e72 100%);
+            color-scheme: dark;
+        ` : `
+            background: linear-gradient(135deg, #ddd6fe 0%, #8b5cf6 100%);
+            color-scheme: light;
+        `;
+        
+        // Apply the new background with smooth transition
+        Object.assign(pipWindow.document.body.style, {
+            background: isDark ? 'linear-gradient(135deg, #2d3436 0%, #636e72 100%)' : 'linear-gradient(135deg, #ddd6fe 0%, #8b5cf6 100%)',
+            colorScheme: isDark ? 'dark' : 'light'
+        });
+        
+        pipWindow.document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+    }
+    
+    // Adjust PiP window size to fit content
+    function adjustPipWindowSize(pipWindow, content) {
+        try {
+            // Get content dimensions
+            const contentHeight = content.scrollHeight;
+            const contentWidth = content.scrollWidth;
+            
+            // Calculate optimal window size with some padding
+            const optimalWidth = Math.min(Math.max(contentWidth + 32, 280), 380);
+            const optimalHeight = Math.min(contentHeight + 32, window.screen.height * 0.8);
+            
+            // Note: The Document Picture-in-Picture API doesn't support dynamic resizing
+            // But we can optimize the initial size based on screen size
+            console.log(`Optimal PiP size would be: ${optimalWidth}x${optimalHeight}`);
+            
+        } catch (error) {
+            console.log('Could not adjust PiP window size:', error);
+        }
     }
     
     // Show placeholder in main window when content is in PiP
@@ -1067,6 +1467,21 @@
             pipWindow = null;
             hidePipPlaceholder(originalContainer);
             updatePipButtonState(false);
+        });
+        
+        // Handle color scheme changes from the main window
+        const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        const handleColorSchemeChange = (e) => {
+            if (pipWindow && !pipWindow.closed) {
+                updatePipColorScheme(pipWindow, e.matches);
+            }
+        };
+        
+        colorSchemeQuery.addEventListener('change', handleColorSchemeChange);
+        
+        // Clean up color scheme listener when PiP window closes
+        pipWindow.addEventListener('pagehide', () => {
+            colorSchemeQuery.removeEventListener('change', handleColorSchemeChange);
         });
     }
     

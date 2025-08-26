@@ -1008,8 +1008,8 @@
     function getEmojiForProgress(workedSeconds, totalSeconds = 28800) {
         const progress = Math.min(workedSeconds / totalSeconds, 1);
 
-        // If exceeded 7 hours 55 minutes (28500 seconds), show clown emoji
-        if (workedSeconds > (totalSeconds - 300)) { // 28800 - 300 = 28500
+        // If exceeded 8 hours 30 minutes (30600 seconds), show clown emoji
+        if (workedSeconds > (totalSeconds + 1800)) { // 28800 + 1800 = 30600
             return clownEmoji;
         }
 

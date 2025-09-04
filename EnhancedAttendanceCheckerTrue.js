@@ -15,8 +15,7 @@
 
     // Emoji progression for GenZ vibes 😎
     const emojiProgression = ['😭', '😖', '😟', '😓', '😌', '🙂', '☺️', '😄'];
-    const runningEmoji = '🏃💨'; // 8:00 to 8:30 hours
-    const clownEmoji = '🫵🤡'; // After 8:30 hours
+    const clownEmoji = '🫵🤡';
     
     // Global variables for performance optimization
     let lastTotalWorkedTime = -1; // Track if we need to re-render
@@ -1009,17 +1008,12 @@
     function getEmojiForProgress(workedSeconds, totalSeconds = 28800) {
         const progress = Math.min(workedSeconds / totalSeconds, 1);
 
-        // If exceeded 7 hours 55 minutes (28500 seconds), show clown emoji
-        if (workedSeconds > (totalSeconds - 300)) { // 28800 - 300 = 28500
+        // If exceeded 8 hours 30 minutes (30600 seconds), show clown emoji
+        if (workedSeconds > (totalSeconds + 1800)) { // 28800 + 1800 = 30600
             return clownEmoji;
         }
 
-        // If between 8 hours and 8:30 hours (28800 to 30600 seconds), show running emoji
-        if (workedSeconds >= totalSeconds && workedSeconds <= (totalSeconds + 1800)) {
-            return runningEmoji;
-        }
-
-        // Calculate which emoji to show based on progress for under 8 hours
+        // Calculate which emoji to show based on progress
         const emojiIndex = Math.floor(progress * emojiProgression.length);
         return emojiProgression[Math.min(emojiIndex, emojiProgression.length - 1)];
     }

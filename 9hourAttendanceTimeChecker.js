@@ -13,10 +13,10 @@
         return; 
     }
 
-    // Emoji progression for GenZ vibes 😎
-    const emojiProgression = ['😭', '😖', '😟', '😓', '😌', '🙂', '☺️', '😄'];
-    const runningEmoji = '🏃💨'; // 8:00 to 8:30 hours
-    const clownEmoji = '🫵🤡'; // After 8:30 hours
+    // Emoji progression for GenZ vibes 😎 (9-hour shift version)
+    const emojiProgression = ['💀','😭', '😖', '😟', '😓', '😌', '🙂', '☺️', '😄'];
+    const runningEmoji = '🏃💨'; // 9:00 to 9:30 hours
+    const clownEmoji = '🫵🤡'; // After 9:30 hours
     
     // Global variables for performance optimization
     let lastTotalWorkedTime = -1; // Track if we need to re-render
@@ -1005,21 +1005,21 @@
         }
     }
 
-    // Calculate emoji based on work progress
-    function getEmojiForProgress(workedSeconds, totalSeconds = 28800) {
+    // Calculate emoji based on work progress (9-hour shift version)
+    function getEmojiForProgress(workedSeconds, totalSeconds = 32400) { // 9 hours = 32400 seconds
         const progress = Math.min(workedSeconds / totalSeconds, 1);
 
-        // If exceeded 8 hours 30 minutes (30600 seconds), show clown emoji
-        if (workedSeconds > (totalSeconds + 1800)) { // 28800 + 1800 = 30600
+        // If exceeded 9 hours 30 minutes (34200 seconds), show clown emoji
+        if (workedSeconds > (totalSeconds + 1800)) { // 32400 + 1800 = 34200
             return clownEmoji;
         }
 
-        // If between 8 hours and 8:30 hours (28800 to 30600 seconds), show running emoji
+        // If between 9 hours and 9:30 hours (32400 to 34200 seconds), show running emoji
         if (workedSeconds >= totalSeconds && workedSeconds <= (totalSeconds + 1800)) {
             return runningEmoji;
         }
 
-        // Calculate which emoji to show based on progress for under 8 hours
+        // Calculate which emoji to show based on progress for under 9 hours
         const emojiIndex = Math.floor(progress * emojiProgression.length);
         return emojiProgression[Math.min(emojiIndex, emojiProgression.length - 1)];
     }
@@ -1713,7 +1713,7 @@
     function renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today) {
         // Get emoji for current progress
         const currentEmoji = getEmojiForProgress(totalWorkedTime);
-        const progress = Math.min((totalWorkedTime / 28800) * 100, 100);
+        const progress = Math.min((totalWorkedTime / 32400) * 100, 100); // 9 hours = 32400 seconds
 
         // Create header with emoji and title
         const headerHTML = `
@@ -1785,7 +1785,7 @@
 
         // Create time statistics
         const totalTimeFormatted = secondsToHHMMSS(totalWorkedTime);
-        const remainingTime = 28800 - totalWorkedTime;
+        const remainingTime = 32400 - totalWorkedTime; // 9 hours = 32400 seconds
         const remainingTimeFormatted = remainingTime > 0 ? secondsToHHMMSS(remainingTime) : "00:00:00";
 
         let timeStatsHTML = `
@@ -1820,7 +1820,7 @@
         if (remainingTime <= 0) {
             completionHTML = `
                 <div class="completion-message">
-                    🎉 Congratulations! You've completed your 8-hour shift! 🎉
+                    🎉 Congratulations! You've completed your 9-hour shift! 🎉
                 </div>
             `;
         }
@@ -1847,10 +1847,10 @@
     function updateDynamicContent(totalWorkedTime, today) {
         // Batch all DOM reads first, then all writes to prevent layout thrashing
         const totalTimeFormatted = secondsToHHMMSS(totalWorkedTime);
-        const remainingTime = 28800 - totalWorkedTime;
+        const remainingTime = 32400 - totalWorkedTime; // 9 hours = 32400 seconds
         const remainingTimeFormatted = remainingTime > 0 ? secondsToHHMMSS(remainingTime) : "00:00:00";
         const currentEmoji = getEmojiForProgress(totalWorkedTime);
-        const progress = Math.min((totalWorkedTime / 28800) * 100, 100);
+        const progress = Math.min((totalWorkedTime / 32400) * 100, 100); // 9 hours = 32400 seconds
         
         let futureTimeFormatted = '';
         if (remainingTime > 0) {

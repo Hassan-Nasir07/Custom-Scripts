@@ -33,7 +33,29 @@ The script displays different emojis based on your work progress:
 - **5-6 hours**: 🙂 (feeling better)
 - **6-7 hours**: ☺️ (almost there)
 - **7-8 hours**: 😄 (happy to finish)
-- **8+ hours**: 🤡 (overtime clown mode)
+- **8-8.5 hours**: 🏃💨 (running to finish)
+- **8.5+ hours**: 🫵🤡 (overtime clown mode)
+
+### 🏠🏢 WFH/WFO Hour Tracking (NEW!)
+Automatically distinguishes between Work From Home and Work From Office hours:
+- **Smart Detection**: Identifies WFH sessions via `set-purple` class
+- **Visual Separation**: Color-coded stat cards for WFH (purple 🟣) and WFO (blue 🔵)
+- **Table Badges**: Each session shows 🏠 WFH or 🏢 WFO badge
+- **Adaptive Layout**: Shows detailed breakdown only when WFH hours exist
+- **Real-time Tracking**: Updates WFH/WFO hours live as you work
+- **Modern UI**: Follows 2025 dashboard design best practices
+
+**When WFH Hours Exist:**
+- Total Worked (green)
+- 🏠 Work From Home hours (purple gradient)
+- 🏢 Work From Office hours (blue gradient)
+- Remaining time (orange)
+- Complete At time (purple)
+
+**When No WFH Hours:**
+- Total Worked (green)
+- Remaining time (orange)
+- Complete At time (purple)
 
 ### ⏰ Live Countdown Timer (NEW!)
 - **Real-time Countdown**: Live HH:MM:SS countdown to completion
@@ -109,6 +131,10 @@ The script displays different emojis based on your work progress:
 ## GenZ Features 😎
 
 - **Emoji Progression**: Visual mood indicator
+- **WFH/WFO Tracking**: Hybrid work visibility with modern dashboard UI
+- **Work Type Badges**: 🏠 and 🏢 icons for quick recognition
+- **Color-Coded Cards**: Purple for WFH, Blue for WFO, Green for totals
+- **Smart Display**: Only shows breakdown when relevant
 - **Modern Aesthetics**: Following TikTok/Instagram design trends
 - **Smooth Animations**: Satisfying micro-interactions
 - **Clean Typography**: Easy-to-read Inter font
@@ -129,6 +155,14 @@ You can easily customize:
 - Animation timing
 - Update frequency
 - Visual effects intensity
+- WFH/WFO colors and icons
+
+## Additional Documentation 📚
+
+- **WFH/WFO Feature Guide**: See `WFH_WFO_Feature_Guide.md` for detailed documentation
+- **Quick Start Guide**: Check `WFH_WFO_QUICK_START.md` for fast setup
+- **Testing Guide**: Review `WFH_WFO_TESTING_GUIDE.md` for validation scenarios
+- **Installation Guide**: Full setup instructions in `INSTALLATION.md`
 
 ---
 

@@ -28,6 +28,8 @@
     // Cache for preventing unnecessary updates
     let cachedValues = {
         totalWorked: '',
+        wfhWorked: '',
+        wfoWorked: '',
         remaining: '',
         completion: '',
         emoji: '',
@@ -196,6 +198,16 @@
                 border-color: rgba(108, 92, 231, 0.3);
             }
             
+            .stat-card.wfh-time-card {
+                background: linear-gradient(135deg, rgba(155, 89, 182, 0.2), rgba(142, 68, 173, 0.1));
+                border-color: rgba(155, 89, 182, 0.3);
+            }
+            
+            .stat-card.wfo-time-card {
+                background: linear-gradient(135deg, rgba(52, 152, 219, 0.2), rgba(41, 128, 185, 0.1));
+                border-color: rgba(52, 152, 219, 0.3);
+            }
+            
             .stat-card::before {
                 content: '';
                 position: absolute;
@@ -231,6 +243,32 @@
             .worked-time { color: #00b894; }
             .remaining-time { color: #e17055; }
             .completion-time { color: #6c5ce7; }
+            .wfh-time { color: #9b59b6; }
+            .wfo-time { color: #3498db; }
+            
+            .work-type-badge {
+                display: inline-block;
+                padding: 2px 8px;
+                border-radius: 6px;
+                font-size: 0.7rem;
+                font-weight: 600;
+                margin-left: 8px;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                transition: all 0.3s ease;
+            }
+            
+            .wfh-badge {
+                background: linear-gradient(135deg, rgba(155, 89, 182, 0.3), rgba(142, 68, 173, 0.2));
+                color: #9b59b6;
+                border: 1px solid rgba(155, 89, 182, 0.4);
+            }
+            
+            .wfo-badge {
+                background: linear-gradient(135deg, rgba(52, 152, 219, 0.3), rgba(41, 128, 185, 0.2));
+                color: #3498db;
+                border: 1px solid rgba(52, 152, 219, 0.4);
+            }
             
             .completion-message {
                 background: linear-gradient(135deg, #00b894, #00cec9);
@@ -494,6 +532,16 @@
                 .pip-window-content .stat-card.completion-time-card {
                     background: linear-gradient(135deg, rgba(108, 92, 231, 0.15), rgba(108, 92, 231, 0.08)) !important;
                     border-color: rgba(108, 92, 231, 0.3) !important;
+                }
+                
+                .pip-window-content .stat-card.wfh-time-card {
+                    background: linear-gradient(135deg, rgba(155, 89, 182, 0.15), rgba(142, 68, 173, 0.08)) !important;
+                    border-color: rgba(155, 89, 182, 0.3) !important;
+                }
+                
+                .pip-window-content .stat-card.wfo-time-card {
+                    background: linear-gradient(135deg, rgba(52, 152, 219, 0.15), rgba(41, 128, 185, 0.08)) !important;
+                    border-color: rgba(52, 152, 219, 0.3) !important;
                 }
                 
                 .pip-window-content .stat-label {
@@ -938,6 +986,16 @@
                     border-color: rgba(108, 92, 231, 0.3);
                 }
                 
+                .stat-card.wfh-time-card {
+                    background: linear-gradient(135deg, rgba(155, 89, 182, 0.15), rgba(142, 68, 173, 0.05));
+                    border-color: rgba(155, 89, 182, 0.3);
+                }
+                
+                .stat-card.wfo-time-card {
+                    background: linear-gradient(135deg, rgba(52, 152, 219, 0.15), rgba(41, 128, 185, 0.05));
+                    border-color: rgba(52, 152, 219, 0.3);
+                }
+                
                 .stat-label {
                     color: rgba(0, 0, 0, 0.6);
                 }
@@ -1080,10 +1138,13 @@
         }
 
         let totalWorkedTime = 0;
+        let wfhWorkedTime = 0;
+        let wfoWorkedTime = 0;
         let checkInTime = null;
         let lastCheckOutTime = null;
         let checkInOutList = [];
         let totalBreakTime = 0;
+        let hasWfhToday = false;
 
         const rows = document.querySelectorAll('.main-attendance-table tbody tr');
 
@@ -1095,6 +1156,7 @@
                 }
 
                 const rowData = Array.from(cells).map(cell => cell.innerText.trim());
+                const isWfh = row.classList.contains('set-purple'); // Check if this is a WFH row
 
                 const date = rowData[1]; 
                 const time = rowData[3]; 
@@ -1110,6 +1172,8 @@
                             } else {
                                 checkInTime = time;
                                 totalWorkedTime = 0;
+                                wfhWorkedTime = 0;
+                                wfoWorkedTime = 0;
                             }
                         } else {
                             checkInTime = time;
@@ -1117,10 +1181,20 @@
                     } else if (checkInOut === 'Out' && checkInTime) {
                         const workedTime = calculateTimeDifference(checkInTime, time);
                         totalWorkedTime += workedTime;
+                        
+                        // Track WFH vs WFO hours
+                        if (isWfh) {
+                            wfhWorkedTime += workedTime;
+                            hasWfhToday = true;
+                        } else {
+                            wfoWorkedTime += workedTime;
+                        }
+                        
                         checkInOutList.push({
                             checkIn: checkInTime,
                             checkOut: time,
                             workedTime: secondsToHHMMSS(workedTime),
+                            isWfh: isWfh
                         });
                         lastCheckOutTime = time;
                         checkInTime = null; 
@@ -1134,6 +1208,8 @@
                             } else {
                                 checkInTime = time;
                                 totalWorkedTime = 0;
+                                wfhWorkedTime = 0;
+                                wfoWorkedTime = 0;
                             }
                         } else {
                             checkInTime = time;
@@ -1141,10 +1217,20 @@
                     } else if (checkInOut === 'Out' && checkInTime) {
                         const workedTime = calculateTimeDifference(checkInTime, time);
                         totalWorkedTime += workedTime;
+                        
+                        // Track WFH vs WFO hours
+                        if (isWfh) {
+                            wfhWorkedTime += workedTime;
+                            hasWfhToday = true;
+                        } else {
+                            wfoWorkedTime += workedTime;
+                        }
+                        
                         checkInOutList.push({
                             checkIn: checkInTime,
                             checkOut: time,
                             workedTime: secondsToHHMMSS(workedTime),
+                            isWfh: isWfh
                         });
                         lastCheckOutTime = time;
                         checkInTime = null; 
@@ -1170,11 +1256,11 @@
                                  checkInOutList.length !== (totalTimeDiv.querySelectorAll('.modern-table tbody tr:not(.gap-warning)').length);
             
             if (shouldRerender) {
-                renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today);
+                renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today, wfhWorkedTime, wfoWorkedTime, hasWfhToday);
                 lastTotalWorkedTime = totalWorkedTime;
             } else {
                 // Just update dynamic content without re-rendering
-                updateDynamicContent(totalWorkedTime, today);
+                updateDynamicContent(totalWorkedTime, today, wfhWorkedTime, wfoWorkedTime, hasWfhToday);
             }
         }
         
@@ -1710,7 +1796,7 @@
         setTimeout(updatePipContent, 1000);
     }
     
-    function renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today) {
+    function renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today, wfhWorkedTime = 0, wfoWorkedTime = 0, hasWfhToday = false) {
         // Get emoji for current progress
         const currentEmoji = getEmojiForProgress(totalWorkedTime);
         const progress = Math.min((totalWorkedTime / 28800) * 100, 100);
@@ -1763,12 +1849,17 @@
                 `;
             }
             
+            // Add WFH/WFO badge to worked time cell
+            const workTypeBadge = item.isWfh 
+                ? '<span class="work-type-badge wfh-badge">🏠 WFH</span>' 
+                : '<span class="work-type-badge wfo-badge">🏢 WFO</span>';
+            
             tableHTML += `
                 <tr>
                     <td>${index + 1}</td>
                     <td>${item.checkIn}</td>
                     <td>${item.checkOut}</td>
-                    <td>${item.workedTime}</td>
+                    <td>${item.workedTime} ${workTypeBadge}</td>
                     <td>${durationDifference}</td>
                 </tr>
             `;
@@ -1788,18 +1879,47 @@
         const remainingTime = 28800 - totalWorkedTime;
         const remainingTimeFormatted = remainingTime > 0 ? secondsToHHMMSS(remainingTime) : "00:00:00";
 
-        let timeStatsHTML = `
-            <div class="time-stats">
-            <div class="stat-card worked-time-card">
-                <div class="stat-label">Total Worked</div>
-                <div id="total-worked-time" class="stat-value worked-time">${totalTimeFormatted}</div>
-            </div>
-            <div class="stat-card remaining-time-card">
-                <div class="stat-label">Remaining</div>
-                <div id="remaining-time" class="stat-value remaining-time">${remainingTimeFormatted}</div>
-                <div class="remaining-desc">⏰ Time until freedom</div>
-            </div>
-        `;
+        // Build time stats HTML with conditional WFH/WFO breakdown
+        let timeStatsHTML = '<div class="time-stats">';
+        
+        if (hasWfhToday) {
+            // Show detailed breakdown with WFH and WFO
+            const wfhTimeFormatted = secondsToHHMMSS(wfhWorkedTime);
+            const wfoTimeFormatted = secondsToHHMMSS(wfoWorkedTime);
+            
+            timeStatsHTML += `
+                <div class="stat-card worked-time-card">
+                    <div class="stat-label">Total Worked</div>
+                    <div id="total-worked-time" class="stat-value worked-time">${totalTimeFormatted}</div>
+                </div>
+                <div class="stat-card wfh-time-card">
+                    <div class="stat-label">🏠 Work From Home</div>
+                    <div id="wfh-time" class="stat-value wfh-time">${wfhTimeFormatted}</div>
+                </div>
+                <div class="stat-card wfo-time-card">
+                    <div class="stat-label">🏢 Work From Office</div>
+                    <div id="wfo-time" class="stat-value wfo-time">${wfoTimeFormatted}</div>
+                </div>
+                <div class="stat-card remaining-time-card">
+                    <div class="stat-label">Remaining</div>
+                    <div id="remaining-time" class="stat-value remaining-time">${remainingTimeFormatted}</div>
+                    <div class="remaining-desc">⏰ Time until freedom</div>
+                </div>
+            `;
+        } else {
+            // Show simple view without WFH/WFO breakdown
+            timeStatsHTML += `
+                <div class="stat-card worked-time-card">
+                    <div class="stat-label">Total Worked</div>
+                    <div id="total-worked-time" class="stat-value worked-time">${totalTimeFormatted}</div>
+                </div>
+                <div class="stat-card remaining-time-card">
+                    <div class="stat-label">Remaining</div>
+                    <div id="remaining-time" class="stat-value remaining-time">${remainingTimeFormatted}</div>
+                    <div class="remaining-desc">⏰ Time until freedom</div>
+                </div>
+            `;
+        }
 
         let futureTimeFormatted = '';
         if (remainingTime > 0) {
@@ -1837,6 +1957,8 @@
         // Reset cached values for new render
         cachedValues = {
             totalWorked: totalTimeFormatted,
+            wfhWorked: hasWfhToday ? secondsToHHMMSS(wfhWorkedTime) : '',
+            wfoWorked: hasWfhToday ? secondsToHHMMSS(wfoWorkedTime) : '',
             remaining: remainingTimeFormatted,
             completion: futureTimeFormatted,
             emoji: currentEmoji,
@@ -1844,13 +1966,16 @@
         };
     }
     
-    function updateDynamicContent(totalWorkedTime, today) {
+    function updateDynamicContent(totalWorkedTime, today, wfhWorkedTime = 0, wfoWorkedTime = 0, hasWfhToday = false) {
         // Batch all DOM reads first, then all writes to prevent layout thrashing
         const totalTimeFormatted = secondsToHHMMSS(totalWorkedTime);
         const remainingTime = 28800 - totalWorkedTime;
         const remainingTimeFormatted = remainingTime > 0 ? secondsToHHMMSS(remainingTime) : "00:00:00";
         const currentEmoji = getEmojiForProgress(totalWorkedTime);
         const progress = Math.min((totalWorkedTime / 28800) * 100, 100);
+        
+        const wfhTimeFormatted = secondsToHHMMSS(wfhWorkedTime);
+        const wfoTimeFormatted = secondsToHHMMSS(wfoWorkedTime);
         
         let futureTimeFormatted = '';
         if (remainingTime > 0) {
@@ -1868,6 +1993,29 @@
                 value: totalTimeFormatted
             });
             cachedValues.totalWorked = totalTimeFormatted;
+        }
+        
+        // Update WFH time if available
+        if (hasWfhToday) {
+            const wfhElement = document.getElementById('wfh-time');
+            if (wfhElement && cachedValues.wfhWorked !== wfhTimeFormatted) {
+                updates.push({
+                    element: wfhElement,
+                    property: 'textContent',
+                    value: wfhTimeFormatted
+                });
+                cachedValues.wfhWorked = wfhTimeFormatted;
+            }
+            
+            const wfoElement = document.getElementById('wfo-time');
+            if (wfoElement && cachedValues.wfoWorked !== wfoTimeFormatted) {
+                updates.push({
+                    element: wfoElement,
+                    property: 'textContent',
+                    value: wfoTimeFormatted
+                });
+                cachedValues.wfoWorked = wfoTimeFormatted;
+            }
         }
         
         if (cachedValues.remaining !== remainingTimeFormatted) {

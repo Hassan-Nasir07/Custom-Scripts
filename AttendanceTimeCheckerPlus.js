@@ -2224,14 +2224,26 @@
         }
         
         let totalTimeDiv = document.getElementById('total-time-summary');
+        let isNewElement = false;
         if (!totalTimeDiv) {
             totalTimeDiv = document.createElement('div');
             totalTimeDiv.id = 'total-time-summary';
             totalTimeDiv.className = 'attendance-summary';
+            // Apply retro theme class if user preference is set
+            if (userPreferences.displayTheme === 'retro-futuristic') {
+                totalTimeDiv.classList.add('retro-theme');
+            }
             isFirstRender = true;
+            isNewElement = true;
         }
 
         calculateTotalTime(totalTimeDiv);
+        
+        // Apply preferences after element is in DOM
+        if (isNewElement) {
+            // Use setTimeout to ensure DOM is fully updated
+            setTimeout(() => applyPreferences(), 0);
+        }
     }
 
     function calculateTotalTime(totalTimeDiv) {
@@ -3189,9 +3201,6 @@
     window.addEventListener('load', () => {
         // Load user preferences
         loadPreferences();
-        
-        // Apply preferences to set initial theme
-        applyPreferences();
         
         const checkUrlAndRun = () => {
             const currentUrl = window.location.href;

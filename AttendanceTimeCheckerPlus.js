@@ -1375,6 +1375,17 @@
                 transform: translateX(4px);
             }
             
+            .settings-option.disabled {
+                opacity: 0.4;
+                pointer-events: none;
+                cursor: not-allowed;
+            }
+            
+            .settings-option.disabled:hover {
+                transform: none;
+                background: rgba(255, 255, 255, 0.05);
+            }
+            
             .settings-option-label {
                 font-weight: 500;
                 color: rgba(255, 255, 255, 0.9);
@@ -1392,6 +1403,12 @@
             
             .toggle-switch.active {
                 background: var(--aurora-1);
+            }
+            
+            .toggle-switch.disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+                background: rgba(255, 255, 255, 0.1) !important;
             }
             
             .toggle-switch::after {
@@ -2086,17 +2103,19 @@
         modal.id = 'attendance-settings-modal';
         modal.className = 'settings-modal';
         
+        const isGlassmorphic = userPreferences.displayTheme === 'glassmorphic';
+        
         modal.innerHTML = `
             <div class="settings-title">⚙️ Customize Your Experience</div>
             
-            <div class="settings-option">
-                <span class="settings-option-label">🎨 Neumorphic Depth</span>
-                <div class="toggle-switch ${userPreferences.neumorphicDepth ? 'active' : ''}" data-pref="neumorphicDepth"></div>
+            <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
+                <span class="settings-option-label">🎨 Neumorphic Depth <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
+                <div class="toggle-switch ${userPreferences.neumorphicDepth ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="neumorphicDepth"></div>
             </div>
             
-            <div class="settings-option">
-                <span class="settings-option-label">🌊 Fluid Gradients</span>
-                <div class="toggle-switch ${userPreferences.fluidGradients ? 'active' : ''}" data-pref="fluidGradients"></div>
+            <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
+                <span class="settings-option-label">🌊 Fluid Gradients <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
+                <div class="toggle-switch ${userPreferences.fluidGradients ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="fluidGradients"></div>
             </div>
 
             <div class="settings-option">
@@ -2109,7 +2128,7 @@
 
             <div class="settings-option">
                 <span class="settings-option-label">🎨 Display Theme</span>
-                <select class="settings-select" data-pref="displayTheme">
+                <select class="settings-select" data-pref="displayTheme" id="theme-selector">
                     <option value="glassmorphic" ${userPreferences.displayTheme === 'glassmorphic' ? 'selected' : ''}>Glassmorphic Aurora</option>
                     <option value="retro-futuristic" ${userPreferences.displayTheme === 'retro-futuristic' ? 'selected' : ''}>Sci-Fi Retro Futuristic</option>
                 </select>
@@ -2123,6 +2142,11 @@
         // Add toggle listeners
         modal.querySelectorAll('.toggle-switch').forEach(toggle => {
             toggle.addEventListener('click', function() {
+                // Don't toggle if disabled
+                if (this.classList.contains('disabled')) {
+                    return;
+                }
+                
                 const pref = this.getAttribute('data-pref');
                 this.classList.toggle('active');
                 userPreferences[pref] = this.classList.contains('active');
@@ -2138,8 +2162,30 @@
                 userPreferences[pref] = this.value;
                 savePreferences();
                 applyPreferences();
+                
+                // If theme changed, update dependent options visibility
+                if (pref === 'displayTheme') {
+                    updateThemeDependentOptions(modal, this.value);
+                }
             });
         });
+        
+        // Function to update theme-dependent options
+        function updateThemeDependentOptions(modal, theme) {
+            const isGlassmorphic = theme === 'glassmorphic';
+            const dependentOptions = modal.querySelectorAll('[data-theme-dependent="glassmorphic"]');
+            
+            dependentOptions.forEach(option => {
+                const toggle = option.querySelector('.toggle-switch');
+                if (isGlassmorphic) {
+                    option.classList.remove('disabled');
+                    if (toggle) toggle.classList.remove('disabled');
+                } else {
+                    option.classList.add('disabled');
+                    if (toggle) toggle.classList.add('disabled');
+                }
+            });
+        }
         
         // Add close button listener
         modal.querySelector('.close-modal-button').addEventListener('click', toggleSettingsModal);

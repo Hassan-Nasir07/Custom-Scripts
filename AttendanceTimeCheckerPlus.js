@@ -29,6 +29,75 @@
     let pipWindow = null; // Picture-in-Picture window reference
     let isPipActive = false; // Track PiP status
     
+    // Feature initialization flags to prevent re-initialization
+    let featuresInitialized = false;
+    
+    // ====================================
+    // SNAKE GAME VARIABLES
+    // ====================================
+    let snakeCanvas, snakeCtx;
+    let snake = [{x: 10, y: 10}];
+    let food = {x: 15, y: 15};
+    let direction = {x: 0, y: 0};
+    let nextDirection = {x: 0, y: 0};
+    let snakeScore = 0;
+    let snakeHighScore = 0;
+    let snakeGameLoop = null;
+    let snakeGameRunning = false;
+    let snakeGamePaused = false;
+    const snakeGridSize = 20;
+    const snakeCellSize = 2; // 2px per cell for smooth growth
+    
+    // ====================================
+    // QUOTES SYSTEM VARIABLES
+    // ====================================
+    let quotesArray = [];
+    let currentQuoteIndex = 0;
+    let quoteInterval = null;
+    let quotesInitialized = false; // Track if quotes system is already set up
+    
+    // ====================================
+    // XP SYSTEM VARIABLES
+    // ====================================
+    let userXP = { 
+        level: 1, 
+        currentXP: 0, 
+        totalXP: 0, 
+        lastHourTracked: -1, 
+        todayHours: 0,
+        consecutiveDays: 0,
+        lastAttendanceDate: null,
+        longestStreak: 0,
+        achievements: [],
+        milestonesReached: []
+    };
+    
+    // XP System Constants (Research-proven values)
+    const XP_PER_HOUR = 15;           // Base hourly reward (increased from 10)
+    const STREAK_BONUS = 20;          // Daily streak bonus
+    const MILESTONE_BONUSES = {
+        2: { xp: 10, label: '2-Hour Checkpoint' },
+        4: { xp: 25, label: '4-Hour Halfway' },
+        6: { xp: 40, label: '6-Hour Almost There' },
+        8: { xp: 50, label: '8-Hour Full Day' }
+    };
+    
+    // Achievement Definitions
+    const ACHIEVEMENTS = {
+        firstDay: { icon: '🎯', name: 'First Day', desc: 'Complete your first work day' },
+        week1: { icon: '📅', name: 'Week Warrior', desc: 'Work 5 consecutive days' },
+        streak7: { icon: '🔥', name: '7-Day Streak', desc: 'Maintain a 7-day streak' },
+        streak30: { icon: '🏆', name: 'Monthly Master', desc: 'Achieve a 30-day streak' },
+        level10: { icon: '⭐', name: 'Level 10', desc: 'Reach level 10' },
+        level25: { icon: '💎', name: 'Level 25', desc: 'Reach level 25' },
+        workaholic: { icon: '💪', name: 'Workaholic', desc: 'Complete 100 total hours' }
+    };
+    
+    // ====================================
+    // IMAGE BOX VARIABLES
+    // ====================================
+    let currentImageURL = '';
+    
     // User preferences for hyper-personalization
     let userPreferences = {
         theme: 'vibrant', // 'vibrant' or 'subdued'
@@ -51,6 +120,677 @@
         localStorage.setItem('attendancePrefs', JSON.stringify(userPreferences));
     }
     
+    // ====================================
+    // LOCALSTORAGE MANAGEMENT
+    // ====================================
+    
+    // Snake Game Storage
+    function loadSnakeHighScore() {
+        const saved = localStorage.getItem('snakeHighScore');
+        return saved ? parseInt(saved) : 0;
+    }
+    
+    function saveSnakeHighScore(score) {
+        localStorage.setItem('snakeHighScore', score.toString());
+    }
+    
+    // Quotes Storage  
+    function loadQuotes() {
+        const saved = localStorage.getItem('customQuotes');
+        const defaultQuotes = [
+            { text: "Do not pray for easy lives. Pray to be stronger men.", author: "John F. Kennedy" }
+        ];
+        return saved ? JSON.parse(saved) : defaultQuotes;
+    }
+    
+    function saveQuotes(quotes) {
+        localStorage.setItem('customQuotes', JSON.stringify(quotes));
+    }
+    
+    // XP System Storage
+    function loadUserXP() {
+        const saved = localStorage.getItem('userXP');
+        if (saved) {
+            const data = JSON.parse(saved);
+            // Migrate old data structure
+            return {
+                level: data.level || 1,
+                currentXP: data.currentXP || 0,
+                totalXP: data.totalXP || 0,
+                lastHourTracked: data.lastHourTracked || -1,
+                todayHours: data.todayHours || 0,
+                consecutiveDays: data.consecutiveDays || 0,
+                lastAttendanceDate: data.lastAttendanceDate || null,
+                longestStreak: data.longestStreak || 0,
+                achievements: data.achievements || [],
+                milestonesReached: data.milestonesReached || []
+            };
+        }
+        return { 
+            level: 1, 
+            currentXP: 0, 
+            totalXP: 0, 
+            lastHourTracked: -1, 
+            todayHours: 0,
+            consecutiveDays: 0,
+            lastAttendanceDate: null,
+            longestStreak: 0,
+            achievements: [],
+            milestonesReached: []
+        };
+    }
+    
+    function saveUserXP(xpData) {
+        localStorage.setItem('userXP', JSON.stringify(xpData));
+    }
+    
+    // Image URL Storage
+    function loadImageURL() {
+        return localStorage.getItem('customImageURL') || '';
+    }
+    
+    function saveImageURL(url) {
+        localStorage.setItem('customImageURL', url);
+    }
+    
+    // ====================================
+    // SNAKE GAME LOGIC
+    // ====================================
+    
+    function initSnakeGame() {
+        snakeCanvas = document.getElementById('snake-canvas');
+        if (!snakeCanvas) return;
+        
+        snakeCtx = snakeCanvas.getContext('2d');
+        snakeHighScore = loadSnakeHighScore();
+        updateSnakeScoreDisplay();
+        
+        // Keyboard controls
+        document.addEventListener('keydown', handleSnakeKeyPress);
+        
+        // Reset game
+        resetSnakeGame();
+    }
+    
+    function handleSnakeKeyPress(e) {
+        if (!snakeGameRunning || snakeGamePaused) return;
+        
+        const key = e.key;
+        
+        // Prevent default arrow key scrolling
+        if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+            e.preventDefault();
+        }
+        
+        if (key === 'ArrowUp' && direction.y === 0) {
+            nextDirection = {x: 0, y: -1};
+        } else if (key === 'ArrowDown' && direction.y === 0) {
+            nextDirection = {x: 0, y: 1};
+        } else if (key === 'ArrowLeft' && direction.x === 0) {
+            nextDirection = {x: -1, y: 0};
+        } else if (key === 'ArrowRight' && direction.x === 0) {
+            nextDirection = {x: 1, y: 0};
+        }
+    }
+    
+    function startSnakeGame() {
+        if (snakeGameRunning) return;
+        
+        snakeGameRunning = true;
+        snakeGamePaused = false;
+        hideSnakeGameOver();
+        
+        if (snakeGameLoop) clearInterval(snakeGameLoop);
+        snakeGameLoop = setInterval(updateSnakeGame, 100);
+        
+        updateSnakePlayButton();
+    }
+    
+    function pauseSnakeGame() {
+        snakeGamePaused = !snakeGamePaused;
+        updateSnakePlayButton();
+    }
+    
+    function resetSnakeGame() {
+        snake = [{x: 10, y: 10}];
+        direction = {x: 0, y: 0};
+        nextDirection = {x: 0, y: 0};
+        snakeScore = 0;
+        snakeGameRunning = false;
+        snakeGamePaused = false;
+        
+        if (snakeGameLoop) {
+            clearInterval(snakeGameLoop);
+            snakeGameLoop = null;
+        }
+        
+        // Clear canvas completely on reset
+        if (snakeCtx) {
+            snakeCtx.clearRect(0, 0, snakeCanvas.width, snakeCanvas.height);
+        }
+        
+        spawnFood();
+        updateSnakeScoreDisplay();
+        drawSnakeGame();
+        hideSnakeGameOver();
+        updateSnakePlayButton();
+    }
+    
+    function updateSnakeGame() {
+        if (snakeGamePaused) return;
+        
+        direction = {...nextDirection};
+        
+        if (direction.x === 0 && direction.y === 0) return; // Not started moving
+        
+        // Calculate new head position
+        const head = {
+            x: snake[0].x + direction.x,
+            y: snake[0].y + direction.y
+        };
+        
+        // Check wall collision
+        if (head.x < 0 || head.x >= snakeGridSize || head.y < 0 || head.y >= snakeGridSize) {
+            gameOver();
+            return;
+        }
+        
+        // Check self collision
+        if (snake.some(segment => segment.x === head.x && segment.y === head.y)) {
+            gameOver();
+            return;
+        }
+        
+        // Add new head
+        snake.unshift(head);
+        
+        // Check food collision
+        if (head.x === food.x && head.y === food.y) {
+            snakeScore++;
+            updateSnakeScoreDisplay();
+            spawnFood();
+            // Snake grows by not removing tail
+        } else {
+            // Remove tail if no food eaten
+            snake.pop();
+        }
+        
+        drawSnakeGame();
+    }
+    
+    function spawnFood() {
+        do {
+            food = {
+                x: Math.floor(Math.random() * snakeGridSize),
+                y: Math.floor(Math.random() * snakeGridSize)
+            };
+        } while (snake.some(segment => segment.x === food.x && segment.y === food.y));
+    }
+    
+    function drawSnakeGame() {
+        if (!snakeCtx) return;
+        
+        const cellSize = snakeCanvas.width / snakeGridSize;
+        
+        // Fully clear canvas first (prevents trail effect)
+        snakeCtx.clearRect(0, 0, snakeCanvas.width, snakeCanvas.height);
+        
+        // Draw background
+        snakeCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        snakeCtx.fillRect(0, 0, snakeCanvas.width, snakeCanvas.height);
+        
+        // Draw snake\n        snakeCtx.fillStyle = '#00b894';
+        snake.forEach((segment, index) => {
+            if (index === 0) {
+                // Head with gradient
+                const gradient = snakeCtx.createLinearGradient(
+                    segment.x * cellSize, segment.y * cellSize,
+                    (segment.x + 1) * cellSize, (segment.y + 1) * cellSize
+                );
+                gradient.addColorStop(0, '#00b894');
+                gradient.addColorStop(1, '#55efc4');
+                snakeCtx.fillStyle = gradient;
+            } else {
+                snakeCtx.fillStyle = '#00b894';
+            }
+            snakeCtx.fillRect(
+                segment.x * cellSize + 1,
+                segment.y * cellSize + 1,
+                cellSize - 2,
+                cellSize - 2
+            );
+        });
+        
+        // Draw food
+        snakeCtx.fillStyle = '#e17055';
+        snakeCtx.beginPath();
+        snakeCtx.arc(
+            food.x * cellSize + cellSize / 2,
+            food.y * cellSize + cellSize / 2,
+            cellSize / 2 - 2,
+            0,
+            Math.PI * 2
+        );
+        snakeCtx.fill();
+    }
+    
+    function gameOver() {
+        snakeGameRunning = false;
+        snakeGamePaused = false;
+        
+        if (snakeGameLoop) {
+            clearInterval(snakeGameLoop);
+            snakeGameLoop = null;
+        }
+        
+        // Clear canvas on game over
+        if (snakeCtx) {
+            snakeCtx.clearRect(0, 0, snakeCanvas.width, snakeCanvas.height);
+        }
+        
+        // Update high score
+        if (snakeScore > snakeHighScore) {
+            snakeHighScore = snakeScore;
+            saveSnakeHighScore(snakeHighScore);
+            updateSnakeScoreDisplay();
+        }
+        
+        showSnakeGameOver();
+        updateSnakePlayButton();
+        
+        // Auto restart after 3 seconds
+        setTimeout(() => {
+            resetSnakeGame();
+        }, 3000);
+    }
+    
+    function showSnakeGameOver() {
+        const gameOverDiv = document.getElementById('snake-game-over');
+        if (gameOverDiv) {
+            gameOverDiv.classList.add('active');
+            const finalScore = gameOverDiv.querySelector('.final-score');
+            if (finalScore) {
+                finalScore.textContent = snakeScore;
+            }
+        }
+    }
+    
+    function hideSnakeGameOver() {
+        const gameOverDiv = document.getElementById('snake-game-over');
+        if (gameOverDiv) {
+            gameOverDiv.classList.remove('active');
+        }
+    }
+    
+    function updateSnakeScoreDisplay() {
+        const scoreElement = document.getElementById('snake-current-score');
+        const highScoreElement = document.getElementById('snake-high-score');
+        
+        if (scoreElement) scoreElement.textContent = snakeScore;
+        if (highScoreElement) highScoreElement.textContent = `High: ${snakeHighScore}`;
+    }
+    
+    function updateSnakePlayButton() {
+        const playBtn = document.getElementById('snake-play-btn');
+        if (!playBtn) return;
+        
+        if (!snakeGameRunning) {
+            playBtn.textContent = '▶ Play';
+        } else if (snakeGamePaused) {
+            playBtn.textContent = '▶ Resume';
+        } else {
+            playBtn.textContent = '⏸ Pause';
+        }
+    }
+    
+    // ====================================
+    // QUOTES SYSTEM LOGIC
+    // ====================================
+    
+    function initQuotesSystem() {
+        // Prevent re-initialization to avoid resetting animations
+        if (quotesInitialized) return;
+        
+        quotesArray = loadQuotes();
+        displayCurrentQuote(true); // Skip animation on first load
+        startQuoteCycling();
+        
+        quotesInitialized = true;
+    }
+    
+    function displayCurrentQuote(skipAnimation = false) {
+        const quoteTextElement = document.getElementById('quote-text');
+        const quoteAuthorElement = document.getElementById('quote-author');
+        
+        if (!quoteTextElement || quotesArray.length === 0) return;
+        
+        const quote = quotesArray[currentQuoteIndex];
+        
+        if (!skipAnimation) {
+            // Use CSS class for smooth transition without resetting animations
+            quoteTextElement.classList.add('fade-out');
+            
+            setTimeout(() => {
+                // Update content
+                quoteTextElement.textContent = `"${quote.text}"`;
+                if (quoteAuthorElement) {
+                    quoteAuthorElement.textContent = `— ${quote.author}`;
+                }
+                
+                // Remove fade-out class to trigger fade-in via CSS
+                quoteTextElement.classList.remove('fade-out');
+            }, 300); // Reduced from 600ms for snappier transitions
+        } else {
+            // Direct update without animation (for initial load)
+            quoteTextElement.textContent = `"${quote.text}"`;
+            if (quoteAuthorElement) {
+                quoteAuthorElement.textContent = `— ${quote.author}`;
+            }
+            // Ensure element is visible immediately 
+            quoteTextElement.style.opacity = '1';
+        }
+    }
+    
+    function startQuoteCycling() {
+        if (quoteInterval) clearInterval(quoteInterval);
+        
+        quoteInterval = setInterval(() => {
+            currentQuoteIndex = (currentQuoteIndex + 1) % quotesArray.length;
+            displayCurrentQuote();
+        }, 6000);
+    }
+    
+    function addCustomQuote() {
+        const quoteText = prompt('Enter your motivational quote:');
+        if (!quoteText || quoteText.trim() === '') return;
+        
+        const quoteAuthor = prompt('Enter the author name (or leave blank):');
+        
+        const newQuote = {
+            text: quoteText.trim(),
+            author: quoteAuthor && quoteAuthor.trim() !== '' ? quoteAuthor.trim() : 'Anonymous'
+        };
+        
+        quotesArray.push(newQuote);
+        saveQuotes(quotesArray);
+        
+        // Show the new quote
+        currentQuoteIndex = quotesArray.length - 1;
+        displayCurrentQuote();
+        
+        // Restart cycling
+        startQuoteCycling();
+    }
+    
+    // ====================================
+    // XP SYSTEM LOGIC
+    // ====================================
+    
+    function initXPSystem() {
+        userXP = loadUserXP();
+        updateXPDisplay();
+    }
+    
+    function calculateXPForNextLevel(level) {
+        // Exponential growth (Lee Sheldon method): XP needed = level^1.5 * 120
+        return Math.floor(Math.pow(level, 1.5) * 120);
+    }
+    
+    function awardXP(hoursWorked) {
+        const currentHour = Math.floor(hoursWorked);
+        
+        // Calculate and update streak
+        calculateStreak();
+        
+        // Reset daily tracking if it's a new day
+        const today = new Date().toDateString();
+        const lastDay = localStorage.getItem('xpLastDay');
+        
+        if (lastDay !== today) {
+            userXP.lastHourTracked = -1;
+            userXP.todayHours = 0;
+            userXP.milestonesReached = [];
+            localStorage.setItem('xpLastDay', today);
+        }
+        
+        // Award XP for each completed hour (15 XP per hour)
+        if (currentHour > userXP.lastHourTracked) {
+            const hoursToAward = currentHour - userXP.lastHourTracked;
+            const xpGained = hoursToAward * XP_PER_HOUR;
+            
+            userXP.currentXP += xpGained;
+            userXP.totalXP += xpGained;
+            userXP.lastHourTracked = currentHour;
+            userXP.todayHours += hoursToAward;
+            
+            // Show hourly XP notification
+            if (hoursToAward > 0) {
+                showXPNotification(`+${xpGained} XP for ${hoursToAward} hour(s)!`, 'hourly');
+            }
+            
+            // Check for milestone bonuses
+            checkMilestones(currentHour);
+            
+            // Award streak bonus (daily)
+            if (userXP.consecutiveDays > 1 && lastDay !== today) {
+                const streakBonus = STREAK_BONUS * userXP.consecutiveDays;
+                userXP.currentXP += streakBonus;
+                userXP.totalXP += streakBonus;
+                showXPNotification(`🔥 ${userXP.consecutiveDays}-Day Streak! +${streakBonus} Bonus XP!`, 'streak');
+            }
+            
+            // Check for level up
+            checkLevelUp();
+            
+            // Check for achievements
+            checkAchievements();
+            
+            saveUserXP(userXP);
+            updateXPDisplay();
+        }
+    }
+    
+    function calculateStreak() {
+        const today = new Date().toDateString();
+        
+        if (!userXP.lastAttendanceDate) {
+            // First time
+            userXP.consecutiveDays = 1;
+            userXP.lastAttendanceDate = today;
+            return;
+        }
+        
+        const lastDate = new Date(userXP.lastAttendanceDate);
+        const currentDate = new Date(today);
+        const diffTime = currentDate - lastDate;
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        
+        if (diffDays === 1) {
+            // Consecutive day
+            userXP.consecutiveDays++;
+            if (userXP.consecutiveDays > userXP.longestStreak) {
+                userXP.longestStreak = userXP.consecutiveDays;
+            }
+        } else if (diffDays > 1) {
+            // Streak broken
+            userXP.consecutiveDays = 1;
+        }
+        // diffDays === 0 means same day, no change needed
+        
+        userXP.lastAttendanceDate = today;
+    }
+    
+    function checkMilestones(currentHour) {
+        // Check if this milestone hasn't been reached today
+        if (MILESTONE_BONUSES[currentHour] && !userXP.milestonesReached.includes(currentHour)) {
+            const milestone = MILESTONE_BONUSES[currentHour];
+            userXP.currentXP += milestone.xp;
+            userXP.totalXP += milestone.xp;
+            userXP.milestonesReached.push(currentHour);
+            showXPNotification(`🎯 ${milestone.label}! +${milestone.xp} Bonus XP!`, 'milestone');
+        }
+    }
+    
+    function checkAchievements() {
+        const totalHours = Math.floor(userXP.totalXP / XP_PER_HOUR);
+        
+        // First Day achievement
+        if (!userXP.achievements.includes('firstDay') && userXP.todayHours >= 8) {
+            unlockAchievement('firstDay');
+        }
+        
+        // Week Warrior (5 consecutive days)
+        if (!userXP.achievements.includes('week1') && userXP.consecutiveDays >= 5) {
+            unlockAchievement('week1');
+        }
+        
+        // 7-Day Streak
+        if (!userXP.achievements.includes('streak7') && userXP.consecutiveDays >= 7) {
+            unlockAchievement('streak7');
+        }
+        
+        // 30-Day Streak
+        if (!userXP.achievements.includes('streak30') && userXP.consecutiveDays >= 30) {
+            unlockAchievement('streak30');
+        }
+        
+        // Level 10
+        if (!userXP.achievements.includes('level10') && userXP.level >= 10) {
+            unlockAchievement('level10');
+        }
+        
+        // Level 25
+        if (!userXP.achievements.includes('level25') && userXP.level >= 25) {
+            unlockAchievement('level25');
+        }
+        
+        // Workaholic (100 hours)
+        if (!userXP.achievements.includes('workaholic') && totalHours >= 100) {
+            unlockAchievement('workaholic');
+        }
+    }
+    
+    function unlockAchievement(achievementKey) {
+        userXP.achievements.push(achievementKey);
+        const achievement = ACHIEVEMENTS[achievementKey];
+        showXPNotification(`${achievement.icon} Achievement Unlocked: ${achievement.name}!`, 'achievement');
+        saveUserXP(userXP);
+    }
+    
+    function checkLevelUp() {
+        const xpNeeded = calculateXPForNextLevel(userXP.level);
+        
+        while (userXP.currentXP >= xpNeeded) {
+            userXP.currentXP -= xpNeeded;
+            userXP.level++;
+            
+            showXPNotification(`🎊 Level Up! You're now Level ${userXP.level}!`, 'levelup');
+            
+            // Recalculate for next level
+            const nextXPNeeded = calculateXPForNextLevel(userXP.level);
+        }
+    }
+    
+    function updateXPDisplay() {
+        const levelElement = document.getElementById('xp-level');
+        const currentXPElement = document.getElementById('xp-current');
+        const neededXPElement = document.getElementById('xp-needed');
+        const progressBar = document.getElementById('xp-progress-fill');
+        const totalXPElement = document.getElementById('xp-total');
+        const todayHoursElement = document.getElementById('xp-today-hours');
+        const streakElement = document.getElementById('xp-streak');
+        const longestStreakElement = document.getElementById('xp-longest-streak');
+        const achievementsContainer = document.getElementById('xp-achievements');
+        const nextMilestoneElement = document.getElementById('xp-next-milestone');
+        
+        const xpNeeded = calculateXPForNextLevel(userXP.level);
+        const progress = (userXP.currentXP / xpNeeded) * 100;
+        
+        if (levelElement) levelElement.textContent = userXP.level;
+        if (currentXPElement) currentXPElement.textContent = userXP.currentXP;
+        if (neededXPElement) neededXPElement.textContent = xpNeeded;
+        if (progressBar) progressBar.style.width = `${progress}%`;
+        if (totalXPElement) totalXPElement.textContent = userXP.totalXP;
+        if (todayHoursElement) todayHoursElement.textContent = userXP.todayHours;
+        if (streakElement) streakElement.textContent = userXP.consecutiveDays;
+        if (longestStreakElement) longestStreakElement.textContent = userXP.longestStreak;
+        
+        // Update achievements display
+        if (achievementsContainer) {
+            achievementsContainer.innerHTML = '';
+            userXP.achievements.forEach(key => {
+                const achievement = ACHIEVEMENTS[key];
+                const badge = document.createElement('span');
+                badge.className = 'achievement-badge';
+                badge.innerHTML = achievement.icon;
+                badge.title = `${achievement.name}: ${achievement.desc}`;
+                achievementsContainer.appendChild(badge);
+            });
+        }
+        
+        // Show next milestone
+        if (nextMilestoneElement) {
+            const nextHour = Math.ceil((userXP.lastHourTracked + 1));
+            const milestoneHours = [2, 4, 6, 8];
+            const nextMilestone = milestoneHours.find(h => h > userXP.todayHours);
+            
+            if (nextMilestone) {
+                const hoursRemaining = nextMilestone - userXP.todayHours;
+                nextMilestoneElement.textContent = `${hoursRemaining}h to ${MILESTONE_BONUSES[nextMilestone].label}`;
+                nextMilestoneElement.style.display = 'block';
+            } else {
+                nextMilestoneElement.style.display = 'none';
+            }
+        }
+    }
+    
+    function showXPNotification(message, type = 'hourly') {
+        const notification = document.createElement('div');
+        notification.className = `xp-milestone-notification xp-notif-${type}`;
+        notification.textContent = message;
+        
+        // Position stacked notifications
+        const existingNotifications = document.querySelectorAll('.xp-milestone-notification');
+        const offset = existingNotifications.length * 70;
+        notification.style.top = `${20 + offset}px`;
+        
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.remove();
+        }, 3000);
+    }
+    
+    // ====================================
+    // IMAGE BOX LOGIC
+    // ====================================
+    
+    function initImageBox() {
+        currentImageURL = loadImageURL();
+        updateImageDisplay();
+    }
+    
+    function changeImage() {
+        const newURL = prompt('Enter image URL from Google Images:', currentImageURL);
+        
+        if (newURL !== null && newURL.trim() !== '') {
+            currentImageURL = newURL.trim();
+            saveImageURL(currentImageURL);
+            updateImageDisplay();
+        }
+    }
+    
+    function updateImageDisplay() {
+        const imageDisplay = document.getElementById('image-display');
+        if (!imageDisplay) return;
+        
+        if (currentImageURL && currentImageURL !== '') {
+            imageDisplay.innerHTML = `<img src="${currentImageURL}" alt="Custom Image" onerror="this.parentElement.innerHTML='<div class=\\'image-placeholder\\'>❌ Failed to load image</div>'">`;
+        } else {
+            imageDisplay.innerHTML = '<div class="image-placeholder">📷 Click "Change Image" to add your favorite image</div>';
+        }
+    }
+    
     // Cache for preventing unnecessary updates
     let cachedValues = {
         totalWorked: '',
@@ -58,6 +798,16 @@
         completion: '',
         emoji: '',
         progress: -1
+    };
+    
+    // Cache DOM elements to avoid repeated queries (prevents animation resets)
+    let cachedElements = {
+        totalWorkedTime: null,
+        remainingTime: null,
+        completionTime: null,
+        emojiDisplay: null,
+        progressFill: null,
+        currentWorkedTime: null
     };
     
     // Mouse position for parallax effects
@@ -100,11 +850,43 @@
                     -5px -5px 15px rgba(255, 255, 255, 0.05);
                 margin: 32px auto;
                 padding: 32px;
-                max-width: 800px;
+                max-width: 1600px;
                 position: relative;
                 overflow: hidden;
                 transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.5s ease, color 0.5s ease, border-color 0.5s ease;
                 transform-style: preserve-3d;
+                display: flex;
+                gap: 24px;
+                align-items: flex-start;
+                /* Performance optimizations to prevent animation resets */
+                will-change: transform;
+                isolation: isolate;
+            }
+            
+            /* Left Panel - Snake Game & Quotes */
+            .left-panel {
+                width: 400px;
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+                flex-shrink: 0;
+            }
+            
+            /* Center Panel - Main Attendance Content */
+            .main-attendance-content {
+                flex: 1;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+            }
+            
+            /* Right Panel - XP System & Image Box */
+            .right-panel {
+                width: 400px;
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+                flex-shrink: 0;
             }
             
             .attendance-summary::before {
@@ -154,6 +936,10 @@
                 transition: all 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55);
                 cursor: pointer;
                 filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.25));
+                /* Force GPU layer for smooth animation */
+                will-change: transform, filter;
+                transform: translateZ(0);
+                backface-visibility: hidden;
             }
             
             .emoji-display:hover {
@@ -263,6 +1049,9 @@
                     inset -5px -5px 10px rgba(255, 255, 255, 0.05),
                     5px 5px 15px rgba(0, 0, 0, 0.1),
                     -2px -2px 10px rgba(255, 255, 255, 0.05);
+                /* Isolate content updates from affecting this element's animations */
+                contain: layout style;
+                will-change: transform;
             }
             
             .stat-card.worked-time-card {
@@ -335,6 +1124,9 @@
                 margin-bottom: 4px;
                 transition: font-variation-settings 0.3s ease;
                 text-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+                /* Isolate text updates to prevent animation resets */
+                contain: layout style paint;
+                display: block;
             }
             
             .stat-card:hover .stat-value {
@@ -374,123 +1166,135 @@
                 box-shadow: 0 8px 24px rgba(0, 184, 148, 0.3);
             }
             
+            /* Developer Info & Settings - Header Menu */
             .developer-info {
                 position: absolute;
-                top: 20px;
-                right: 20px;
-                background: rgba(255, 255, 255, 0.1);
-                backdrop-filter: blur(10px);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                border-radius: 12px;
-                padding: 12px;
+                top: 16px;
+                left: 50%;
+                transform: translateX(20px);
+                background: rgba(255, 255, 255, 0.08);
+                backdrop-filter: blur(12px);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 10px;
+                padding: 10px 14px;
                 cursor: pointer;
-                transition: all 0.3s ease;
-                z-index: 10;
-                font-size: 1.2rem;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                z-index: 100;
+                font-size: 1.1rem;
                 color: #667eea;
                 text-decoration: none;
             }
             
             .developer-info:hover {
-                transform: scale(1.1);
-                background: rgba(255, 255, 255, 0.15);
-                border-color: rgba(255, 255, 255, 0.3);
+                transform: translateX(20px) scale(1.08);
+                background: rgba(255, 255, 255, 0.12);
+                border-color: rgba(255, 255, 255, 0.25);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
             }
             
             /* Settings Button */
             .settings-button {
                 position: absolute;
-                top: 20px;
-                right: 70px;
-                background: rgba(255, 255, 255, 0.1);
-                backdrop-filter: blur(10px);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                border-radius: 12px;
-                padding: 12px;
+                top: 16px;
+                left: 50%;
+                transform: translateX(-56px);
+                background: rgba(255, 255, 255, 0.08);
+                backdrop-filter: blur(12px);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 10px;
+                padding: 10px 14px;
                 cursor: pointer;
-                transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55);
-                z-index: 10;
-                font-size: 1.2rem;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                z-index: 100;
+                font-size: 1.1rem;
                 color: #764ba2;
             }
             
             .settings-button:hover {
-                transform: scale(1.1) rotate(90deg);
-                background: rgba(255, 255, 255, 0.15);
-                border-color: rgba(255, 255, 255, 0.3);
+                transform: translateX(-56px) scale(1.08) rotate(90deg);
+                background: rgba(255, 255, 255, 0.12);
+                border-color: rgba(255, 255, 255, 0.25);
+                box-shadow: 0 4px 12px rgba(118, 75, 162, 0.2);
             }
             
             .developer-tooltip {
                 position: absolute;
-                top: 60px;
-                right: 0;
-                background: rgba(0, 0, 0, 0.9);
+                top: calc(100% + 8px);
+                left: 50%;
+                transform: translateX(-50%) translateY(-10px);
+                background: rgba(0, 0, 0, 0.92);
                 color: white;
-                padding: 12px 16px;
+                padding: 10px 14px;
                 border-radius: 8px;
                 font-size: 0.75rem;
                 font-weight: 500;
                 white-space: nowrap;
                 opacity: 0;
                 visibility: hidden;
-                transition: all 0.3s ease;
-                transform: translateY(-10px);
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-                min-width: 200px;
+                min-width: 180px;
+                text-align: center;
+                z-index: 101;
+                backdrop-filter: blur(8px);
             }
             
             .developer-info:hover .developer-tooltip {
                 opacity: 1;
                 visibility: visible;
-                transform: translateY(0);
+                transform: translateX(-50%) translateY(0);
             }
             
             .developer-tooltip::before {
                 content: '';
                 position: absolute;
                 bottom: 100%;
-                right: 20px;
+                left: 50%;
+                transform: translateX(-50%);
                 border: 5px solid transparent;
-                border-bottom-color: rgba(0, 0, 0, 0.9);
+                border-bottom-color: rgba(0, 0, 0, 0.92);
             }
             
-            /* Picture-in-Picture Button Styles */
+            /* Picture-in-Picture Button Styles - Material Design 3 FAB */
             .pip-button {
-                position: absolute;
-                top: 20px;
-                left: 20px;
+                position: fixed;
+                bottom: 24px;
+                left: 50%;
+                transform: translateX(-50%);
                 background: linear-gradient(135deg, #667eea, #764ba2);
                 color: white;
                 border: none;
-                border-radius: 12px;
-                padding: 10px 14px;
+                border-radius: 16px;
+                padding: 14px 24px;
                 cursor: pointer;
-                transition: all 0.3s ease;
-                z-index: 10;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                z-index: 1000;
                 font-size: 0.875rem;
                 font-weight: 600;
                 display: none; /* Hidden by default, shown when PiP is supported */
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-                backdrop-filter: blur(10px);
+                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.24), 0 4px 8px rgba(0, 0, 0, 0.12);
+                backdrop-filter: blur(12px);
                 border: 1px solid rgba(255, 255, 255, 0.2);
+                letter-spacing: 0.5px;
             }
             
             .pip-button:hover {
-                transform: scale(1.05) translateY(-2px);
-                box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+                transform: translateX(-50%) scale(1.05) translateY(-4px);
+                box-shadow: 0 12px 24px rgba(102, 126, 234, 0.4), 0 6px 12px rgba(0, 0, 0, 0.2);
                 background: linear-gradient(135deg, #764ba2, #667eea);
             }
             
             .pip-button:active {
-                transform: scale(0.98);
+                transform: translateX(-50%) scale(0.98);
             }
             
             .pip-button.active {
                 background: linear-gradient(135deg, #e17055, #fab1a0);
-                box-shadow: 0 6px 20px rgba(225, 112, 85, 0.4);
+                box-shadow: 0 12px 24px rgba(225, 112, 85, 0.4), 0 6px 12px rgba(0, 0, 0, 0.2);
             }
             
             .pip-button.active:hover {
+                transform: translateX(-50%) scale(1.05) translateY(-4px);
                 background: linear-gradient(135deg, #fab1a0, #e17055);
             }
             
@@ -498,6 +1302,23 @@
                 display: inline-block;
                 margin-right: 6px;
                 font-size: 1rem;
+                transition: transform 0.3s ease;
+            }
+            
+            .pip-button:hover .pip-icon {
+                transform: scale(1.1);
+            }
+            
+            /* Focus state for accessibility */
+            .pip-button:focus {
+                outline: 2px solid rgba(102, 126, 234, 0.6);
+                outline-offset: 2px;
+            }
+            
+            .settings-button:focus,
+            .developer-info:focus {
+                outline: 2px solid rgba(118, 75, 162, 0.6);
+                outline-offset: 2px;
             }
             
             /* PiP Active State Styles */
@@ -1086,6 +1907,8 @@
                     inset -3px -3px 6px rgba(255, 255, 255, 0.05);
                 transform-style: preserve-3d;
                 transition: transform 0.3s ease;
+                /* Isolate progress updates from parent style recalculation */
+                contain: layout style;
             }
             
             .progress-bar:hover {
@@ -1108,6 +1931,10 @@
                 overflow: hidden;
                 animation: gradientFlow 3s ease infinite;
                 box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+                /* Force GPU compositing for smooth width transitions */
+                will-change: width;
+                transform: translateZ(0);
+                backface-visibility: hidden;
             }
             
             .progress-fill::after {
@@ -1509,10 +2336,10 @@
                 }
                 
                 .pip-button {
-                    top: 12px;
-                    left: 12px;
-                    padding: 8px 12px;
+                    bottom: 16px;
+                    padding: 12px 20px;
                     font-size: 0.8rem;
+                    border-radius: 14px;
                 }
                 
                 .pip-icon {
@@ -2003,6 +2830,502 @@
                     box-shadow: none !important;
                 }
             }
+            
+            /* ==================== SNAKE GAME STYLES ==================== */
+            .snake-game-container {
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 16px;
+                padding: 16px;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .snake-game-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 12px;
+            }
+            
+            .snake-game-title {
+                font-size: 1rem;
+                font-weight: 600;
+                color: rgba(255, 255, 255, 0.9);
+            }
+            
+            .snake-score {
+                font-size: 0.875rem;
+                color: rgba(255, 255, 255, 0.7);
+            }
+            
+            .snake-canvas {
+                width: 100%;
+                background: rgba(0, 0, 0, 0.3);
+                border-radius: 12px;
+                display: block;
+                image-rendering: pixelated;
+                box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.3);
+            }
+            
+            .snake-controls {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-top: 12px;
+                gap: 8px;
+            }
+            
+            .snake-btn {
+                padding: 8px 16px;
+                background: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
+                border: none;
+                border-radius: 8px;
+                color: white;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                font-size: 0.875rem;
+            }
+            
+            .snake-btn:hover {
+                transform: scale(1.05);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            }
+            
+            .snake-highscore {
+                font-size: 0.75rem;
+                color: rgba(255, 255, 255, 0.6);
+            }
+            
+            .snake-game-over {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0, 0, 0, 0.9);
+                padding: 24px;
+                border-radius: 12px;
+                text-align: center;
+                display: none;
+                z-index: 10;
+            }
+            
+            .snake-game-over.active {
+                display: block;
+            }
+            
+            .snake-game-over h3 {
+                color: #e17055;
+                margin: 0 0 12px 0;
+                font-size: 1.5rem;
+            }
+            
+            .snake-game-over p {
+                color: rgba(255, 255, 255, 0.8);
+                margin: 8px 0;
+            }
+            
+            /* ==================== QUOTES BOX STYLES ==================== */
+            .quotes-container {
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 16px;
+                padding: 20px;
+                min-height: 180px;
+                position: relative;
+                overflow: hidden;
+                /* Isolate quote animations from parent updates */
+                contain: layout style;
+            }
+            
+            .quotes-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 16px;
+            }
+            
+            .quotes-title {
+                font-size: 1rem;
+                font-weight: 600;
+                color: rgba(255, 255, 255, 0.9);
+            }
+            
+            .quote-add-btn {
+                padding: 6px 12px;
+                background: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 6px;
+                color: white;
+                font-size: 0.8rem;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            
+            .quote-add-btn:hover {
+                background: rgba(255, 255, 255, 0.2);
+            }
+            
+            .quote-display {
+                text-align: center;
+                padding: 20px 10px;
+                min-height: 100px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .quote-text {
+                font-size: 1rem;
+                font-style: italic;
+                color: rgba(255, 255, 255, 0.9);
+                line-height: 1.6;
+                opacity: 1;
+                transition: opacity 0.3s ease, transform 0.3s ease;
+                transform: translateY(0);
+                /* Prevent animation resets from parent updates */
+                contain: layout style paint;
+            }
+            
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            
+            @keyframes fadeOut {
+                from { opacity: 1; transform: translateY(0); }
+                to { opacity: 0; transform: translateY(-10px); }
+            }
+            
+            .quote-text.fade-out {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            
+            .quote-author {
+                font-size: 0.875rem;
+                color: rgba(255, 255, 255, 0.6);
+                margin-top: 12px;
+                text-align: right;
+                transition: opacity 0.3s ease;
+                /* Prevent animation resets from parent updates */
+                contain: layout style paint;
+            }
+            
+            /* ==================== XP SYSTEM STYLES ==================== */
+            .xp-container {
+                background: linear-gradient(135deg, rgba(108, 92, 231, 0.2), rgba(102, 126, 234, 0.15));
+                border: 1px solid rgba(108, 92, 231, 0.3);
+                border-radius: 16px;
+                padding: 20px;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .xp-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 16px;
+            }
+            
+            .xp-title {
+                font-size: 1rem;
+                font-weight: 600;
+                color: rgba(255, 255, 255, 0.9);
+            }
+            
+            .xp-level {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            
+            .level-badge {
+                background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+                padding: 6px 12px;
+                border-radius: 20px;
+                font-weight: 700;
+                font-size: 0.875rem;
+                box-shadow: 0 2px 8px rgba(108, 92, 231, 0.4);
+            }
+            
+            .xp-progress-container {
+                margin-bottom: 12px;
+            }
+            
+            .xp-progress-bar {
+                width: 100%;
+                height: 20px;
+                background: rgba(0, 0, 0, 0.3);
+                border-radius: 10px;
+                overflow: hidden;
+                position: relative;
+            }
+            
+            .xp-progress-fill {
+                height: 100%;
+                background: linear-gradient(90deg, #6c5ce7, #a29bfe, #6c5ce7);
+                background-size: 200% 100%;
+                animation: gradientFlow 3s ease infinite;
+                transition: width 0.5s ease;
+                box-shadow: 0 0 10px rgba(108, 92, 231, 0.5);
+            }
+            
+            .xp-info {
+                display: flex;
+                justify-content: space-between;
+                font-size: 0.75rem;
+                color: rgba(255, 255, 255, 0.7);
+                margin-top: 8px;
+            }
+            
+            .xp-stats {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 12px;
+                margin-top: 12px;
+            }
+            
+            .xp-stat-item {
+                background: rgba(255, 255, 255, 0.05);
+                padding: 12px;
+                border-radius: 8px;
+                text-align: center;
+            }
+            
+            .xp-stat-label {
+                font-size: 0.75rem;
+                color: rgba(255, 255, 255, 0.6);
+                margin-bottom: 4px;
+            }
+            
+            .xp-stat-value {
+                font-size: 1.25rem;
+                font-weight: 700;
+                color: #a29bfe;
+            }
+            
+            .xp-streak {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+                margin-top: 12px;
+                padding: 8px;
+                background: rgba(255, 107, 53, 0.15);
+                border: 1px solid rgba(255, 107, 53, 0.3);
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 0.875rem;
+            }
+            
+            .xp-streak-icon {
+                font-size: 1.2rem;
+                animation: fireFlicker 1.5s ease-in-out infinite;
+            }
+            
+            @keyframes fireFlicker {
+                0%, 100% { transform: scale(1); opacity: 1; }
+                50% { transform: scale(1.1); opacity: 0.9; }
+            }
+            
+            .xp-achievements {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-top: 12px;
+                padding: 12px;
+                background: rgba(0, 0, 0, 0.2);
+                border-radius: 8px;
+                min-height: 50px;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .xp-achievements:empty::before {
+                content: 'Complete tasks to unlock achievements! 🏆';
+                color: rgba(255, 255, 255, 0.4);
+                font-size: 0.75rem;
+                font-style: italic;
+            }
+            
+            .achievement-badge {
+                font-size: 1.8rem;
+                cursor: pointer;
+                transition: transform 0.3s ease;
+                filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+            }
+            
+            .achievement-badge:hover {
+                transform: scale(1.2);
+            }
+            
+            .xp-next-milestone {
+                margin-top: 8px;
+                padding: 6px 12px;
+                background: rgba(255, 193, 7, 0.15);
+                border: 1px solid rgba(255, 193, 7, 0.3);
+                border-radius: 6px;
+                text-align: center;
+                font-size: 0.75rem;
+                color: rgba(255, 193, 7, 0.9);
+                font-weight: 600;
+            }
+            
+            .xp-milestone-notification {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 16px 24px;
+                border-radius: 12px;
+                color: white;
+                font-weight: 600;
+                box-shadow: 0 8px 24px rgba(108, 92, 231, 0.5);
+                z-index: 10000;
+                animation: slideInRight 0.5s ease, fadeOut 0.5s ease 2.5s forwards;
+                pointer-events: none;
+            }
+            
+            .xp-notif-hourly {
+                background: linear-gradient(135deg, #667eea, #764ba2);
+            }
+            
+            .xp-notif-milestone {
+                background: linear-gradient(135deg, #f093fb, #f5576c);
+                box-shadow: 0 8px 24px rgba(245, 87, 108, 0.5);
+            }
+            
+            .xp-notif-streak {
+                background: linear-gradient(135deg, #ff6b35, #f7931e);
+                box-shadow: 0 8px 24px rgba(255, 107, 53, 0.5);
+            }
+            
+            .xp-notif-levelup {
+                background: linear-gradient(135deg, #00b894, #00cec9);
+                box-shadow: 0 8px 24px rgba(0, 184, 148, 0.5);
+                font-size: 1.1rem;
+            }
+            
+            .xp-notif-achievement {
+                background: linear-gradient(135deg, #fdcb6e, #e17055);
+                box-shadow: 0 8px 24px rgba(253, 203, 110, 0.5);
+                font-size: 1.05rem;
+            }
+            
+            @keyframes slideInRight {
+                from { transform: translateX(400px); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            
+            /* ==================== IMAGE BOX STYLES ==================== */
+            .image-box-container {
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 16px;
+                padding: 16px;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .image-box-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 12px;
+            }
+            
+            .image-box-title {
+                font-size: 1rem;
+                font-weight: 600;
+                color: rgba(255, 255, 255, 0.9);
+            }
+            
+            .image-change-btn {
+                padding: 6px 12px;
+                background: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 6px;
+                color: white;
+                font-size: 0.8rem;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            
+            .image-change-btn:hover {
+                background: rgba(255, 255, 255, 0.2);
+            }
+            
+            .image-display {
+                width: 100%;
+                height: 220px;
+                border-radius: 12px;
+                overflow: hidden;
+                background: rgba(0, 0, 0, 0.2);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .image-display img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                transition: transform 0.3s ease;
+            }
+            
+            .image-display img:hover {
+                transform: scale(1.05);
+            }
+            
+            .image-placeholder {
+                color: rgba(255, 255, 255, 0.4);
+                font-size: 0.875rem;
+                text-align: center;
+            }
+            
+            /* Responsive adjustments */
+            @media (max-width: 1400px) {
+                .attendance-summary {
+                    flex-wrap: wrap;
+                    justify-content: center;
+                }
+                
+                .left-panel,
+                .right-panel {
+                    width: 350px;
+                }
+            }
+            
+            @media (max-width: 1200px) {
+                .attendance-summary {
+                    flex-direction: column;
+                    max-width: 800px;
+                    align-items: stretch;
+                }
+                
+                .left-panel,
+                .right-panel {
+                    width: 100%;
+                }
+                
+                .main-attendance-content {
+                    order: -1; /* Show main content first on mobile */
+                }
+            }
+            
+            @media (max-width: 768px) {
+                .attendance-summary {
+                    padding: 20px;
+                    margin: 16px auto;
+                }
+                
+                .left-panel,
+                .right-panel {
+                    gap: 16px;
+                }
+            }
         </style>
     `;
 
@@ -2388,18 +3711,31 @@
                 checkInTime = null;
             }
 
-            // Only re-render if significant change occurred or first render
+            // Only re-render when structure actually changes (initial load or new check-in/out entries)
+            // Don't re-render based on time - this prevents animation resets!
+            const currentRowCount = totalTimeDiv.querySelectorAll('.modern-table tbody tr:not(.gap-warning)').length;
             const shouldRerender = totalTimeDiv.innerHTML === '' || 
-                                 Math.abs(totalWorkedTime - lastTotalWorkedTime) > 30 || // 30 second threshold
-                                 checkInOutList.length !== (totalTimeDiv.querySelectorAll('.modern-table tbody tr:not(.gap-warning)').length);
+                                 checkInOutList.length !== currentRowCount;
             
             if (shouldRerender) {
                 renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today);
-                lastTotalWorkedTime = totalWorkedTime;
+                
+                // Clear cached DOM elements after re-render so they get re-queried
+                cachedElements = {
+                    totalWorkedTime: null,
+                    remainingTime: null,
+                    completionTime: null,
+                    emojiDisplay: null,
+                    progressFill: null,
+                    currentWorkedTime: null
+                };
             } else {
-                // Just update dynamic content without re-rendering
-                updateDynamicContent(totalWorkedTime, today);
+                // Just update dynamic content without re-rendering to preserve animations
+                updateDynamicContent(totalWorkedTime, today, checkInOutList);
             }
+            
+            // Always update lastTotalWorkedTime to track state
+            lastTotalWorkedTime = totalWorkedTime;
         }
         
         $('.main-attendance-table').before(totalTimeDiv);
@@ -2541,11 +3877,21 @@
             // Move content to PiP window
             const attendanceSummary = document.getElementById('total-time-summary');
             if (attendanceSummary) {
-                // Clone the element to avoid moving it completely
-                const summaryClone = attendanceSummary.cloneNode(true);
+                // Clone only the main attendance content (center panel), not the side panels
+                const mainContent = attendanceSummary.querySelector('.main-attendance-content');
+                if (!mainContent) {
+                    console.error('Main attendance content not found');
+                    isPipActive = false;
+                    return;
+                }
                 
-                // Add PiP-specific styling for compact design
+                // Create a wrapper for PiP
+                const summaryClone = document.createElement('div');
                 summaryClone.className = 'attendance-summary pip-window-content';
+                
+                // Clone only the main attendance content
+                const mainContentClone = mainContent.cloneNode(true);
+                summaryClone.appendChild(mainContentClone);
                 
                 // Apply user's selected theme to PiP window
                 if (userPreferences.displayTheme === 'retro-futuristic') {
@@ -3051,12 +4397,17 @@
                 `;
             }
             
+            // Add ID to the last row's worked time cell if it's the current active session
+            const isLastRow = index === checkInOutList.length - 1;
+            const isCurrentSession = item.checkOut === 'Current';
+            const workedTimeCellId = (isLastRow && isCurrentSession) ? ' id="current-worked-time"' : '';
+            
             tableHTML += `
                 <tr>
                     <td>${index + 1}</td>
                     <td>${item.checkIn}</td>
                     <td>${item.checkOut}</td>
-                    <td>${item.workedTime}</td>
+                    <td${workedTimeCellId}>${item.workedTime}</td>
                     <td>${durationDifference}</td>
                 </tr>
             `;
@@ -3113,8 +4464,113 @@
             `;
         }
 
-        // Combine all HTML
-        totalTimeDiv.innerHTML = headerHTML + progressBarHTML + tableHTML + timeStatsHTML + completionHTML;
+        // Left panel - Snake Game & Quotes
+        const leftPanelHTML = `
+            <div class="left-panel">
+                <!-- Snake Game -->
+                <div class="snake-game-container">
+                    <div class="snake-game-header">
+                        <span class="snake-game-title">🐍 Snake Game</span>
+                        <span class="snake-score">Score: <span id="snake-current-score">0</span></span>
+                    </div>
+                    <canvas id="snake-canvas" class="snake-canvas" width="368" height="368"></canvas>
+                    <div class="snake-controls">
+                        <button id="snake-play-btn" class="snake-btn" onclick="window.snakePlayPause()">▶ Play</button>
+                        <button class="snake-btn" onclick="window.resetSnake()">🔄 Reset</button>
+                        <span id="snake-high-score" class="snake-highscore">High: 0</span>
+                    </div>
+                    <div id="snake-game-over" class="snake-game-over">
+                        <h3>Game Over!</h3>
+                        <p>Final Score: <span class="final-score">0</span></p>
+                        <p>Auto restarting...</p>
+                    </div>
+                </div>
+                
+                <!-- Quotes Box -->
+                <div class="quotes-container">
+                    <div class="quotes-header">
+                        <span class="quotes-title">💭 Daily Motivation</span>
+                        <button class="quote-add-btn" onclick="window.addQuote()">+ Add Quote</button>
+                    </div>
+                    <div class="quote-display">
+                        <div>
+                            <div id="quote-text" class="quote-text"></div>
+                            <div id="quote-author" class="quote-author"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Center panel - Main attendance content
+        const mainContentHTML = `
+            <div class="main-attendance-content">
+                ${headerHTML}
+                ${progressBarHTML}
+                ${tableHTML}
+                ${timeStatsHTML}
+                ${completionHTML}
+            </div>
+        `;
+        
+        // Right panel - XP System & Image Box
+        const rightPanelHTML = `
+            <div class="right-panel">
+                <!-- XP System -->
+                <div class="xp-container">
+                    <div class="xp-header">
+                        <span class="xp-title">⭐ Work Rewards</span>
+                        <div class="xp-level">
+                            <span class="level-badge">Level <span id="xp-level">1</span></span>
+                        </div>
+                    </div>
+                    <div class="xp-progress-container">
+                        <div class="xp-progress-bar">
+                            <div id="xp-progress-fill" class="xp-progress-fill" style="width: 0%"></div>
+                        </div>
+                        <div class="xp-info">
+                            <span><span id="xp-current">0</span> XP</span>
+                            <span><span id="xp-needed">120</span> XP to next level</span>
+                        </div>
+                        <div id="xp-next-milestone" class="xp-next-milestone" style="display: none;">
+                            Next milestone in Xh
+                        </div>
+                    </div>
+                    <div class="xp-streak">
+                        <span class="xp-streak-icon">🔥</span>
+                        <span><span id="xp-streak">0</span>-Day Streak</span>
+                        <span style="opacity: 0.6; font-size: 0.75rem;">(Best: <span id="xp-longest-streak">0</span>)</span>
+                    </div>
+                    <div class="xp-stats">
+                        <div class="xp-stat-item">
+                            <div class="xp-stat-label">Total XP</div>
+                            <div id="xp-total" class="xp-stat-value">0</div>
+                        </div>
+                        <div class="xp-stat-item">
+                            <div class="xp-stat-label">Today's Hours</div>
+                            <div id="xp-today-hours" class="xp-stat-value">0</div>
+                        </div>
+                    </div>
+                    <div id="xp-achievements" class="xp-achievements">
+                        <!-- Achievement badges will be dynamically inserted here -->
+                    </div>
+                </div>
+                
+                <!-- Image Box -->
+                <div class="image-box-container">
+                    <div class="image-box-header">
+                        <span class="image-box-title">🖼️ Your Space</span>
+                        <button class="image-change-btn" onclick="window.changeImageBox()">Change Image</button>
+                    </div>
+                    <div id="image-display" class="image-display">
+                        <div class="image-placeholder">📷 Click "Change Image" to add your favorite image</div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Combine all three panels in proper order: Left - Center - Right
+        totalTimeDiv.innerHTML = leftPanelHTML + mainContentHTML + rightPanelHTML;
         
         // Add developer info inside the card
         addDeveloperInfo(totalTimeDiv);
@@ -3128,6 +4584,38 @@
         // Add parallax effect
         addParallaxEffect(totalTimeDiv);
         
+        // Initialize all new features after DOM is ready (only once)
+        if (!featuresInitialized) {
+            setTimeout(() => {
+                initSnakeGame();
+                initQuotesSystem();
+                initXPSystem();
+                initImageBox();
+                
+                // Award XP based on hours worked
+                const hoursWorked = totalWorkedTime / 3600;
+                awardXP(hoursWorked);
+                
+                featuresInitialized = true;
+            }, 100);
+        } else {
+            // Features already initialized, just update XP
+            const hoursWorked = totalWorkedTime / 3600;
+            awardXP(hoursWorked);
+        }
+        
+        // Expose functions to window for onclick handlers
+        window.snakePlayPause = () => {
+            if (!snakeGameRunning) {
+                startSnakeGame();
+            } else {
+                pauseSnakeGame();
+            }
+        };
+        window.resetSnake = resetSnakeGame;
+        window.addQuote = addCustomQuote;
+        window.changeImageBox = changeImage;
+        
         // Reset cached values for new render
         cachedValues = {
             totalWorked: totalTimeFormatted,
@@ -3138,7 +4626,7 @@
         };
     }
     
-    function updateDynamicContent(totalWorkedTime, today) {
+    function updateDynamicContent(totalWorkedTime, today, checkInOutList = []) {
         // Batch all DOM reads first, then all writes to prevent layout thrashing
         const totalTimeFormatted = secondsToHHMMSS(totalWorkedTime);
         const remainingTime = 28800 - totalWorkedTime;
@@ -3152,57 +4640,105 @@
             futureTimeFormatted = formatTime12Hour(futureTime);
         }
         
+        // Update XP based on hours worked
+        const hoursWorked = totalWorkedTime / 3600;
+        awardXP(hoursWorked);
+        
+        // Get or cache DOM elements (do this ONCE to avoid repeated queries)
+        if (!cachedElements.totalWorkedTime) {
+            cachedElements.totalWorkedTime = document.getElementById('total-worked-time');
+            cachedElements.remainingTime = document.getElementById('remaining-time');
+            cachedElements.completionTime = document.getElementById('completion-time');
+            cachedElements.emojiDisplay = document.querySelector('.emoji-display');
+            cachedElements.progressFill = document.querySelector('.progress-fill');
+        }
+        
+        // Update "Current" row in the table if it exists (for active check-in)
+        if (checkInOutList.length > 0) {
+            const lastEntry = checkInOutList[checkInOutList.length - 1];
+            if (lastEntry.checkOut === 'Current') {
+                if (!cachedElements.currentWorkedTime) {
+                    cachedElements.currentWorkedTime = document.getElementById('current-worked-time');
+                }
+                const workedTimeCell = cachedElements.currentWorkedTime;
+                if (workedTimeCell && workedTimeCell.textContent !== lastEntry.workedTime) {
+                    requestAnimationFrame(() => {
+                        workedTimeCell.textContent = lastEntry.workedTime;
+                    });
+                }
+            }
+        }
+        
         // Only update if values have actually changed
         const updates = [];
         
         if (cachedValues.totalWorked !== totalTimeFormatted) {
-            updates.push({
-                element: document.getElementById('total-worked-time'),
-                property: 'textContent',
-                value: totalTimeFormatted
-            });
+            const element = cachedElements.totalWorkedTime;
+            if (element) {
+                updates.push({
+                    element: element,
+                    property: 'textContent',
+                    value: totalTimeFormatted
+                });
+            }
             cachedValues.totalWorked = totalTimeFormatted;
         }
         
         if (cachedValues.remaining !== remainingTimeFormatted) {
-            updates.push({
-                element: document.getElementById('remaining-time'),
-                property: 'textContent',
-                value: remainingTimeFormatted
-            });
+            const element = cachedElements.remainingTime;
+            if (element) {
+                updates.push({
+                    element: element,
+                    property: 'textContent',
+                    value: remainingTimeFormatted
+                });
+            }
             cachedValues.remaining = remainingTimeFormatted;
         }
         
         if (cachedValues.completion !== futureTimeFormatted && futureTimeFormatted) {
-            updates.push({
-                element: document.getElementById('completion-time'),
-                property: 'textContent',
-                value: futureTimeFormatted
-            });
+            const element = cachedElements.completionTime;
+            if (element) {
+                updates.push({
+                    element: element,
+                    property: 'textContent',
+                    value: futureTimeFormatted
+                });
+            }
             cachedValues.completion = futureTimeFormatted;
         }
         
         if (cachedValues.emoji !== currentEmoji) {
-            updates.push({
-                element: document.querySelector('.emoji-display'),
-                property: 'textContent',
-                value: currentEmoji
-            });
+            const element = cachedElements.emojiDisplay;
+            if (element) {
+                updates.push({
+                    element: element,
+                    property: 'textContent',
+                    value: currentEmoji
+                });
+            }
             cachedValues.emoji = currentEmoji;
         }
         
-        if (cachedValues.progress !== progress) {
-            updates.push({
-                element: document.querySelector('.progress-fill'),
-                property: 'width',
-                value: `${progress}%`
-            });
-            cachedValues.progress = progress;
+        // Only update progress if it changed by at least 0.1% to avoid constant updates
+        const roundedProgress = Math.round(progress * 10) / 10;
+        if (Math.abs(cachedValues.progress - roundedProgress) >= 0.1) {
+            const element = cachedElements.progressFill;
+            if (element) {
+                updates.push({
+                    element: element,
+                    property: 'width',
+                    value: `${roundedProgress}%`
+                });
+            }
+            cachedValues.progress = roundedProgress;
         }
         
-        // Batch all DOM writes together
+        // Batch all DOM writes together using RAF for smooth, non-blocking updates
+        // RAF ensures updates happen during browser's repaint cycle, not during animations
         if (updates.length > 0) {
             requestAnimationFrame(() => {
+                // Group all updates in single batch to minimize reflows
                 updates.forEach(update => {
                     if (update.element) {
                         if (update.property === 'width') {

@@ -49,6 +49,83 @@
     const snakeCellSize = 2; // 2px per cell for smooth growth
     
     // ====================================
+    // MULTI-GAME SYSTEM VARIABLES
+    // ====================================
+    let currentGame = 'snake'; // 'snake' | 'reflex' | 'aim'
+    let gameAreaElement = null;
+    
+    // ====================================
+    // REFLEX GAME VARIABLES
+    // ====================================
+    let reflexGameStarted = false;
+    let reflexGameFinished = false;
+    let reflexIsWaiting = false;
+    let reflexCanClick = false;
+    let reflexStartTime = 0;
+    let reflexReactionTimes = [];
+    let reflexCurrentRound = 0;
+    let reflexFalseStarts = 0;
+    let reflexMode = 'screen'; // 'screen' | 'target'
+    
+    // RefleX target state
+    let reflexShowTarget = false;
+    let reflexTargetPosition = { x: 0, y: 0 };
+    let reflexTargetColor = '#ef4444';
+    
+    // RefleX timeout reference
+    let reflexTimeoutRef = null;
+    
+    // RefleX game modes configuration
+    const reflexGameModes = {
+        screen: {
+            name: 'Screen Mode',
+            icon: '⚡',
+            description: 'Full screen reaction',
+            rounds: 5,
+            minDelay: 1000,
+            maxDelay: 4000,
+            targets: false
+        } ,
+        target: {
+            name: 'Target Mode',
+            icon: '🎯',
+            description: 'Click specific targets',
+            rounds: 8,
+            minDelay: 800,
+            maxDelay: 3000,
+            targets: true
+        }
+    };
+    
+    // ====================================
+    // AIM TRAINER GAME VARIABLES
+    // ====================================
+    let aimGameStarted = false;
+    let aimGameFinished = false;
+    let aimTimer = 30;
+    let aimScore = 0;
+    let aimAccuracy = 100;
+    let aimTargets = [];
+    let aimShots = 0;
+    let aimHits = 0;
+    let aimBulletHoles = [];
+    
+    // AimTrainer timer reference
+    let aimTimerRef = null;
+    let aimRenderFrameId = null;
+    
+    // AimTrainer chaos mode configuration
+    const aimChaosMode = {
+        name: 'Chaos Mode',
+        icon: '💥',
+        description: 'Multiple fast targets',
+        targetSize: 35,
+        targetCount: 3,
+        targetSpeed: 800,
+        timeLimit: 30
+    };
+    
+    // ====================================
     // QUOTES SYSTEM VARIABLES
     // ====================================
     let quotesArray = [];
@@ -97,6 +174,15 @@
     // IMAGE BOX VARIABLES
     // ====================================
     let currentImageURL = '';
+    let currentAspectRatio = '16:9'; // Default: Widescreen ratio
+    
+    // Aspect ratio configurations
+    const aspectRatios = {
+        '1:1': { name: 'Square', icon: '◻', paddingBottom: '100%', use: 'Profile pics, badges' },
+        '16:9': { name: 'Widescreen', icon: '▬', paddingBottom: '56.25%', use: 'Videos, monitors' },
+        '4:3': { name: 'Classic', icon: '▭', paddingBottom: '75%', use: 'Old monitors, photos' },
+        '9:16': { name: 'Portrait', icon: '▯', paddingBottom: '177.78%', use: 'Phone screens, stories' }
+    };
     
     // User preferences for hyper-personalization
     let userPreferences = {
@@ -191,6 +277,38 @@
     
     function saveImageURL(url) {
         localStorage.setItem('customImageURL', url);
+    }
+    
+    // Aspect Ratio Storage
+    function loadAspectRatio() {
+        return localStorage.getItem('customImageAspectRatio') || '16:9';
+    }
+    
+    function saveAspectRatio(ratio) {
+        localStorage.setItem('customImageAspectRatio', ratio);
+    }
+    
+    // RefleX Game Storage
+    function loadReflexHighScores() {
+        const saved = localStorage.getItem('reflexHighScores');
+        return saved ? JSON.parse(saved) : {
+            screen: { best: Infinity, avg: Infinity },
+            target: { best: Infinity, avg: Infinity }
+        };
+    }
+    
+    function saveReflexHighScores(scores) {
+        localStorage.setItem('reflexHighScores', JSON.stringify(scores));
+    }
+    
+    // AimTrainer Game Storage
+    function loadAimHighScore() {
+        const saved = localStorage.getItem('aimChaosHighScore');
+        return saved ? parseInt(saved) : 0;
+    }
+    
+    function saveAimHighScore(score) {
+        localStorage.setItem('aimChaosHighScore', score.toString());
     }
     
     // ====================================
@@ -398,9 +516,10 @@
         showSnakeGameOver();
         updateSnakePlayButton();
         
-        // Auto restart after 3 seconds
+        // Auto restart and begin playing after 3 seconds
         setTimeout(() => {
             resetSnakeGame();
+            startSnakeGame();
         }, 3000);
     }
     
@@ -437,9 +556,967 @@
         if (!snakeGameRunning) {
             playBtn.textContent = '▶ Play';
         } else if (snakeGamePaused) {
-            playBtn.textContent = '▶ Resume';
+            playBtn.textContent = '⏸ Pause';
         } else {
             playBtn.textContent = '⏸ Pause';
+        }
+    }
+    
+    // ====================================
+    // REFLEX GAME LOGIC
+    // ====================================
+    
+    function initReflexGame() {
+        gameAreaElement = document.getElementById('multi-game-area');
+        if (!gameAreaElement) return;
+        
+        // Load high scores
+        const highScores = loadReflexHighScores();
+        updateReflexScoreDisplay();
+        updateReflexDisplay();
+    }
+    
+    function generateReflexTargetPosition() {
+        if (!gameAreaElement) return { x: 200, y: 200 };
+        
+        const rect = gameAreaElement.getBoundingClientRect();
+        const targetSize = 60;
+        const margin = Math.max(targetSize / 2 + 20, 50);
+        
+        const availableWidth = Math.max(rect.width - margin * 2, 100);
+        const availableHeight = Math.max(rect.height - margin * 2, 100);
+        
+        const minX = margin;
+        const maxX = rect.width - margin;
+        const minY = margin;
+        const maxY = rect.height - margin;
+        
+        let position = {
+            x: Math.random() * availableWidth + margin,
+            y: Math.random() * availableHeight + margin
+        };
+        
+        // Bounds validation
+        position.x = Math.max(minX, Math.min(maxX, position.x));
+        position.y = Math.max(minY, Math.min(maxY, position.y));
+        
+        return position;
+    }
+    
+    function generateReflexTargetColor() {
+        const colors = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6'];
+        return colors[Math.floor(Math.random() * colors.length)];
+    }
+    
+    function startReflexRound(roundNum) {
+        const config = reflexGameModes[reflexMode];
+        const nextRound = roundNum || reflexCurrentRound + 1;
+        
+        if (nextRound > config.rounds) {
+            finishReflexGame();
+            return;
+        }
+        
+        reflexCurrentRound = nextRound;
+        reflexIsWaiting = true;
+        reflexCanClick = false;
+        reflexShowTarget = false;
+        
+        updateReflexDisplay();
+        
+        const delay = Math.random() * (config.maxDelay - config.minDelay) + config.minDelay;
+        
+        reflexTimeoutRef = setTimeout(() => {
+            reflexStartTime = Date.now();
+            reflexCanClick = true;
+            reflexIsWaiting = false;
+            
+            if (config.targets) {
+                reflexTargetPosition = generateReflexTargetPosition();
+                reflexTargetColor = generateReflexTargetColor();
+                reflexShowTarget = true;
+            }
+            
+            updateReflexDisplay();
+        }, delay);
+    }
+    
+    function handleReflexClick(event) {
+        if (!reflexGameStarted || reflexGameFinished) return;
+        
+        // FALSE START detection
+        if (reflexIsWaiting) {
+            reflexFalseStarts++;
+            if (reflexTimeoutRef) clearTimeout(reflexTimeoutRef);
+            updateReflexDisplay();
+            setTimeout(() => startReflexRound(reflexCurrentRound), 500);
+            return;
+        }
+        
+        if (!reflexCanClick) return;
+        
+        // Calculate reaction time
+        const reactionTime = Date.now() - reflexStartTime;
+        
+        // TARGET MODE: Check if clicked on target
+        if (reflexGameModes[reflexMode].targets && reflexShowTarget) {
+            const rect = gameAreaElement.getBoundingClientRect();
+            const clickX = event.clientX - rect.left;
+            const clickY = event.clientY - rect.top;
+            
+            // Distance formula
+            const distance = Math.sqrt(
+                Math.pow(clickX - reflexTargetPosition.x, 2) +
+                Math.pow(clickY - reflexTargetPosition.y, 2)
+            );
+            
+            // Target radius is 30px
+            if (distance > 30) {
+                // Missed target, restart round
+                reflexCanClick = false;
+                reflexShowTarget = false;
+                updateReflexDisplay();
+                setTimeout(() => startReflexRound(reflexCurrentRound), 500);
+                return;
+            }
+        }
+        
+        // SUCCESSFUL REACTION
+        reflexReactionTimes.push(reactionTime);
+        reflexCanClick = false;
+        reflexShowTarget = false;
+        
+        updateReflexDisplay();
+        
+        // Start next round after brief delay
+        setTimeout(() => {
+            startReflexRound();
+        }, 300);
+    }
+    
+    function finishReflexGame() {
+        reflexGameStarted = false;
+        reflexGameFinished = true;
+        reflexCanClick = false;
+        reflexShowTarget = false;
+        
+        if (reflexTimeoutRef) {
+            clearTimeout(reflexTimeoutRef);
+            reflexTimeoutRef = null;
+        }
+        
+        // Calculate statistics
+        const avgTime = reflexReactionTimes.length > 0
+            ? Math.round(reflexReactionTimes.reduce((a, b) => a + b, 0) / reflexReactionTimes.length)
+            : 0;
+        const bestTime = reflexReactionTimes.length > 0 ? Math.min(...reflexReactionTimes) : 0;
+        
+        // Check and update high scores
+        const highScores = loadReflexHighScores();
+        let newHighScore = false;
+        
+        if (avgTime < highScores[reflexMode].avg) {
+            highScores[reflexMode].avg = avgTime;
+            newHighScore = true;
+        }
+        if (bestTime < highScores[reflexMode].best) {
+            highScores[reflexMode].best = bestTime;
+            newHighScore = true;
+        }
+        
+        if (newHighScore) {
+            saveReflexHighScores(highScores);
+        }
+        
+        // Award XP based on performance
+        awardGameXP('reflex', { avgTime, bestTime, falseStarts: reflexFalseStarts });
+        
+        updateReflexDisplay();
+        showReflexResults(avgTime, bestTime, newHighScore);
+    }
+    
+    function resetReflexGame() {
+        reflexGameStarted = false;
+        reflexGameFinished = false;
+        reflexIsWaiting = false;
+        reflexCanClick = false;
+        reflexStartTime = 0;
+        reflexReactionTimes = [];
+        reflexCurrentRound = 0;
+        reflexFalseStarts = 0;
+        reflexShowTarget = false;
+        
+        if (reflexTimeoutRef) {
+            clearTimeout(reflexTimeoutRef);
+            reflexTimeoutRef = null;
+        }
+        
+        updateReflexDisplay();
+        hideReflexResults();
+    }
+    
+    function startReflexGame() {
+        resetReflexGame();
+        reflexGameStarted = true;
+        reflexGameFinished = false;
+        reflexReactionTimes = [];
+        reflexCurrentRound = 0;
+        reflexFalseStarts = 0;
+        
+        // Ensure click listener is attached
+        if (gameAreaElement) {
+            gameAreaElement.removeEventListener('click', handleReflexClick);
+            gameAreaElement.addEventListener('click', handleReflexClick);
+        }
+        
+        updateReflexDisplay();
+        startReflexRound(1);
+    }
+    
+    function toggleReflexMode() {
+        if (reflexGameStarted) return; // Can't change mode during game
+        
+        reflexMode = reflexMode === 'screen' ? 'target' : 'screen';
+        updateReflexDisplay();
+    }
+    
+    function updateReflexDisplay() {
+        if (!gameAreaElement) return;
+        
+        const config = reflexGameModes[reflexMode];
+        
+        // Update game area appearance based on state
+        gameAreaElement.className = 'multi-game-area reflex-game-area';
+        gameAreaElement.style.pointerEvents = 'auto'; // Ensure clicks work
+        
+        // Set crosshair cursor for Target mode
+        if (config.targets) {
+            gameAreaElement.style.cursor = 'crosshair';
+        } else {
+            gameAreaElement.style.cursor = 'pointer';
+        }
+        
+        if (reflexIsWaiting) {
+            gameAreaElement.classList.add('reflex-waiting-state');
+            gameAreaElement.style.background = 'linear-gradient(135deg, #dc2626, #991b1b)';
+        } else if (reflexCanClick) {
+            gameAreaElement.classList.add('reflex-ready-state');
+            gameAreaElement.style.background = 'linear-gradient(135deg, #16a34a, #15803d)';
+        } else {
+            gameAreaElement.style.background = 'rgba(0, 0, 0, 0.3)';
+        }
+        
+        // Clear previous content
+        gameAreaElement.innerHTML = '';
+        
+        // Show instructions or state text
+        const stateText = document.createElement('div');
+        stateText.style.cssText = `
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2rem;
+            font-weight: 700;
+            color: white;
+            text-align: center;
+            text-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+            z-index: 10;
+        `;
+        
+        if (!reflexGameStarted) {
+            stateText.textContent = `Click "Play" to start ${config.name}`;
+            stateText.style.fontSize = '1.5rem';
+        } else if (reflexIsWaiting) {
+            stateText.textContent = 'Wait for it...';
+        } else if (reflexCanClick) {
+            stateText.textContent = config.targets ? '' : 'CLICK NOW!';
+        } else if (reflexGameFinished) {
+            stateText.textContent = 'Game Complete!';
+        } else {
+            stateText.textContent = `Round ${reflexCurrentRound}/${config.rounds}`;
+            stateText.style.fontSize = '1.2rem';
+            stateText.style.top = '20px';
+            stateText.style.transform = 'translateX(-50%)';
+        }
+        
+        gameAreaElement.appendChild(stateText);
+        
+        // Show target if in target mode and can click
+        if (reflexShowTarget && config.targets && reflexCanClick) {
+            const target = document.createElement('div');
+            target.className = 'reflex-target';
+            target.style.cssText = `
+                position: absolute;
+                left: ${reflexTargetPosition.x - 30}px;
+                top: ${reflexTargetPosition.y - 30}px;
+                width: 60px;
+                height: 60px;
+                border-radius: 50%;
+                background: radial-gradient(circle, ${reflexTargetColor}, ${reflexTargetColor}aa);
+                box-shadow: 0 0 30px ${reflexTargetColor}66;
+                animation: targetPulse 1s ease-in-out infinite;
+                cursor: crosshair;
+                z-index: 15;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            `;
+            gameAreaElement.appendChild(target);
+        }
+        
+        // Update stats display
+        updateReflexStatsDisplay();
+    }
+    
+    function updateReflexStatsDisplay() {
+        const statsElement = document.getElementById('reflex-stats');
+        if (!statsElement) return;
+        
+        const config = reflexGameModes[reflexMode];
+        const avgTime = reflexReactionTimes.length > 0
+            ? Math.round(reflexReactionTimes.reduce((a, b) => a + b, 0) / reflexReactionTimes.length)
+            : 0;
+        
+        statsElement.innerHTML = `
+            <div style="display: flex; justify-content: space-around; padding: 8px; font-size: 0.875rem;">
+                <div><strong>Round:</strong> ${reflexCurrentRound}/${config.rounds}</div>
+                <div><strong>Avg:</strong> ${avgTime}ms</div>
+                <div><strong>False Starts:</strong> ${reflexFalseStarts}</div>
+            </div>
+        `;
+    }
+    
+    function updateReflexScoreDisplay() {
+        const highScoreElement = document.getElementById('reflex-high-score');
+        if (!highScoreElement) return;
+        
+        const highScores = loadReflexHighScores();
+        const currentModeBest = highScores[reflexMode]?.best || 0;
+        const screenBest = highScores.screen?.best || 0;
+        const targetBest = highScores.target?.best || 0;
+        
+        highScoreElement.innerHTML = `
+            <div style="font-size: 0.875rem; color: #a78bfa;">
+                <div><strong>🏆 High Scores</strong></div>
+                <div style="margin-top: 4px;">⚡ Screen: ${screenBest}ms</div>
+                <div>🎯 Target: ${targetBest}ms</div>
+                <div style="margin-top: 4px; color: #10b981;">Current: ${currentModeBest}ms</div>
+            </div>
+        `;
+    }
+    
+    function showReflexResults(avgTime, bestTime, isNewHighScore) {
+        const resultsElement = document.getElementById('reflex-results');
+        if (!resultsElement) return;
+        
+        resultsElement.innerHTML = `
+            <div style="text-align: center;">
+                <h3 style="margin-bottom: 16px; color: #10b981;">${isNewHighScore ? '🎉 New High Score!' : 'Game Complete!'}</h3>
+                <div style="margin-bottom: 12px;">
+                    <div style="font-size: 1.2rem; font-weight: 700;">Average: ${avgTime}ms</div>
+                    <div style="font-size: 1.2rem; font-weight: 700;">Best: ${bestTime}ms</div>
+                    <div style="font-size: 0.9rem; margin-top: 8px;">False Starts: ${reflexFalseStarts}</div>
+                </div>
+                <button id="reflex-play-again-btn" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea, #764ba2); border: none; border-radius: 8px; color: white; font-weight: 600; cursor: pointer;">
+                    Play Again
+                </button>
+            </div>
+        `;
+        resultsElement.classList.add('active');
+        
+        // Add click handler for Play Again button
+        const playAgainBtn = document.getElementById('reflex-play-again-btn');
+        if (playAgainBtn) {
+            playAgainBtn.onclick = () => {
+                hideReflexResults();
+                resetReflexGame();
+                startReflexGame();
+            };
+        }
+    }
+    
+    function hideReflexResults() {
+        const resultsElement = document.getElementById('reflex-results');
+        if (resultsElement) {
+            resultsElement.classList.remove('active');
+        }
+    }
+    
+    // ====================================
+    // AIM TRAINER CHAOS MODE LOGIC
+    // ====================================
+    
+    function initAimTrainerGame() {
+        gameAreaElement = document.getElementById('multi-game-area');
+        if (!gameAreaElement) return;
+        
+        // Reset game state
+        aimGameStarted = false;
+        aimGameFinished = false;
+        aimTimer = aimChaosMode.timeLimit;
+        aimScore = 0;
+        aimAccuracy = 100;
+        aimTargets = [];
+        aimShots = 0;
+        aimHits = 0;
+        aimBulletHoles = [];
+        
+        // Load high score
+        const highScore = loadAimHighScore();
+        updateAimScoreDisplay();
+        renderAimGame();
+    }
+    
+    function generateAimTargetPosition() {
+        if (!gameAreaElement) return { x: 200, y: 200 };
+        
+        const rect = gameAreaElement.getBoundingClientRect();
+        const targetSize = aimChaosMode.targetSize;
+        const margin = targetSize / 2 + 20;
+        
+        const minX = margin;
+        const maxX = rect.width - margin;
+        const minY = margin;
+        const maxY = rect.height - margin;
+        
+        let position = {
+            x: Math.random() * (maxX - minX) + minX,
+            y: Math.random() * (maxY - minY) + minY
+        };
+        
+        return position;
+    }
+    
+    function createAimTarget() {
+        const position = generateAimTargetPosition();
+        return {
+            id: Date.now() + Math.random(),
+            x: position.x,
+            y: position.y,
+            size: aimChaosMode.targetSize,
+            createdAt: Date.now()
+        };
+    }
+    
+    function spawnMultipleTargets(count) {
+        const newTargets = [];
+        for (let i = 0; i < count; i++) {
+            newTargets.push(createAimTarget());
+            // Small delay to ensure unique IDs
+            const tempId = Date.now();
+            while (Date.now() === tempId) { /* wait */ }
+        }
+        aimTargets = newTargets;
+        // Render will be called by the function that spawns targets
+    }
+    
+    function handleAimTargetHit(targetId, clickX, clickY) {
+        aimScore += 10;
+        aimHits++;
+        aimShots++;
+        
+        // Add green bullet hole
+        aimBulletHoles.push({
+            id: Date.now() + Math.random(),
+            x: clickX,
+            y: clickY,
+            type: 'hit',
+            createdAt: Date.now()
+        });
+        
+        // Remove hit target and spawn new one
+        aimTargets = aimTargets.filter(target => target.id !== targetId);
+        aimTargets.push(createAimTarget());
+        
+        // Update accuracy
+        aimAccuracy = aimShots > 0 ? Math.round((aimHits / aimShots) * 100) : 0;
+        
+        // Clean up old bullet holes (keep last 20)
+        if (aimBulletHoles.length > 20) {
+            aimBulletHoles = aimBulletHoles.slice(-20);
+        }
+        
+        updateAimStatsDisplay();
+        renderAimGame(); // Render on state change
+    }
+    
+    function handleAimMissedShot(clickX, clickY) {
+        aimShots++;
+        
+        // Add gray bullet hole
+        aimBulletHoles.push({
+            id: Date.now() + Math.random(),
+            x: clickX,
+            y: clickY,
+            type: 'miss',
+            createdAt: Date.now()
+        });
+        
+        // Update accuracy
+        aimAccuracy = aimShots > 0 ? Math.round((aimHits / aimShots) * 100) : 0;
+        
+        // Clean up old bullet holes
+        if (aimBulletHoles.length > 20) {
+            aimBulletHoles = aimBulletHoles.slice(-20);
+        }
+        
+        updateAimStatsDisplay();
+        renderAimGame(); // Render on state change
+    }
+    
+    function handleAimClick(event) {
+        if (!aimGameStarted || aimGameFinished) return;
+        
+        const rect = gameAreaElement.getBoundingClientRect();
+        const clickX = event.clientX - rect.left;
+        const clickY = event.clientY - rect.top;
+        
+        let targetHit = false;
+        
+        // Check all targets for hit
+        for (const target of aimTargets) {
+            const distance = Math.sqrt(
+                Math.pow(clickX - target.x, 2) + Math.pow(clickY - target.y, 2)
+            );
+            
+            // Hit detection with 5px tolerance
+            if (distance <= (target.size / 2) + 5) {
+                handleAimTargetHit(target.id, clickX, clickY);
+                targetHit = true;
+                break;
+            }
+        }
+        
+        // Record miss if no target hit
+        if (!targetHit) {
+            handleAimMissedShot(clickX, clickY);
+        }
+    }
+    
+    function updateAimTimer() {
+        if (!aimGameStarted || aimGameFinished) return;
+        
+        aimTimer--;
+        
+        if (aimTimer <= 0) {
+            finishAimGame();
+        }
+        
+        updateAimStatsDisplay();
+    }
+    
+    function finishAimGame() {
+        aimGameStarted = false;
+        aimGameFinished = true;
+        
+        if (aimTimerRef) {
+            clearInterval(aimTimerRef);
+            aimTimerRef = null;
+        }
+        
+        if (aimRenderFrameId) {
+            cancelAnimationFrame(aimRenderFrameId);
+            aimRenderFrameId = null;
+        }
+        
+        // Check high score
+        const highScore = loadAimHighScore();
+        const isNewHighScore = aimScore > highScore;
+        
+        if (isNewHighScore) {
+            saveAimHighScore(aimScore);
+        }
+        
+        // Award XP based on score
+        awardGameXP('aim', { score: aimScore, accuracy: aimAccuracy, hits: aimHits });
+        
+        showAimResults(isNewHighScore);
+    }
+    
+    function resetAimGame() {
+        aimGameStarted = false;
+        aimGameFinished = false;
+        aimTimer = aimChaosMode.timeLimit;
+        aimScore = 0;
+        aimAccuracy = 100;
+        aimTargets = [];
+        aimShots = 0;
+        aimHits = 0;
+        aimBulletHoles = [];
+        
+        if (aimTimerRef) {
+            clearInterval(aimTimerRef);
+            aimTimerRef = null;
+        }
+        
+        hideAimResults();
+        renderAimGame(); // Update DOM to show instructions screen
+    }
+    
+    function startAimGame() {
+        // Clear previous state
+        aimGameStarted = true;
+        aimGameFinished = false;
+        aimTimer = aimChaosMode.timeLimit;
+        aimScore = 0;
+        aimAccuracy = 100;
+        aimTargets = [];
+        aimShots = 0;
+        aimHits = 0;
+        aimBulletHoles = [];
+        
+        // Clear any existing timers
+        if (aimTimerRef) {
+            clearInterval(aimTimerRef);
+            aimTimerRef = null;
+        }
+        
+        // Ensure click listener is attached
+        if (gameAreaElement) {
+            gameAreaElement.removeEventListener('click', handleAimClick);
+            gameAreaElement.addEventListener('click', handleAimClick);
+        }
+        
+        // Spawn initial targets
+        spawnMultipleTargets(aimChaosMode.targetCount);
+        
+        // Start timer
+        aimTimerRef = setInterval(updateAimTimer, 1000);
+        
+        // Initial render
+        renderAimGame();
+        
+        updateAimStatsDisplay();
+    }
+    
+    function renderAimGame() {
+        if (!gameAreaElement) return;
+        
+        gameAreaElement.className = 'multi-game-area aim-game-area';
+        gameAreaElement.style.background = 'rgba(0, 0, 0, 0.3)';
+        gameAreaElement.style.cursor = 'crosshair';
+        
+        if (!aimGameStarted) {
+            // Clear everything when not started
+            gameAreaElement.innerHTML = '';
+            const instructionText = document.createElement('div');
+            instructionText.className = 'aim-instruction-text';
+            instructionText.style.cssText = `
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                font-size: 1.5rem;
+                font-weight: 700;
+                color: white;
+                text-align: center;
+                text-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+            `;
+            instructionText.textContent = 'Click "Play" to start Chaos Mode';
+            gameAreaElement.appendChild(instructionText);
+            return;
+        }
+        
+        // Game is started - remove instruction text if it exists
+        const instructionText = gameAreaElement.querySelector('.aim-instruction-text');
+        if (instructionText) {
+            instructionText.remove();
+        }
+        
+        // During gameplay: only update elements that changed
+        // Remove bullet holes that don't exist anymore (keep only elements with matching IDs)
+        const existingHoles = gameAreaElement.querySelectorAll('.bullet-hole');
+        existingHoles.forEach(holeEl => {
+            const holeId = holeEl.dataset.holeId;
+            const stillExists = aimBulletHoles.some(h => h.id == holeId);
+            if (!stillExists) {
+                holeEl.remove();
+            }
+        });
+        
+        // Add new bullet holes
+        aimBulletHoles.forEach(hole => {
+            const existingHole = gameAreaElement.querySelector(`[data-hole-id="${hole.id}"]`);
+            if (!existingHole) {
+                const holeElement = document.createElement('div');
+                holeElement.className = 'bullet-hole';
+                holeElement.dataset.holeId = hole.id;
+                holeElement.style.cssText = `
+                    position: absolute;
+                    left: ${hole.x - 6}px;
+                    top: ${hole.y - 6}px;
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 50%;
+                    background: ${hole.type === 'hit' 
+                        ? 'radial-gradient(circle, #10b981, transparent)' 
+                        : 'radial-gradient(circle, #6b7280, transparent)'};
+                    pointer-events: none;
+                    opacity: 0.7;
+                    z-index: 5;
+                    animation: bulletHoleFade 2s ease-out;
+                `;
+                gameAreaElement.appendChild(holeElement);
+            }
+        });
+        
+        // Remove targets that no longer exist
+        const existingTargets = gameAreaElement.querySelectorAll('.aim-target');
+        existingTargets.forEach(targetEl => {
+            const targetId = targetEl.dataset.targetId;
+            const stillExists = aimTargets.some(t => t.id == targetId);
+            if (!stillExists) {
+                targetEl.remove();
+            }
+        });
+        
+        // Add new targets (only create DOM element once per target)
+        aimTargets.forEach(target => {
+            const existingTarget = gameAreaElement.querySelector(`[data-target-id="${target.id}"]`);
+            if (!existingTarget) {
+                const targetElement = document.createElement('div');
+                targetElement.className = 'aim-target';
+                targetElement.dataset.targetId = target.id;
+                targetElement.style.cssText = `
+                    position: absolute;
+                    left: ${target.x - target.size / 2}px;
+                    top: ${target.y - target.size / 2}px;
+                    width: ${target.size}px;
+                    height: ${target.size}px;
+                    border-radius: 50%;
+                    background: radial-gradient(circle, #ef4444, #f59e0b);
+                    box-shadow: 0 0 20px rgba(239, 68, 68, 0.6);
+                    pointer-events: none;
+                    z-index: 10;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    animation: targetAppear 0.2s ease-out, targetPulse 1s ease-in-out infinite;
+                `;
+                gameAreaElement.appendChild(targetElement);
+            }
+        });
+    }
+    
+    function updateAimStatsDisplay() {
+        // Use direct DOM updates like quotes banner to prevent blinking
+        const timerElement = document.getElementById('aim-timer-display');
+        const scoreElement = document.getElementById('aim-score-display');
+        const accuracyElement = document.getElementById('aim-accuracy-display');
+        const hitsElement = document.getElementById('aim-hits-display');
+        const shotsElement = document.getElementById('aim-shots-display');
+        
+        if (timerElement) timerElement.textContent = aimTimer;
+        if (scoreElement) scoreElement.textContent = aimScore;
+        if (accuracyElement) accuracyElement.textContent = aimAccuracy;
+        if (hitsElement) hitsElement.textContent = aimHits;
+        if (shotsElement) shotsElement.textContent = aimShots;
+    }
+    
+    function updateAimScoreDisplay() {
+        const highScoreElement = document.getElementById('aim-high-score');
+        if (!highScoreElement) return;
+        
+        const highScore = loadAimHighScore();
+        highScoreElement.innerHTML = `
+            <div style="font-size: 0.875rem; color: #f59e0b;">
+                <div><strong>🏆 High Score</strong></div>
+                <div style="margin-top: 4px; font-size: 1.2rem; color: #ef4444;">${highScore}</div>
+            </div>
+        `;
+    }
+    
+    function showAimResults(isNewHighScore) {
+        const resultsElement = document.getElementById('aim-results');
+        if (!resultsElement) return;
+        
+        resultsElement.innerHTML = `
+            <div style="text-align: center;">
+                <h3 style="margin-bottom: 16px; color: #ef4444;">${isNewHighScore ? '🎉 New High Score!' : 'Game Complete!'}</h3>
+                <div style="margin-bottom: 12px;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #f59e0b;">Score: ${aimScore}</div>
+                    <div style="font-size: 1.2rem; margin-top: 8px;">Accuracy: ${aimAccuracy}%</div>
+                    <div style="font-size: 0.9rem; margin-top: 4px;">Hits: ${aimHits}/${aimShots}</div>
+                </div>
+                <button id="aim-play-again-btn" style="padding: 10px 20px; background: linear-gradient(135deg, #ef4444, #f59e0b); border: none; border-radius: 8px; color: white; font-weight: 600; cursor: pointer;">
+                    Play Again
+                </button>
+            </div>        `;
+        resultsElement.classList.add('active');
+        
+        // Add click handler for Play Again button
+        const playAgainBtn = document.getElementById('aim-play-again-btn');
+        if (playAgainBtn) {
+            playAgainBtn.onclick = () => {
+                hideAimResults();
+                resetAimGame();
+                startAimGame();
+            };
+        }
+    }
+    
+    function hideAimResults() {
+        const resultsElement = document.getElementById('aim-results');
+        if (resultsElement) {
+            resultsElement.classList.remove('active');
+        }
+    }
+    
+    // ====================================
+    // GAME SWITCHING SYSTEM
+    // ====================================
+    
+    function switchToGame(gameKey) {
+        if (currentGame === gameKey) return;
+        
+        // Cleanup current game
+        cleanupCurrentGame();
+        
+        // Update current game
+        currentGame = gameKey;
+        
+        // Initialize new game
+        initCurrentGame();
+        
+        // Update UI
+        updateGameSwitcher();
+        updateGameControls();
+    }
+    
+    function cleanupCurrentGame() {
+        switch (currentGame) {
+            case 'snake':
+                // Pause/stop snake game
+                if (snakeGameRunning) {
+                    snakeGameRunning = false;
+                    snakeGamePaused = false;
+                    if (snakeGameLoop) {
+                        clearInterval(snakeGameLoop);
+                        snakeGameLoop = null;
+                    }
+                }
+                // Remove keyboard listener for snake
+                document.removeEventListener('keydown', handleSnakeKeyPress);
+                // Reset snake game state
+                initSnakeGame();
+                break;
+                
+            case 'reflex':
+                // Stop reflex game
+                if (reflexTimeoutRef) {
+                    clearTimeout(reflexTimeoutRef);
+                    reflexTimeoutRef = null;
+                }
+                // Remove click listener
+                if (gameAreaElement) {
+                    gameAreaElement.removeEventListener('click', handleReflexClick);
+                }
+                // Reset reflex game state
+                resetReflexGame();
+                break;
+                
+            case 'aim':
+                // Stop aim game
+                if (aimTimerRef) {
+                    clearInterval(aimTimerRef);
+                    aimTimerRef = null;
+                }
+                if (aimRenderFrameId) {
+                    cancelAnimationFrame(aimRenderFrameId);
+                    aimRenderFrameId = null;
+                }
+                // Remove click listener
+                if (gameAreaElement) {
+                    gameAreaElement.removeEventListener('click', handleAimClick);
+                }
+                // Reset aim game state
+                resetAimGame();
+                break;
+        }
+    }
+    
+    function initCurrentGame() {
+        switch (currentGame) {
+            case 'snake':
+                initSnakeGame();
+                // Show snake canvas, hide game area
+                const snakeCanvas = document.getElementById('snake-canvas');
+                const gameArea = document.getElementById('multi-game-area');
+                if (snakeCanvas) snakeCanvas.style.display = 'block';
+                if (gameArea) gameArea.style.display = 'none';
+                break;
+                
+            case 'reflex':
+                // Hide snake canvas, show game area
+                const canvas = document.getElementById('snake-canvas');
+                const reflexArea = document.getElementById('multi-game-area');
+                if (canvas) canvas.style.display = 'none';
+                if (reflexArea) {
+                    reflexArea.style.display = 'block';
+                }
+                initReflexGame();
+                updateReflexDisplay();
+                break;
+                
+            case 'aim':
+                // Hide snake canvas, show game area
+                const snkCanvas = document.getElementById('snake-canvas');
+                const aimArea = document.getElementById('multi-game-area');
+                if (snkCanvas) snkCanvas.style.display = 'none';
+                if (aimArea) {
+                    aimArea.style.display = 'block';
+                }
+                initAimTrainerGame();
+                renderAimGame();
+                break;
+        }
+    }
+    
+    function updateGameSwitcher() {
+        // Update icon button active states
+        const snakeBtn = document.getElementById('game-switch-snake');
+        const reflexBtn = document.getElementById('game-switch-reflex');
+        const aimBtn = document.getElementById('game-switch-aim');
+        
+        if (snakeBtn) snakeBtn.classList.toggle('active', currentGame === 'snake');
+        if (reflexBtn) reflexBtn.classList.toggle('active', currentGame === 'reflex');
+        if (aimBtn) aimBtn.classList.toggle('active', currentGame === 'aim');
+    }
+    
+    function updateGameControls() {
+        // Show/hide appropriate control buttons and displays
+        const snakeControls = document.getElementById('snake-controls');
+        const reflexControls = document.getElementById('reflex-controls');
+        const aimControls = document.getElementById('aim-controls');
+        
+        const snakeStats = document.getElementById('snake-scoreboard');
+        const reflexStats = document.getElementById('reflex-stats');
+        const aimStats = document.getElementById('aim-stats');
+        
+        // Hide all first
+        if (snakeControls) snakeControls.style.display = 'none';
+        if (reflexControls) reflexControls.style.display = 'none';
+        if (aimControls) aimControls.style.display = 'none';
+        if (snakeStats) snakeStats.style.display = 'none';
+        if (reflexStats) reflexStats.style.display = 'none';
+        if (aimStats) aimStats.style.display = 'none';
+        
+        // Show current game controls
+        switch (currentGame) {
+            case 'snake':
+                if (snakeControls) snakeControls.style.display = 'flex';
+                if (snakeStats) snakeStats.style.display = 'flex';
+                break;
+            case 'reflex':
+                if (reflexControls) reflexControls.style.display = 'flex';
+                if (reflexStats) reflexStats.style.display = 'block';
+                break;
+            case 'aim':
+                if (aimControls) aimControls.style.display = 'flex';
+                if (aimStats) aimStats.style.display = 'block';
+                break;
         }
     }
     
@@ -761,13 +1838,85 @@
         }, 3000);
     }
     
+    // Game XP Reward System
+    function awardGameXP(gameType, performance) {
+        let xpGained = 0;
+        let message = '';
+        
+        switch (gameType) {
+            case 'reflex':
+                // Award XP based on reaction time (faster = more XP)
+                // Max 50 XP for avg time under 200ms
+                const avgTime = performance.avgTime;
+                if (avgTime < 200) {
+                    xpGained = 50;
+                } else if (avgTime < 250) {
+                    xpGained = 40;
+                } else if (avgTime < 300) {
+                    xpGained = 30;
+                } else if (avgTime < 400) {
+                    xpGained = 20;
+                } else {
+                    xpGained = 10;
+                }
+                
+                // Deduct for false starts
+                xpGained = Math.max(5, xpGained - (performance.falseStarts * 5));
+                
+                message = `⚡ ${xpGained} XP for ${avgTime}ms avg reaction!`;
+                break;
+                
+            case 'aim':
+                // Award XP based on score (higher score = more XP)
+                // Max 75 XP for score > 300
+                const score = performance.score;
+                if (score >= 300) {
+                    xpGained = 75;
+                } else if (score >= 250) {
+                    xpGained = 60;
+                } else if (score >= 200) {
+                    xpGained = 45;
+                } else if (score >= 150) {
+                    xpGained = 30;
+                } else if (score >= 100) {
+                    xpGained = 20;
+                } else {
+                    xpGained = 10;
+                }
+                
+                // Bonus for accuracy
+                if (performance.accuracy >= 80) {
+                    xpGained += 10;
+                    message = `💥 ${xpGained} XP (${score} pts + accuracy bonus)!`;
+                } else {
+                    message = `💥 ${xpGained} XP for ${score} points!`;
+                }
+                break;
+        }
+        
+        // Apply XP gain
+        if (xpGained > 0) {
+            userXP.currentXP += xpGained;
+            userXP.totalXP += xpGained;
+            
+            // Check for level up
+            checkLevelUp();
+            
+            saveUserXP(userXP);
+            updateXPDisplay();
+            showXPNotification(message, 'game');
+        }
+    }
+    
     // ====================================
     // IMAGE BOX LOGIC
     // ====================================
     
     function initImageBox() {
         currentImageURL = loadImageURL();
+        currentAspectRatio = loadAspectRatio();
         updateImageDisplay();
+        updateAspectRatioButtons();
     }
     
     function changeImage() {
@@ -784,11 +1933,44 @@
         const imageDisplay = document.getElementById('image-display');
         if (!imageDisplay) return;
         
+        // Apply aspect ratio
+        const ratio = aspectRatios[currentAspectRatio];
+        if (ratio) {
+            imageDisplay.style.paddingBottom = ratio.paddingBottom;
+        }
+        
         if (currentImageURL && currentImageURL !== '') {
-            imageDisplay.innerHTML = `<img src="${currentImageURL}" alt="Custom Image" onerror="this.parentElement.innerHTML='<div class=\\'image-placeholder\\'>❌ Failed to load image</div>'">`;
+            imageDisplay.innerHTML = `<img src="${currentImageURL}" alt="Custom Image" class="image-box-img" onerror="this.parentElement.innerHTML='<div class=\\'image-placeholder\\'>❌ Failed to load image</div>'">`;
         } else {
             imageDisplay.innerHTML = '<div class="image-placeholder">📷 Click "Change Image" to add your favorite image</div>';
         }
+    }
+    
+    function changeAspectRatio(ratio) {
+        if (!aspectRatios[ratio]) return;
+        
+        // Only apply aspect ratio change if an image is loaded
+        if (!currentImageURL || currentImageURL === '') {
+            return;
+        }
+        
+        currentAspectRatio = ratio;
+        saveAspectRatio(ratio);
+        updateImageDisplay();
+        updateAspectRatioButtons();
+    }
+    
+    function updateAspectRatioButtons() {
+        Object.keys(aspectRatios).forEach(ratio => {
+            const btn = document.getElementById(`aspect-ratio-${ratio.replace(':', '-')}`);
+            if (btn) {
+                if (ratio === currentAspectRatio) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            }
+        });
     }
     
     // Cache for preventing unnecessary updates
@@ -870,6 +2052,11 @@
                 flex-direction: column;
                 gap: 20px;
                 flex-shrink: 0;
+                /* CSS isolation to prevent reflows in other panels from affecting games */
+                contain: layout style paint;
+                will-change: contents;
+                transform: translateZ(0);
+                backface-visibility: hidden;
             }
             
             /* Center Panel - Main Attendance Content */
@@ -910,7 +2097,6 @@
             }
             
             .attendance-summary:hover {
-                transform: translateY(-4px) perspective(1000px) rotateX(calc(var(--mouse-y) * 0.1deg)) rotateY(calc(var(--mouse-x) * 0.1deg));
                 box-shadow: 
                     0 20px 60px rgba(0, 0, 0, 0.2),
                     0 6px 16px rgba(0, 0, 0, 0.1),
@@ -1166,62 +2352,62 @@
                 box-shadow: 0 8px 24px rgba(0, 184, 148, 0.3);
             }
             
-            /* Developer Info & Settings - Header Menu */
+            /* Developer Info & Settings - Bottom Control Bar */
             .developer-info {
-                position: absolute;
-                top: 16px;
+                position: fixed;
+                bottom: 24px;
                 left: 50%;
-                transform: translateX(20px);
+                transform: translateX(60px);
                 background: rgba(255, 255, 255, 0.08);
                 backdrop-filter: blur(12px);
                 border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 10px;
-                padding: 10px 14px;
+                border-radius: 12px;
+                padding: 12px 16px;
                 cursor: pointer;
                 transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                z-index: 100;
+                z-index: 1000;
                 font-size: 1.1rem;
                 color: #667eea;
                 text-decoration: none;
             }
             
             .developer-info:hover {
-                transform: translateX(20px) scale(1.08);
+                transform: translateX(60px) scale(1.08) translateY(-4px);
                 background: rgba(255, 255, 255, 0.12);
                 border-color: rgba(255, 255, 255, 0.25);
-                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+                box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
             }
             
             /* Settings Button */
             .settings-button {
-                position: absolute;
-                top: 16px;
+                position: fixed;
+                bottom: 24px;
                 left: 50%;
-                transform: translateX(-56px);
+                transform: translateX(-120px);
                 background: rgba(255, 255, 255, 0.08);
                 backdrop-filter: blur(12px);
                 border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 10px;
-                padding: 10px 14px;
+                border-radius: 12px;
+                padding: 12px 16px;
                 cursor: pointer;
                 transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                z-index: 100;
+                z-index: 1000;
                 font-size: 1.1rem;
                 color: #764ba2;
             }
             
             .settings-button:hover {
-                transform: translateX(-56px) scale(1.08) rotate(90deg);
+                transform: translateX(-120px) scale(1.08) translateY(-4px);
                 background: rgba(255, 255, 255, 0.12);
                 border-color: rgba(255, 255, 255, 0.25);
-                box-shadow: 0 4px 12px rgba(118, 75, 162, 0.2);
+                box-shadow: 0 8px 16px rgba(118, 75, 162, 0.3);
             }
             
             .developer-tooltip {
                 position: absolute;
-                top: calc(100% + 8px);
+                bottom: calc(100% + 8px);
                 left: 50%;
-                transform: translateX(-50%) translateY(-10px);
+                transform: translateX(-50%) translateY(10px);
                 background: rgba(0, 0, 0, 0.92);
                 color: white;
                 padding: 10px 14px;
@@ -1235,7 +2421,7 @@
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
                 min-width: 180px;
                 text-align: center;
-                z-index: 101;
+                z-index: 1001;
                 backdrop-filter: blur(8px);
             }
             
@@ -1248,11 +2434,11 @@
             .developer-tooltip::before {
                 content: '';
                 position: absolute;
-                bottom: 100%;
+                top: 100%;
                 left: 50%;
                 transform: translateX(-50%);
                 border: 5px solid transparent;
-                border-bottom-color: rgba(0, 0, 0, 0.92);
+                border-top-color: rgba(0, 0, 0, 0.92);
             }
             
             /* Picture-in-Picture Button Styles - Material Design 3 FAB */
@@ -1704,7 +2890,7 @@
             
             /* Compact Mode Styles */
             .pip-window-content.compact-mode {
-                padding: 4px 0px 4px 0px !important;
+                padding: 0px !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
@@ -1715,14 +2901,14 @@
             .compact-mode:not(.retro-theme) .pip-compact-display {
                 text-align: center !important;
                 background: rgba(255, 255, 255, 0.15) !important;
-                border: 2px solid rgba(255, 255, 255, 0.25) !important;
+                border: 1px solid rgba(255, 255, 255, 0.2) !important;
                 border-radius: 0px 0px 5px 5px !important;
                 padding: 20px 24px !important;
-                backdrop-filter: blur(20px) saturate(180%) !important;
-                -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+                backdrop-filter: blur(5px) saturate(180%) !important;
+                -webkit-backdrop-filter: blur(5px) saturate(180%) !important;
                 box-shadow: 
-                    0 0 20px rgba(102, 126, 234, 0.5),
-                    0 0 40px rgba(118, 75, 162, 0.4),
+                    0 0 20px rgba(102, 126, 234, 0.3),
+                    0 0 40px rgba(118, 75, 162, 0.25),
                     0 0 60px rgba(240, 147, 251, 0.3),
                     0 8px 32px rgba(102, 126, 234, 0.2),
                     inset 0 0 30px rgba(102, 126, 234, 0.15),
@@ -1743,9 +2929,9 @@
                 height: 200% !important;
                 background: linear-gradient(
                     135deg,
-                    rgba(102, 126, 234, 0.1),
-                    rgba(118, 75, 162, 0.1),
-                    rgba(240, 147, 251, 0.1)
+                    rgba(102, 126, 234, 0.4),
+                    rgba(118, 75, 162, 0.35),
+                    rgba(240, 147, 251, 0.4)
                 ) !important;
                 animation: gradientFlow 8s ease infinite !important;
                 pointer-events: none !important;
@@ -2085,21 +3271,21 @@
                         0 0 20px rgba(102, 126, 234, 0.5),
                         0 0 40px rgba(118, 75, 162, 0.4),
                         0 0 60px rgba(240, 147, 251, 0.3),
-                        inset 0 0 30px rgba(102, 126, 234, 0.15);
+                        inset 0 0 30px rgba(102, 126, 234, 0.15) !important;
                 }
                 33% {
                     box-shadow: 
                         0 0 25px rgba(118, 75, 162, 0.6),
                         0 0 50px rgba(240, 147, 251, 0.5),
                         0 0 75px rgba(79, 172, 254, 0.4),
-                        inset 0 0 35px rgba(118, 75, 162, 0.2);
+                        inset 0 0 35px rgba(118, 75, 162, 0.2) !important;
                 }
                 66% {
                     box-shadow: 
                         0 0 30px rgba(240, 147, 251, 0.6),
                         0 0 60px rgba(79, 172, 254, 0.5),
                         0 0 90px rgba(102, 126, 234, 0.4),
-                        inset 0 0 40px rgba(240, 147, 251, 0.2);
+                        inset 0 0 40px rgba(240, 147, 251, 0.2) !important;
                 }
             }
             
@@ -2346,6 +3532,27 @@
                     margin-right: 4px;
                     font-size: 0.9rem;
                 }
+                
+                /* Adjust button positions for mobile */
+                .settings-button {
+                    transform: translateX(-100px);
+                    padding: 10px 14px;
+                    font-size: 1rem;
+                }
+                
+                .settings-button:hover {
+                    transform: translateX(-100px) scale(1.08) translateY(-4px) rotate(90deg);
+                }
+                
+                .developer-info {
+                    transform: translateX(50px);
+                    padding: 10px 14px;
+                    font-size: 1rem;
+                }
+                
+                .developer-info:hover {
+                    transform: translateX(50px) scale(1.08) translateY(-4px);
+                }
             }
             
             /* Extra small screens (mobile) */
@@ -2403,6 +3610,32 @@
                 .pip-window-content .progress-bar {
                     height: 5px;
                     margin: 12px 0;
+                }
+                
+                /* Make buttons more compact on small screens */
+                .settings-button {
+                    transform: translateX(-70px);
+                    padding: 8px 12px;
+                    font-size: 0.95rem;
+                }
+                
+                .settings-button:hover {
+                    transform: translateX(-70px) scale(1.08) translateY(-4px) rotate(90deg);
+                }
+                
+                .developer-info {
+                    transform: translateX(30px);
+                    padding: 8px 12px;
+                    font-size: 0.95rem;
+                }
+                
+                .developer-info:hover {
+                    transform: translateX(30px) scale(1.08) translateY(-4px);
+                }
+                
+                .pip-button {
+                    padding: 10px 16px;
+                    font-size: 0.75rem;
                 }
             }
             
@@ -2567,9 +3800,93 @@
                     box-shadow: 0 6px 20px rgba(225, 112, 85, 0.4);
                     color: white;
                 }
+                
+                /* Fix glassmorphic containers for light mode */
+                .snake-game-container,
+                .quotes-container,
+                .image-box-container {
+                    background: rgba(255, 255, 255, 0.8);
+                    border-color: rgba(0, 0, 0, 0.1);
+                    backdrop-filter: blur(20px);
+                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+                }
+                
+                .xp-container {
+                    background: linear-gradient(135deg, rgba(108, 92, 231, 0.12), rgba(102, 126, 234, 0.08));
+                    border-color: rgba(108, 92, 231, 0.25);
+                    backdrop-filter: blur(20px);
+                    box-shadow: 0 4px 16px rgba(108, 92, 231, 0.15);
+                }
+                
+                .snake-game-title,
+                .quotes-title,
+                .xp-title,
+                .image-box-title {
+                    color: rgba(0, 0, 0, 0.85);
+                }
+                
+                .snake-score,
+                .quote-text,
+                .xp-stat-label {
+                    color: rgba(0, 0, 0, 0.65);
+                }
+                
+                .snake-canvas {
+                    background: rgba(0, 0, 0, 0.05);
+                }
+                
+                .quote-add-btn,
+                .image-change-btn {
+                    background: rgba(0, 0, 0, 0.08);
+                    border-color: rgba(0, 0, 0, 0.15);
+                    color: rgba(0, 0, 0, 0.8);
+                }
+                
+                .quote-add-btn:hover,
+                .image-change-btn:hover {
+                    background: rgba(0, 0, 0, 0.12);
+                }
+                
+                .aspect-ratio-btn {
+                    background: rgba(0, 0, 0, 0.08);
+                    border-color: rgba(0, 0, 0, 0.15);
+                    color: rgba(0, 0, 0, 0.8);
+                }
+                
+                .aspect-ratio-btn:hover {
+                    background: rgba(0, 0, 0, 0.12);
+                }
+                
+                .aspect-ratio-btn.active {
+                    background: linear-gradient(135deg, #667eea, #764ba2);
+                    border-color: #667eea;
+                    color: white;
+                }
+                
+                .xp-stat-item {
+                    background: rgba(0, 0, 0, 0.05);
+                }
+                
+                .xp-progress-bar {
+                    background: rgba(0, 0, 0, 0.1);
+                }
+                
+                .settings-button {
+                    background: rgba(255, 255, 255, 0.8);
+                    border-color: rgba(0, 0, 0, 0.1);
+                    color: #764ba2;
+                }
+                
+                .settings-button:hover {
+                    background: rgba(255, 255, 255, 0.9);
+                    border-color: rgba(0, 0, 0, 0.2);
+                }
+                
+                .image-placeholder {
+                    color: rgba(0, 0, 0, 0.4);
+                }
             }
-            
-            /* Retro-Futuristic Theme for Main Display */
+            /* Retro theme specific styles for main display */
             .attendance-summary.retro-theme {
                 background: linear-gradient(135deg, var(--retro-dark) 0%, var(--retro-dark-alt) 100%) !important;
                 color: var(--neon-cyan) !important;
@@ -2853,7 +4170,10 @@
                 font-weight: 600;
                 color: rgba(255, 255, 255, 0.9);
             }
-            
+            .snake-scoreboard {
+                display: flex;
+                gap: 12px;
+            }
             .snake-score {
                 font-size: 0.875rem;
                 color: rgba(255, 255, 255, 0.7);
@@ -2892,12 +4212,7 @@
                 transform: scale(1.05);
                 box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
             }
-            
-            .snake-highscore {
-                font-size: 0.75rem;
-                color: rgba(255, 255, 255, 0.6);
-            }
-            
+
             .snake-game-over {
                 position: absolute;
                 top: 50%;
@@ -2924,6 +4239,211 @@
             .snake-game-over p {
                 color: rgba(255, 255, 255, 0.8);
                 margin: 8px 0;
+            }
+            
+            /* ==================== MULTI-GAME SWITCHER STYLES ==================== */
+            .game-switcher {
+                display: flex;
+                justify-content: center;
+                gap: 8px;
+                margin-bottom: 12px;
+                padding: 8px;
+                background: rgba(0, 0, 0, 0.2);
+                border-radius: 12px;
+            }
+            
+            .game-switch-btn {
+                padding: 8px 12px;
+                background: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 8px;
+                color: rgba(255, 255, 255, 0.7);
+                font-size: 1.2rem;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                min-width: 50px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .game-switch-btn:hover {
+                background: rgba(255, 255, 255, 0.2);
+                transform: translateY(-2px);
+                border-color: rgba(255, 255, 255, 0.3);
+            }
+            
+            .game-switch-btn.active {
+                background: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
+                border-color: var(--aurora-1);
+                color: white;
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            }
+            
+            .multi-game-area {
+                width: 100%;
+                height: 368px;
+                background: rgba(0, 0, 0, 0.3);
+                border-radius: 12px;
+                position: relative;
+                overflow: hidden;
+                cursor: pointer;
+                transition: background 0.3s ease;
+                /* Force own compositing layer to isolate from parent reflows */
+                transform: translateZ(0);
+                will-change: transform;
+                contain: layout style paint;
+            }
+            
+            /* ==================== REFLEX GAME STYLES ==================== */
+            .reflex-game-area {
+                cursor: pointer;
+            }
+            
+            .reflex-waiting-state {
+                background: linear-gradient(135deg, #dc2626, #991b1b) !important;
+                animation: pulseRed 1s ease-in-out infinite;
+            }
+            
+            .reflex-ready-state {
+                background: linear-gradient(135deg, #16a34a, #15803d) !important;
+                animation: pulseGreen 0.5s ease-in-out infinite;
+            }
+            
+            @keyframes pulseRed {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.85; }
+            }
+            
+            @keyframes pulseGreen {
+                0%, 100% { box-shadow: 0 0 20px rgba(22, 163, 74, 0.5); }
+                50% { box-shadow: 0 0 40px rgba(22, 163, 74, 0.8); }
+            }
+            
+            .reflex-target {
+                cursor: crosshair;
+                animation: targetPulse 1s ease-in-out infinite;
+            }
+            
+            @keyframes targetPulse {
+                0%, 100% { 
+                    transform: scale(1);
+                    box-shadow: 0 0 30px currentColor;
+                }
+                50% { 
+                    transform: scale(1.1);
+                    box-shadow: 0 0 50px currentColor;
+                }
+            }
+            
+            .reflex-mode-toggle {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                padding: 6px 12px;
+                background: rgba(255, 255, 255, 0.15);
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 8px;
+                color: white;
+                font-size: 0.75rem;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                z-index: 20;
+            }
+            
+            .reflex-mode-toggle:hover {
+                background: rgba(255, 255, 255, 0.25);
+                transform: scale(1.05);
+            }
+            
+            #reflex-stats,
+            #aim-stats {
+                background: rgba(0, 0, 0, 0.2);
+                border-radius: 8px;
+                margin-top: 8px;
+                color: rgba(255, 255, 255, 0.9);
+            }
+            
+            #reflex-results,
+            #aim-results {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) scale(0.9);
+                background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.1));
+                backdrop-filter: blur(30px);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 24px;
+                padding: 32px;
+                min-width: 300px;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                z-index: 1000;
+                opacity: 0;
+                visibility: hidden;
+                transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+            }
+            
+            #reflex-results.active,
+            #aim-results.active {
+                opacity: 1;
+                visibility: visible;
+                transform: translate(-50%, -50%) scale(1);
+            }
+            
+            /* ==================== AIM TRAINER STYLES ==================== */
+            .aim-game-area {
+                cursor: crosshair;
+                background: 
+                    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                    rgba(0, 0, 0, 0.3);
+                background-size: 20px 20px;
+            }
+            
+            .aim-target {
+                animation: targetPulse 1s ease-in-out infinite;
+                user-select: none;
+                /* Force own compositing layer to prevent parent reflow interruptions */
+                will-change: transform, opacity;
+                backface-visibility: hidden;
+            }
+            
+            .bullet-hole {
+                animation: bulletHoleFade 2s ease-out forwards;
+                user-select: none;
+                pointer-events: none;
+            }
+            
+            @keyframes targetAppear {
+                0% {
+                    opacity: 0;
+                    transform: scale(0);
+                }
+                100% {
+                    opacity: 1;
+                    transform: scale(1);
+                }
+            }
+            
+            @keyframes bulletHoleFade {
+                0% { 
+                    opacity: 0;
+                    transform: scale(0);
+                }
+                10% {
+                    opacity: 0.9;
+                    transform: scale(1.2);
+                }
+                20%, 80% {
+                    opacity: 0.8;
+                    transform: scale(1);
+                }
+                100% { 
+                    opacity: 0;
+                    transform: scale(0.8);
+                }
             }
             
             /* ==================== QUOTES BOX STYLES ==================== */
@@ -3257,32 +4777,72 @@
                 background: rgba(255, 255, 255, 0.2);
             }
             
-            .image-display {
-                width: 100%;
-                height: 220px;
-                border-radius: 12px;
-                overflow: hidden;
-                background: rgba(0, 0, 0, 0.2);
+            .aspect-ratio-controls {
+                display: flex;
+                gap: 4px;
+                margin-bottom: 12px;
+                justify-content: center;
+            }
+            
+            .aspect-ratio-btn {
+                padding: 4px;
+                background: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 6px;
+                color: white;
+                font-size: 1.1rem;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                width: 28px;
+                height: 28px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
             }
             
-            .image-display img {
+            .aspect-ratio-btn:hover {
+                background: rgba(255, 255, 255, 0.2);
+                transform: translateY(-2px);
+            }
+            
+            .aspect-ratio-btn.active {
+                background: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
+                border-color: var(--aurora-1);
+                box-shadow: 0 4px 12px rgba(255, 105, 180, 0.3);
+            }
+            
+            .image-display {
+                width: 100%;
+                position: relative;
+                padding-bottom: 56.25%; /* Default 16:9 widescreen ratio */
+                border-radius: 12px;
+                overflow: hidden;
+                background: rgba(0, 0, 0, 0.2);
+            }
+            
+            .image-display .image-box-img {
+                position: absolute;
+                top: 0;
+                left: 0;
                 width: 100%;
                 height: 100%;
-                object-fit: cover;
+                object-fit: cover; /* Fill container without empty spaces */
                 transition: transform 0.3s ease;
             }
             
-            .image-display img:hover {
-                transform: scale(1.05);
+            .image-display .image-box-img:hover {
+                transform: scale(1.02);
             }
             
             .image-placeholder {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
                 color: rgba(255, 255, 255, 0.4);
                 font-size: 0.875rem;
                 text-align: center;
+                width: 80%;
             }
             
             /* Responsive adjustments */
@@ -3371,10 +4931,10 @@
             <div class="developer-tooltip">
                 <strong>Core Developer:</strong> Websoft Team<br>
                 <strong>Enhanced by:</strong> Hassan Nasir<br>
-                <small>Build: v3.0.2025 (Ultra Edition)</small><br>
-                <small>Last Modified: 24 Dec 2025</small><br>
-                <small>New: Voice, Settings & Bento Grid! 🎨</small><br>
-                <small>Azadi Mubarak ☪️</small>
+                <small>Build: v3.5.2026 (Modern Aurora)</small><br>
+                <small>Last Modified: 06 Feb 2026</small><br>
+                <small>New: Material Design 3, Snake Game & XP! 🎮</small><br>
+                <small>FAB Positioning, Light Mode Fixed 🌟</small>
             </div>
         `;
         
@@ -3712,10 +5272,13 @@
             }
 
             // Only re-render when structure actually changes (initial load or new check-in/out entries)
-            // Don't re-render based on time - this prevents animation resets!
+            // CRITICAL: Never re-render if games are initialized to prevent blinking!
             const currentRowCount = totalTimeDiv.querySelectorAll('.modern-table tbody tr:not(.gap-warning)').length;
-            const shouldRerender = totalTimeDiv.innerHTML === '' || 
-                                 checkInOutList.length !== currentRowCount;
+            const isInitialRender = totalTimeDiv.innerHTML === '';
+            const tableStructureChanged = checkInOutList.length !== currentRowCount;
+            
+            // Block all re-renders when games are active, even if table changes
+            const shouldRerender = isInitialRender || (tableStructureChanged && !featuresInitialized);
             
             if (shouldRerender) {
                 renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today);
@@ -3738,7 +5301,10 @@
             lastTotalWorkedTime = totalWorkedTime;
         }
         
-        $('.main-attendance-table').before(totalTimeDiv);
+        // Only insert into DOM on first render - don't repeat this operation!
+        if (!totalTimeDiv.parentNode) {
+            $('.main-attendance-table').before(totalTimeDiv);
+        }
     }
 
     function formatDate(date) {
@@ -4344,6 +5910,11 @@
         setTimeout(updatePipContent, 1000);
     }
     
+    // Check if game panel should be preserved (games are initialized and active)
+    function shouldPreserveGamePanel() {
+        return featuresInitialized;
+    }
+    
     function renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today) {
         // Get emoji for current progress
         const currentEmoji = getEmojiForProgress(totalWorkedTime);
@@ -4464,27 +6035,86 @@
             `;
         }
 
-        // Left panel - Snake Game & Quotes
+        // Left panel - Multi-Game System & Quotes
         const leftPanelHTML = `
             <div class="left-panel">
-                <!-- Snake Game -->
+                <!-- Multi-Game Container -->
                 <div class="snake-game-container">
-                    <div class="snake-game-header">
-                        <span class="snake-game-title">🐍 Snake Game</span>
-                        <span class="snake-score">Score: <span id="snake-current-score">0</span></span>
+                    <!-- Game Switcher -->
+                    <div class="game-switcher">
+                        <button id="game-switch-snake" class="game-switch-btn active" onclick="window.switchGame('snake')" title="Snake Game">
+                            🐍
+                        </button>
+                        <button id="game-switch-reflex" class="game-switch-btn" onclick="window.switchGame('reflex')" title="RefleX Game">
+                            ⚡
+                        </button>
+                        <button id="game-switch-aim" class="game-switch-btn" onclick="window.switchGame('aim')" title="Chaos Aim">
+                            💥
+                        </button>
                     </div>
+                    
+                    <!-- Game Header (Dynamic) -->
+                    <div class="snake-game-header">
+                        <span id="game-title" class="snake-game-title">🐍 Snake Game</span>
+                        <div id="snake-scoreboard" class="snake-scoreboard">
+                            <span id="snake-high-score" class="snake-score">High: 0</span>
+                            <span class="snake-score">Score: <span id="snake-current-score">0</span></span>
+                        </div>
+                        <div id="reflex-scoreboard" style="display: none;">
+                            <span id="reflex-high-score" class="snake-score">Best: 0ms</span>
+                        </div>
+                        <div id="aim-scoreboard" style="display: none;">
+                            <span id="aim-high-score" class="snake-score">High Score: 0</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Snake Canvas -->
                     <canvas id="snake-canvas" class="snake-canvas" width="368" height="368"></canvas>
-                    <div class="snake-controls">
+                    
+                    <!-- Multi-Game Area (for RefleX and AimTrainer) -->
+                    <div id="multi-game-area" class="multi-game-area" style="display: none;"></div>
+                    
+                    <!-- Game Stats -->
+                    <div id="reflex-stats" style="display: none;"></div>
+                    <div id="aim-stats" style="display: none;">
+                        <div style="display: flex; justify-content: space-around; padding: 8px; font-size: 0.875rem;">
+                            <div><strong>Time:</strong> <span id="aim-timer-display">30</span>s</div>
+                            <div><strong>Score:</strong> <span id="aim-score-display">0</span></div>
+                            <div><strong>Accuracy:</strong> <span id="aim-accuracy-display">100</span>%</div>
+                            <div><strong>Hits:</strong> <span id="aim-hits-display">0</span>/<span id="aim-shots-display">0</span></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Snake Controls -->
+                    <div id="snake-controls" class="snake-controls">
                         <button id="snake-play-btn" class="snake-btn" onclick="window.snakePlayPause()">▶ Play</button>
                         <button class="snake-btn" onclick="window.resetSnake()">🔄 Reset</button>
-                        <span id="snake-high-score" class="snake-highscore">High: 0</span>
                     </div>
+                    
+                    <!-- RefleX Controls -->
+                    <div id="reflex-controls" class="snake-controls" style="display: none;">
+                        <button class="snake-btn" onclick="window.toggleReflexModeBtn()">🔄 Switch Mode</button>
+                        <button id="reflex-play-btn" class="snake-btn" onclick="window.startReflexGameBtn()">▶ Play</button>
+                        <button class="snake-btn" onclick="window.resetReflexGameBtn()">🔄 Reset</button>
+                    </div>
+                    
+                    <!-- AimTrainer Controls -->
+                    <div id="aim-controls" class="snake-controls" style="display: none;">
+                        <button id="aim-play-btn" class="snake-btn" onclick="window.startAimGameBtn()">▶ Play</button>
+                        <button class="snake-btn" onclick="window.resetAimGameBtn()">🔄 Reset</button>
+                    </div>
+                    
+                    <!-- Game Over Overlays -->
                     <div id="snake-game-over" class="snake-game-over">
                         <h3>Game Over!</h3>
                         <p>Final Score: <span class="final-score">0</span></p>
                         <p>Auto restarting...</p>
                     </div>
                 </div>
+                
+                <!-- Results Modals -->
+                <div id="reflex-results"></div>
+                <div id="aim-results"></div>
                 
                 <!-- Quotes Box -->
                 <div class="quotes-container">
@@ -4562,6 +6192,12 @@
                         <span class="image-box-title">🖼️ Your Space</span>
                         <button class="image-change-btn" onclick="window.changeImageBox()">Change Image</button>
                     </div>
+                    <div class="aspect-ratio-controls">
+                        <button id="aspect-ratio-1-1" class="aspect-ratio-btn" onclick="window.changeImageAspectRatio('1:1')" title="Square (1:1) - Profile pics, badges">◻</button>
+                        <button id="aspect-ratio-16-9" class="aspect-ratio-btn active" onclick="window.changeImageAspectRatio('16:9')" title="Widescreen (16:9) - Videos, monitors">▬</button>
+                        <button id="aspect-ratio-4-3" class="aspect-ratio-btn" onclick="window.changeImageAspectRatio('4:3')" title="Classic (4:3) - Old monitors, photos">▭</button>
+                        <button id="aspect-ratio-9-16" class="aspect-ratio-btn" onclick="window.changeImageAspectRatio('9:16')" title="Portrait (9:16) - Phone screens, stories">▯</button>
+                    </div>
                     <div id="image-display" class="image-display">
                         <div class="image-placeholder">📷 Click "Change Image" to add your favorite image</div>
                     </div>
@@ -4569,8 +6205,36 @@
             </div>
         `;
 
-        // Combine all three panels in proper order: Left - Center - Right
-        totalTimeDiv.innerHTML = leftPanelHTML + mainContentHTML + rightPanelHTML;
+        // Check if we should preserve the game panel to prevent blinking
+        const preserveGames = shouldPreserveGamePanel();
+        const existingLeftPanel = totalTimeDiv.querySelector('.left-panel');
+        
+        if (preserveGames && existingLeftPanel) {
+            // Games are running - only update center and right panels, leave games untouched
+            let centerPanel = totalTimeDiv.querySelector('.main-attendance-content');
+            let rightPanel = totalTimeDiv.querySelector('.right-panel');
+            
+            if (centerPanel) {
+                centerPanel.innerHTML = mainContentHTML.replace(/<div class="main-attendance-content">/, '').replace(/<\/div>$/, '');
+            } else {
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = mainContentHTML;
+                centerPanel = tempDiv.firstElementChild;
+                totalTimeDiv.appendChild(centerPanel);
+            }
+            
+            if (rightPanel) {
+                rightPanel.innerHTML = rightPanelHTML.replace(/<div class="right-panel">/, '').replace(/<\/div>$/, '');
+            } else {
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = rightPanelHTML;
+                rightPanel = tempDiv.firstElementChild;
+                totalTimeDiv.appendChild(rightPanel);
+            }
+        } else {
+            // First render or games not initialized - build everything
+            totalTimeDiv.innerHTML = leftPanelHTML + mainContentHTML + rightPanelHTML;
+        }
         
         // Add developer info inside the card
         addDeveloperInfo(totalTimeDiv);
@@ -4596,6 +6260,45 @@
                 const hoursWorked = totalWorkedTime / 3600;
                 awardXP(hoursWorked);
                 
+                // Add global keyboard shortcuts
+                document.addEventListener('keydown', (e) => {
+                    // Only handle shortcuts if not in an input field
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                    
+                    switch(e.key) {
+                        case '1':
+                            window.switchGame('snake');
+                            break;
+                        case '2':
+                            window.switchGame('reflex');
+                            break;
+                        case '3':
+                            window.switchGame('aim');
+                            break;
+                        case 'p':
+                        case 'P':
+                            // Pause current game
+                            if (currentGame === 'snake' && snakeGameRunning) {
+                                pauseSnakeGame();
+                            }
+                            break;
+                        case 'Escape':
+                            // Reset current game
+                            switch(currentGame) {
+                                case 'snake':
+                                    resetSnakeGame();
+                                    break;
+                                case 'reflex':
+                                    resetReflexGame();
+                                    break;
+                                case 'aim':
+                                    resetAimGame();
+                                    break;
+                            }
+                            break;
+                    }
+                });
+                
                 featuresInitialized = true;
             }, 100);
         } else {
@@ -4615,6 +6318,53 @@
         window.resetSnake = resetSnakeGame;
         window.addQuote = addCustomQuote;
         window.changeImageBox = changeImage;
+        window.changeImageAspectRatio = changeAspectRatio;
+        
+        // Multi-game system window functions
+        window.switchGame = (gameKey) => {
+            switchToGame(gameKey);
+            updateGameTitle(gameKey);
+        };
+        
+        window.startReflexGameBtn = () => {
+            startReflexGame();
+        };
+        
+        window.resetReflexGameBtn = () => {
+            resetReflexGame();
+        };
+        
+        window.toggleReflexModeBtn = () => {
+            toggleReflexMode();
+            updateGameTitle('reflex');
+        };
+        
+        window.startAimGameBtn = () => {
+            startAimGame();
+        };
+        
+        window.resetAimGameBtn = () => {
+            resetAimGame();
+        };
+        
+        // Helper function to update game title
+        function updateGameTitle(gameKey) {
+            const titleElement = document.getElementById('game-title');
+            if (!titleElement) return;
+            
+            switch (gameKey) {
+                case 'snake':
+                    titleElement.textContent = '🐍 Snake Game';
+                    break;
+                case 'reflex':
+                    const modeName = reflexGameModes[reflexMode].name;
+                    titleElement.textContent = `⚡ RefleX - ${modeName}`;
+                    break;
+                case 'aim':
+                    titleElement.textContent = '💥 Chaos Aim Trainer';
+                    break;
+            }
+        }
         
         // Reset cached values for new render
         cachedValues = {

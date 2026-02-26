@@ -126,6 +126,56 @@
     };
     
     // ====================================
+    // FLAPPY BIRD GAME VARIABLES
+    // ====================================
+    let flappyCanvas, flappyCtx;
+    let flappyGameRunning = false;
+    let flappyGameOver = false;
+    let flappyScore = 0;
+    let flappyHighScore = 0;
+    let flappyAnimFrame = null;
+    let flappyBird = { x: 60, y: 150, vy: 0, width: 28, height: 24 };
+    let flappyPipes = [];
+    let flappyGround = 0;
+    let flappyFrame = 0;
+    const FLAPPY_GRAVITY = 0.45;
+    const FLAPPY_JUMP = -7.5;
+    const FLAPPY_PIPE_GAP = 130;
+    const FLAPPY_PIPE_WIDTH = 52;
+    const FLAPPY_PIPE_SPEED = 2.4;
+    const FLAPPY_PIPE_INTERVAL = 90; // frames
+    let flappyStarted = false; // waiting for first tap
+
+    // ====================================
+    // TETRIS GAME VARIABLES
+    // ====================================
+    let tetrisCanvas, tetrisCtx;
+    let tetrisBoard = [];
+    let tetrisCurrentPiece = null;
+    let tetrisNextPiece = null;
+    let tetrisScore = 0;
+    let tetrisHighScore = 0;
+    let tetrisLines = 0;
+    let tetrisLevel = 1;
+    let tetrisGameRunning = false;
+    let tetrisGameOver = false;
+    let tetrisDropInterval = null;
+    let tetrisLastDrop = 0;
+    let tetrisAnimFrame = null;
+    const TETRIS_COLS = 10;
+    const TETRIS_ROWS = 20;
+    const TETRIS_CELL = 18;
+    const TETRIS_PIECES = [
+        { shape: [[1,1,1,1]], color: '#00f0ff' },           // I
+        { shape: [[1,1],[1,1]], color: '#f0f000' },          // O
+        { shape: [[0,1,0],[1,1,1]], color: '#a000f0' },      // T
+        { shape: [[0,1,1],[1,1,0]], color: '#00f000' },      // S
+        { shape: [[1,1,0],[0,1,1]], color: '#f00000' },      // Z
+        { shape: [[1,0,0],[1,1,1]], color: '#f0a000' },      // J
+        { shape: [[0,0,1],[1,1,1]], color: '#0000f0' },      // L
+    ];
+
+    // ====================================
     // QUOTES SYSTEM VARIABLES
     // ====================================
     let quotesArray = [];
@@ -311,6 +361,694 @@
         localStorage.setItem('aimChaosHighScore', score.toString());
     }
     
+    // Flappy Bird Storage
+    function loadFlappyHighScore() {
+        const saved = localStorage.getItem('flappyHighScore');
+        return saved ? parseInt(saved) : 0;
+    }
+    function saveFlappyHighScore(score) {
+        localStorage.setItem('flappyHighScore', score.toString());
+    }
+
+    // Tetris Storage
+    function loadTetrisHighScore() {
+        const saved = localStorage.getItem('tetrisHighScore');
+        return saved ? parseInt(saved) : 0;
+    }
+    function saveTetrisHighScore(score) {
+        localStorage.setItem('tetrisHighScore', score.toString());
+    }
+    // Breakout Storage
+    function loadBreakoutHighScore() {
+        const saved = localStorage.getItem('breakoutHighScore');
+        return saved ? parseInt(saved) : 0;
+    }
+    function saveBreakoutHighScore(score) {
+        localStorage.setItem('breakoutHighScore', score.toString());
+    }
+
+
+    // ====================================
+    // ====================================
+    // BREAKOUT GAME LOGIC  (with powerups)
+    // ====================================
+    let breakoutCanvas, breakoutCtx;
+    let breakoutAnimFrame = null;
+    let breakoutGameRunning = false;
+    let breakoutGameOver = false;
+    let breakoutScore = 0;
+    let breakoutHighScore = 0;
+    let breakoutLives = 3;
+    let breakoutLevel = 1;
+    let breakoutBricks = [];
+    let breakoutBalls = [];        // multi-ball array
+    let breakoutPaddle = {};
+    let breakoutParticles = [];
+    let breakoutPowerupDrops = []; // falling powerup capsules
+    let breakoutLasers = [];       // laser shots from paddle
+    let breakoutMouseX = null;
+    let breakoutCombo = 0;
+    let breakoutLastBrickHit = 0;
+
+    // Active powerup timers (seconds at 60fps — stored as frame counts)
+    let brkPU = {
+        expandTimer: 0, shrinkTimer: 0, slowTimer: 0, fastTimer: 0,
+        stickyTimer: 0, laserTimer: 0, fireballTimer: 0, throughTimer: 0,
+        explodeTimer: 0,
+        laserCooldown: 0,
+        stuckBallIdx: -1  // which ball index is stuck to paddle
+    };
+
+    const BRK_W = 368, BRK_H = 368;
+    const BRK_ROWS = 6, BRK_COLS = 10;
+    const BRK_BRICK_W = 32, BRK_BRICK_H = 14, BRK_BRICK_GAP = 2;
+    const BRK_BRICK_OFFSET_X = 8, BRK_BRICK_OFFSET_Y = 40;
+    const BRK_PAD_W = 60, BRK_PAD_H = 10, BRK_PAD_Y = 342;
+    const BRK_BALL_R = 6;
+    const BRK_BASE_SPEED = 3.8;
+
+    const BRK_BRICK_COLORS = [
+        ['#ff4757','#ff6b81'],
+        ['#ff6348','#ff7f50'],
+        ['#ffa502','#ffbe33'],
+        ['#2ed573','#7bed9f'],
+        ['#1e90ff','#54a0ff'],
+        ['#a29bfe','#c8b6ff'],
+    ];
+    const BRK_BRICK_HP  = [3, 2, 2, 1, 1, 1];
+    const BRK_BRICK_PTS = [30, 20, 20, 10, 10, 10];
+
+    // Powerup definitions: id, emoji, label, color, duration(frames), drop-weight
+    const BRK_POWERUPS = [
+        { id:'expand',   icon:'↔',  label:'Big Paddle',   color:'#2ed573', dur:420, w:10, good:true  },
+        { id:'shrink',   icon:'↕',  label:'Tiny Paddle',  color:'#ff4757', dur:300, w:5,  good:false },
+        { id:'multiball',icon:'⊕',  label:'Multi-Ball',   color:'#ffd700', dur:0,   w:8,  good:true  },
+        { id:'slow',     icon:'❄',  label:'Slow Ball',    color:'#74b9ff', dur:360, w:8,  good:true  },
+        { id:'fast',     icon:'⚡', label:'Fast Ball',    color:'#fd79a8', dur:240, w:5,  good:false },
+        { id:'life',     icon:'♥',  label:'+1 Life',      color:'#00b894', dur:0,   w:6,  good:true  },
+        { id:'sticky',   icon:'●',  label:'Sticky',       color:'#a29bfe', dur:480, w:7,  good:true  },
+        { id:'laser',    icon:'|',  label:'Laser',        color:'#fd79a8', dur:600, w:7,  good:true  },
+        { id:'fireball', icon:'🔥', label:'Fireball',     color:'#e17055', dur:360, w:5,  good:true  },
+        { id:'through',  icon:'◉',  label:'Through',      color:'#00cec9', dur:300, w:5,  good:true  },
+        { id:'explode',  icon:'💥', label:'Explosive',    color:'#fdcb6e', dur:360, w:5,  good:true  },
+    ];
+    const BRK_PU_TOTAL_W = BRK_POWERUPS.reduce((s,p) => s+p.w, 0);
+
+    function brkPickPowerup() {
+        const r = Math.random() * BRK_PU_TOTAL_W;
+        let sum = 0;
+        for (const pu of BRK_POWERUPS) { sum += pu.w; if (r < sum) return pu; }
+        return BRK_POWERUPS[0];
+    }
+
+    function initBreakoutGame() {
+        breakoutCanvas = document.getElementById('breakout-canvas');
+        if (!breakoutCanvas) return;
+        breakoutCtx = breakoutCanvas.getContext('2d');
+        breakoutHighScore = loadBreakoutHighScore();
+        resetBreakoutGame();
+        drawBreakoutFrame();
+    }
+
+    function resetBreakoutGame() {
+        breakoutGameRunning = false;
+        breakoutGameOver   = false;
+        breakoutScore  = 0;
+        breakoutLives  = 3;
+        breakoutLevel  = 1;
+        breakoutCombo  = 0;
+        breakoutParticles  = [];
+        breakoutPowerupDrops = [];
+        breakoutLasers = [];
+        brkPU = { expandTimer:0, shrinkTimer:0, slowTimer:0, fastTimer:0,
+                  stickyTimer:0, laserTimer:0, fireballTimer:0, throughTimer:0,
+                  explodeTimer:0, laserCooldown:0, stuckBallIdx:-1 };
+        if (breakoutAnimFrame) { cancelAnimationFrame(breakoutAnimFrame); breakoutAnimFrame = null; }
+        brkResetBall();
+        buildBreakoutBricks();
+        updateBreakoutScoreboard();
+        drawBreakoutFrame();
+    }
+
+    function brkResetBall() {
+        const padW = brkPaddleWidth();
+        breakoutPaddle = { x: BRK_W/2 - padW/2, y: BRK_PAD_Y, w: padW, h: BRK_PAD_H };
+        const angle = -Math.PI/2 + (Math.random()-0.5)*0.8;
+        const spd   = BRK_BASE_SPEED + breakoutLevel*0.3;
+        breakoutBalls = [{ x:BRK_W/2, y:BRK_PAD_Y - BRK_BALL_R - 2,
+                            vx:Math.cos(angle)*spd, vy:Math.sin(angle)*spd,
+                            r:BRK_BALL_R, trail:[], stuck:false }];
+        brkPU.stuckBallIdx = -1;
+        // Kill powerup timers that shouldn't survive respawn
+        brkPU.stickyTimer = 0; brkPU.laserTimer = 0;
+        brkPU.fireballTimer = 0; brkPU.throughTimer = 0; brkPU.explodeTimer = 0;
+    }
+
+    function brkPaddleWidth() {
+        if (brkPU.expandTimer > 0) return BRK_PAD_W * 1.65;
+        if (brkPU.shrinkTimer > 0) return BRK_PAD_W * 0.55;
+        return BRK_PAD_W;
+    }
+
+    function brkBallSpeed(ball) {
+        return Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+    }
+
+    function brkSetSpeed(ball, spd) {
+        const cur = brkBallSpeed(ball);
+        if (cur === 0) return;
+        ball.vx = ball.vx/cur * spd;
+        ball.vy = ball.vy/cur * spd;
+    }
+
+    function buildBreakoutBricks() {
+        breakoutBricks = [];
+        for (let r = 0; r < BRK_ROWS; r++) {
+            for (let c = 0; c < BRK_COLS; c++) {
+                if (breakoutLevel >= 2 && ((r+c)%5===0)) continue;
+                if (breakoutLevel >= 3 && ((r*c)%7===0)) continue;
+                breakoutBricks.push({
+                    x: BRK_BRICK_OFFSET_X + c*(BRK_BRICK_W+BRK_BRICK_GAP),
+                    y: BRK_BRICK_OFFSET_Y + r*(BRK_BRICK_H+BRK_BRICK_GAP),
+                    w: BRK_BRICK_W, h: BRK_BRICK_H,
+                    row:r, col:c,
+                    hp: BRK_BRICK_HP[r], maxHp: BRK_BRICK_HP[r],
+                    pts: BRK_BRICK_PTS[r], alive:true, flashTimer:0
+                });
+            }
+        }
+    }
+
+    function startBreakoutGame() {
+        if (breakoutGameRunning) return;
+        resetBreakoutGame();
+        breakoutGameRunning = true;
+        breakoutAnimFrame = requestAnimationFrame(breakoutLoop);
+        // click to release sticky ball
+        breakoutCanvas.addEventListener('click', brkHandleClick);
+    }
+
+    function breakoutLoop() {
+        if (!breakoutGameRunning) return;
+        updateBreakout();
+        drawBreakoutFrame();
+        breakoutAnimFrame = requestAnimationFrame(breakoutLoop);
+    }
+
+    function brkHandleClick() {
+        // Release sticky ball on click
+        if (brkPU.stuckBallIdx >= 0 && brkPU.stuckBallIdx < breakoutBalls.length && breakoutBalls[brkPU.stuckBallIdx]) {
+            const b = breakoutBalls[brkPU.stuckBallIdx];
+            if (b.stuck) {
+                b.stuck = false;
+                const spd = BRK_BASE_SPEED + breakoutLevel*0.3;
+                b.vy = -spd * 0.85;
+                b.vx = (Math.random()-0.5) * spd * 0.8;
+                brkPU.stuckBallIdx = -1;
+            }
+        }
+        // Fire laser if active
+        if (brkPU.laserTimer > 0 && brkPU.laserCooldown <= 0) {
+            const pad = breakoutPaddle;
+            breakoutLasers.push({ x: pad.x + 8,      y: pad.y - 6, vy:-12 });
+            breakoutLasers.push({ x: pad.x + pad.w - 8, y: pad.y - 6, vy:-12 });
+            brkPU.laserCooldown = 22;
+        }
+    }
+
+    function brkApplyPowerup(pu) {
+        switch(pu.id) {
+            case 'expand':    brkPU.expandTimer = pu.dur; brkPU.shrinkTimer = 0; break;
+            case 'shrink':    brkPU.shrinkTimer = pu.dur; brkPU.expandTimer = 0; break;
+            case 'slow':
+                brkPU.slowTimer = pu.dur; brkPU.fastTimer = 0;
+                breakoutBalls.forEach(b => brkSetSpeed(b, (BRK_BASE_SPEED + breakoutLevel*0.3)*0.58));
+                break;
+            case 'fast':
+                brkPU.fastTimer = pu.dur; brkPU.slowTimer = 0;
+                breakoutBalls.forEach(b => brkSetSpeed(b, (BRK_BASE_SPEED + breakoutLevel*0.3)*1.55));
+                break;
+            case 'multiball': {
+                const count = 2 + Math.floor(Math.random()*2); // 2-3 extra balls
+                const src = breakoutBalls[0] || { x:BRK_W/2, y:BRK_H/2, vx:2, vy:-3 };
+                for (let i=0; i<count; i++) {
+                    const a = Math.random()*Math.PI*2;
+                    const spd = brkBallSpeed(src)||4;
+                    breakoutBalls.push({ x:src.x, y:src.y,
+                        vx:Math.cos(a)*spd, vy:-Math.abs(Math.sin(a)*spd),
+                        r:BRK_BALL_R, trail:[], stuck:false });
+                }
+                break;
+            }
+            case 'life':
+                breakoutLives = Math.min(breakoutLives+1, 6);
+                spawnBreakoutParticles(BRK_W/2, BRK_H/2, '#00b894', 15);
+                updateBreakoutScoreboard();
+                break;
+            case 'sticky':  brkPU.stickyTimer = pu.dur; break;
+            case 'laser':   brkPU.laserTimer  = pu.dur; break;
+            case 'fireball':brkPU.fireballTimer= pu.dur; break;
+            case 'through': brkPU.throughTimer = pu.dur; break;
+            case 'explode': brkPU.explodeTimer = pu.dur; break;
+        }
+    }
+
+    function updateBreakout() {
+        const pad = breakoutPaddle;
+
+        // Tick powerup timers and handle expiration
+        const prevSlowTimer = brkPU.slowTimer;
+        const prevFastTimer = brkPU.fastTimer;
+        
+        const timerKeys = ['expandTimer','shrinkTimer','slowTimer','fastTimer',
+                           'stickyTimer','laserTimer','fireballTimer','throughTimer','explodeTimer'];
+        timerKeys.forEach(k => { if (brkPU[k] > 0) brkPU[k]--; });
+        if (brkPU.laserCooldown > 0) brkPU.laserCooldown--;
+
+        // Reset ball speed to normal when slow/fast powerup expires
+        if ((prevSlowTimer > 0 && brkPU.slowTimer === 0) || (prevFastTimer > 0 && brkPU.fastTimer === 0)) {
+            const normalSpeed = BRK_BASE_SPEED + breakoutLevel * 0.3;
+            breakoutBalls.forEach(b => brkSetSpeed(b, normalSpeed));
+        }
+
+        // Sync paddle width to current powerup state
+        pad.w = brkPaddleWidth();
+        pad.x = Math.max(0, Math.min(BRK_W - pad.w, pad.x));
+
+        // Paddle follow mouse / touch
+        if (breakoutMouseX !== null) {
+            const targetX = breakoutMouseX - pad.w/2;
+            pad.x += (targetX - pad.x) * 0.35;
+            pad.x = Math.max(0, Math.min(BRK_W - pad.w, pad.x));
+        }
+
+        // Update falling powerup capsules
+        for (let i = breakoutPowerupDrops.length-1; i >= 0; i--) {
+            const d = breakoutPowerupDrops[i];
+            d.y += d.vy;
+            // Caught by paddle
+            if (d.y + 10 > pad.y && d.y < pad.y + pad.h &&
+                d.x > pad.x - 16 && d.x < pad.x + pad.w + 16) {
+                brkApplyPowerup(d.pu);
+                spawnBreakoutParticles(d.x, d.y, d.pu.color, 10);
+                breakoutPowerupDrops.splice(i,1);
+                continue;
+            }
+            if (d.y > BRK_H + 10) breakoutPowerupDrops.splice(i,1);
+        }
+
+        // Update lasers
+        for (let i = breakoutLasers.length-1; i >= 0; i--) {
+            const l = breakoutLasers[i];
+            l.y += l.vy;
+            if (l.y < -10) { breakoutLasers.splice(i,1); continue; }
+            // Laser-brick collision
+            let hit = false;
+            for (const b of breakoutBricks) {
+                if (!b.alive) continue;
+                if (l.x > b.x && l.x < b.x+b.w && l.y > b.y && l.y < b.y+b.h) {
+                    brkDamageBrick(b, true);
+                    hit = true; break;
+                }
+            }
+            if (hit) breakoutLasers.splice(i,1);
+        }
+
+        // Update each ball
+        const now = performance.now();
+        const isFireball = brkPU.fireballTimer > 0;
+        const isThrough  = brkPU.throughTimer  > 0;
+        const isExplode  = brkPU.explodeTimer  > 0;
+
+        for (let bi = breakoutBalls.length-1; bi >= 0; bi--) {
+            const ball = breakoutBalls[bi];
+
+            // Stuck to paddle — ride with it
+            if (ball.stuck) {
+                ball.x = pad.x + pad.w/2;
+                ball.trail = [];
+                continue;
+            }
+
+            // Trail
+            ball.trail.push({ x:ball.x, y:ball.y });
+            if (ball.trail.length > 9) ball.trail.shift();
+
+            // Move
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            // Wall bounces
+            if (ball.x - ball.r < 0) { ball.x = ball.r; ball.vx = Math.abs(ball.vx); }
+            if (ball.x + ball.r > BRK_W) { ball.x = BRK_W-ball.r; ball.vx = -Math.abs(ball.vx); }
+            if (ball.y - ball.r < 0) { ball.y = ball.r; ball.vy = Math.abs(ball.vy); }
+
+            // Lost bottom
+            if (ball.y + ball.r > BRK_H) {
+                // Clear stuck index if removing the stuck ball
+                if (brkPU.stuckBallIdx === bi) {
+                    brkPU.stuckBallIdx = -1;
+                } else if (brkPU.stuckBallIdx > bi) {
+                    // Adjust index if removing a ball before the stuck one
+                    brkPU.stuckBallIdx--;
+                }
+                breakoutBalls.splice(bi,1);
+                if (breakoutBalls.length === 0) {
+                    breakoutCombo = 0;
+                    breakoutLives--;
+                    updateBreakoutScoreboard();
+                    if (breakoutLives <= 0) {
+                        breakoutGameOver = true;
+                        breakoutGameRunning = false;
+                        const isHS = breakoutScore > breakoutHighScore;
+                        if (isHS) { breakoutHighScore = breakoutScore; saveBreakoutHighScore(breakoutHighScore); }
+                        awardGameXP('breakout', { score:breakoutScore, level:breakoutLevel, isHighScore:isHS });
+                        updateBreakoutScoreboard();
+                        return;
+                    }
+                    brkResetBall();
+                }
+                continue;
+            }
+
+            // Paddle collision
+            if (ball.vy > 0 &&
+                ball.x + ball.r > pad.x && ball.x - ball.r < pad.x + pad.w &&
+                ball.y + ball.r > pad.y && ball.y - ball.r < pad.y + pad.h) {
+                ball.y = pad.y - ball.r - 1;
+                if (brkPU.stickyTimer > 0 && brkPU.stuckBallIdx < 0) {
+                    ball.stuck = true;
+                    brkPU.stuckBallIdx = bi;
+                    ball.vx = 0; ball.vy = 0;
+                } else {
+                    const hitRatio = (ball.x - (pad.x + pad.w/2)) / (pad.w/2);
+                    const ang = hitRatio * 1.1;
+                    const spd = brkBallSpeed(ball);
+                    ball.vx = Math.sin(ang)*spd;
+                    ball.vy = -Math.abs(Math.cos(ang)*spd);
+                    if (Math.abs(ball.vx) < 0.8) ball.vx = 0.8 * Math.sign(ball.vx||1);
+                }
+            }
+
+            // Brick collisions
+            let bricksHitThisFrame = 0;
+            for (let i = breakoutBricks.length-1; i >= 0; i--) {
+                const b = breakoutBricks[i];
+                if (!b.alive) continue;
+                if (ball.x+ball.r < b.x || ball.x-ball.r > b.x+b.w ||
+                    ball.y+ball.r < b.y || ball.y-ball.r > b.y+b.h) continue;
+
+                const wasAlive = b.alive;
+                brkDamageBrick(b, false, isExplode, now);
+
+                // Deflect unless fireball or through-ball (through only skips deflect, doesn't ignore damage)
+                if (!isFireball && !isThrough && bricksHitThisFrame === 0) {
+                    const overlapL = (ball.x+ball.r)-b.x, overlapR = (b.x+b.w)-(ball.x-ball.r);
+                    const overlapT = (ball.y+ball.r)-b.y, overlapB = (b.y+b.h)-(ball.y-ball.r);
+                    const minH = Math.min(overlapL, overlapR), minV = Math.min(overlapT, overlapB);
+                    if (minH < minV) { ball.vx = overlapL<overlapR ? -Math.abs(ball.vx) : Math.abs(ball.vx); }
+                    else             { ball.vy = overlapT<overlapB ? -Math.abs(ball.vy) : Math.abs(ball.vy); }
+                    bricksHitThisFrame++;
+                } else if (isFireball || isThrough) {
+                    bricksHitThisFrame++; // count but don't deflect
+                }
+            }
+        }
+
+        // Decrement flash timers & particles
+        breakoutBricks.forEach(b => { if (b.flashTimer>0) b.flashTimer--; });
+        for (let i = breakoutParticles.length-1; i >= 0; i--) {
+            const p = breakoutParticles[i];
+            p.x += p.vx; p.y += p.vy; p.vy += 0.18;
+            p.life--;
+            if (p.life <= 0) breakoutParticles.splice(i,1);
+        }
+    }
+
+    function brkDamageBrick(b, fromLaser=false, explode=false, now=0) {
+        if (!b.alive) return;
+        b.hp--;
+        b.flashTimer = 8;
+        if (b.hp <= 0) {
+            b.alive = false;
+            if (!now) now = performance.now();
+            if (now - breakoutLastBrickHit < 1200) breakoutCombo++;
+            else breakoutCombo = 1;
+            breakoutLastBrickHit = now;
+            const comboMult = Math.min(breakoutCombo, 8);
+            breakoutScore += b.pts * comboMult * breakoutLevel;
+            spawnBreakoutParticles(b.x+b.w/2, b.y+b.h/2, BRK_BRICK_COLORS[b.row][0], fromLaser?5:8);
+
+            // Explosive radius — damage nearby bricks
+            if (explode) {
+                const EXP_R = 55;
+                breakoutBricks.forEach(nb => {
+                    if (!nb.alive || nb === b) return;
+                    const dx = (nb.x+nb.w/2)-(b.x+b.w/2);
+                    const dy = (nb.y+nb.h/2)-(b.y+b.h/2);
+                    if (Math.sqrt(dx*dx+dy*dy) < EXP_R) {
+                        nb.hp = Math.max(0, nb.hp-1);
+                        nb.flashTimer = 12;
+                        if (nb.hp <= 0) {
+                            nb.alive = false;
+                            breakoutScore += nb.pts * breakoutLevel;
+                            spawnBreakoutParticles(nb.x+nb.w/2, nb.y+nb.h/2, '#fdcb6e', 5);
+                        }
+                    }
+                });
+                spawnBreakoutParticles(b.x+b.w/2, b.y+b.h/2, '#fdcb6e', 18);
+            }
+
+            // Random powerup drop (25% base, slightly more for harder bricks)
+            const dropChance = 0.25 + (b.maxHp-1)*0.08;
+            if (Math.random() < dropChance) {
+                const pu = brkPickPowerup();
+                breakoutPowerupDrops.push({ x:b.x+b.w/2, y:b.y+b.h/2, vy:2.2, pu });
+            }
+
+            updateBreakoutScoreboard();
+            // Level clear check
+            if (breakoutBricks.every(bk => !bk.alive)) {
+                breakoutLevel++;
+                breakoutCombo = 0;
+                buildBreakoutBricks();
+                brkResetBall();
+                spawnBreakoutParticles(BRK_W/2, BRK_H/2, '#ffd700', 35);
+                updateBreakoutScoreboard();
+            }
+        }
+    }
+
+    function spawnBreakoutParticles(cx, cy, color, count) {
+        for (let i=0; i<count; i++) {
+            const a = Math.random()*Math.PI*2, spd = 1+Math.random()*3;
+            breakoutParticles.push({
+                x:cx, y:cy, vx:Math.cos(a)*spd, vy:Math.sin(a)*spd-1,
+                life: 25+Math.floor(Math.random()*20), maxLife:45,
+                size: 2+Math.random()*3, color
+            });
+        }
+    }
+
+    function drawBreakoutFrame() {
+        if (!breakoutCtx) return;
+        const ctx = breakoutCtx;
+        const W = BRK_W, H = BRK_H;
+        const pad = breakoutPaddle;
+
+        // Background
+        const bg = ctx.createLinearGradient(0,0,0,H);
+        bg.addColorStop(0,'#0d0d1a'); bg.addColorStop(1,'#0a0a14');
+        ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+        ctx.fillStyle='rgba(0,0,0,0.06)';
+        for (let y=0; y<H; y+=4) ctx.fillRect(0,y,W,2);
+
+        // Bricks
+        breakoutBricks.forEach(b => {
+            if (!b.alive) return;
+            const [c1,c2] = BRK_BRICK_COLORS[b.row];
+            const dmg = 1-b.hp/b.maxHp, flash = b.flashTimer>0;
+            if (flash) { ctx.shadowColor=c1; ctx.shadowBlur=14; }
+            const grad = ctx.createLinearGradient(b.x,b.y,b.x,b.y+b.h);
+            if (flash) { grad.addColorStop(0,'#fff'); grad.addColorStop(0.5,c1); grad.addColorStop(1,c2); }
+            else       { grad.addColorStop(0,c2);    grad.addColorStop(1,c1); }
+            ctx.fillStyle=grad;
+            ctx.beginPath(); ctx.roundRect(b.x+1,b.y+1,b.w-2,b.h-2,3); ctx.fill();
+            ctx.shadowBlur=0;
+            if (dmg>0) {
+                ctx.fillStyle=`rgba(0,0,0,${dmg*0.45})`;
+                ctx.beginPath(); ctx.roundRect(b.x+1,b.y+1,b.w-2,b.h-2,3); ctx.fill();
+            }
+            if (b.maxHp>1) {
+                for (let d=0; d<b.hp; d++) {
+                    ctx.fillStyle='rgba(255,255,255,0.7)';
+                    ctx.beginPath();
+                    ctx.arc(b.x+b.w/2-(b.maxHp-1)*4+d*8, b.y+b.h-4, 2, 0, Math.PI*2);
+                    ctx.fill();
+                }
+            }
+            ctx.fillStyle='rgba(255,255,255,0.18)';
+            ctx.fillRect(b.x+3,b.y+2,b.w-6,3);
+        });
+
+        // Falling powerup capsules
+        breakoutPowerupDrops.forEach(d => {
+            ctx.shadowColor = d.pu.color; ctx.shadowBlur = 10;
+            ctx.fillStyle = d.pu.color + 'cc';
+            ctx.beginPath(); ctx.roundRect(d.x-14, d.y-9, 28, 18, 9); ctx.fill();
+            ctx.shadowBlur=0;
+            ctx.fillStyle='#fff';
+            ctx.font = d.pu.icon.length===1 ? 'bold 11px sans-serif' : '12px sans-serif';
+            ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(d.pu.icon, d.x, d.y);
+            ctx.textBaseline='alphabetic';
+        });
+
+        // Lasers
+        breakoutLasers.forEach(l => {
+            ctx.shadowColor='#ff79a8'; ctx.shadowBlur=12;
+            ctx.fillStyle='#ff79a8';
+            ctx.fillRect(l.x-2, l.y, 4, 16);
+            ctx.shadowBlur=0;
+        });
+
+        // Particles
+        breakoutParticles.forEach(p => {
+            ctx.globalAlpha = p.life/p.maxLife;
+            ctx.fillStyle=p.color;
+            ctx.beginPath(); ctx.arc(p.x,p.y,p.size*(p.life/p.maxLife),0,Math.PI*2); ctx.fill();
+        });
+        ctx.globalAlpha=1;
+
+        // Ball trails + balls
+        const isFireball = brkPU.fireballTimer>0;
+        const isThrough  = brkPU.throughTimer>0;
+        const isExplode  = brkPU.explodeTimer>0;
+        breakoutBalls.forEach(ball => {
+            if (!ball || ball.x===undefined) return;
+            // Trail color
+            const trailColor = isFireball?'#e17055': isThrough?'#00cec9': isExplode?'#fdcb6e':'#a8edff';
+            ball.trail.forEach((pt,i) => {
+                ctx.globalAlpha = (i/ball.trail.length)*0.35;
+                ctx.fillStyle=trailColor;
+                ctx.beginPath(); ctx.arc(pt.x,pt.y,BRK_BALL_R*0.7,0,Math.PI*2); ctx.fill();
+            });
+            ctx.globalAlpha=1;
+            // Ball color based on active mode
+            const ballColor = isFireball?['#fff','#e17055','#c0392b']:
+                              isThrough ?['#fff','#00cec9','#006266']:
+                              isExplode ?['#fff','#fdcb6e','#e17055']:
+                                         ['#fff','#a8edff','#0099cc'];
+            ctx.shadowColor=ballColor[1]; ctx.shadowBlur=18;
+            const bg2 = ctx.createRadialGradient(ball.x-1.5,ball.y-1.5,1,ball.x,ball.y,BRK_BALL_R);
+            bg2.addColorStop(0,ballColor[0]); bg2.addColorStop(0.5,ballColor[1]); bg2.addColorStop(1,ballColor[2]);
+            ctx.fillStyle=bg2;
+            ctx.beginPath(); ctx.arc(ball.x,ball.y,BRK_BALL_R,0,Math.PI*2); ctx.fill();
+            ctx.shadowBlur=0;
+        });
+
+        // Paddle
+        if (!breakoutGameOver && pad && pad.x!==undefined) {
+            const isLaser  = brkPU.laserTimer>0;
+            const isSticky = brkPU.stickyTimer>0;
+            const padC1 = isLaser?'#fd79a8': isSticky?'#a29bfe':'#c77dff';
+            const padC2 = isLaser?'#d63031': isSticky?'#6c5ce7':'#7c5cfc';
+            const padC3 = isLaser?'#6d1a2e': isSticky?'#341f97':'#480ca8';
+            ctx.shadowColor=padC2; ctx.shadowBlur=14;
+            const padGrad = ctx.createLinearGradient(pad.x,pad.y,pad.x+pad.w,pad.y+pad.h);
+            padGrad.addColorStop(0,padC1); padGrad.addColorStop(0.5,padC2); padGrad.addColorStop(1,padC3);
+            ctx.fillStyle=padGrad;
+            ctx.beginPath(); ctx.roundRect(pad.x,pad.y,pad.w,pad.h,5); ctx.fill();
+            ctx.fillStyle='rgba(255,255,255,0.25)';
+            ctx.fillRect(pad.x+4,pad.y+2,pad.w-8,3);
+            // Laser emitters
+            if (isLaser) {
+                ctx.fillStyle='#ff79a8';
+                ctx.beginPath(); ctx.arc(pad.x+8,pad.y,4,0,Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(pad.x+pad.w-8,pad.y,4,0,Math.PI*2); ctx.fill();
+            }
+            ctx.shadowBlur=0;
+        }
+
+        // Active powerup HUD (bottom-left row of icons with timers)
+        const activePUs = [];
+        if (brkPU.expandTimer>0)    activePUs.push({icon:'↔', color:'#2ed573', t:brkPU.expandTimer,    max:420});
+        if (brkPU.shrinkTimer>0)    activePUs.push({icon:'↕', color:'#ff4757', t:brkPU.shrinkTimer,    max:300});
+        if (brkPU.slowTimer>0)      activePUs.push({icon:'❄', color:'#74b9ff', t:brkPU.slowTimer,      max:360});
+        if (brkPU.fastTimer>0)      activePUs.push({icon:'⚡',color:'#fd79a8', t:brkPU.fastTimer,      max:240});
+        if (brkPU.stickyTimer>0)    activePUs.push({icon:'●', color:'#a29bfe', t:brkPU.stickyTimer,    max:480});
+        if (brkPU.laserTimer>0)     activePUs.push({icon:'|', color:'#fd79a8', t:brkPU.laserTimer,     max:600});
+        if (brkPU.fireballTimer>0)  activePUs.push({icon:'🔥',color:'#e17055', t:brkPU.fireballTimer,  max:360});
+        if (brkPU.throughTimer>0)   activePUs.push({icon:'◉', color:'#00cec9', t:brkPU.throughTimer,   max:300});
+        if (brkPU.explodeTimer>0)   activePUs.push({icon:'💥',color:'#fdcb6e', t:brkPU.explodeTimer,   max:360});
+        activePUs.forEach((ap,i) => {
+            const bx = 6 + i*28, by = H - 30;
+            ctx.fillStyle='rgba(0,0,0,0.5)';
+            ctx.beginPath(); ctx.roundRect(bx,by,22,22,5); ctx.fill();
+            // timer arc
+            ctx.strokeStyle=ap.color; ctx.lineWidth=2.5;
+            ctx.beginPath();
+            ctx.arc(bx+11,by+11,9,-Math.PI/2,-Math.PI/2+Math.PI*2*(ap.t/ap.max));
+            ctx.stroke();
+            ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillStyle='#fff'; ctx.fillText(ap.icon,bx+11,by+11);
+            ctx.textBaseline='alphabetic';
+        });
+
+        // Combo display
+        if (breakoutCombo>1 && breakoutGameRunning) {
+            ctx.font=`bold ${12+Math.min(breakoutCombo,8)}px sans-serif`;
+            ctx.fillStyle=`hsl(${50+breakoutCombo*10},100%,65%)`;
+            ctx.textAlign='right';
+            ctx.fillText(`${breakoutCombo}x COMBO!`,W-8,28);
+        }
+
+        // Idle overlay
+        if (!breakoutGameRunning && !breakoutGameOver) {
+            ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,0,W,H);
+            ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 16px sans-serif';
+            ctx.textAlign='center';
+            ctx.fillText('Click PLAY to start',W/2,H/2-12);
+            ctx.font='11px sans-serif'; ctx.fillStyle='rgba(255,255,255,0.45)';
+            ctx.fillText('Move mouse  •  Click to launch / fire laser',W/2,H/2+10);
+        }
+
+        // Game-over overlay
+        if (breakoutGameOver) {
+            ctx.fillStyle='rgba(0,0,0,0.75)'; ctx.fillRect(0,0,W,H);
+            ctx.fillStyle='#ff4757'; ctx.font='bold 22px sans-serif';
+            ctx.textAlign='center';
+            ctx.fillText('GAME OVER',W/2,H/2-32);
+            ctx.fillStyle='#fff'; ctx.font='14px sans-serif';
+            ctx.fillText(`Score: ${breakoutScore}`,W/2,H/2-4);
+            ctx.fillText(`Level: ${breakoutLevel}  Lives: 0`,W/2,H/2+18);
+            ctx.fillStyle='rgba(255,255,255,0.55)';
+            ctx.fillText(`Best: ${breakoutHighScore}`,W/2,H/2+40);
+        }
+    }
+
+    function updateBreakoutScoreboard() {
+        const sc = document.getElementById('breakout-score');
+        const hs = document.getElementById('breakout-hiscore');
+        const lv = document.getElementById('breakout-level');
+        const li = document.getElementById('breakout-lives');
+        if (sc) sc.textContent = breakoutScore;
+        if (hs) hs.textContent = breakoutHighScore;
+        if (lv) lv.textContent = breakoutLevel;
+        if (li) li.textContent = '❤️'.repeat(Math.max(0, breakoutLives));
+    }
+
+    function handleBreakoutMouseMove(e) {
+        const rect = breakoutCanvas.getBoundingClientRect();
+        breakoutMouseX = e.clientX - rect.left;
+    }
+    function handleBreakoutTouchMove(e) {
+        e.preventDefault();
+        const rect = breakoutCanvas.getBoundingClientRect();
+        breakoutMouseX = e.touches[0].clientX - rect.left;
+    }
+
+
     // ====================================
     // SNAKE GAME LOGIC
     // ====================================
@@ -512,6 +1250,12 @@
             saveSnakeHighScore(snakeHighScore);
             updateSnakeScoreDisplay();
         }
+        
+        // Award XP based on snake score
+        awardGameXP('snake', { score: snakeScore, isHighScore: snakeScore >= snakeHighScore });
+        
+        // Award XP based on snake score
+        awardGameXP('snake', { score: snakeScore, isHighScore: snakeScore >= snakeHighScore });
         
         showSnakeGameOver();
         updateSnakePlayButton();
@@ -1365,6 +2109,532 @@
     }
     
     // ====================================
+    // FLAPPY BIRD GAME LOGIC
+    // ====================================
+    function initFlappyGame() {
+        flappyCanvas = document.getElementById('flappy-canvas');
+        if (!flappyCanvas) return;
+        flappyCtx = flappyCanvas.getContext('2d');
+        flappyHighScore = loadFlappyHighScore();
+        resetFlappyGame();
+        flappyCanvas.addEventListener('click', handleFlappyInput);
+        flappyCanvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleFlappyInput(); }, { passive: false });
+        document.addEventListener('keydown', handleFlappyKey);
+    }
+
+    function handleFlappyKey(e) {
+        if (currentGame !== 'flappy') return;
+        if (e.code === 'Space' || e.key === ' ') { e.preventDefault(); handleFlappyInput(); }
+    }
+
+    function handleFlappyInput() {
+        if (flappyGameOver) { resetFlappyGame(); startFlappyGame(); return; }
+        if (!flappyStarted) { flappyStarted = true; }
+        flappyBird.vy = FLAPPY_JUMP;
+    }
+
+    function resetFlappyGame() {
+        flappyGameRunning = false;
+        flappyGameOver = false;
+        flappyStarted = false;
+        flappyScore = 0;
+        flappyFrame = 0;
+        flappyBird = { x: 60, y: 150, vy: 0, width: 28, height: 24 };
+        flappyPipes = [];
+        if (flappyAnimFrame) { cancelAnimationFrame(flappyAnimFrame); flappyAnimFrame = null; }
+        updateFlappyScoreDisplay();
+        if (flappyCanvas && flappyCtx) drawFlappyFrame();
+    }
+
+    function startFlappyGame() {
+        resetFlappyGame();
+        flappyGameRunning = true;
+        flappyLoop();
+    }
+
+    function flappyLoop() {
+        if (!flappyGameRunning) return;
+        updateFlappy();
+        drawFlappyFrame();
+        flappyAnimFrame = requestAnimationFrame(flappyLoop);
+    }
+
+    function updateFlappy() {
+        if (!flappyStarted) return;
+        flappyFrame++;
+        // Gravity
+        flappyBird.vy += FLAPPY_GRAVITY;
+        flappyBird.y += flappyBird.vy;
+
+        const ch = flappyCanvas.height;
+        const groundY = ch - 40;
+
+        // Spawn pipes
+        if (flappyFrame % FLAPPY_PIPE_INTERVAL === 0) {
+            const gapY = 60 + Math.random() * (groundY - FLAPPY_PIPE_GAP - 80);
+            flappyPipes.push({ x: flappyCanvas.width, gapY, scored: false });
+        }
+
+        // Move pipes
+        for (let i = flappyPipes.length - 1; i >= 0; i--) {
+            flappyPipes[i].x -= FLAPPY_PIPE_SPEED;
+            // Score
+            if (!flappyPipes[i].scored && flappyPipes[i].x + FLAPPY_PIPE_WIDTH < flappyBird.x) {
+                flappyScore++;
+                flappyPipes[i].scored = true;
+                updateFlappyScoreDisplay();
+            }
+            // Remove off screen
+            if (flappyPipes[i].x + FLAPPY_PIPE_WIDTH < 0) flappyPipes.splice(i, 1);
+        }
+
+        // Collision with pipes
+        for (const pipe of flappyPipes) {
+            const inXRange = flappyBird.x + flappyBird.width - 6 > pipe.x && flappyBird.x + 6 < pipe.x + FLAPPY_PIPE_WIDTH;
+            if (inXRange) {
+                if (flappyBird.y < pipe.gapY || flappyBird.y + flappyBird.height > pipe.gapY + FLAPPY_PIPE_GAP) {
+                    endFlappyGame(); return;
+                }
+            }
+        }
+
+        // Ground/ceiling collision
+        if (flappyBird.y + flappyBird.height >= groundY || flappyBird.y < 0) {
+            endFlappyGame(); return;
+        }
+    }
+
+    function drawFlappyFrame() {
+        if (!flappyCtx || !flappyCanvas) return;
+        const cw = flappyCanvas.width, ch = flappyCanvas.height;
+        const groundY = ch - 40;
+
+        // Sky gradient
+        const sky = flappyCtx.createLinearGradient(0, 0, 0, groundY);
+        sky.addColorStop(0, '#1a1a3e');
+        sky.addColorStop(1, '#2d1b69');
+        flappyCtx.fillStyle = sky;
+        flappyCtx.fillRect(0, 0, cw, ch);
+
+        // Stars (static for perf)
+        flappyCtx.fillStyle = 'rgba(255,255,255,0.6)';
+        for (let i = 0; i < 30; i++) {
+            const sx = (i * 47 + 11) % cw;
+            const sy = (i * 31 + 7) % (groundY - 20);
+            flappyCtx.fillRect(sx, sy, 1, 1);
+        }
+
+        // Draw pipes
+        for (const pipe of flappyPipes) {
+            // Top pipe
+            const topH = pipe.gapY;
+            const grad1 = flappyCtx.createLinearGradient(pipe.x, 0, pipe.x + FLAPPY_PIPE_WIDTH, 0);
+            grad1.addColorStop(0, '#1aaa1a');
+            grad1.addColorStop(0.4, '#22cc22');
+            grad1.addColorStop(1, '#0d7a0d');
+            flappyCtx.fillStyle = grad1;
+            flappyCtx.fillRect(pipe.x, 0, FLAPPY_PIPE_WIDTH, topH);
+            // Top cap
+            flappyCtx.fillStyle = '#1acc1a';
+            flappyCtx.fillRect(pipe.x - 4, topH - 22, FLAPPY_PIPE_WIDTH + 8, 22);
+            // Border highlights
+            flappyCtx.fillStyle = 'rgba(255,255,255,0.2)';
+            flappyCtx.fillRect(pipe.x + 2, 0, 4, topH);
+
+            // Bottom pipe
+            const botY = pipe.gapY + FLAPPY_PIPE_GAP;
+            const botH = groundY - botY;
+            const grad2 = flappyCtx.createLinearGradient(pipe.x, 0, pipe.x + FLAPPY_PIPE_WIDTH, 0);
+            grad2.addColorStop(0, '#1aaa1a');
+            grad2.addColorStop(0.4, '#22cc22');
+            grad2.addColorStop(1, '#0d7a0d');
+            flappyCtx.fillStyle = grad2;
+            flappyCtx.fillRect(pipe.x, botY, FLAPPY_PIPE_WIDTH, botH);
+            // Bottom cap
+            flappyCtx.fillStyle = '#1acc1a';
+            flappyCtx.fillRect(pipe.x - 4, botY, FLAPPY_PIPE_WIDTH + 8, 22);
+            flappyCtx.fillStyle = 'rgba(255,255,255,0.2)';
+            flappyCtx.fillRect(pipe.x + 2, botY, 4, botH);
+        }
+
+        // Ground
+        flappyCtx.fillStyle = '#3d8b2a';
+        flappyCtx.fillRect(0, groundY, cw, 40);
+        flappyCtx.fillStyle = '#4da832';
+        flappyCtx.fillRect(0, groundY, cw, 6);
+
+        // Bird
+        const bx = flappyBird.x, by = flappyBird.y;
+        const bw = flappyBird.width, bh = flappyBird.height;
+        const angle = Math.min(Math.max(flappyBird.vy * 0.06, -0.5), 1.0);
+        flappyCtx.save();
+        flappyCtx.translate(bx + bw / 2, by + bh / 2);
+        flappyCtx.rotate(angle);
+        // Body
+        flappyCtx.fillStyle = '#f0c030';
+        flappyCtx.beginPath();
+        flappyCtx.ellipse(0, 0, bw / 2, bh / 2, 0, 0, Math.PI * 2);
+        flappyCtx.fill();
+        // Wing
+        flappyCtx.fillStyle = '#e0a820';
+        flappyCtx.beginPath();
+        flappyCtx.ellipse(-2, 4, 8, 5, -0.3, 0, Math.PI * 2);
+        flappyCtx.fill();
+        // Eye
+        flappyCtx.fillStyle = 'white';
+        flappyCtx.beginPath();
+        flappyCtx.arc(6, -3, 5, 0, Math.PI * 2);
+        flappyCtx.fill();
+        flappyCtx.fillStyle = '#111';
+        flappyCtx.beginPath();
+        flappyCtx.arc(7, -3, 3, 0, Math.PI * 2);
+        flappyCtx.fill();
+        flappyCtx.fillStyle = 'white';
+        flappyCtx.beginPath();
+        flappyCtx.arc(8, -4, 1, 0, Math.PI * 2);
+        flappyCtx.fill();
+        // Beak
+        flappyCtx.fillStyle = '#ff8800';
+        flappyCtx.beginPath();
+        flappyCtx.moveTo(12, 0); flappyCtx.lineTo(18, -2); flappyCtx.lineTo(18, 3); flappyCtx.closePath();
+        flappyCtx.fill();
+        flappyCtx.restore();
+
+        // Score overlay
+        if (flappyGameRunning || flappyGameOver) {
+            flappyCtx.fillStyle = 'rgba(255,255,255,0.95)';
+            flappyCtx.font = 'bold 28px monospace';
+            flappyCtx.textAlign = 'center';
+            flappyCtx.fillText(flappyScore, cw / 2, 40);
+        }
+
+        // Start prompt
+        if (!flappyStarted && !flappyGameOver && flappyGameRunning) {
+            flappyCtx.fillStyle = 'rgba(255,255,255,0.85)';
+            flappyCtx.font = 'bold 16px sans-serif';
+            flappyCtx.textAlign = 'center';
+            flappyCtx.fillText('TAP / SPACE to fly!', cw / 2, ch / 2 - 20);
+        }
+
+        // Instructions when not started at all
+        if (!flappyGameRunning && !flappyGameOver) {
+            flappyCtx.fillStyle = 'rgba(255,255,255,0.75)';
+            flappyCtx.font = 'bold 14px sans-serif';
+            flappyCtx.textAlign = 'center';
+            flappyCtx.fillText('Click PLAY to start', cw / 2, ch / 2);
+        }
+
+        // Game over overlay
+        if (flappyGameOver) {
+            flappyCtx.fillStyle = 'rgba(0,0,0,0.55)';
+            flappyCtx.fillRect(0, 0, cw, ch);
+            flappyCtx.fillStyle = '#fff';
+            flappyCtx.font = 'bold 26px sans-serif';
+            flappyCtx.textAlign = 'center';
+            flappyCtx.fillText('GAME OVER', cw / 2, ch / 2 - 30);
+            flappyCtx.font = '16px sans-serif';
+            flappyCtx.fillText('Score: ' + flappyScore, cw / 2, ch / 2 + 2);
+            flappyCtx.fillText('Best: ' + flappyHighScore, cw / 2, ch / 2 + 24);
+            flappyCtx.font = '13px sans-serif';
+            flappyCtx.fillStyle = 'rgba(255,255,255,0.7)';
+            flappyCtx.fillText('Tap / click to retry', cw / 2, ch / 2 + 52);
+        }
+    }
+
+    function endFlappyGame() {
+        flappyGameRunning = false;
+        flappyGameOver = true;
+        if (flappyAnimFrame) { cancelAnimationFrame(flappyAnimFrame); flappyAnimFrame = null; }
+        const isHighScore = flappyScore > flappyHighScore;
+        if (isHighScore) { flappyHighScore = flappyScore; saveFlappyHighScore(flappyHighScore); }
+        awardGameXP('flappy', { score: flappyScore, isHighScore });
+        updateFlappyScoreDisplay();
+        drawFlappyFrame();
+    }
+
+    function updateFlappyScoreDisplay() {
+        const el = document.getElementById('flappy-current-score');
+        const hs = document.getElementById('flappy-high-score');
+        if (el) el.textContent = flappyScore;
+        if (hs) hs.textContent = 'Best: ' + flappyHighScore;
+    }
+
+    // ====================================
+    // TETRIS GAME LOGIC
+    // ====================================
+    function initTetrisGame() {
+        tetrisCanvas = document.getElementById('tetris-canvas');
+        if (!tetrisCanvas) return;
+        tetrisCtx = tetrisCanvas.getContext('2d');
+        tetrisHighScore = loadTetrisHighScore();
+        resetTetrisGame();
+        document.addEventListener('keydown', handleTetrisKey);
+    }
+
+    function handleTetrisKey(e) {
+        if (currentGame !== 'tetris' || !tetrisGameRunning || tetrisGameOver) return;
+        switch (e.key) {
+            case 'ArrowLeft':  e.preventDefault(); moveTetris(-1, 0); break;
+            case 'ArrowRight': e.preventDefault(); moveTetris(1, 0); break;
+            case 'ArrowDown':  e.preventDefault(); moveTetris(0, 1); break;
+            case 'ArrowUp':    e.preventDefault(); rotateTetris(); break;
+            case ' ':          e.preventDefault(); hardDropTetris(); break;
+        }
+    }
+
+    function resetTetrisGame() {
+        tetrisBoard = Array.from({ length: TETRIS_ROWS }, () => Array(TETRIS_COLS).fill(0));
+        tetrisScore = 0;
+        tetrisLines = 0;
+        tetrisLevel = 1;
+        tetrisGameRunning = false;
+        tetrisGameOver = false;
+        tetrisCurrentPiece = null;
+        tetrisNextPiece = null;
+        if (tetrisAnimFrame) { cancelAnimationFrame(tetrisAnimFrame); tetrisAnimFrame = null; }
+        updateTetrisScoreDisplay();
+        if (tetrisCtx) drawTetrisFrame();
+    }
+
+    function startTetrisGame() {
+        resetTetrisGame();
+        tetrisNextPiece = spawnTetrisPiece();
+        tetrisCurrentPiece = spawnTetrisPiece();
+        tetrisGameRunning = true;
+        tetrisLastDrop = performance.now();
+        tetrisLoop();
+    }
+
+    function spawnTetrisPiece() {
+        const p = TETRIS_PIECES[Math.floor(Math.random() * TETRIS_PIECES.length)];
+        return {
+            shape: p.shape.map(r => [...r]),
+            color: p.color,
+            x: Math.floor((TETRIS_COLS - p.shape[0].length) / 2),
+            y: 0
+        };
+    }
+
+    function tetrisLoop(now) {
+        if (!tetrisGameRunning) return;
+        const dropInterval = Math.max(80, 600 - (tetrisLevel - 1) * 55);
+        if (now - tetrisLastDrop >= dropInterval) {
+            if (!moveTetris(0, 1)) lockTetrisPiece();
+            tetrisLastDrop = now;
+        }
+        drawTetrisFrame();
+        tetrisAnimFrame = requestAnimationFrame(tetrisLoop);
+    }
+
+    function moveTetris(dx, dy) {
+        tetrisCurrentPiece.x += dx;
+        tetrisCurrentPiece.y += dy;
+        if (tetrisCollides()) {
+            tetrisCurrentPiece.x -= dx;
+            tetrisCurrentPiece.y -= dy;
+            return false;
+        }
+        return true;
+    }
+
+    function rotateTetris() {
+        const orig = tetrisCurrentPiece.shape;
+        const rows = orig.length, cols = orig[0].length;
+        const rotated = Array.from({ length: cols }, (_, c) => Array.from({ length: rows }, (_, r) => orig[rows - 1 - r][c]));
+        const origShape = tetrisCurrentPiece.shape;
+        tetrisCurrentPiece.shape = rotated;
+        // Wall kick: try offsets
+        const kicks = [0, -1, 1, -2, 2];
+        for (const kick of kicks) {
+            tetrisCurrentPiece.x += kick;
+            if (!tetrisCollides()) return;
+            tetrisCurrentPiece.x -= kick;
+        }
+        tetrisCurrentPiece.shape = origShape; // revert if all kicks fail
+    }
+
+    function hardDropTetris() {
+        while (moveTetris(0, 1)) {}
+        lockTetrisPiece();
+    }
+
+    function tetrisCollides() {
+        const { shape, x, y } = tetrisCurrentPiece;
+        for (let r = 0; r < shape.length; r++) {
+            for (let c = 0; c < shape[r].length; c++) {
+                if (!shape[r][c]) continue;
+                const nx = x + c, ny = y + r;
+                if (nx < 0 || nx >= TETRIS_COLS || ny >= TETRIS_ROWS) return true;
+                if (ny >= 0 && tetrisBoard[ny][nx]) return true;
+            }
+        }
+        return false;
+    }
+
+    function lockTetrisPiece() {
+        const { shape, x, y, color } = tetrisCurrentPiece;
+        for (let r = 0; r < shape.length; r++) {
+            for (let c = 0; c < shape[r].length; c++) {
+                if (!shape[r][c]) continue;
+                const ny = y + r;
+                if (ny < 0) { endTetrisGame(); return; }
+                tetrisBoard[ny][x + c] = color;
+            }
+        }
+        clearTetrisLines();
+        tetrisCurrentPiece = tetrisNextPiece;
+        tetrisNextPiece = spawnTetrisPiece();
+        if (tetrisCollides()) { endTetrisGame(); return; }
+        updateTetrisScoreDisplay();
+    }
+
+    function clearTetrisLines() {
+        let cleared = 0;
+        for (let r = TETRIS_ROWS - 1; r >= 0; r--) {
+            if (tetrisBoard[r].every(c => c)) {
+                tetrisBoard.splice(r, 1);
+                tetrisBoard.unshift(Array(TETRIS_COLS).fill(0));
+                cleared++;
+                r++; // recheck same row index
+            }
+        }
+        if (cleared > 0) {
+            const pts = [0, 100, 300, 500, 800];
+            tetrisScore += (pts[cleared] || 800) * tetrisLevel;
+            tetrisLines += cleared;
+            tetrisLevel = Math.floor(tetrisLines / 10) + 1;
+        }
+    }
+
+    function endTetrisGame() {
+        tetrisGameRunning = false;
+        tetrisGameOver = true;
+        if (tetrisAnimFrame) { cancelAnimationFrame(tetrisAnimFrame); tetrisAnimFrame = null; }
+        const isHighScore = tetrisScore > tetrisHighScore;
+        if (isHighScore) { tetrisHighScore = tetrisScore; saveTetrisHighScore(tetrisHighScore); }
+        awardGameXP('tetris', { score: tetrisScore, lines: tetrisLines, level: tetrisLevel, isHighScore });
+        updateTetrisScoreDisplay();
+        drawTetrisFrame();
+    }
+
+    function drawTetrisFrame() {
+        if (!tetrisCtx || !tetrisCanvas) return;
+        const cw = tetrisCanvas.width, ch = tetrisCanvas.height;
+        
+        // Background
+        tetrisCtx.fillStyle = '#0a0a1a';
+        tetrisCtx.fillRect(0, 0, cw, ch);
+
+        // Grid lines
+        tetrisCtx.strokeStyle = 'rgba(255,255,255,0.05)';
+        tetrisCtx.lineWidth = 0.5;
+        for (let c = 0; c <= TETRIS_COLS; c++) {
+            tetrisCtx.beginPath(); tetrisCtx.moveTo(c * TETRIS_CELL, 0); tetrisCtx.lineTo(c * TETRIS_CELL, ch); tetrisCtx.stroke();
+        }
+        for (let r = 0; r <= TETRIS_ROWS; r++) {
+            tetrisCtx.beginPath(); tetrisCtx.moveTo(0, r * TETRIS_CELL); tetrisCtx.lineTo(cw, r * TETRIS_CELL); tetrisCtx.stroke();
+        }
+
+        // Board
+        for (let r = 0; r < TETRIS_ROWS; r++) {
+            for (let c = 0; c < TETRIS_COLS; c++) {
+                if (tetrisBoard[r][c]) {
+                    drawTetrisCell(c, r, tetrisBoard[r][c]);
+                }
+            }
+        }
+
+        // Ghost piece
+        if (tetrisCurrentPiece && tetrisGameRunning) {
+            const ghost = { ...tetrisCurrentPiece, shape: tetrisCurrentPiece.shape.map(r => [...r]) };
+            while (true) {
+                ghost.y++;
+                const tempPiece = tetrisCurrentPiece;
+                tetrisCurrentPiece = ghost;
+                const col = tetrisCollides();
+                tetrisCurrentPiece = tempPiece;
+                if (col) { ghost.y--; break; }
+            }
+            const { shape, x, y, color } = ghost;
+            for (let r = 0; r < shape.length; r++) {
+                for (let c2 = 0; c2 < shape[r].length; c2++) {
+                    if (!shape[r][c2]) continue;
+                    tetrisCtx.fillStyle = 'rgba(255,255,255,0.12)';
+                    tetrisCtx.fillRect((x + c2) * TETRIS_CELL + 1, (y + r) * TETRIS_CELL + 1, TETRIS_CELL - 2, TETRIS_CELL - 2);
+                }
+            }
+        }
+
+        // Current piece
+        if (tetrisCurrentPiece) {
+            const { shape, x, y, color } = tetrisCurrentPiece;
+            for (let r = 0; r < shape.length; r++) {
+                for (let c = 0; c < shape[r].length; c++) {
+                    if (!shape[r][c]) continue;
+                    drawTetrisCell(x + c, y + r, color);
+                }
+            }
+        }
+
+        // Instructions when not started
+        if (!tetrisGameRunning && !tetrisGameOver) {
+            tetrisCtx.fillStyle = 'rgba(255,255,255,0.7)';
+            tetrisCtx.font = 'bold 14px sans-serif';
+            tetrisCtx.textAlign = 'center';
+            tetrisCtx.fillText('Click PLAY to start', cw / 2, ch / 2);
+            tetrisCtx.font = '11px sans-serif';
+            tetrisCtx.fillStyle = 'rgba(255,255,255,0.45)';
+            tetrisCtx.fillText('← → Move  ↑ Rotate  ↓ Drop  SPC Hard Drop', cw / 2, ch / 2 + 20);
+        }
+
+        // Game over overlay
+        if (tetrisGameOver) {
+            tetrisCtx.fillStyle = 'rgba(0,0,0,0.65)';
+            tetrisCtx.fillRect(0, 0, cw, ch);
+            tetrisCtx.fillStyle = '#f55';
+            tetrisCtx.font = 'bold 22px sans-serif';
+            tetrisCtx.textAlign = 'center';
+            tetrisCtx.fillText('GAME OVER', cw / 2, ch / 2 - 30);
+            tetrisCtx.fillStyle = '#fff';
+            tetrisCtx.font = '14px sans-serif';
+            tetrisCtx.fillText('Score: ' + tetrisScore, cw / 2, ch / 2);
+            tetrisCtx.fillText('Lines: ' + tetrisLines + '  Lvl: ' + tetrisLevel, cw / 2, ch / 2 + 20);
+            tetrisCtx.fillText('Best: ' + tetrisHighScore, cw / 2, ch / 2 + 42);
+        }
+    }
+
+    function drawTetrisCell(c, r, color) {
+        const x = c * TETRIS_CELL, y = r * TETRIS_CELL;
+        const grad = tetrisCtx.createLinearGradient(x, y, x + TETRIS_CELL, y + TETRIS_CELL);
+        grad.addColorStop(0, color);
+        grad.addColorStop(1, shadeColor(color, -40));
+        tetrisCtx.fillStyle = grad;
+        tetrisCtx.fillRect(x + 1, y + 1, TETRIS_CELL - 2, TETRIS_CELL - 2);
+        // Highlight
+        tetrisCtx.fillStyle = 'rgba(255,255,255,0.3)';
+        tetrisCtx.fillRect(x + 2, y + 2, TETRIS_CELL - 8, 3);
+    }
+
+    function shadeColor(hex, amt) {
+        const num = parseInt(hex.replace('#', ''), 16);
+        const r = Math.min(255, Math.max(0, (num >> 16) + amt));
+        const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amt));
+        const b = Math.min(255, Math.max(0, (num & 0xff) + amt));
+        return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+    }
+
+    function updateTetrisScoreDisplay() {
+        const el = document.getElementById('tetris-score');
+        const ls = document.getElementById('tetris-lines');
+        const lv = document.getElementById('tetris-level');
+        const hs = document.getElementById('tetris-high-score');
+        if (el) el.textContent = tetrisScore;
+        if (ls) ls.textContent = tetrisLines;
+        if (lv) lv.textContent = tetrisLevel;
+        if (hs) hs.textContent = 'Best: ' + tetrisHighScore;
+    }
+
+    // ====================================
     // GAME SWITCHING SYSTEM
     // ====================================
     
@@ -1388,134 +2658,138 @@
     function cleanupCurrentGame() {
         switch (currentGame) {
             case 'snake':
-                // Pause/stop snake game
                 if (snakeGameRunning) {
                     snakeGameRunning = false;
                     snakeGamePaused = false;
-                    if (snakeGameLoop) {
-                        clearInterval(snakeGameLoop);
-                        snakeGameLoop = null;
-                    }
+                    if (snakeGameLoop) { clearInterval(snakeGameLoop); snakeGameLoop = null; }
                 }
-                // Remove keyboard listener for snake
                 document.removeEventListener('keydown', handleSnakeKeyPress);
-                // Reset snake game state
                 initSnakeGame();
                 break;
                 
             case 'reflex':
-                // Stop reflex game
-                if (reflexTimeoutRef) {
-                    clearTimeout(reflexTimeoutRef);
-                    reflexTimeoutRef = null;
-                }
-                // Remove click listener
-                if (gameAreaElement) {
-                    gameAreaElement.removeEventListener('click', handleReflexClick);
-                }
-                // Reset reflex game state
+                if (reflexTimeoutRef) { clearTimeout(reflexTimeoutRef); reflexTimeoutRef = null; }
+                if (gameAreaElement) gameAreaElement.removeEventListener('click', handleReflexClick);
                 resetReflexGame();
                 break;
                 
             case 'aim':
-                // Stop aim game
-                if (aimTimerRef) {
-                    clearInterval(aimTimerRef);
-                    aimTimerRef = null;
-                }
-                if (aimRenderFrameId) {
-                    cancelAnimationFrame(aimRenderFrameId);
-                    aimRenderFrameId = null;
-                }
-                // Remove click listener
-                if (gameAreaElement) {
-                    gameAreaElement.removeEventListener('click', handleAimClick);
-                }
-                // Reset aim game state
+                if (aimTimerRef) { clearInterval(aimTimerRef); aimTimerRef = null; }
+                if (aimRenderFrameId) { cancelAnimationFrame(aimRenderFrameId); aimRenderFrameId = null; }
+                if (gameAreaElement) gameAreaElement.removeEventListener('click', handleAimClick);
                 resetAimGame();
+                break;
+
+            case 'flappy':
+                if (flappyAnimFrame) { cancelAnimationFrame(flappyAnimFrame); flappyAnimFrame = null; }
+                flappyGameRunning = false;
+                document.removeEventListener('keydown', handleFlappyKey);
+                if (flappyCanvas) flappyCanvas.removeEventListener('click', handleFlappyInput);
+                break;
+
+            case 'tetris':
+                if (tetrisAnimFrame) { cancelAnimationFrame(tetrisAnimFrame); tetrisAnimFrame = null; }
+                tetrisGameRunning = false;
+                document.removeEventListener('keydown', handleTetrisKey);
+                break;
+            case 'breakout':
+                if (breakoutAnimFrame) { cancelAnimationFrame(breakoutAnimFrame); breakoutAnimFrame = null; }
+                breakoutGameRunning = false;
+                if (breakoutCanvas) {
+                    breakoutCanvas.removeEventListener('mousemove', handleBreakoutMouseMove);
+                    breakoutCanvas.removeEventListener('touchmove', handleBreakoutTouchMove);
+                    breakoutCanvas.removeEventListener('click', brkHandleClick);
+                }
                 break;
         }
     }
     
     function initCurrentGame() {
+        const snakeCv = document.getElementById('snake-canvas');
+        const flappyCv = document.getElementById('flappy-canvas');
+        const tetrisCv = document.getElementById('tetris-canvas');
+        const gameArea = document.getElementById('multi-game-area');
+        // Hide all first
+        const breakoutCv = document.getElementById('breakout-canvas');
+        [snakeCv, flappyCv, tetrisCv, breakoutCv].forEach(c => { if (c) c.style.display = 'none'; });
+        if (gameArea) gameArea.style.display = 'none';
+
         switch (currentGame) {
             case 'snake':
+                if (snakeCv) snakeCv.style.display = 'block';
                 initSnakeGame();
-                // Show snake canvas, hide game area
-                const snakeCanvas = document.getElementById('snake-canvas');
-                const gameArea = document.getElementById('multi-game-area');
-                if (snakeCanvas) snakeCanvas.style.display = 'block';
-                if (gameArea) gameArea.style.display = 'none';
                 break;
                 
             case 'reflex':
-                // Hide snake canvas, show game area
-                const canvas = document.getElementById('snake-canvas');
-                const reflexArea = document.getElementById('multi-game-area');
-                if (canvas) canvas.style.display = 'none';
-                if (reflexArea) {
-                    reflexArea.style.display = 'block';
-                }
+                if (gameArea) gameArea.style.display = 'block';
                 initReflexGame();
                 updateReflexDisplay();
                 break;
                 
             case 'aim':
-                // Hide snake canvas, show game area
-                const snkCanvas = document.getElementById('snake-canvas');
-                const aimArea = document.getElementById('multi-game-area');
-                if (snkCanvas) snkCanvas.style.display = 'none';
-                if (aimArea) {
-                    aimArea.style.display = 'block';
-                }
+                if (gameArea) gameArea.style.display = 'block';
                 initAimTrainerGame();
                 renderAimGame();
+                break;
+
+            case 'flappy':
+                if (flappyCv) flappyCv.style.display = 'block';
+                initFlappyGame();
+                break;
+
+            case 'tetris':
+                if (tetrisCv) tetrisCv.style.display = 'block';
+                initTetrisGame();
+                break;
+            case 'breakout':
+                if (breakoutCv) breakoutCv.style.display = 'block';
+                initBreakoutGame();
+                if (breakoutCanvas) {
+                    breakoutCanvas.addEventListener('mousemove', handleBreakoutMouseMove);
+                    breakoutCanvas.addEventListener('touchmove', handleBreakoutTouchMove, { passive: false });
+                }
                 break;
         }
     }
     
     function updateGameSwitcher() {
-        // Update icon button active states
-        const snakeBtn = document.getElementById('game-switch-snake');
-        const reflexBtn = document.getElementById('game-switch-reflex');
-        const aimBtn = document.getElementById('game-switch-aim');
-        
-        if (snakeBtn) snakeBtn.classList.toggle('active', currentGame === 'snake');
-        if (reflexBtn) reflexBtn.classList.toggle('active', currentGame === 'reflex');
-        if (aimBtn) aimBtn.classList.toggle('active', currentGame === 'aim');
+        const ids = ['snake', 'reflex', 'aim', 'flappy', 'tetris', 'breakout'];
+        ids.forEach(id => {
+            const btn = document.getElementById('game-switch-' + id);
+            if (btn) btn.classList.toggle('active', currentGame === id);
+        });
     }
     
     function updateGameControls() {
-        // Show/hide appropriate control buttons and displays
-        const snakeControls = document.getElementById('snake-controls');
-        const reflexControls = document.getElementById('reflex-controls');
-        const aimControls = document.getElementById('aim-controls');
+        const ctrlIds = ['snake-controls', 'reflex-controls', 'aim-controls', 'flappy-controls', 'tetris-controls', 'breakout-controls'];
+        const statIds = ['snake-scoreboard', 'reflex-stats', 'aim-stats', 'flappy-scoreboard', 'tetris-scoreboard', 'breakout-scoreboard'];
+        ctrlIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+        statIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
         
-        const snakeStats = document.getElementById('snake-scoreboard');
-        const reflexStats = document.getElementById('reflex-stats');
-        const aimStats = document.getElementById('aim-stats');
-        
-        // Hide all first
-        if (snakeControls) snakeControls.style.display = 'none';
-        if (reflexControls) reflexControls.style.display = 'none';
-        if (aimControls) aimControls.style.display = 'none';
-        if (snakeStats) snakeStats.style.display = 'none';
-        if (reflexStats) reflexStats.style.display = 'none';
-        if (aimStats) aimStats.style.display = 'none';
-        
-        // Show current game controls
         switch (currentGame) {
             case 'snake':
-                if (snakeControls) snakeControls.style.display = 'flex';
-                if (snakeStats) snakeStats.style.display = 'flex';
+                { const c = document.getElementById('snake-controls'); if (c) c.style.display = 'flex'; }
+                { const s = document.getElementById('snake-scoreboard'); if (s) s.style.display = 'flex'; }
                 break;
             case 'reflex':
-                if (reflexControls) reflexControls.style.display = 'flex';
-                if (reflexStats) reflexStats.style.display = 'block';
+                { const c = document.getElementById('reflex-controls'); if (c) c.style.display = 'flex'; }
+                { const s = document.getElementById('reflex-stats'); if (s) s.style.display = 'block'; }
                 break;
             case 'aim':
-                if (aimControls) aimControls.style.display = 'flex';
-                if (aimStats) aimStats.style.display = 'block';
+                { const c = document.getElementById('aim-controls'); if (c) c.style.display = 'flex'; }
+                { const s = document.getElementById('aim-stats'); if (s) s.style.display = 'block'; }
+                break;
+            case 'flappy':
+                { const c = document.getElementById('flappy-controls'); if (c) c.style.display = 'flex'; }
+                { const s = document.getElementById('flappy-scoreboard'); if (s) s.style.display = 'flex'; }
+                break;
+            case 'tetris':
+                { const c = document.getElementById('tetris-controls'); if (c) c.style.display = 'flex'; }
+                { const s = document.getElementById('tetris-scoreboard'); if (s) s.style.display = 'flex'; }
+                break;
+            case 'breakout':
+                { const c = document.getElementById('breakout-controls'); if (c) c.style.display = 'flex'; }
+                { const s = document.getElementById('breakout-scoreboard'); if (s) s.style.display = 'flex'; }
                 break;
         }
     }
@@ -1844,6 +3118,66 @@
         let message = '';
         
         switch (gameType) {
+            case 'snake':
+                // Award XP based on snake score (each food = points)
+                const snakeScoreVal = performance.score || 0;
+                if (snakeScoreVal >= 20) {
+                    xpGained = 60;
+                } else if (snakeScoreVal >= 15) {
+                    xpGained = 45;
+                } else if (snakeScoreVal >= 10) {
+                    xpGained = 30;
+                } else if (snakeScoreVal >= 5) {
+                    xpGained = 18;
+                } else if (snakeScoreVal >= 1) {
+                    xpGained = 8;
+                } else {
+                    xpGained = 2;
+                }
+                if (performance.isHighScore) xpGained += 15;
+                message = `🐍 +${xpGained} XP (Snake: ${snakeScoreVal} pts${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
+                break;
+                
+            case 'flappy':
+                // Award XP based on pipes cleared
+                const flappyScore = performance.score || 0;
+                if (flappyScore >= 20) {
+                    xpGained = 70;
+                } else if (flappyScore >= 10) {
+                    xpGained = 45;
+                } else if (flappyScore >= 5) {
+                    xpGained = 25;
+                } else if (flappyScore >= 1) {
+                    xpGained = 10;
+                } else {
+                    xpGained = 3;
+                }
+                if (performance.isHighScore) xpGained += 20;
+                message = `🐦 +${xpGained} XP (Flappy: ${flappyScore} pipes${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
+                break;
+                
+            case 'tetris':
+                // Award XP based on lines cleared and level reached
+                const tetrisLines = performance.lines || 0;
+                const tetrisLevel = performance.level || 1;
+                if (tetrisLines >= 40) {
+                    xpGained = 100;
+                } else if (tetrisLines >= 20) {
+                    xpGained = 65;
+                } else if (tetrisLines >= 10) {
+                    xpGained = 40;
+                } else if (tetrisLines >= 4) {
+                    xpGained = 20;
+                } else if (tetrisLines >= 1) {
+                    xpGained = 10;
+                } else {
+                    xpGained = 3;
+                }
+                xpGained += Math.min(tetrisLevel * 5, 25); // Level bonus
+                if (performance.isHighScore) xpGained += 25;
+                message = `🧱 +${xpGained} XP (Tetris: ${tetrisLines} lines, Lvl ${tetrisLevel}${performance.isHighScore ? ' 🏆!' : ''})`;
+                break;
+                
             case 'reflex':
                 // Award XP based on reaction time (faster = more XP)
                 // Max 50 XP for avg time under 200ms
@@ -4706,32 +6040,43 @@
                 z-index: 10000;
                 animation: slideInRight 0.5s ease, fadeOut 0.5s ease 2.5s forwards;
                 pointer-events: none;
+                border: 1px solid rgba(255, 255, 255, 0.25);
+                backdrop-filter: none !important;
+                -webkit-backdrop-filter: none !important;
+                opacity: 1 !important;
             }
             
             .xp-notif-hourly {
-                background: linear-gradient(135deg, #667eea, #764ba2);
+                background: linear-gradient(135deg, #4a5bd4, #5a3a8a);
+                box-shadow: 0 8px 24px rgba(102, 126, 234, 0.7), 0 0 0 1px rgba(255,255,255,0.15);
             }
             
             .xp-notif-milestone {
-                background: linear-gradient(135deg, #f093fb, #f5576c);
-                box-shadow: 0 8px 24px rgba(245, 87, 108, 0.5);
+                background: linear-gradient(135deg, #c94bce, #c03d5a);
+                box-shadow: 0 8px 24px rgba(245, 87, 108, 0.7), 0 0 0 1px rgba(255,255,255,0.15);
             }
             
             .xp-notif-streak {
-                background: linear-gradient(135deg, #ff6b35, #f7931e);
-                box-shadow: 0 8px 24px rgba(255, 107, 53, 0.5);
+                background: linear-gradient(135deg, #c84e1e, #c46910);
+                box-shadow: 0 8px 24px rgba(255, 107, 53, 0.7), 0 0 0 1px rgba(255,255,255,0.15);
             }
             
             .xp-notif-levelup {
-                background: linear-gradient(135deg, #00b894, #00cec9);
-                box-shadow: 0 8px 24px rgba(0, 184, 148, 0.5);
+                background: linear-gradient(135deg, #008a6e, #009a9a);
+                box-shadow: 0 8px 24px rgba(0, 184, 148, 0.7), 0 0 0 1px rgba(255,255,255,0.15);
                 font-size: 1.1rem;
             }
             
             .xp-notif-achievement {
-                background: linear-gradient(135deg, #fdcb6e, #e17055);
-                box-shadow: 0 8px 24px rgba(253, 203, 110, 0.5);
+                background: linear-gradient(135deg, #d4971a, #b84e1e);
+                box-shadow: 0 8px 24px rgba(253, 203, 110, 0.7), 0 0 0 1px rgba(255,255,255,0.15);
                 font-size: 1.05rem;
+            }
+            
+            .xp-notif-game {
+                background: linear-gradient(135deg, #1a7fc4, #6b2ab8);
+                box-shadow: 0 8px 24px rgba(79, 172, 254, 0.7), 0 0 0 1px rgba(255,255,255,0.15);
+                font-size: 1rem;
             }
             
             @keyframes slideInRight {
@@ -4845,6 +6190,35 @@
                 width: 80%;
             }
             
+            /* ==================== FLAPPY BIRD STYLES ==================== */
+            #flappy-canvas {
+                cursor: pointer;
+                border-radius: 12px;
+                box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.4);
+            }
+
+            /* ==================== TETRIS STYLES ==================== */
+            #tetris-canvas {
+                border-radius: 12px;
+                box-shadow: 0 0 20px rgba(108, 92, 231, 0.3), inset 0 2px 8px rgba(0, 0, 0, 0.5);
+                display: block;
+                image-rendering: pixelated;
+            }
+            
+            #breakout-canvas {
+                border-radius: 12px;
+                box-shadow: 0 0 24px rgba(0, 210, 255, 0.25), 0 0 8px rgba(124, 92, 252, 0.2);
+                display: block;
+                cursor: none;
+            }
+
+            .tetris-wrapper {
+                display: flex;
+                justify-content: center;
+                align-items: flex-start;
+                width: 100%;
+            }
+
             /* Responsive adjustments */
             @media (max-width: 1400px) {
                 .attendance-summary {
@@ -6042,15 +7416,12 @@
                 <div class="snake-game-container">
                     <!-- Game Switcher -->
                     <div class="game-switcher">
-                        <button id="game-switch-snake" class="game-switch-btn active" onclick="window.switchGame('snake')" title="Snake Game">
-                            🐍
-                        </button>
-                        <button id="game-switch-reflex" class="game-switch-btn" onclick="window.switchGame('reflex')" title="RefleX Game">
-                            ⚡
-                        </button>
-                        <button id="game-switch-aim" class="game-switch-btn" onclick="window.switchGame('aim')" title="Chaos Aim">
-                            💥
-                        </button>
+                        <button id="game-switch-snake" class="game-switch-btn active" onclick="window.switchGame('snake')" title="Snake Game">🐍</button>
+                        <button id="game-switch-flappy" class="game-switch-btn" onclick="window.switchGame('flappy')" title="Flappy Bird">🐦</button>
+                        <button id="game-switch-tetris" class="game-switch-btn" onclick="window.switchGame('tetris')" title="Tetris">🧱</button>
+                        <button id="game-switch-reflex" class="game-switch-btn" onclick="window.switchGame('reflex')" title="RefleX Game">⚡</button>
+                        <button id="game-switch-aim" class="game-switch-btn" onclick="window.switchGame('aim')" title="Chaos Aim">💥</button>
+                        <button id="game-switch-breakout" class="game-switch-btn" onclick="window.switchGame('breakout')" title="Breakout">🏓</button>
                     </div>
                     
                     <!-- Game Header (Dynamic) -->
@@ -6060,16 +7431,37 @@
                             <span id="snake-high-score" class="snake-score">High: 0</span>
                             <span class="snake-score">Score: <span id="snake-current-score">0</span></span>
                         </div>
+                        <div id="flappy-scoreboard" class="snake-scoreboard" style="display: none;">
+                            <span id="flappy-high-score" class="snake-score">Best: 0</span>
+                            <span class="snake-score">Score: <span id="flappy-current-score">0</span></span>
+                        </div>
+                        <div id="tetris-scoreboard" class="snake-scoreboard" style="display: none;">
+                            <span id="tetris-high-score" class="snake-score">Best: 0</span>
+                            <span class="snake-score">Sc: <span id="tetris-score">0</span> | Ln: <span id="tetris-lines">0</span> | Lv: <span id="tetris-level">1</span></span>
+                        </div>
                         <div id="reflex-scoreboard" style="display: none;">
                             <span id="reflex-high-score" class="snake-score">Best: 0ms</span>
                         </div>
                         <div id="aim-scoreboard" style="display: none;">
                             <span id="aim-high-score" class="snake-score">High Score: 0</span>
                         </div>
+                        <div id="breakout-scoreboard" class="snake-scoreboard" style="display: none;">
+                            <span class="snake-score">Best: <span id="breakout-hiscore">0</span></span>
+                            <span class="snake-score">Sc: <span id="breakout-score">0</span></span>
+                            <span class="snake-score">Lv: <span id="breakout-level">1</span></span>
+                            <span id="breakout-lives" class="snake-score">❤️❤️❤️</span>
+                        </div>
                     </div>
                     
                     <!-- Snake Canvas -->
                     <canvas id="snake-canvas" class="snake-canvas" width="368" height="368"></canvas>
+                    
+                    <!-- Flappy Bird Canvas -->
+                    <canvas id="flappy-canvas" class="snake-canvas" width="368" height="368" style="display:none;"></canvas>
+                    
+                    <!-- Tetris Canvas -->
+                    <canvas id="tetris-canvas" class="snake-canvas" width="368" height="368" style="display:none;"></canvas>
+                    <canvas id="breakout-canvas" class="snake-canvas" width="368" height="368" style="display:none; cursor:none;"></canvas>
                     
                     <!-- Multi-Game Area (for RefleX and AimTrainer) -->
                     <div id="multi-game-area" class="multi-game-area" style="display: none;"></div>
@@ -6102,6 +7494,24 @@
                     <div id="aim-controls" class="snake-controls" style="display: none;">
                         <button id="aim-play-btn" class="snake-btn" onclick="window.startAimGameBtn()">▶ Play</button>
                         <button class="snake-btn" onclick="window.resetAimGameBtn()">🔄 Reset</button>
+                    </div>
+                    
+                    <!-- Flappy Bird Controls -->
+                    <div id="flappy-controls" class="snake-controls" style="display: none;">
+                        <button class="snake-btn" onclick="window.startFlappyGameBtn()">▶ Play</button>
+                        <button class="snake-btn" onclick="window.resetFlappyGameBtn()">🔄 Reset</button>
+                    </div>
+                    
+                    <!-- Tetris Controls -->
+                    <div id="tetris-controls" class="snake-controls" style="display: none;">
+                        <button class="snake-btn" onclick="window.startTetrisGameBtn()">▶ Play</button>
+                        <button class="snake-btn" onclick="window.resetTetrisGameBtn()">🔄 Reset</button>
+                    </div>
+                    
+                    <!-- Breakout Controls -->
+                    <div id="breakout-controls" class="snake-controls" style="display: none;">
+                        <button class="snake-btn" onclick="window.startBreakoutGameBtn()">▶ Play</button>
+                        <button class="snake-btn" onclick="window.resetBreakoutGameBtn()">🔄 Reset</button>
                     </div>
                     
                     <!-- Game Over Overlays -->
@@ -6255,6 +7665,9 @@
                 initQuotesSystem();
                 initXPSystem();
                 initImageBox();
+                // Pre-load high scores for new games
+                flappyHighScore = loadFlappyHighScore();
+                tetrisHighScore = loadTetrisHighScore();
                 
                 // Award XP based on hours worked
                 const hoursWorked = totalWorkedTime / 3600;
@@ -6266,34 +7679,23 @@
                     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
                     
                     switch(e.key) {
-                        case '1':
-                            window.switchGame('snake');
-                            break;
-                        case '2':
-                            window.switchGame('reflex');
-                            break;
-                        case '3':
-                            window.switchGame('aim');
-                            break;
-                        case 'p':
-                        case 'P':
-                            // Pause current game
-                            if (currentGame === 'snake' && snakeGameRunning) {
-                                pauseSnakeGame();
-                            }
+                        case '1': window.switchGame('snake'); break;
+                        case '2': window.switchGame('flappy'); break;
+                        case '3': window.switchGame('tetris'); break;
+                        case '4': window.switchGame('reflex'); break;
+                        case '5': window.switchGame('aim'); break;
+                        case '6': window.switchGame('breakout'); break;
+                        case 'p': case 'P':
+                            if (currentGame === 'snake' && snakeGameRunning) pauseSnakeGame();
                             break;
                         case 'Escape':
-                            // Reset current game
                             switch(currentGame) {
-                                case 'snake':
-                                    resetSnakeGame();
-                                    break;
-                                case 'reflex':
-                                    resetReflexGame();
-                                    break;
-                                case 'aim':
-                                    resetAimGame();
-                                    break;
+                                case 'snake': resetSnakeGame(); break;
+                                case 'reflex': resetReflexGame(); break;
+                                case 'aim': resetAimGame(); break;
+                                case 'flappy': resetFlappyGame(); break;
+                                case 'tetris': resetTetrisGame(); break;
+                                case 'breakout': resetBreakoutGame(); break;
                             }
                             break;
                     }
@@ -6339,13 +7741,15 @@
             updateGameTitle('reflex');
         };
         
-        window.startAimGameBtn = () => {
-            startAimGame();
-        };
+        window.startAimGameBtn = () => { startAimGame(); };
+        window.resetAimGameBtn = () => { resetAimGame(); };
         
-        window.resetAimGameBtn = () => {
-            resetAimGame();
-        };
+        window.startFlappyGameBtn = () => { startFlappyGame(); };
+        window.resetFlappyGameBtn = () => { resetFlappyGame(); };
+        window.startTetrisGameBtn = () => { startTetrisGame(); };
+        window.resetTetrisGameBtn = () => { resetTetrisGame(); };
+        window.startBreakoutGameBtn = () => { startBreakoutGame(); };
+        window.resetBreakoutGameBtn = () => { resetBreakoutGame(); };
         
         // Helper function to update game title
         function updateGameTitle(gameKey) {
@@ -6356,12 +7760,21 @@
                 case 'snake':
                     titleElement.textContent = '🐍 Snake Game';
                     break;
+                case 'flappy':
+                    titleElement.textContent = '🐦 Flappy Bird';
+                    break;
+                case 'tetris':
+                    titleElement.textContent = '🧱 Tetris';
+                    break;
                 case 'reflex':
                     const modeName = reflexGameModes[reflexMode].name;
                     titleElement.textContent = `⚡ RefleX - ${modeName}`;
                     break;
                 case 'aim':
                     titleElement.textContent = '💥 Chaos Aim Trainer';
+                    break;
+                case 'breakout':
+                    titleElement.textContent = '🏓 Breakout';
                     break;
             }
         }

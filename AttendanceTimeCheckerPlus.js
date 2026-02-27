@@ -43,6 +43,10 @@
     let snakeScore = 0;
     let snakeHighScore = 0;
     let snakeGameLoop = null;
+    let snakeAnimFrame = null;     // rAF handle for smooth render
+    let snakeLastTickMs = 0;        // timestamp of last logic tick
+    let snakePrevSnap = [];         // segment grid positions before last tick
+    let snakeTickInterval = 300;    // ms — matches setInterval, updated on score
     let snakeGameRunning = false;
     let snakeGamePaused = false;
     const snakeGridSize = 20;
@@ -140,9 +144,9 @@
     let flappyFrame = 0;
     const FLAPPY_GRAVITY = 0.45;
     const FLAPPY_JUMP = -7.5;
-    const FLAPPY_PIPE_GAP = 130;
+    const FLAPPY_PIPE_GAP_BASE = 140; // starting gap, narrows with score
     const FLAPPY_PIPE_WIDTH = 52;
-    const FLAPPY_PIPE_SPEED = 2.4;
+    const FLAPPY_PIPE_SPEED_BASE = 2.0; // increases with score
     const FLAPPY_PIPE_INTERVAL = 90; // frames
     let flappyStarted = false; // waiting for first tap
 
@@ -418,6 +422,7 @@
         laserCooldown: 0,
         stuckBallIdx: -1  // which ball index is stuck to paddle
     };
+    let brkPendingLevelClear = false;
 
     const BRK_W = 368, BRK_H = 368;
     const BRK_ROWS = 6, BRK_COLS = 10;
@@ -682,6 +687,7 @@
 
         for (let bi = breakoutBalls.length-1; bi >= 0; bi--) {
             const ball = breakoutBalls[bi];
+            if (!ball) continue; // guard: array may have been mutated mid-loop
 
             // Stuck to paddle — ride with it
             if (ball.stuck) {
@@ -775,6 +781,17 @@
             }
         }
 
+        // Handle deferred level clear (set by brkDamageBrick during ball loop)
+        if (brkPendingLevelClear) {
+            brkPendingLevelClear = false;
+            breakoutLevel++;
+            breakoutCombo = 0;
+            buildBreakoutBricks();
+            brkResetBall();
+            spawnBreakoutParticles(BRK_W/2, BRK_H/2, '#ffd700', 35);
+            updateBreakoutScoreboard();
+        }
+
         // Decrement flash timers & particles
         breakoutBricks.forEach(b => { if (b.flashTimer>0) b.flashTimer--; });
         for (let i = breakoutParticles.length-1; i >= 0; i--) {
@@ -827,14 +844,9 @@
             }
 
             updateBreakoutScoreboard();
-            // Level clear check
+            // Level clear — flag it; reset runs AFTER the ball loop to avoid iterator crash
             if (breakoutBricks.every(bk => !bk.alive)) {
-                breakoutLevel++;
-                breakoutCombo = 0;
-                buildBreakoutBricks();
-                brkResetBall();
-                spawnBreakoutParticles(BRK_W/2, BRK_H/2, '#ffd700', 35);
-                updateBreakoutScoreboard();
+                brkPendingLevelClear = true;
             }
         }
     }
@@ -1089,16 +1101,29 @@
         }
     }
     
+    function snakeGetInterval() {
+        // 300ms base, -8ms per food, floor 60ms
+        return Math.max(60, 300 - snakeScore * 8);
+    }
+
     function startSnakeGame() {
         if (snakeGameRunning) return;
-        
+
         snakeGameRunning = true;
         snakeGamePaused = false;
         hideSnakeGameOver();
-        
+
+        snakeTickInterval = snakeGetInterval();
+        snakeLastTickMs = performance.now();
+        snakePrevSnap = snake.map(s => ({...s}));
+
         if (snakeGameLoop) clearInterval(snakeGameLoop);
-        snakeGameLoop = setInterval(updateSnakeGame, 100);
-        
+        snakeGameLoop = setInterval(snakeTick, snakeTickInterval);
+
+        // Smooth render loop — separate from logic tick
+        if (snakeAnimFrame) cancelAnimationFrame(snakeAnimFrame);
+        snakeAnimFrame = requestAnimationFrame(snakeRenderLoop);
+
         updateSnakePlayButton();
     }
     
@@ -1115,10 +1140,10 @@
         snakeGameRunning = false;
         snakeGamePaused = false;
         
-        if (snakeGameLoop) {
-            clearInterval(snakeGameLoop);
-            snakeGameLoop = null;
-        }
+        if (snakeGameLoop) { clearInterval(snakeGameLoop); snakeGameLoop = null; }
+        if (snakeAnimFrame) { cancelAnimationFrame(snakeAnimFrame); snakeAnimFrame = null; }
+        snakePrevSnap = [];
+        snakeLastTickMs = 0;
         
         // Clear canvas completely on reset
         if (snakeCtx) {
@@ -1132,46 +1157,57 @@
         updateSnakePlayButton();
     }
     
-    function updateSnakeGame() {
+    function snakeTick() {
         if (snakeGamePaused) return;
-        
+
+        // Snapshot grid positions BEFORE moving — rAF loop lerps from these
+        snakePrevSnap = snake.map(s => ({...s}));
+        snakeLastTickMs = performance.now();
+
         direction = {...nextDirection};
-        
-        if (direction.x === 0 && direction.y === 0) return; // Not started moving
-        
-        // Calculate new head position
+        if (direction.x === 0 && direction.y === 0) return; // waiting for first input
+
         const head = {
             x: snake[0].x + direction.x,
             y: snake[0].y + direction.y
         };
-        
-        // Check wall collision
-        if (head.x < 0 || head.x >= snakeGridSize || head.y < 0 || head.y >= snakeGridSize) {
-            gameOver();
-            return;
+
+        // Wall collision (1-cell grace buffer)
+        if (head.x < -1 || head.x > snakeGridSize || head.y < -1 || head.y > snakeGridSize) {
+            gameOver(); return;
         }
-        
-        // Check self collision
-        if (snake.some(segment => segment.x === head.x && segment.y === head.y)) {
-            gameOver();
-            return;
+        // Self collision
+        if (snake.some(seg => seg.x === head.x && seg.y === head.y)) {
+            gameOver(); return;
         }
-        
-        // Add new head
+
         snake.unshift(head);
-        
-        // Check food collision
+
         if (head.x === food.x && head.y === food.y) {
             snakeScore++;
             updateSnakeScoreDisplay();
             spawnFood();
-            // Snake grows by not removing tail
+            // Increase speed: restart interval at new rate
+            snakeTickInterval = snakeGetInterval();
+            clearInterval(snakeGameLoop);
+            snakeGameLoop = setInterval(snakeTick, snakeTickInterval);
         } else {
-            // Remove tail if no food eaten
             snake.pop();
         }
-        
-        drawSnakeGame();
+        // Drawing is handled exclusively by snakeRenderLoop
+    }
+
+    // Keep alias so any other callers still work
+    function updateSnakeGame() { snakeTick(); }
+
+    // rAF render loop — runs at ~60fps, interpolates between logic ticks
+    function snakeRenderLoop(timestamp) {
+        if (!snakeGameRunning) return;
+        const elapsed = timestamp - snakeLastTickMs;
+        // t: 0 = just ticked, 1 = about to tick. Clamp so we never overshoot.
+        const t = Math.min(1, elapsed / snakeTickInterval);
+        drawSnakeGame(t);
+        snakeAnimFrame = requestAnimationFrame(snakeRenderLoop);
     }
     
     function spawnFood() {
@@ -1183,61 +1219,90 @@
         } while (snake.some(segment => segment.x === food.x && segment.y === food.y));
     }
     
-    function drawSnakeGame() {
+    function drawSnakeGame(t = 1) {
         if (!snakeCtx) return;
-        
-        const cellSize = snakeCanvas.width / snakeGridSize;
-        
-        // Fully clear canvas first (prevents trail effect)
-        snakeCtx.clearRect(0, 0, snakeCanvas.width, snakeCanvas.height);
-        
-        // Draw background
-        snakeCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        snakeCtx.fillRect(0, 0, snakeCanvas.width, snakeCanvas.height);
-        
-        // Draw snake\n        snakeCtx.fillStyle = '#00b894';
-        snake.forEach((segment, index) => {
-            if (index === 0) {
-                // Head with gradient
-                const gradient = snakeCtx.createLinearGradient(
-                    segment.x * cellSize, segment.y * cellSize,
-                    (segment.x + 1) * cellSize, (segment.y + 1) * cellSize
-                );
-                gradient.addColorStop(0, '#00b894');
-                gradient.addColorStop(1, '#55efc4');
-                snakeCtx.fillStyle = gradient;
+        const W = snakeCanvas.width, H = snakeCanvas.height;
+        const cs = W / snakeGridSize;
+
+        // Background
+        snakeCtx.fillStyle = '#0b1a12';
+        snakeCtx.fillRect(0, 0, W, H);
+
+        // Subtle grid
+        snakeCtx.strokeStyle = 'rgba(0,255,120,0.04)';
+        snakeCtx.lineWidth = 0.5;
+        for (let i = 1; i < snakeGridSize; i++) {
+            snakeCtx.beginPath(); snakeCtx.moveTo(i*cs,0); snakeCtx.lineTo(i*cs,H); snakeCtx.stroke();
+            snakeCtx.beginPath(); snakeCtx.moveTo(0,i*cs); snakeCtx.lineTo(W,i*cs); snakeCtx.stroke();
+        }
+
+        // Snake — lerp each segment from prev grid pos toward current
+        snake.forEach((seg, idx) => {
+            const prev = snakePrevSnap[idx] || seg;
+            // Smooth linear interpolation between ticks
+            const px = (prev.x + (seg.x - prev.x) * t) * cs;
+            const py = (prev.y + (seg.y - prev.y) * t) * cs;
+            const isHead = idx === 0;
+            const fade = Math.max(0.45, 1 - idx * 0.018);
+
+            if (isHead) {
+                snakeCtx.shadowColor = '#00e676';
+                snakeCtx.shadowBlur = 10;
+                const hg = snakeCtx.createLinearGradient(px, py, px+cs, py+cs);
+                hg.addColorStop(0, '#55efc4');
+                hg.addColorStop(1, '#00b894');
+                snakeCtx.fillStyle = hg;
             } else {
-                snakeCtx.fillStyle = '#00b894';
+                snakeCtx.shadowBlur = 0;
+                const g = Math.floor(184 * fade);
+                snakeCtx.fillStyle = `rgb(0,${g},${Math.floor(g*0.65)})`;
             }
-            snakeCtx.fillRect(
-                segment.x * cellSize + 1,
-                segment.y * cellSize + 1,
-                cellSize - 2,
-                cellSize - 2
-            );
+            snakeCtx.beginPath();
+            snakeCtx.roundRect(px+2, py+2, cs-4, cs-4, isHead ? 5 : 3);
+            snakeCtx.fill();
+            snakeCtx.shadowBlur = 0;
+
+            // Eyes on head
+            if (isHead && (direction.x !== 0 || direction.y !== 0)) {
+                const cx = px + cs/2, cy = py + cs/2;
+                const ex = direction.x * cs*0.22, ey = direction.y * cs*0.22;
+                const px2 = direction.y * cs*0.18, py2 = -direction.x * cs*0.18;
+                snakeCtx.fillStyle = '#fff';
+                snakeCtx.beginPath(); snakeCtx.arc(cx+ex+px2, cy+ey+py2, 2.2, 0, Math.PI*2); snakeCtx.fill();
+                snakeCtx.beginPath(); snakeCtx.arc(cx+ex-px2, cy+ey-py2, 2.2, 0, Math.PI*2); snakeCtx.fill();
+                snakeCtx.fillStyle = '#111';
+                snakeCtx.beginPath(); snakeCtx.arc(cx+ex+px2+direction.x*0.6, cy+ey+py2+direction.y*0.6, 1.1, 0, Math.PI*2); snakeCtx.fill();
+                snakeCtx.beginPath(); snakeCtx.arc(cx+ex-px2+direction.x*0.6, cy+ey-py2+direction.y*0.6, 1.1, 0, Math.PI*2); snakeCtx.fill();
+            }
         });
-        
-        // Draw food
-        snakeCtx.fillStyle = '#e17055';
-        snakeCtx.beginPath();
-        snakeCtx.arc(
-            food.x * cellSize + cellSize / 2,
-            food.y * cellSize + cellSize / 2,
-            cellSize / 2 - 2,
-            0,
-            Math.PI * 2
-        );
-        snakeCtx.fill();
+
+        // Food — glowing apple
+        const fx = food.x*cs + cs/2, fy = food.y*cs + cs/2, fr = cs/2 - 2;
+        snakeCtx.shadowColor = '#ff6b6b'; snakeCtx.shadowBlur = 14;
+        const fg = snakeCtx.createRadialGradient(fx-fr*0.3, fy-fr*0.3, 1, fx, fy, fr);
+        fg.addColorStop(0, '#ff9f9f'); fg.addColorStop(0.5, '#e17055'); fg.addColorStop(1, '#c0392b');
+        snakeCtx.fillStyle = fg;
+        snakeCtx.beginPath(); snakeCtx.arc(fx, fy, fr, 0, Math.PI*2); snakeCtx.fill();
+        snakeCtx.shadowBlur = 0;
+        // Stem + shine
+        snakeCtx.strokeStyle = '#55efc4'; snakeCtx.lineWidth = 1.5;
+        snakeCtx.beginPath(); snakeCtx.moveTo(fx, fy-fr); snakeCtx.lineTo(fx+3, fy-fr-4); snakeCtx.stroke();
+        snakeCtx.fillStyle = 'rgba(255,255,255,0.35)';
+        snakeCtx.beginPath(); snakeCtx.ellipse(fx-fr*0.28, fy-fr*0.3, fr*0.28, fr*0.18, -0.6, 0, Math.PI*2); snakeCtx.fill();
+
+        // Speed bar
+        const spd = Math.min(1, snakeScore / 30);
+        snakeCtx.fillStyle = 'rgba(0,230,118,0.1)';
+        snakeCtx.fillRect(0, H-3, W, 3);
+        snakeCtx.fillStyle = `hsl(${140-spd*80},100%,55%)`;
+        snakeCtx.fillRect(0, H-3, W*spd, 3);
     }
     
     function gameOver() {
         snakeGameRunning = false;
         snakeGamePaused = false;
-        
-        if (snakeGameLoop) {
-            clearInterval(snakeGameLoop);
-            snakeGameLoop = null;
-        }
+        if (snakeGameLoop) { clearInterval(snakeGameLoop); snakeGameLoop = null; }
+        if (snakeAnimFrame) { cancelAnimationFrame(snakeAnimFrame); snakeAnimFrame = null; }
         
         // Clear canvas on game over
         if (snakeCtx) {
@@ -1250,9 +1315,6 @@
             saveSnakeHighScore(snakeHighScore);
             updateSnakeScoreDisplay();
         }
-        
-        // Award XP based on snake score
-        awardGameXP('snake', { score: snakeScore, isHighScore: snakeScore >= snakeHighScore });
         
         // Award XP based on snake score
         awardGameXP('snake', { score: snakeScore, isHighScore: snakeScore >= snakeHighScore });
@@ -2159,6 +2221,15 @@
         flappyAnimFrame = requestAnimationFrame(flappyLoop);
     }
 
+    function flappyCurrentSpeed() {
+        // +0.18 per pipe, cap 5.5
+        return Math.min(5.5, FLAPPY_PIPE_SPEED_BASE + flappyScore * 0.18);
+    }
+    function flappyCurrentGap() {
+        // Narrows 4px per pipe cleared, floor 78px
+        return Math.max(78, FLAPPY_PIPE_GAP_BASE - flappyScore * 4);
+    }
+
     function updateFlappy() {
         if (!flappyStarted) return;
         flappyFrame++;
@@ -2169,36 +2240,38 @@
         const ch = flappyCanvas.height;
         const groundY = ch - 40;
 
-        // Spawn pipes
+        // Spawn pipes — each pipe bakes in the gap size at spawn time
         if (flappyFrame % FLAPPY_PIPE_INTERVAL === 0) {
-            const gapY = 60 + Math.random() * (groundY - FLAPPY_PIPE_GAP - 80);
-            flappyPipes.push({ x: flappyCanvas.width, gapY, scored: false });
+            const gap = flappyCurrentGap();
+            const gapY = 60 + Math.random() * (groundY - gap - 80);
+            flappyPipes.push({ x: flappyCanvas.width, gapY, gap, scored: false });
         }
 
-        // Move pipes
+        // Move pipes at current dynamic speed
+        const spd = flappyCurrentSpeed();
         for (let i = flappyPipes.length - 1; i >= 0; i--) {
-            flappyPipes[i].x -= FLAPPY_PIPE_SPEED;
-            // Score
+            flappyPipes[i].x -= spd;
             if (!flappyPipes[i].scored && flappyPipes[i].x + FLAPPY_PIPE_WIDTH < flappyBird.x) {
                 flappyScore++;
                 flappyPipes[i].scored = true;
                 updateFlappyScoreDisplay();
             }
-            // Remove off screen
             if (flappyPipes[i].x + FLAPPY_PIPE_WIDTH < 0) flappyPipes.splice(i, 1);
         }
 
-        // Collision with pipes
+        // Collision — use each pipe's own baked gap
         for (const pipe of flappyPipes) {
-            const inXRange = flappyBird.x + flappyBird.width - 6 > pipe.x && flappyBird.x + 6 < pipe.x + FLAPPY_PIPE_WIDTH;
+            const inXRange = flappyBird.x + flappyBird.width - 6 > pipe.x &&
+                             flappyBird.x + 6 < pipe.x + FLAPPY_PIPE_WIDTH;
             if (inXRange) {
-                if (flappyBird.y < pipe.gapY || flappyBird.y + flappyBird.height > pipe.gapY + FLAPPY_PIPE_GAP) {
+                const g = pipe.gap ?? FLAPPY_PIPE_GAP_BASE;
+                if (flappyBird.y < pipe.gapY || flappyBird.y + flappyBird.height > pipe.gapY + g) {
                     endFlappyGame(); return;
                 }
             }
         }
 
-        // Ground/ceiling collision
+        // Ground/ceiling
         if (flappyBird.y + flappyBird.height >= groundY || flappyBird.y < 0) {
             endFlappyGame(); return;
         }
@@ -2242,7 +2315,7 @@
             flappyCtx.fillRect(pipe.x + 2, 0, 4, topH);
 
             // Bottom pipe
-            const botY = pipe.gapY + FLAPPY_PIPE_GAP;
+            const botY = pipe.gapY + (pipe.gap ?? FLAPPY_PIPE_GAP_BASE);
             const botH = groundY - botY;
             const grad2 = flappyCtx.createLinearGradient(pipe.x, 0, pipe.x + FLAPPY_PIPE_WIDTH, 0);
             grad2.addColorStop(0, '#1aaa1a');
@@ -2662,6 +2735,7 @@
                     snakeGameRunning = false;
                     snakeGamePaused = false;
                     if (snakeGameLoop) { clearInterval(snakeGameLoop); snakeGameLoop = null; }
+                    if (snakeAnimFrame) { cancelAnimationFrame(snakeAnimFrame); snakeAnimFrame = null; }
                 }
                 document.removeEventListener('keydown', handleSnakeKeyPress);
                 initSnakeGame();

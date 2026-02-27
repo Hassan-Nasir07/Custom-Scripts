@@ -2592,100 +2592,152 @@
 
     function drawTetrisFrame() {
         if (!tetrisCtx || !tetrisCanvas) return;
+        const ctx = tetrisCtx;
         const cw = tetrisCanvas.width, ch = tetrisCanvas.height;
-        
-        // Background
-        tetrisCtx.fillStyle = '#0a0a1a';
-        tetrisCtx.fillRect(0, 0, cw, ch);
+        const boardW = TETRIS_COLS * TETRIS_CELL; // 180px
+        const boardH = TETRIS_ROWS * TETRIS_CELL; // 360px
+        const offX = Math.floor((cw - boardW) / 2); // 94px — centers horizontally
+        const offY = Math.floor((ch - boardH) / 2); // 4px — centers vertically
 
-        // Grid lines
-        tetrisCtx.strokeStyle = 'rgba(255,255,255,0.05)';
-        tetrisCtx.lineWidth = 0.5;
+        // --- Background ---
+        ctx.fillStyle = '#0a0a1a';
+        ctx.fillRect(0, 0, cw, ch);
+
+        // --- Side gutter purple neon gradient glow ---
+        const leftGrad = ctx.createLinearGradient(0, 0, offX, 0);
+        leftGrad.addColorStop(0, 'rgba(124,58,237,0)');
+        leftGrad.addColorStop(1, 'rgba(124,58,237,0.22)');
+        ctx.fillStyle = leftGrad;
+        ctx.fillRect(0, 0, offX, ch);
+
+        const rightGrad = ctx.createLinearGradient(offX + boardW, 0, cw, 0);
+        rightGrad.addColorStop(0, 'rgba(124,58,237,0.22)');
+        rightGrad.addColorStop(1, 'rgba(124,58,237,0)');
+        ctx.fillStyle = rightGrad;
+        ctx.fillRect(offX + boardW, 0, cw - (offX + boardW), ch);
+
+        // --- Board border glow ---
+        ctx.save();
+        ctx.shadowColor = '#7c3aed';
+        ctx.shadowBlur = 20;
+        ctx.strokeStyle = 'rgba(167,139,250,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(offX - 1, offY - 1, boardW + 2, boardH + 2);
+        ctx.restore();
+
+        // --- Grid lines (board area only) ---
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.lineWidth = 0.5;
         for (let c = 0; c <= TETRIS_COLS; c++) {
-            tetrisCtx.beginPath(); tetrisCtx.moveTo(c * TETRIS_CELL, 0); tetrisCtx.lineTo(c * TETRIS_CELL, ch); tetrisCtx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(offX + c * TETRIS_CELL, offY);
+            ctx.lineTo(offX + c * TETRIS_CELL, offY + boardH);
+            ctx.stroke();
         }
         for (let r = 0; r <= TETRIS_ROWS; r++) {
-            tetrisCtx.beginPath(); tetrisCtx.moveTo(0, r * TETRIS_CELL); tetrisCtx.lineTo(cw, r * TETRIS_CELL); tetrisCtx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(offX, offY + r * TETRIS_CELL);
+            ctx.lineTo(offX + boardW, offY + r * TETRIS_CELL);
+            ctx.stroke();
         }
 
-        // Board
+        // --- Locked board cells ---
         for (let r = 0; r < TETRIS_ROWS; r++) {
             for (let c = 0; c < TETRIS_COLS; c++) {
-                if (tetrisBoard[r][c]) {
-                    drawTetrisCell(c, r, tetrisBoard[r][c]);
-                }
+                if (tetrisBoard[r][c]) drawTetrisCell(ctx, offX, offY, c, r, tetrisBoard[r][c]);
             }
         }
 
-        // Ghost piece
+        // --- Ghost piece: tinted fill + inner glow ring + 2px border stroke ---
         if (tetrisCurrentPiece && tetrisGameRunning) {
-            const ghost = { ...tetrisCurrentPiece, shape: tetrisCurrentPiece.shape.map(r => [...r]) };
+            const ghost = { ...tetrisCurrentPiece, shape: tetrisCurrentPiece.shape.map(row => [...row]) };
             while (true) {
                 ghost.y++;
-                const tempPiece = tetrisCurrentPiece;
+                const saved = tetrisCurrentPiece;
                 tetrisCurrentPiece = ghost;
-                const col = tetrisCollides();
-                tetrisCurrentPiece = tempPiece;
-                if (col) { ghost.y--; break; }
+                const collided = tetrisCollides();
+                tetrisCurrentPiece = saved;
+                if (collided) { ghost.y--; break; }
             }
             const { shape, x, y, color } = ghost;
             for (let r = 0; r < shape.length; r++) {
                 for (let c2 = 0; c2 < shape[r].length; c2++) {
                     if (!shape[r][c2]) continue;
-                    tetrisCtx.fillStyle = 'rgba(255,255,255,0.12)';
-                    tetrisCtx.fillRect((x + c2) * TETRIS_CELL + 1, (y + r) * TETRIS_CELL + 1, TETRIS_CELL - 2, TETRIS_CELL - 2);
+                    const px = offX + (x + c2) * TETRIS_CELL + 1;
+                    const py = offY + (y + r)  * TETRIS_CELL + 1;
+                    const cs = TETRIS_CELL - 2;
+                    // Layer 1 — piece-color tinted fill at ~16% opacity
+                    ctx.fillStyle = color + '29';
+                    ctx.fillRect(px, py, cs, cs);
+                    // Layer 2 — inner glow ring at ~33% opacity (2px edges)
+                    ctx.fillStyle = color + '54';
+                    ctx.fillRect(px,          py,          cs, 2);
+                    ctx.fillRect(px,          py + cs - 2, cs, 2);
+                    ctx.fillRect(px,          py,          2,  cs);
+                    ctx.fillRect(px + cs - 2, py,          2,  cs);
+                    // Layer 3 — full-brightness colored border stroke
+                    ctx.save();
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeRect(px + 0.75, py + 0.75, cs - 1.5, cs - 1.5);
+                    ctx.restore();
                 }
             }
         }
 
-        // Current piece
+        // --- Current piece ---
         if (tetrisCurrentPiece) {
             const { shape, x, y, color } = tetrisCurrentPiece;
             for (let r = 0; r < shape.length; r++) {
                 for (let c = 0; c < shape[r].length; c++) {
                     if (!shape[r][c]) continue;
-                    drawTetrisCell(x + c, y + r, color);
+                    drawTetrisCell(ctx, offX, offY, x + c, y + r, color);
                 }
             }
         }
 
-        // Instructions when not started
+        // --- Idle overlay ---
         if (!tetrisGameRunning && !tetrisGameOver) {
-            tetrisCtx.fillStyle = 'rgba(255,255,255,0.7)';
-            tetrisCtx.font = 'bold 14px sans-serif';
-            tetrisCtx.textAlign = 'center';
-            tetrisCtx.fillText('Click PLAY to start', cw / 2, ch / 2);
-            tetrisCtx.font = '11px sans-serif';
-            tetrisCtx.fillStyle = 'rgba(255,255,255,0.45)';
-            tetrisCtx.fillText('← → Move  ↑ Rotate  ↓ Drop  SPC Hard Drop', cw / 2, ch / 2 + 20);
+            ctx.fillStyle = 'rgba(0,0,0,0.55)';
+            ctx.fillRect(offX, offY, boardW, boardH);
+            ctx.fillStyle = 'rgba(255,255,255,0.85)';
+            ctx.font = 'bold 15px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Click PLAY to start', cw / 2, ch / 2 - 10);
+            ctx.font = '11px sans-serif';
+            ctx.fillStyle = 'rgba(255,255,255,0.45)';
+            ctx.fillText('← → Move  ↑ Rotate  ↓ Drop', cw / 2, ch / 2 + 12);
+            ctx.fillText('Space = Hard Drop', cw / 2, ch / 2 + 28);
         }
 
-        // Game over overlay
+        // --- Game over overlay ---
         if (tetrisGameOver) {
-            tetrisCtx.fillStyle = 'rgba(0,0,0,0.65)';
-            tetrisCtx.fillRect(0, 0, cw, ch);
-            tetrisCtx.fillStyle = '#f55';
-            tetrisCtx.font = 'bold 22px sans-serif';
-            tetrisCtx.textAlign = 'center';
-            tetrisCtx.fillText('GAME OVER', cw / 2, ch / 2 - 30);
-            tetrisCtx.fillStyle = '#fff';
-            tetrisCtx.font = '14px sans-serif';
-            tetrisCtx.fillText('Score: ' + tetrisScore, cw / 2, ch / 2);
-            tetrisCtx.fillText('Lines: ' + tetrisLines + '  Lvl: ' + tetrisLevel, cw / 2, ch / 2 + 20);
-            tetrisCtx.fillText('Best: ' + tetrisHighScore, cw / 2, ch / 2 + 42);
+            ctx.fillStyle = 'rgba(0,0,0,0.75)';
+            ctx.fillRect(offX, offY, boardW, boardH);
+            ctx.fillStyle = '#f55';
+            ctx.font = 'bold 22px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('GAME OVER', cw / 2, ch / 2 - 30);
+            ctx.fillStyle = '#fff';
+            ctx.font = '14px sans-serif';
+            ctx.fillText('Score: ' + tetrisScore, cw / 2, ch / 2);
+            ctx.fillText('Lines: ' + tetrisLines + '  Lvl: ' + tetrisLevel, cw / 2, ch / 2 + 20);
+            ctx.fillStyle = 'rgba(255,255,255,0.55)';
+            ctx.fillText('Best: ' + tetrisHighScore, cw / 2, ch / 2 + 42);
         }
     }
 
-    function drawTetrisCell(c, r, color) {
-        const x = c * TETRIS_CELL, y = r * TETRIS_CELL;
-        const grad = tetrisCtx.createLinearGradient(x, y, x + TETRIS_CELL, y + TETRIS_CELL);
+    function drawTetrisCell(ctx, offX, offY, c, r, color) {
+        const x = offX + c * TETRIS_CELL;
+        const y = offY + r * TETRIS_CELL;
+        const grad = ctx.createLinearGradient(x, y, x + TETRIS_CELL, y + TETRIS_CELL);
         grad.addColorStop(0, color);
         grad.addColorStop(1, shadeColor(color, -40));
-        tetrisCtx.fillStyle = grad;
-        tetrisCtx.fillRect(x + 1, y + 1, TETRIS_CELL - 2, TETRIS_CELL - 2);
-        // Highlight
-        tetrisCtx.fillStyle = 'rgba(255,255,255,0.3)';
-        tetrisCtx.fillRect(x + 2, y + 2, TETRIS_CELL - 8, 3);
+        ctx.fillStyle = grad;
+        ctx.fillRect(x + 1, y + 1, TETRIS_CELL - 2, TETRIS_CELL - 2);
+        // Highlight shimmer
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.fillRect(x + 2, y + 2, TETRIS_CELL - 8, 3);
     }
 
     function shadeColor(hex, amt) {

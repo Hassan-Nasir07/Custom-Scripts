@@ -244,7 +244,8 @@
         neumorphicDepth: true,
         fluidGradients: true,
         emojiSet: 'fun', // 'fun', 'professional'
-        displayTheme: 'glassmorphic' // 'glassmorphic' or 'retro-futuristic'
+        displayTheme: 'glassmorphic', // 'glassmorphic' or 'retro-futuristic'
+        gameModeHidden: true // true = Game Mode ON (panels visible); false = Game Mode OFF (panels hidden, widget shrinks)
     };
     
     // Load saved preferences
@@ -3517,6 +3518,37 @@
                 will-change: contents;
                 transform: translateZ(0);
                 backface-visibility: hidden;
+                transition: width 0.35s ease, opacity 0.3s ease, margin 0.35s ease;
+            }
+
+            /* Game Mode OFF — collapse side panels */
+            .left-panel.game-mode-hidden,
+            .right-panel.game-mode-hidden {
+                width: 0 !important;
+                min-width: 0 !important;
+                opacity: 0 !important;
+                overflow: hidden !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                pointer-events: none !important;
+                flex-shrink: 1 !important;
+                gap: 0 !important;
+                max-height: 0 !important;
+                height: 0 !important;
+                transform: none !important;
+            }
+
+            /* Game Mode OFF — shrink the entire summary widget by 25% */
+            #total-time-summary.game-mode-off {
+                width: fit-content;
+                transform: scale(0.75);
+                transform-origin: top center;
+                transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+            #total-time-summary:not(.game-mode-off) {
+                transform: scale(1);
+                transform-origin: top center;
+                transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
             }
             
             /* Center Panel - Main Attendance Content */
@@ -3534,6 +3566,7 @@
                 flex-direction: column;
                 gap: 20px;
                 flex-shrink: 0;
+                transition: width 0.35s ease, opacity 0.3s ease, margin 0.35s ease;
             }
             
             .attendance-summary::before {
@@ -3813,11 +3846,18 @@
             }
             
             /* Developer Info & Settings - Bottom Control Bar */
+            /* Bottom Control Bar — sits as normal flex child inside main-attendance-content */
+            .bottom-control-bar {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                margin-top: auto;
+                padding-top: 18px;
+                width: 100%;
+            }
+
             .developer-info {
-                position: fixed;
-                bottom: 24px;
-                left: 50%;
-                transform: translateX(60px);
                 background: rgba(255, 255, 255, 0.08);
                 backdrop-filter: blur(12px);
                 border: 1px solid rgba(255, 255, 255, 0.15);
@@ -3825,14 +3865,14 @@
                 padding: 12px 16px;
                 cursor: pointer;
                 transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                z-index: 1000;
                 font-size: 1.1rem;
                 color: #667eea;
                 text-decoration: none;
+                position: relative;
             }
             
             .developer-info:hover {
-                transform: translateX(60px) scale(1.08) translateY(-4px);
+                transform: scale(1.08) translateY(-4px);
                 background: rgba(255, 255, 255, 0.12);
                 border-color: rgba(255, 255, 255, 0.25);
                 box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
@@ -3840,10 +3880,6 @@
             
             /* Settings Button */
             .settings-button {
-                position: fixed;
-                bottom: 24px;
-                left: 50%;
-                transform: translateX(-120px);
                 background: rgba(255, 255, 255, 0.08);
                 backdrop-filter: blur(12px);
                 border: 1px solid rgba(255, 255, 255, 0.15);
@@ -3851,13 +3887,12 @@
                 padding: 12px 16px;
                 cursor: pointer;
                 transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                z-index: 1000;
                 font-size: 1.1rem;
                 color: #764ba2;
             }
             
             .settings-button:hover {
-                transform: translateX(-120px) scale(1.08) translateY(-4px);
+                transform: scale(1.08) translateY(-4px);
                 background: rgba(255, 255, 255, 0.12);
                 border-color: rgba(255, 255, 255, 0.25);
                 box-shadow: 0 8px 16px rgba(118, 75, 162, 0.3);
@@ -3903,10 +3938,6 @@
             
             /* Picture-in-Picture Button Styles - Material Design 3 FAB */
             .pip-button {
-                position: fixed;
-                bottom: 24px;
-                left: 50%;
-                transform: translateX(-50%);
                 background: linear-gradient(135deg, #667eea, #764ba2);
                 color: white;
                 border: none;
@@ -3925,13 +3956,13 @@
             }
             
             .pip-button:hover {
-                transform: translateX(-50%) scale(1.05) translateY(-4px);
+                transform: scale(1.05) translateY(-4px);
                 box-shadow: 0 12px 24px rgba(102, 126, 234, 0.4), 0 6px 12px rgba(0, 0, 0, 0.2);
                 background: linear-gradient(135deg, #764ba2, #667eea);
             }
             
             .pip-button:active {
-                transform: translateX(-50%) scale(0.98);
+                transform: scale(0.98);
             }
             
             .pip-button.active {
@@ -3940,7 +3971,7 @@
             }
             
             .pip-button.active:hover {
-                transform: translateX(-50%) scale(1.05) translateY(-4px);
+                transform: scale(1.05) translateY(-4px);
                 background: linear-gradient(135deg, #fab1a0, #e17055);
             }
             
@@ -6429,12 +6460,20 @@
         developerDiv.innerHTML = `
             ℹ️
             <div class="developer-tooltip">
-                <strong>Core Developer:</strong> Websoft Team<br>
+                <strong>Core Logic:</strong> Websoft Team<br>
                 <strong>Enhanced by:</strong> Hassan Nasir<br>
-                <small>Build: v3.5.2026 (Modern Aurora)</small><br>
-                <small>Last Modified: 06 Feb 2026</small><br>
-                <small>New: Material Design 3, Snake Game & XP! 🎮</small><br>
-                <small>FAB Positioning, Light Mode Fixed 🌟</small>
+                <small>Build: v4.0.2026 (Game Edition)</small><br>
+                <small>Last Modified: 28 Feb 2026</small><br>
+                <hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin:6px 0;">
+                <small>🎮 <strong>Games:</strong> Snake · Flappy Bird · Tetris · Reflex · Aim · Breakout</small><br>
+                <small>⭐ <strong>XP System:</strong> Levels, streaks & rewards per game</small><br>
+                <small>🏓 <strong>Breakout:</strong> 11 powerups, multi-ball, combos</small><br>
+                <small>🐍 <strong>Snake:</strong> Smooth 60fps interpolation, dynamic speed</small><br>
+                <small>🐦 <strong>Flappy:</strong> Progressive speed + narrowing gaps</small><br>
+                <small>🧱 <strong>Tetris:</strong> Centered board, neon gutters, ghost piece</small><br>
+                <hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin:6px 0;">
+                <small>💡 <strong>Tip:</strong> Click the emoji 😮 to toggle Game Mode — ON shows side panels, OFF hides them & shrinks the widget</small><br>
+                <small>⚙️ Game Mode also available in Settings panel</small>
             </div>
         `;
         
@@ -6490,17 +6529,14 @@
         
         modal.innerHTML = `
             <div class="settings-title">⚙️ Customize Your Experience</div>
-            
             <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
                 <span class="settings-option-label">🎨 Neumorphic Depth <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
                 <div class="toggle-switch ${userPreferences.neumorphicDepth ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="neumorphicDepth"></div>
             </div>
-            
             <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
                 <span class="settings-option-label">🌊 Fluid Gradients <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
                 <div class="toggle-switch ${userPreferences.fluidGradients ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="fluidGradients"></div>
             </div>
-
             <div class="settings-option">
                 <span class="settings-option-label">😎 Emoji Style</span>
                 <select class="settings-select" data-pref="emojiSet">
@@ -6508,7 +6544,6 @@
                     <option value="professional" ${userPreferences.emojiSet === 'professional' ? 'selected' : ''}>Professional (Dots)</option>
                 </select>
             </div>
-
             <div class="settings-option">
                 <span class="settings-option-label">🎨 Display Theme</span>
                 <select class="settings-select" data-pref="displayTheme" id="theme-selector">
@@ -6516,7 +6551,10 @@
                     <option value="retro-futuristic" ${userPreferences.displayTheme === 'retro-futuristic' ? 'selected' : ''}>Sci-Fi Retro Futuristic</option>
                 </select>
             </div>
-            
+            <div class="settings-option">
+                <span class="settings-option-label">🎮 Game Mode <small style="opacity:0.6;font-size:0.75rem;">Hides side panels</small></span>
+                <div class="toggle-switch ${userPreferences.gameModeHidden ? 'active' : ''}" data-pref="gameModeHidden"></div>
+            </div>
             <button class="close-modal-button">✨ Save & Close</button>
         `;
         
@@ -6622,8 +6660,53 @@
                 emojiDisplay.textContent = getEmojiForProgress(seconds);
             }
         }
+
+        // Apply game mode panel visibility
+        applyGameMode();
     }
     
+    // ── Game Mode: show/hide left and right panels ──────────────
+    // gameModeHidden: true  = Game Mode ON  → panels visible, widget full size
+    // gameModeHidden: false = Game Mode OFF → panels hidden, widget shrinks 25%
+    function applyGameMode() {
+        const container = document.getElementById('total-time-summary');
+        if (!container) return;
+        const gameModeOn = userPreferences.gameModeHidden; // true = ON
+        const leftPanel  = container.querySelector('.left-panel');
+        const rightPanel = container.querySelector('.right-panel');
+
+        // Show or hide side panels
+        [leftPanel, rightPanel].forEach(panel => {
+            if (!panel) return;
+            if (gameModeOn) {
+                panel.classList.remove('game-mode-hidden'); // ON → show panels
+            } else {
+                panel.classList.add('game-mode-hidden');    // OFF → hide panels
+            }
+        });
+
+        // Shrink widget when Game Mode is OFF
+        if (gameModeOn) {
+            container.classList.remove('game-mode-off');
+        } else {
+            container.classList.add('game-mode-off');
+        }
+
+        // Update emoji tooltip
+        const emojiEl = container.querySelector('.emoji-display');
+        if (emojiEl) {
+            emojiEl.title = gameModeOn
+                ? '🎮 Game Mode ON — click to turn off'
+                : '🎮 Game Mode OFF — click to turn on';
+        }
+
+        // Sync settings modal toggle if open
+        const toggle = document.querySelector('.toggle-switch[data-pref="gameModeHidden"]');
+        if (toggle) {
+            toggle.classList.toggle('active', gameModeOn);
+        }
+    }
+
     // Add parallax effect on mouse move
     function addParallaxEffect(container) {
         container.addEventListener('mousemove', (e) => {
@@ -6671,7 +6754,7 @@
         // Apply preferences after element is in DOM
         if (isNewElement) {
             // Use setTimeout to ensure DOM is fully updated
-            setTimeout(() => applyPreferences(), 0);
+            setTimeout(() => { applyPreferences(); applyGameMode(); }, 0);
         }
     }
 
@@ -6891,11 +6974,8 @@
         
         pipButton.addEventListener('click', togglePictureInPicture);
         container.appendChild(pipButton);
-        
-        // Show the button since PiP is supported
         pipButton.style.display = 'flex';
         pipButton.style.alignItems = 'center';
-        
         return pipButton;
     }
     
@@ -7423,7 +7503,7 @@
         // Create header with emoji and title
         const headerHTML = `
             <div class="summary-header">
-                <div class="emoji-display">${currentEmoji}</div>
+                <div class="emoji-display" id="game-mode-emoji-toggle" title="🎮 Game Mode ON — click to turn off">${currentEmoji}</div>
                 <h2 class="summary-title">Attendance Summary</h2>
             </div>
         `;
@@ -7772,14 +7852,32 @@
             totalTimeDiv.innerHTML = leftPanelHTML + mainContentHTML + rightPanelHTML;
         }
         
-        // Add developer info inside the card
-        addDeveloperInfo(totalTimeDiv);
-        
-        // Add settings button
-        addSettingsButton(totalTimeDiv);
-        
-        // Add PiP button if supported
-        createPipButton(totalTimeDiv);
+        // Wire emoji click → Game Mode toggle
+        const _emojiToggle = totalTimeDiv.querySelector('#game-mode-emoji-toggle');
+        if (_emojiToggle) {
+            _emojiToggle.addEventListener('click', () => {
+                userPreferences.gameModeHidden = !userPreferences.gameModeHidden;
+                savePreferences();
+                applyGameMode();
+                _emojiToggle.style.transition = 'transform 0.22s cubic-bezier(0.68,-0.55,0.27,1.55)';
+                _emojiToggle.style.transform = 'scale(1.45) rotate(-12deg)';
+                setTimeout(() => { _emojiToggle.style.transform = ''; }, 230);
+            });
+        }
+
+        // Bottom control bar — lives inside main-attendance-content as a normal flex child
+        const _mainContent = totalTimeDiv.querySelector('.main-attendance-content');
+        const _target = _mainContent || totalTimeDiv;
+        let _controlBar = _target.querySelector('.bottom-control-bar');
+        if (!_controlBar) {
+            _controlBar = document.createElement('div');
+            _controlBar.className = 'bottom-control-bar';
+            _target.appendChild(_controlBar);
+        }
+        _controlBar.innerHTML = ''; // repopulate fresh each render
+        addSettingsButton(_controlBar);
+        createPipButton(_controlBar);
+        addDeveloperInfo(_controlBar);
         
         // Add parallax effect
         addParallaxEffect(totalTimeDiv);

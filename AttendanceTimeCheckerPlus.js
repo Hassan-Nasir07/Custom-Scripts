@@ -42,9 +42,9 @@
     let nextDirection = {x: 0, y: 0};
     let snakeScore = 0;
     let snakeHighScore = 0;
-    let snakeGameLoop = null;
     let snakeAnimFrame = null;     // rAF handle for smooth render
-    let snakeLastTickMs = 0;        // timestamp of last logic tick
+    let snakeLastTickMs = 0;        // timestamp of last render frame
+    let snakeAccumulatorMs = 0;
     let snakePrevSnap = [];         // segment grid positions before last tick
     let snakeTickInterval = 300;    // ms — matches setInterval, updated on score
     let snakeGameRunning = false;
@@ -1116,10 +1116,8 @@
 
         snakeTickInterval = snakeGetInterval();
         snakeLastTickMs = performance.now();
+        snakeAccumulatorMs = 0;
         snakePrevSnap = snake.map(s => ({...s}));
-
-        if (snakeGameLoop) clearInterval(snakeGameLoop);
-        snakeGameLoop = setInterval(snakeTick, snakeTickInterval);
 
         // Smooth render loop — separate from logic tick
         if (snakeAnimFrame) cancelAnimationFrame(snakeAnimFrame);
@@ -1141,10 +1139,10 @@
         snakeGameRunning = false;
         snakeGamePaused = false;
         
-        if (snakeGameLoop) { clearInterval(snakeGameLoop); snakeGameLoop = null; }
         if (snakeAnimFrame) { cancelAnimationFrame(snakeAnimFrame); snakeAnimFrame = null; }
         snakePrevSnap = [];
         snakeLastTickMs = 0;
+        snakeAccumulatorMs = 0;
         
         // Clear canvas completely on reset
         if (snakeCtx) {
@@ -1163,7 +1161,6 @@
 
         // Snapshot grid positions BEFORE moving — rAF loop lerps from these
         snakePrevSnap = snake.map(s => ({...s}));
-        snakeLastTickMs = performance.now();
 
         direction = {...nextDirection};
         if (direction.x === 0 && direction.y === 0) return; // waiting for first input
@@ -1188,10 +1185,8 @@
             snakeScore++;
             updateSnakeScoreDisplay();
             spawnFood();
-            // Increase speed: restart interval at new rate
+            // Increase speed by reducing per-tick interval
             snakeTickInterval = snakeGetInterval();
-            clearInterval(snakeGameLoop);
-            snakeGameLoop = setInterval(snakeTick, snakeTickInterval);
         } else {
             snake.pop();
         }
@@ -1204,9 +1199,21 @@
     // rAF render loop — runs at ~60fps, interpolates between logic ticks
     function snakeRenderLoop(timestamp) {
         if (!snakeGameRunning) return;
-        const elapsed = timestamp - snakeLastTickMs;
+
+        if (!snakeLastTickMs) snakeLastTickMs = timestamp;
+        const delta = timestamp - snakeLastTickMs;
+        snakeLastTickMs = timestamp;
+
+        if (!snakeGamePaused) {
+            snakeAccumulatorMs += delta;
+            while (snakeAccumulatorMs >= snakeTickInterval && snakeGameRunning) {
+                snakeTick();
+                snakeAccumulatorMs -= snakeTickInterval;
+            }
+        }
+
         // t: 0 = just ticked, 1 = about to tick. Clamp so we never overshoot.
-        const t = Math.min(1, elapsed / snakeTickInterval);
+        const t = Math.min(1, snakeAccumulatorMs / snakeTickInterval);
         drawSnakeGame(t);
         snakeAnimFrame = requestAnimationFrame(snakeRenderLoop);
     }
@@ -1302,8 +1309,8 @@
     function gameOver() {
         snakeGameRunning = false;
         snakeGamePaused = false;
-        if (snakeGameLoop) { clearInterval(snakeGameLoop); snakeGameLoop = null; }
         if (snakeAnimFrame) { cancelAnimationFrame(snakeAnimFrame); snakeAnimFrame = null; }
+        snakeAccumulatorMs = 0;
         
         // Clear canvas on game over
         if (snakeCtx) {
@@ -2787,8 +2794,8 @@
                 if (snakeGameRunning) {
                     snakeGameRunning = false;
                     snakeGamePaused = false;
-                    if (snakeGameLoop) { clearInterval(snakeGameLoop); snakeGameLoop = null; }
                     if (snakeAnimFrame) { cancelAnimationFrame(snakeAnimFrame); snakeAnimFrame = null; }
+                    snakeAccumulatorMs = 0;
                 }
                 document.removeEventListener('keydown', handleSnakeKeyPress);
                 initSnakeGame();

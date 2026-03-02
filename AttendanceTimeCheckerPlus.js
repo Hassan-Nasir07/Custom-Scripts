@@ -6479,7 +6479,7 @@
                 <small>🐦 <strong>Flappy:</strong> Progressive speed + narrowing gaps</small><br>
                 <small>🧱 <strong>Tetris:</strong> Centered board, neon gutters, ghost piece</small><br>
                 <hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin:6px 0;">
-                <small>💡 <strong>Tip:</strong> Click the emoji 😮 to toggle Game Mode — ON shows side panels, OFF hides them & shrinks the widget</small><br>
+                <small>💡 <strong>Tip:</strong> Click the emoji 😮</small><br>
                 <small>⚙️ Game Mode also available in Settings panel</small>
             </div>
         `;

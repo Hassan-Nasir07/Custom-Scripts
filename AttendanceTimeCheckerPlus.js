@@ -19,8 +19,8 @@
         professional: ['🔴', '🟠', '🟡', '🟡', '🟢', '🟢', '🔵', '🔵']
     };
     
-    const runningEmoji = '🏃💨'; // 8:00 to 8:30 hours
-    const clownEmoji = '🫵🤡'; // After 8:30 hours
+    const runningEmoji = '🏃💨'; // shift end to shift + 30 min
+    const clownEmoji = '🫵🤡'; // After shift + 30 min (go home!)
     
     // Global variables for performance optimization
     let lastTotalWorkedTime = -1; // Track if we need to re-render
@@ -142,8 +142,8 @@
     let flappyPipes = [];
     let flappyGround = 0;
     let flappyFrame = 0;
-    const FLAPPY_GRAVITY = 0.45;
-    const FLAPPY_JUMP = -7.5;
+    const FLAPPY_GRAVITY = 0.27;
+    const FLAPPY_JUMP = -5.0;
     const FLAPPY_PIPE_GAP_BASE = 140; // starting gap, narrows with score
     const FLAPPY_PIPE_WIDTH = 52;
     const FLAPPY_PIPE_SPEED_BASE = 2.0; // increases with score
@@ -197,6 +197,8 @@
         lastHourTracked: -1, 
         todayHours: 0,
         consecutiveDays: 0,
+        totalWorkDays: 0,
+        gameSessions: 0,
         lastAttendanceDate: null,
         longestStreak: 0,
         achievements: [],
@@ -213,15 +215,15 @@
         8: { xp: 50, label: '8-Hour Full Day' }
     };
     
-    // Achievement Definitions
+    // Achievement Definitions (work-life-balance friendly — weekends are sacred 🙅)
     const ACHIEVEMENTS = {
-        firstDay: { icon: '🎯', name: 'First Day', desc: 'Complete your first work day' },
-        week1: { icon: '📅', name: 'Week Warrior', desc: 'Work 5 consecutive days' },
-        streak7: { icon: '🔥', name: '7-Day Streak', desc: 'Maintain a 7-day streak' },
-        streak30: { icon: '🏆', name: 'Monthly Master', desc: 'Achieve a 30-day streak' },
-        level10: { icon: '⭐', name: 'Level 10', desc: 'Reach level 10' },
-        level25: { icon: '💎', name: 'Level 25', desc: 'Reach level 25' },
-        workaholic: { icon: '💪', name: 'Workaholic', desc: 'Complete 100 total hours' }
+        firstDay:   { icon: '🎯', name: 'Day One',          desc: 'Complete your first work day' },
+        week1:      { icon: '📅', name: 'Full Week',         desc: 'Complete 5 work days' },
+        workdays20: { icon: '🗓️', name: 'Month Done',        desc: 'Complete 20 work days' },
+        onTime:     { icon: '🕐', name: 'Badge of Balance',  desc: 'Finish your exact shift without overtime' },
+        level10:    { icon: '⭐', name: 'Level 10',          desc: 'Reach level 10' },
+        level25:    { icon: '💎', name: 'Level 25',          desc: 'Reach level 25' },
+        gamer:      { icon: '🎮', name: 'Office Gamer',      desc: 'Earn XP in 10 game sessions' }
     };
     
     // ====================================
@@ -245,8 +247,15 @@
         fluidGradients: true,
         emojiSet: 'fun', // 'fun', 'professional'
         displayTheme: 'glassmorphic', // 'glassmorphic' or 'retro-futuristic'
-        gameModeHidden: true // true = Game Mode ON (panels visible); false = Game Mode OFF (panels hidden, widget shrinks)
+        gameModeHidden: true, // true = Game Mode ON (panels visible); false = Game Mode OFF (panels hidden, widget shrinks)
+        shiftDuration: '8h' // '4h' = short leave, '8h' = standard, '9h' = overtime
     };
+
+    // Returns the selected shift duration in seconds
+    function getShiftSeconds() {
+        const map = { '4h': 14400, '8h': 28800, '9h': 32400 };
+        return map[userPreferences.shiftDuration] || 28800;
+    }
     
     // Load saved preferences
     function loadPreferences() {
@@ -301,6 +310,8 @@
                 lastHourTracked: data.lastHourTracked || -1,
                 todayHours: data.todayHours || 0,
                 consecutiveDays: data.consecutiveDays || 0,
+                totalWorkDays: data.totalWorkDays || 0,
+                gameSessions: data.gameSessions || 0,
                 lastAttendanceDate: data.lastAttendanceDate || null,
                 longestStreak: data.longestStreak || 0,
                 achievements: data.achievements || [],
@@ -314,6 +325,8 @@
             lastHourTracked: -1, 
             todayHours: 0,
             consecutiveDays: 0,
+            totalWorkDays: 0,
+            gameSessions: 0,
             lastAttendanceDate: null,
             longestStreak: 0,
             achievements: [],
@@ -3081,6 +3094,7 @@
         if (!userXP.lastAttendanceDate) {
             // First time
             userXP.consecutiveDays = 1;
+            userXP.totalWorkDays = (userXP.totalWorkDays || 0) + 1;
             userXP.lastAttendanceDate = today;
             return;
         }
@@ -3090,18 +3104,34 @@
         const diffTime = currentDate - lastDate;
         const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
         
-        if (diffDays === 1) {
-            // Consecutive day
+        if (diffDays === 0) {
+            // Same day, no change
+            return;
+        }
+
+        // Count how many actual work days (Mon–Fri) are strictly between lastDate and currentDate.
+        // If zero, the two days are consecutive work days (possibly bridging a weekend).
+        let skippedWorkDays = 0;
+        const cursor = new Date(lastDate);
+        cursor.setDate(cursor.getDate() + 1);
+        while (cursor < currentDate) {
+            const dow = cursor.getDay();
+            if (dow !== 0 && dow !== 6) skippedWorkDays++;
+            cursor.setDate(cursor.getDate() + 1);
+        }
+
+        if (skippedWorkDays === 0) {
+            // Consecutive work day (weekend gap is forgiven)
             userXP.consecutiveDays++;
             if (userXP.consecutiveDays > userXP.longestStreak) {
                 userXP.longestStreak = userXP.consecutiveDays;
             }
-        } else if (diffDays > 1) {
-            // Streak broken
+        } else {
+            // Missed at least one real work day — streak resets
             userXP.consecutiveDays = 1;
         }
-        // diffDays === 0 means same day, no change needed
-        
+
+        userXP.totalWorkDays = (userXP.totalWorkDays || 0) + 1;
         userXP.lastAttendanceDate = today;
     }
     
@@ -3117,41 +3147,42 @@
     }
     
     function checkAchievements() {
-        const totalHours = Math.floor(userXP.totalXP / XP_PER_HOUR);
-        
-        // First Day achievement
-        if (!userXP.achievements.includes('firstDay') && userXP.todayHours >= 8) {
+        const shiftHours = getShiftSeconds() / 3600;
+
+        // Day One: complete your first shift
+        if (!userXP.achievements.includes('firstDay') && userXP.todayHours >= shiftHours) {
             unlockAchievement('firstDay');
         }
-        
-        // Week Warrior (5 consecutive days)
-        if (!userXP.achievements.includes('week1') && userXP.consecutiveDays >= 5) {
+
+        // Full Week: 5 work days completed (weekends don't count against you)
+        if (!userXP.achievements.includes('week1') && (userXP.totalWorkDays || 0) >= 5) {
             unlockAchievement('week1');
         }
-        
-        // 7-Day Streak
-        if (!userXP.achievements.includes('streak7') && userXP.consecutiveDays >= 7) {
-            unlockAchievement('streak7');
+
+        // Month Done: 20 work days completed
+        if (!userXP.achievements.includes('workdays20') && (userXP.totalWorkDays || 0) >= 20) {
+            unlockAchievement('workdays20');
         }
-        
-        // 30-Day Streak
-        if (!userXP.achievements.includes('streak30') && userXP.consecutiveDays >= 30) {
-            unlockAchievement('streak30');
+
+        // Badge of Balance: finish exactly your shift (not overtime) — worked >= shift and <= shift+5min
+        const shiftSec = getShiftSeconds();
+        const workedSec = userXP.todayHours * 3600;
+        if (!userXP.achievements.includes('onTime') &&
+            workedSec >= shiftSec && workedSec <= shiftSec + 300) {
+            unlockAchievement('onTime');
         }
-        
-        // Level 10
+
+        // Level milestones
         if (!userXP.achievements.includes('level10') && userXP.level >= 10) {
             unlockAchievement('level10');
         }
-        
-        // Level 25
         if (!userXP.achievements.includes('level25') && userXP.level >= 25) {
             unlockAchievement('level25');
         }
-        
-        // Workaholic (100 hours)
-        if (!userXP.achievements.includes('workaholic') && totalHours >= 100) {
-            unlockAchievement('workaholic');
+
+        // Office Gamer: earn XP in 10 game sessions
+        if (!userXP.achievements.includes('gamer') && (userXP.gameSessions || 0) >= 10) {
+            unlockAchievement('gamer');
         }
     }
     
@@ -3252,7 +3283,7 @@
         let message = '';
         
         switch (gameType) {
-            case 'snake':
+            case 'snake': {
                 // Award XP based on snake score (each food = points)
                 const snakeScoreVal = performance.score || 0;
                 if (snakeScoreVal >= 20) {
@@ -3271,51 +3302,53 @@
                 if (performance.isHighScore) xpGained += 15;
                 message = `🐍 +${xpGained} XP (Snake: ${snakeScoreVal} pts${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
                 break;
+            }
                 
-            case 'flappy':
+            case 'flappy': {
                 // Award XP based on pipes cleared
-                const flappyScore = performance.score || 0;
-                if (flappyScore >= 20) {
+                const flappyScoreVal = performance.score || 0;
+                if (flappyScoreVal >= 20) {
                     xpGained = 70;
-                } else if (flappyScore >= 10) {
+                } else if (flappyScoreVal >= 10) {
                     xpGained = 45;
-                } else if (flappyScore >= 5) {
+                } else if (flappyScoreVal >= 5) {
                     xpGained = 25;
-                } else if (flappyScore >= 1) {
+                } else if (flappyScoreVal >= 1) {
                     xpGained = 10;
                 } else {
                     xpGained = 3;
                 }
                 if (performance.isHighScore) xpGained += 20;
-                message = `🐦 +${xpGained} XP (Flappy: ${flappyScore} pipes${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
+                message = `🐦 +${xpGained} XP (Flappy: ${flappyScoreVal} pipes${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
                 break;
+            }
                 
-            case 'tetris':
+            case 'tetris': {
                 // Award XP based on lines cleared and level reached
-                const tetrisLines = performance.lines || 0;
-                const tetrisLevel = performance.level || 1;
-                if (tetrisLines >= 40) {
+                const tetrisLinesVal = performance.lines || 0;
+                const tetrisLevelVal = performance.level || 1;
+                if (tetrisLinesVal >= 40) {
                     xpGained = 100;
-                } else if (tetrisLines >= 20) {
+                } else if (tetrisLinesVal >= 20) {
                     xpGained = 65;
-                } else if (tetrisLines >= 10) {
+                } else if (tetrisLinesVal >= 10) {
                     xpGained = 40;
-                } else if (tetrisLines >= 4) {
+                } else if (tetrisLinesVal >= 4) {
                     xpGained = 20;
-                } else if (tetrisLines >= 1) {
+                } else if (tetrisLinesVal >= 1) {
                     xpGained = 10;
                 } else {
                     xpGained = 3;
                 }
-                xpGained += Math.min(tetrisLevel * 5, 25); // Level bonus
+                xpGained += Math.min(tetrisLevelVal * 5, 25); // Level bonus
                 if (performance.isHighScore) xpGained += 25;
-                message = `🧱 +${xpGained} XP (Tetris: ${tetrisLines} lines, Lvl ${tetrisLevel}${performance.isHighScore ? ' 🏆!' : ''})`;
+                message = `🧱 +${xpGained} XP (Tetris: ${tetrisLinesVal} lines, Lvl ${tetrisLevelVal}${performance.isHighScore ? ' 🏆!' : ''})`;
                 break;
+            }
                 
-            case 'reflex':
+            case 'reflex': {
                 // Award XP based on reaction time (faster = more XP)
-                // Max 50 XP for avg time under 200ms
-                const avgTime = performance.avgTime;
+                const avgTime = performance.avgTime || 999;
                 if (avgTime < 200) {
                     xpGained = 50;
                 } else if (avgTime < 250) {
@@ -3327,48 +3360,68 @@
                 } else {
                     xpGained = 10;
                 }
-                
-                // Deduct for false starts
                 xpGained = Math.max(5, xpGained - (performance.falseStarts * 5));
-                
-                message = `⚡ ${xpGained} XP for ${avgTime}ms avg reaction!`;
+                message = `⚡ +${xpGained} XP for ${avgTime}ms avg reaction!`;
                 break;
+            }
                 
-            case 'aim':
+            case 'aim': {
                 // Award XP based on score (higher score = more XP)
-                // Max 75 XP for score > 300
-                const score = performance.score;
-                if (score >= 300) {
+                const aimScoreVal = performance.score || 0;
+                if (aimScoreVal >= 300) {
                     xpGained = 75;
-                } else if (score >= 250) {
+                } else if (aimScoreVal >= 250) {
                     xpGained = 60;
-                } else if (score >= 200) {
+                } else if (aimScoreVal >= 200) {
                     xpGained = 45;
-                } else if (score >= 150) {
+                } else if (aimScoreVal >= 150) {
                     xpGained = 30;
-                } else if (score >= 100) {
+                } else if (aimScoreVal >= 100) {
                     xpGained = 20;
                 } else {
                     xpGained = 10;
                 }
-                
-                // Bonus for accuracy
                 if (performance.accuracy >= 80) {
                     xpGained += 10;
-                    message = `💥 ${xpGained} XP (${score} pts + accuracy bonus)!`;
+                    message = `💥 +${xpGained} XP (${aimScoreVal} pts + accuracy bonus)!`;
                 } else {
-                    message = `💥 ${xpGained} XP for ${score} points!`;
+                    message = `💥 +${xpGained} XP for ${aimScoreVal} points!`;
                 }
                 break;
+            }
+
+            case 'breakout': {
+                const brkScore = performance.score || 0;
+                const brkLevel = performance.level || 1;
+                if (brkScore >= 1500) {
+                    xpGained = 90;
+                } else if (brkScore >= 800) {
+                    xpGained = 60;
+                } else if (brkScore >= 400) {
+                    xpGained = 40;
+                } else if (brkScore >= 100) {
+                    xpGained = 20;
+                } else {
+                    xpGained = 8;
+                }
+                xpGained += Math.min(brkLevel * 5, 30); // level bonus
+                if (performance.isHighScore) xpGained += 20;
+                message = `🧱 +${xpGained} XP (Breakout: ${brkScore} pts, Lvl ${brkLevel}${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
+                break;
+            }
         }
         
         // Apply XP gain
         if (xpGained > 0) {
             userXP.currentXP += xpGained;
             userXP.totalXP += xpGained;
+            userXP.gameSessions = (userXP.gameSessions || 0) + 1;
             
             // Check for level up
             checkLevelUp();
+
+            // Check gamer achievement
+            checkAchievements();
             
             saveUserXP(userXP);
             updateXPDisplay();
@@ -6427,15 +6480,15 @@
     }
 
     // Calculate emoji based on work progress
-    function getEmojiForProgress(workedSeconds, totalSeconds = 28800) {
+    function getEmojiForProgress(workedSeconds, totalSeconds = getShiftSeconds()) {
         const progress = Math.min(workedSeconds / totalSeconds, 1);
 
-        // If exceeded 8 hours 30 minutes (30600 seconds), show clown emoji
-        if (workedSeconds > (totalSeconds + 1800)) { // 28800 + 1800 = 30600
+        // If exceeded shift + 30 minutes, show clown emoji (go home!)
+        if (workedSeconds > (totalSeconds + 1800)) {
             return clownEmoji;
         }
 
-        // If between 8 hours and 8:30 hours (28800 to 30600 seconds), show running emoji
+        // If between shift end and shift + 30 min, show running emoji (wrap it up!)
         if (workedSeconds >= totalSeconds && workedSeconds <= (totalSeconds + 1800)) {
             return runningEmoji;
         }
@@ -6537,7 +6590,15 @@
                 <div class="toggle-switch ${userPreferences.fluidGradients ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="fluidGradients"></div>
             </div>
             <div class="settings-option">
-                <span class="settings-option-label">😎 Emoji Style</span>
+                <span class="settings-option-label">� Shift Duration</span>
+                <select class="settings-select" data-pref="shiftDuration">
+                    <option value="4h" ${userPreferences.shiftDuration === '4h' ? 'selected' : ''}>4h — Short Leave</option>
+                    <option value="8h" ${userPreferences.shiftDuration === '8h' ? 'selected' : ''}>8h — Standard</option>
+                    <option value="9h" ${userPreferences.shiftDuration === '9h' ? 'selected' : ''}>9h — Overtime</option>
+                </select>
+            </div>
+            <div class="settings-option">
+                <span class="settings-option-label">�😎 Emoji Style</span>
                 <select class="settings-select" data-pref="emojiSet">
                     <option value="fun" ${userPreferences.emojiSet === 'fun' ? 'selected' : ''}>Fun (GenZ)</option>
                     <option value="professional" ${userPreferences.emojiSet === 'professional' ? 'selected' : ''}>Professional (Dots)</option>
@@ -7436,7 +7497,7 @@
                         // Dynamic background gradient based on progress
                         if (originalTotalWorked && compactDisplay) {
                             const totalSeconds = timeToSeconds(originalTotalWorked.textContent);
-                            const progress = Math.min(totalSeconds / 28800, 1);
+                            const progress = Math.min(totalSeconds / getShiftSeconds(), 1);
                             
                             const startColor = [225, 112, 85]; // Red-ish
                             const endColor = [0, 184, 148];   // Green-ish
@@ -7497,7 +7558,7 @@
     function renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today) {
         // Get emoji for current progress
         const currentEmoji = getEmojiForProgress(totalWorkedTime);
-        const progress = Math.min((totalWorkedTime / 28800) * 100, 100);
+        const progress = Math.min((totalWorkedTime / getShiftSeconds()) * 100, 100);
 
         // Create header with emoji and title
         const headerHTML = `
@@ -7574,7 +7635,7 @@
 
         // Create time statistics
         const totalTimeFormatted = secondsToHHMMSS(totalWorkedTime);
-        const remainingTime = 28800 - totalWorkedTime;
+        const remainingTime = getShiftSeconds() - totalWorkedTime;
         const remainingTimeFormatted = remainingTime > 0 ? secondsToHHMMSS(remainingTime) : "00:00:00";
 
         let timeStatsHTML = `
@@ -8014,10 +8075,10 @@
     function updateDynamicContent(totalWorkedTime, today, checkInOutList = []) {
         // Batch all DOM reads first, then all writes to prevent layout thrashing
         const totalTimeFormatted = secondsToHHMMSS(totalWorkedTime);
-        const remainingTime = 28800 - totalWorkedTime;
+        const remainingTime = getShiftSeconds() - totalWorkedTime;
         const remainingTimeFormatted = remainingTime > 0 ? secondsToHHMMSS(remainingTime) : "00:00:00";
         const currentEmoji = getEmojiForProgress(totalWorkedTime);
-        const progress = Math.min((totalWorkedTime / 28800) * 100, 100);
+        const progress = Math.min((totalWorkedTime / getShiftSeconds()) * 100, 100);
         
         let futureTimeFormatted = '';
         if (remainingTime > 0) {

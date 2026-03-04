@@ -5318,8 +5318,7 @@
                 
                 .snake-game-title,
                 .quotes-title,
-                .xp-title,
-                .image-box-title {
+                .xp-title {
                     color: rgba(0, 0, 0, 0.85);
                 }
                 
@@ -6265,12 +6264,6 @@
                 margin-bottom: 12px;
             }
             
-            .image-box-title {
-                font-size: 1rem;
-                font-weight: 600;
-                color: rgba(255, 255, 255, 0.9);
-            }
-            
             .image-change-btn {
                 padding: 6px 12px;
                 background: rgba(255, 255, 255, 0.1);
@@ -6289,7 +6282,6 @@
             .aspect-ratio-controls {
                 display: flex;
                 gap: 4px;
-                margin-bottom: 12px;
                 justify-content: center;
             }
             
@@ -7812,14 +7804,13 @@
                 <!-- Image Box -->
                 <div class="image-box-container">
                     <div class="image-box-header">
-                        <span class="image-box-title">🖼️ Your Space</span>
+                        <div class="aspect-ratio-controls">
+                            <button id="aspect-ratio-1-1" class="aspect-ratio-btn" onclick="window.changeImageAspectRatio('1:1')" title="Square (1:1) - Profile pics, badges">◻</button>
+                            <button id="aspect-ratio-16-9" class="aspect-ratio-btn active" onclick="window.changeImageAspectRatio('16:9')" title="Widescreen (16:9) - Videos, monitors">▬</button>
+                            <button id="aspect-ratio-4-3" class="aspect-ratio-btn" onclick="window.changeImageAspectRatio('4:3')" title="Classic (4:3) - Old monitors, photos">▭</button>
+                            <button id="aspect-ratio-9-16" class="aspect-ratio-btn" onclick="window.changeImageAspectRatio('9:16')" title="Portrait (9:16) - Phone screens, stories">▯</button>
+                        </div>
                         <button class="image-change-btn" onclick="window.changeImageBox()">Change Image</button>
-                    </div>
-                    <div class="aspect-ratio-controls">
-                        <button id="aspect-ratio-1-1" class="aspect-ratio-btn" onclick="window.changeImageAspectRatio('1:1')" title="Square (1:1) - Profile pics, badges">◻</button>
-                        <button id="aspect-ratio-16-9" class="aspect-ratio-btn active" onclick="window.changeImageAspectRatio('16:9')" title="Widescreen (16:9) - Videos, monitors">▬</button>
-                        <button id="aspect-ratio-4-3" class="aspect-ratio-btn" onclick="window.changeImageAspectRatio('4:3')" title="Classic (4:3) - Old monitors, photos">▭</button>
-                        <button id="aspect-ratio-9-16" class="aspect-ratio-btn" onclick="window.changeImageAspectRatio('9:16')" title="Portrait (9:16) - Phone screens, stories">▯</button>
                     </div>
                     <div id="image-display" class="image-display">
                         <div class="image-placeholder">📷 Click "Change Image" to add your favorite image</div>

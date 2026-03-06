@@ -32,6 +32,10 @@
     // Feature initialization flags to prevent re-initialization
     let featuresInitialized = false;
     
+    // XP system ready flag — prevents awardXP from running before loadUserXP() has been called,
+    // which would overwrite saved data with default values and reset progress to Level 1.
+    let xpSystemReady = false;
+    
     // ====================================
     // SNAKE GAME VARIABLES
     // ====================================
@@ -3026,6 +3030,7 @@
     
     function initXPSystem() {
         userXP = loadUserXP();
+        xpSystemReady = true; // Must be set AFTER loadUserXP() so awardXP never runs on default values
         updateXPDisplay();
     }
     
@@ -3035,6 +3040,11 @@
     }
     
     function awardXP(hoursWorked) {
+        // Guard: do NOT run before initXPSystem() has loaded data from localStorage.
+        // Without this, the default userXP values get saved to localStorage on every
+        // page load (during the ~100ms before the setTimeout fires), wiping all progress.
+        if (!xpSystemReady) return;
+        
         const currentHour = Math.floor(hoursWorked);
         
         // Calculate and update streak

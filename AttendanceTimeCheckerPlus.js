@@ -252,7 +252,8 @@
         emojiSet: 'fun', // 'fun', 'professional'
         displayTheme: 'glassmorphic', // 'glassmorphic' or 'retro-futuristic'
         gameModeHidden: true, // true = Game Mode ON (panels visible); false = Game Mode OFF (panels hidden, widget shrinks)
-        shiftDuration: '8h' // '4h' = short leave, '8h' = standard, '9h' = overtime
+        shiftDuration: '8h', // '4h' = short leave, '8h' = standard, '9h' = overtime
+        poolTableColor: 'green' // 'green', 'red', 'blue', 'lightgrey'
     };
 
     // Returns the selected shift duration in seconds
@@ -409,11 +410,103 @@
         localStorage.setItem('breakoutHighScore', score.toString());
     }
 
+    // Pool Game Storage
+    function loadPoolHighScore() {
+        const saved = localStorage.getItem('poolGamesWon');
+        return saved ? parseInt(saved) : 0;
+    }
+    function savePoolHighScore(score) {
+        localStorage.setItem('poolGamesWon', score.toString());
+    }
 
     // ====================================
+    // 8-BALL POOL GAME VARIABLES
     // ====================================
-    // BREAKOUT GAME LOGIC  (with powerups)
-    // ====================================
+    let poolCanvas, poolCtx;
+    let poolAnimFrame = null;
+    let poolGameRunning = false;
+    let poolGameOver = false;
+    let poolMaximized = false;
+    let poolMode = 'cpu'; // 'cpu' | 'pvp'
+    let poolTurn = 1; // 1 or 2
+    let poolBalls = [];
+    let poolPockets = [];
+    let poolGamesWon = 0;
+
+    // Cue stick aiming state
+    let poolAiming = false;
+    let poolDragging = false;
+    let poolCueAngle = 0;
+    let poolCuePower = 0;
+    let poolCueSpinX = 0; // -1 to 1
+    let poolCueSpinY = 0; // -1 to 1
+    let poolMouseX = 0;
+    let poolMouseY = 0;
+
+    // Ball-in-hand state
+    let poolBallInHand = false;
+    let poolPlacingBall = false;
+
+    // Turn result tracking
+    let poolFirstPocket = false; // has a group been assigned?
+    let poolPlayer1Group = null; // 'solids' | 'stripes' | null
+    let poolPlayer2Group = null;
+    let poolPlayer1Pocketed = [];
+    let poolPlayer2Pocketed = [];
+    let poolFoulMessage = '';
+    let poolWinner = 0;
+    let poolShotFired = false;
+    let poolFirstBallHit = -1; // id of first ball struck by cue ball
+    let poolCushionAfterHit = false;
+    let poolPocketedThisShot = [];
+    let poolAIDelay = 0; // frames to wait before AI shoots
+
+    // Shot clock
+    const POOL_SHOT_CLOCK = 20; // seconds per turn
+    let poolShotTimer = POOL_SHOT_CLOCK;
+    let poolShotTimerFrame = 0; // frame counter for 1-second ticks
+
+    // Physics constants
+    const POOL_W = 368;
+    const POOL_H = 184; // 2:1 ratio
+    const POOL_BALL_R = 6;
+    const POOL_POCKET_R = 11;
+    const POOL_FRICTION = 0.985;
+    const POOL_RESTITUTION = 0.92;
+    const POOL_MIN_VEL = 0.08;
+    const POOL_CUE_MAX_POWER = 12;
+    const POOL_CUSHION_X1 = 16;
+    const POOL_CUSHION_Y1 = 16;
+    const POOL_CUSHION_X2 = POOL_W - 16;
+    const POOL_CUSHION_Y2 = POOL_H - 16;
+
+    // Table color definitions
+    const POOL_TABLE_COLORS = {
+        green:     { felt: '#2d8a4e', cushion: '#1a5c32', border: '#5c3a1e', pocket: '#111' },
+        red:       { felt: '#8b3a3a', cushion: '#5c1a1a', border: '#5c3a1e', pocket: '#111' },
+        blue:      { felt: '#2a5a8a', cushion: '#1a3a5c', border: '#5c3a1e', pocket: '#111' },
+        lightgrey: { felt: '#9aa5b0', cushion: '#6e7a85', border: '#5c3a1e', pocket: '#222' }
+    };
+
+    // Ball definitions: id, color, stripe, number
+    const POOL_BALL_DEFS = [
+        { id: 0,  color: '#f5f5f5', stripe: false, num: 0  }, // cue ball
+        { id: 1,  color: '#f0c830', stripe: false, num: 1  }, // solid yellow
+        { id: 2,  color: '#1a5ab8', stripe: false, num: 2  }, // solid blue
+        { id: 3,  color: '#d42a2a', stripe: false, num: 3  }, // solid red
+        { id: 4,  color: '#4a2080', stripe: false, num: 4  }, // solid purple
+        { id: 5,  color: '#e86820', stripe: false, num: 5  }, // solid orange
+        { id: 6,  color: '#1a7a3a', stripe: false, num: 6  }, // solid green
+        { id: 7,  color: '#8b1a1a', stripe: false, num: 7  }, // solid maroon
+        { id: 8,  color: '#111111', stripe: false, num: 8  }, // 8-ball
+        { id: 9,  color: '#f0c830', stripe: true,  num: 9  }, // stripe yellow
+        { id: 10, color: '#1a5ab8', stripe: true,  num: 10 }, // stripe blue
+        { id: 11, color: '#d42a2a', stripe: true,  num: 11 }, // stripe red
+        { id: 12, color: '#4a2080', stripe: true,  num: 12 }, // stripe purple
+        { id: 13, color: '#e86820', stripe: true,  num: 13 }, // stripe orange
+        { id: 14, color: '#1a7a3a', stripe: true,  num: 14 }, // stripe green
+        { id: 15, color: '#8b1a1a', stripe: true,  num: 15 }  // stripe maroon
+    ];
     let breakoutCanvas, breakoutCtx;
     let breakoutAnimFrame = null;
     let breakoutGameRunning = false;
@@ -1076,6 +1169,1561 @@
         e.preventDefault();
         const rect = breakoutCanvas.getBoundingClientRect();
         breakoutMouseX = e.touches[0].clientX - rect.left;
+    }
+
+
+    // ====================================
+    // 8-BALL POOL GAME LOGIC
+    // ====================================
+
+    function poolGetPockets() {
+        const x1 = POOL_CUSHION_X1, y1 = POOL_CUSHION_Y1;
+        const x2 = POOL_CUSHION_X2, y2 = POOL_CUSHION_Y2;
+        const mx = (x1 + x2) / 2;
+        return [
+            { x: x1, y: y1 },       // top-left
+            { x: mx, y: y1 - 2 },   // top-mid
+            { x: x2, y: y1 },       // top-right
+            { x: x1, y: y2 },       // bottom-left
+            { x: mx, y: y2 + 2 },   // bottom-mid
+            { x: x2, y: y2 }        // bottom-right
+        ];
+    }
+
+    function poolRackBalls() {
+        const balls = [];
+        const r = POOL_BALL_R;
+        const cx = POOL_W * 0.72;
+        const cy = POOL_H / 2;
+        const spacing = r * 2.1;
+
+        // Official 8-ball rack layout:
+        // Row 0: 1 ball (apex — random solid or stripe)
+        // Row 1: 2 balls (one solid, one stripe)
+        // Row 2: 3 balls (center = 8-ball, corners = mixed)
+        // Row 3: 4 balls (corners: one solid one stripe, rest random)
+        // Row 4: 5 balls (corners: one solid one stripe, rest random)
+
+        // Separate balls into groups
+        let solids = [1, 2, 3, 4, 5, 6, 7];
+        let stripes = [9, 10, 11, 12, 13, 14, 15];
+
+        // Shuffle each group
+        for (let i = solids.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [solids[i], solids[j]] = [solids[j], solids[i]];
+        }
+        for (let i = stripes.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [stripes[i], stripes[j]] = [stripes[j], stripes[i]];
+        }
+
+        // Build rack positions (triangle pointing left toward cue ball)
+        const rackPositions = [];
+        for (let row = 0; row < 5; row++) {
+            for (let col = 0; col <= row; col++) {
+                const bx = cx + row * spacing * Math.cos(Math.PI / 6);
+                const by = cy + (col - row / 2) * spacing;
+                rackPositions.push({ row, col, x: bx, y: by });
+            }
+        }
+
+        // Assign ball IDs to rack positions with official rules:
+        const rackIds = new Array(15).fill(0);
+        // Position 0 (apex): random
+        // Position 4 (row 2, center): 8-ball
+        // Corners of row 4 (positions 10 and 14): one solid, one stripe
+        rackIds[4] = 8; // 8-ball in center of row 2
+
+        // Corners of last row
+        if (Math.random() < 0.5) {
+            rackIds[10] = solids.pop();
+            rackIds[14] = stripes.pop();
+        } else {
+            rackIds[10] = stripes.pop();
+            rackIds[14] = solids.pop();
+        }
+
+        // Fill remaining positions
+        let remaining = [...solids, ...stripes];
+        for (let i = remaining.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
+        }
+
+        let ri = 0;
+        for (let i = 0; i < 15; i++) {
+            if (rackIds[i] === 0) {
+                rackIds[i] = remaining[ri++];
+            }
+        }
+
+        // Create cue ball
+        const cueDef = POOL_BALL_DEFS[0];
+        balls.push({
+            id: 0, x: POOL_W * 0.25, y: POOL_H / 2,
+            vx: 0, vy: 0, r: POOL_BALL_R,
+            color: cueDef.color, stripe: false, num: 0, pocketed: false
+        });
+
+        // Create racked balls
+        for (let i = 0; i < 15; i++) {
+            const def = POOL_BALL_DEFS[rackIds[i]];
+            balls.push({
+                id: def.id, x: rackPositions[i].x, y: rackPositions[i].y,
+                vx: 0, vy: 0, r: POOL_BALL_R,
+                color: def.color, stripe: def.stripe, num: def.num, pocketed: false
+            });
+        }
+
+        return balls;
+    }
+
+    function poolAllStopped() {
+        for (const b of poolBalls) {
+            if (b.pocketed) continue;
+            if (Math.abs(b.vx) > POOL_MIN_VEL || Math.abs(b.vy) > POOL_MIN_VEL) return false;
+        }
+        return true;
+    }
+
+    function poolPhysicsUpdate() {
+        const activeBalls = poolBalls.filter(b => !b.pocketed);
+
+        // Move balls
+        for (const b of activeBalls) {
+            b.x += b.vx;
+            b.y += b.vy;
+            b.vx *= POOL_FRICTION;
+            b.vy *= POOL_FRICTION;
+
+            // Stop tiny velocities
+            if (Math.abs(b.vx) < POOL_MIN_VEL) b.vx = 0;
+            if (Math.abs(b.vy) < POOL_MIN_VEL) b.vy = 0;
+        }
+
+        // Ball-cushion collisions
+        for (const b of activeBalls) {
+            if (b.x - b.r < POOL_CUSHION_X1) {
+                b.x = POOL_CUSHION_X1 + b.r;
+                b.vx = Math.abs(b.vx) * POOL_RESTITUTION;
+                if (poolShotFired) poolCushionAfterHit = true;
+            }
+            if (b.x + b.r > POOL_CUSHION_X2) {
+                b.x = POOL_CUSHION_X2 - b.r;
+                b.vx = -Math.abs(b.vx) * POOL_RESTITUTION;
+                if (poolShotFired) poolCushionAfterHit = true;
+            }
+            if (b.y - b.r < POOL_CUSHION_Y1) {
+                b.y = POOL_CUSHION_Y1 + b.r;
+                b.vy = Math.abs(b.vy) * POOL_RESTITUTION;
+                if (poolShotFired) poolCushionAfterHit = true;
+            }
+            if (b.y + b.r > POOL_CUSHION_Y2) {
+                b.y = POOL_CUSHION_Y2 - b.r;
+                b.vy = -Math.abs(b.vy) * POOL_RESTITUTION;
+                if (poolShotFired) poolCushionAfterHit = true;
+            }
+        }
+
+        // Ball-ball collisions
+        for (let i = 0; i < activeBalls.length; i++) {
+            for (let j = i + 1; j < activeBalls.length; j++) {
+                const a = activeBalls[i];
+                const bj = activeBalls[j];
+                const dx = bj.x - a.x;
+                const dy = bj.y - a.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const minDist = a.r + bj.r;
+
+                if (dist < minDist && dist > 0) {
+                    // Track first ball hit by cue ball
+                    if (poolShotFired && poolFirstBallHit === -1) {
+                        if (a.id === 0) poolFirstBallHit = bj.id;
+                        else if (bj.id === 0) poolFirstBallHit = a.id;
+                    }
+
+                    // Normal vector
+                    const nx = dx / dist;
+                    const ny = dy / dist;
+
+                    // Relative velocity along normal
+                    const dvx = a.vx - bj.vx;
+                    const dvy = a.vy - bj.vy;
+                    const dvn = dvx * nx + dvy * ny;
+
+                    // Don't resolve if moving apart
+                    if (dvn <= 0) continue;
+
+                    // Apply impulse (equal mass)
+                    const impulse = dvn * POOL_RESTITUTION;
+                    a.vx -= impulse * nx;
+                    a.vy -= impulse * ny;
+                    bj.vx += impulse * nx;
+                    bj.vy += impulse * ny;
+
+                    // Apply cue ball spin transfer
+                    const spinFactor = 0.3;
+                    if (a.id === 0 && (poolCueSpinX !== 0 || poolCueSpinY !== 0)) {
+                        bj.vx += poolCueSpinX * spinFactor;
+                        bj.vy += poolCueSpinY * spinFactor;
+                    } else if (bj.id === 0 && (poolCueSpinX !== 0 || poolCueSpinY !== 0)) {
+                        a.vx += poolCueSpinX * spinFactor;
+                        a.vy += poolCueSpinY * spinFactor;
+                    }
+
+                    // Separate overlapping balls
+                    const overlap = minDist - dist;
+                    const sepX = (overlap / 2) * nx;
+                    const sepY = (overlap / 2) * ny;
+                    a.x -= sepX;
+                    a.y -= sepY;
+                    bj.x += sepX;
+                    bj.y += sepY;
+                }
+            }
+        }
+
+        // Ball-pocket collisions
+        for (const b of activeBalls) {
+            for (const p of poolPockets) {
+                const dx = b.x - p.x;
+                const dy = b.y - p.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < POOL_POCKET_R) {
+                    b.pocketed = true;
+                    b.vx = 0;
+                    b.vy = 0;
+                    if (poolShotFired) {
+                        poolPocketedThisShot.push(b.id);
+                    }
+                }
+            }
+        }
+    }
+
+    function poolProcessTurnResult() {
+        const cueBall = poolBalls[0];
+        const pocketed = poolPocketedThisShot;
+        let foul = false;
+        poolFoulMessage = '';
+
+        // Check scratch (cue ball pocketed)
+        if (cueBall.pocketed) {
+            foul = true;
+            poolFoulMessage = 'Scratch! Cue ball pocketed';
+            cueBall.pocketed = false;
+        }
+
+        // Check if no ball was hit
+        if (!foul && poolFirstBallHit === -1) {
+            foul = true;
+            poolFoulMessage = 'Foul! No ball hit';
+        }
+
+        // Check if wrong ball hit first (after groups assigned)
+        if (!foul && poolFirstPocket && poolFirstBallHit !== -1) {
+            const currentGroup = poolTurn === 1 ? poolPlayer1Group : poolPlayer2Group;
+            const hitBallId = poolFirstBallHit;
+            if (currentGroup === 'solids' && (hitBallId >= 9 && hitBallId <= 15)) {
+                // Check if player has cleared all their balls (then they must hit 8)
+                const myPocketed = poolTurn === 1 ? poolPlayer1Pocketed : poolPlayer2Pocketed;
+                const needed = currentGroup === 'solids' ? 7 : 7;
+                if (myPocketed.length < needed || hitBallId !== 8) {
+                    foul = true;
+                    poolFoulMessage = 'Foul! Hit stripe first';
+                }
+            } else if (currentGroup === 'stripes' && (hitBallId >= 1 && hitBallId <= 7)) {
+                const myPocketed = poolTurn === 1 ? poolPlayer1Pocketed : poolPlayer2Pocketed;
+                if (myPocketed.length < 7 || hitBallId !== 8) {
+                    foul = true;
+                    poolFoulMessage = 'Foul! Hit solid first';
+                }
+            }
+        }
+
+        // Check no cushion contact after hitting object ball (no rail rule)
+        // Simplified: only foul if no ball pocketed and no cushion after first hit
+        if (!foul && pocketed.length === 0 && poolFirstBallHit !== -1 && !poolCushionAfterHit) {
+            foul = true;
+            poolFoulMessage = 'Foul! No rail after contact';
+        }
+
+        // Process pocketed balls
+        let legalPocket = false;
+        let legalPotCount = 0; // count legal pots by the current human player
+        for (const bid of pocketed) {
+            if (bid === 0) continue; // cue ball handled above
+            if (bid === 8) {
+                // 8-ball pocketed — check win or loss
+                const currentGroup = poolTurn === 1 ? poolPlayer1Group : poolPlayer2Group;
+                const myPocketed = poolTurn === 1 ? poolPlayer1Pocketed : poolPlayer2Pocketed;
+
+                if (!poolFirstPocket) {
+                    // 8-ball pocketed before groups assigned — loss
+                    poolWinner = poolTurn === 1 ? 2 : 1;
+                    endPoolGame();
+                    return;
+                }
+
+                const neededCount = 7;
+                if (myPocketed.length >= neededCount && !foul) {
+                    // Win!
+                    poolWinner = poolTurn;
+                    endPoolGame();
+                    return;
+                } else {
+                    // Loss — pocketed 8-ball too early or on a foul
+                    poolWinner = poolTurn === 1 ? 2 : 1;
+                    endPoolGame();
+                    return;
+                }
+            }
+
+            // Assign groups on first legal pocket
+            if (!poolFirstPocket && !foul) {
+                const isSolid = bid >= 1 && bid <= 7;
+                poolFirstPocket = true;
+                if (poolTurn === 1) {
+                    poolPlayer1Group = isSolid ? 'solids' : 'stripes';
+                    poolPlayer2Group = isSolid ? 'stripes' : 'solids';
+                } else {
+                    poolPlayer2Group = isSolid ? 'solids' : 'stripes';
+                    poolPlayer1Group = isSolid ? 'stripes' : 'solids';
+                }
+            }
+
+            // Add to pocketed list
+            const isSolid = bid >= 1 && bid <= 7;
+            const isStripe = bid >= 9 && bid <= 15;
+            const currentGroup = poolTurn === 1 ? poolPlayer1Group : poolPlayer2Group;
+
+            if (currentGroup === 'solids' && isSolid) {
+                poolPlayer1Pocketed.push(bid);
+                if (!foul) { legalPocket = true; legalPotCount++; }
+            } else if (currentGroup === 'stripes' && isStripe) {
+                if (poolTurn === 1) poolPlayer1Pocketed.push(bid);
+                else poolPlayer2Pocketed.push(bid);
+                if (!foul) { legalPocket = true; legalPotCount++; }
+            } else if (currentGroup === 'solids' && isStripe) {
+                poolPlayer2Pocketed.push(bid);
+            } else if (currentGroup === 'stripes' && isSolid) {
+                if (poolTurn === 1) poolPlayer2Pocketed.push(bid);
+                else poolPlayer1Pocketed.push(bid);
+            } else if (!poolFirstPocket) {
+                // Not yet assigned
+                if (!foul) { legalPocket = true; legalPotCount++; }
+            }
+        }
+
+        // Award XP for legal pots (human player only — not CPU's pots)
+        const isHumanTurn = poolTurn === 1 || poolMode === 'pvp';
+        if (isHumanTurn && legalPotCount > 0 && xpSystemReady) {
+            const XP_PER_POT = 5;
+            const xpGained = legalPotCount * XP_PER_POT;
+            userXP.currentXP += xpGained;
+            userXP.totalXP   += xpGained;
+            checkLevelUp();
+            saveUserXP(userXP);
+            const label = legalPotCount === 1 ? '1 pot' : legalPotCount + ' pots';
+            showXPNotification('🎱 +' + xpGained + ' XP (' + label + ')', 'game');
+            updateXPDisplay();
+        }
+
+        // Handle foul — ball in hand for opponent
+        if (foul) {
+            poolTurn = poolTurn === 1 ? 2 : 1;
+            poolBallInHand = true;
+            poolPlacingBall = true;
+            // Reset cue ball position
+            cueBall.x = POOL_W * 0.25;
+            cueBall.y = POOL_H / 2;
+            cueBall.vx = 0;
+            cueBall.vy = 0;
+        } else if (!legalPocket) {
+            // No legal pocket — switch turns
+            poolTurn = poolTurn === 1 ? 2 : 1;
+        }
+        // If legal pocket — same player continues
+
+        // Reset shot tracking
+        poolShotFired = false;
+        poolFirstBallHit = -1;
+        poolCushionAfterHit = false;
+        poolPocketedThisShot = [];
+        poolCueSpinX = 0;
+        poolCueSpinY = 0;
+
+        // AI turn — longer delay so CPU appears to "think"
+        if (poolMode === 'cpu' && poolTurn === 2 && !poolGameOver) {
+            poolAIDelay = 90 + Math.floor(Math.random() * 60); // 1.5–2.5 s
+        }
+
+        updatePoolScoreboard();
+    }
+
+    // ====================================
+    // POOL AI
+    // ====================================
+
+    function poolAIPlaceBall() {
+        const cueBall = poolBalls.find(b => b.id === 0);
+        if (!cueBall) return;
+
+        // Smart placement: place BEHIND/INLINE with target ball toward a pocket
+        let targetGroup = poolPlayer2Group;
+        let targets = poolBalls.filter(b => !b.pocketed && b.id !== 0 && b.id !== 8);
+        if (targetGroup === 'solids') targets = targets.filter(b => b.id >= 1 && b.id <= 7);
+        else if (targetGroup === 'stripes') targets = targets.filter(b => b.id >= 9 && b.id <= 15);
+        if (targets.length === 0 && poolFirstPocket) {
+            const eight = poolBalls.find(b => b.id === 8 && !b.pocketed);
+            if (eight) targets = [eight];
+        }
+        if (targets.length === 0) targets = poolBalls.filter(b => !b.pocketed && b.id !== 0);
+
+        let bestPos = { x: POOL_W * 0.25, y: POOL_H / 2 };
+        let bestScore = -Infinity;
+
+        // For each target-pocket combo, calculate ideal cue ball position
+        // (inline behind the target, opposite side from pocket)
+        for (const target of targets) {
+            for (const pocket of poolPockets) {
+                const tpx = pocket.x - target.x;
+                const tpy = pocket.y - target.y;
+                const tpDist = Math.sqrt(tpx * tpx + tpy * tpy);
+                if (tpDist < 1) continue;
+
+                // Ideal position: behind target, away from pocket, at various distances
+                const dirX = -tpx / tpDist; // direction away from pocket
+                const dirY = -tpy / tpDist;
+
+                const distances = [POOL_BALL_R * 4, POOL_BALL_R * 6, POOL_BALL_R * 8, POOL_BALL_R * 10];
+                for (const dist of distances) {
+                    const posX = target.x + dirX * dist;
+                    const posY = target.y + dirY * dist;
+
+                    // Check bounds
+                    if (posX < POOL_CUSHION_X1 + POOL_BALL_R + 2 || posX > POOL_CUSHION_X2 - POOL_BALL_R - 2 ||
+                        posY < POOL_CUSHION_Y1 + POOL_BALL_R + 2 || posY > POOL_CUSHION_Y2 - POOL_BALL_R - 2) continue;
+
+                    // Check overlap with other balls
+                    let valid = true;
+                    for (const b of poolBalls) {
+                        if (b.pocketed || b.id === 0) continue;
+                        if (Math.sqrt((posX - b.x) ** 2 + (posY - b.y) ** 2) < POOL_BALL_R * 2.5) {
+                            valid = false; break;
+                        }
+                    }
+                    if (!valid) continue;
+
+                    // Check clear path from pos to target
+                    const ctx2t_x = target.x - posX;
+                    const ctx2t_y = target.y - posY;
+                    const ctx2t_d = Math.sqrt(ctx2t_x * ctx2t_x + ctx2t_y * ctx2t_y);
+                    let pathClear = true;
+                    for (const other of poolBalls) {
+                        if (other.pocketed || other.id === 0 || other.id === target.id) continue;
+                        const proj = Math.max(0, Math.min(1,
+                            ((other.x - posX) * ctx2t_x + (other.y - posY) * ctx2t_y) / (ctx2t_d * ctx2t_d)
+                        ));
+                        const cx = posX + proj * ctx2t_x;
+                        const cy = posY + proj * ctx2t_y;
+                        if (Math.sqrt((other.x - cx) ** 2 + (other.y - cy) ** 2) < POOL_BALL_R * 2.5) {
+                            pathClear = false; break;
+                        }
+                    }
+
+                    // Score this position
+                    let score = 0;
+                    if (pathClear) score += 100;
+                    score -= tpDist * 0.1; // prefer targets close to pocket
+                    score -= dist * 0.3;   // prefer closer placement to target
+                    // Bonus for being directly inline (straight shot)
+                    score += 20;
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestPos = { x: posX, y: posY };
+                    }
+                }
+            }
+        }
+
+        cueBall.x = bestPos.x;
+        cueBall.y = bestPos.y;
+        cueBall.vx = 0;
+        cueBall.vy = 0;
+        cueBall.pocketed = false;
+        poolBallInHand = false;
+        poolPlacingBall = false;
+    }
+
+    function poolAITakeShot() {
+        const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
+        if (!cueBall) return;
+
+        // Find legal target balls
+        let targetGroup = poolPlayer2Group;
+        let targets = poolBalls.filter(b => !b.pocketed && b.id !== 0 && b.id !== 8);
+
+        if (targetGroup === 'solids') {
+            targets = targets.filter(b => b.id >= 1 && b.id <= 7);
+        } else if (targetGroup === 'stripes') {
+            targets = targets.filter(b => b.id >= 9 && b.id <= 15);
+        }
+
+        if (targets.length === 0 && poolFirstPocket) {
+            const eightBall = poolBalls.find(b => b.id === 8 && !b.pocketed);
+            if (eightBall) targets = [eightBall];
+        }
+        if (targets.length === 0) {
+            targets = poolBalls.filter(b => !b.pocketed && b.id !== 0);
+        }
+
+        // ---- Helper: check if a straight line is clear of all balls except excludeIds ----
+        function pathClear(x1, y1, x2, y2, excludeIds) {
+            const dx = x2 - x1, dy = y2 - y1;
+            const len2 = dx * dx + dy * dy;
+            if (len2 < 1) return true;
+            for (const b of poolBalls) {
+                if (b.pocketed || excludeIds.includes(b.id)) continue;
+                const proj = Math.max(0, Math.min(1,
+                    ((b.x - x1) * dx + (b.y - y1) * dy) / len2
+                ));
+                const cx = x1 + proj * dx, cy = y1 + proj * dy;
+                if (Math.sqrt((b.x - cx) ** 2 + (b.y - cy) ** 2) < POOL_BALL_R * 2.1) return false;
+            }
+            return true;
+        }
+
+        let bestShot = null;
+        let bestScore = -Infinity;
+
+        // ============================================================
+        // PASS 1 — Direct shots (cue ball → ghost ball → pocket)
+        // ============================================================
+        let anyDirectClear = false;
+
+        for (const target of targets) {
+            for (const pocket of poolPockets) {
+                const tpx = pocket.x - target.x, tpy = pocket.y - target.y;
+                const tpDist = Math.sqrt(tpx * tpx + tpy * tpy);
+                if (tpDist < 1) continue;
+
+                const ghostX = target.x - (tpx / tpDist) * (POOL_BALL_R * 2);
+                const ghostY = target.y - (tpy / tpDist) * (POOL_BALL_R * 2);
+                const cax = ghostX - cueBall.x, cay = ghostY - cueBall.y;
+                const caDist = Math.sqrt(cax * cax + cay * cay);
+                if (caDist < 1) continue;
+
+                const blocked   = !pathClear(cueBall.x, cueBall.y, ghostX, ghostY, [0, target.id]);
+                const tpBlocked = !pathClear(target.x, target.y, pocket.x, pocket.y, [0, target.id]);
+
+                if (!blocked) anyDirectClear = true;
+
+                let score = 0;
+                if (!blocked && !tpBlocked) score += 120;
+                else if (!blocked)           score +=  35;
+                else                         score -=  60;
+
+                score -= caDist * 0.06;
+                score -= tpDist * 0.15;
+
+                const shotAngle   = Math.atan2(cay, cax);
+                const pocketAngle = Math.atan2(tpy, tpx);
+                let cutAngle = Math.abs(shotAngle - pocketAngle) % (2 * Math.PI);
+                if (cutAngle > Math.PI) cutAngle = 2 * Math.PI - cutAngle;
+                score -= cutAngle * 12;
+                if (tpDist < 55) score += 30;
+                if (tpDist < 30) score += 20;
+
+                const deflectAngle = shotAngle + Math.PI / 2;
+                const cueFinalX = ghostX + Math.cos(deflectAngle) * 40;
+                const cueFinalY = ghostY + Math.sin(deflectAngle) * 40;
+                const centerDist = Math.sqrt((cueFinalX - POOL_W / 2) ** 2 + (cueFinalY - POOL_H / 2) ** 2);
+                score -= centerDist * 0.03;
+
+                let spinX = 0, spinY = 0;
+                if (!blocked && !tpBlocked) {
+                    if (caDist > 80) {
+                        spinX =  Math.cos(shotAngle) * 0.6;
+                        spinY =  Math.sin(shotAngle) * 0.6;
+                    } else {
+                        spinX = -Math.cos(shotAngle) * 0.5;
+                        spinY = -Math.sin(shotAngle) * 0.5;
+                    }
+                }
+
+                const rawPower = Math.min(POOL_CUE_MAX_POWER * 0.88,
+                    Math.max(3.5, caDist * 0.055 + tpDist * 0.04 + 3.0));
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestShot = { angle: shotAngle, power: rawPower, spinX, spinY, type: 'direct' };
+                }
+            }
+        }
+
+        // ============================================================
+        // PASS 2 — Cushion (rail) shots to break snookers
+        //   Uses the reflection principle: mirror cue ball across the
+        //   cushion wall, then the straight line mirror→target gives
+        //   the exact bounce point on the rail.
+        // ============================================================
+        const snookered = !anyDirectClear || bestScore < 20;
+
+        if (snookered) {
+            // 4 cushion walls  { axis, val, min, max }
+            const walls = [
+                { axis: 'y', val: POOL_CUSHION_Y1, min: POOL_CUSHION_X1 + POOL_BALL_R, max: POOL_CUSHION_X2 - POOL_BALL_R },
+                { axis: 'y', val: POOL_CUSHION_Y2, min: POOL_CUSHION_X1 + POOL_BALL_R, max: POOL_CUSHION_X2 - POOL_BALL_R },
+                { axis: 'x', val: POOL_CUSHION_X1, min: POOL_CUSHION_Y1 + POOL_BALL_R, max: POOL_CUSHION_Y2 - POOL_BALL_R },
+                { axis: 'x', val: POOL_CUSHION_X2, min: POOL_CUSHION_Y1 + POOL_BALL_R, max: POOL_CUSHION_Y2 - POOL_BALL_R },
+            ];
+
+            for (const target of targets) {
+                for (const wall of walls) {
+                    // Mirror the cue ball position across the wall
+                    let mirrorX = cueBall.x, mirrorY = cueBall.y;
+                    if (wall.axis === 'y') mirrorY = 2 * wall.val - cueBall.y;
+                    else                   mirrorX = 2 * wall.val - cueBall.x;
+
+                    // Intersection of line (mirror → target) with the wall
+                    let bounceX, bounceY, t;
+                    if (wall.axis === 'y') {
+                        const dy = target.y - mirrorY;
+                        if (Math.abs(dy) < 0.1) continue;
+                        t = (wall.val - mirrorY) / dy;
+                        bounceX = mirrorX + t * (target.x - mirrorX);
+                        bounceY = wall.val;
+                        if (bounceX < wall.min || bounceX > wall.max) continue;
+                    } else {
+                        const dx = target.x - mirrorX;
+                        if (Math.abs(dx) < 0.1) continue;
+                        t = (wall.val - mirrorX) / dx;
+                        bounceX = wall.val;
+                        bounceY = mirrorY + t * (target.y - mirrorY);
+                        if (bounceY < wall.min || bounceY > wall.max) continue;
+                    }
+                    // Bounce point must lie between cue and the wall
+                    if (t <= 0 || t >= 1) continue;
+
+                    // Cue ball must actually be on the right side of the wall
+                    if (wall.axis === 'y') {
+                        if (wall.val === POOL_CUSHION_Y1 && cueBall.y <= wall.val + POOL_BALL_R) continue;
+                        if (wall.val === POOL_CUSHION_Y2 && cueBall.y >= wall.val - POOL_BALL_R) continue;
+                    } else {
+                        if (wall.val === POOL_CUSHION_X1 && cueBall.x <= wall.val + POOL_BALL_R) continue;
+                        if (wall.val === POOL_CUSHION_X2 && cueBall.x >= wall.val - POOL_BALL_R) continue;
+                    }
+
+                    // Both legs must be clear
+                    if (!pathClear(cueBall.x, cueBall.y, bounceX, bounceY, [0])) continue;
+                    if (!pathClear(bounceX, bounceY, target.x, target.y, [0, target.id])) continue;
+
+                    const dx1 = bounceX - cueBall.x, dy1 = bounceY - cueBall.y;
+                    const leg1Dist = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+                    const dx2 = target.x - bounceX, dy2 = target.y - bounceY;
+                    const leg2Dist = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+                    const totalDist = leg1Dist + leg2Dist;
+
+                    const shotAngle = Math.atan2(dy1, dx1);
+
+                    // Score: valid cushion break is better than a bad direct shot
+                    let score = 65;
+                    score -= totalDist * 0.07;
+                    if (totalDist < 130) score += 15;
+                    if (leg2Dist < 50)   score += 10; // close approach to target after bounce
+
+                    // Side-spin to stabilise the bounce
+                    const spinX = Math.cos(shotAngle) * 0.35;
+                    const spinY = Math.sin(shotAngle) * 0.35;
+
+                    const rawPower = Math.min(POOL_CUE_MAX_POWER * 0.92,
+                        Math.max(4.0, totalDist * 0.065 + 3.5));
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestShot = { angle: shotAngle, power: rawPower, spinX, spinY, type: 'cushion' };
+                    }
+                }
+            }
+        }
+
+        // ============================================================
+        // PASS 3 — Safety shot: graze target + send cue to a rail
+        //   Used only when no direct or cushion shot scored well.
+        //   Avoids hitting wrong ball — aims at legal target with a
+        //   thin cut so cue ball rolls to a cushion afterwards.
+        // ============================================================
+        if (!bestShot || bestScore < -20) {
+            for (const target of targets) {
+                const dx = target.x - cueBall.x, dy = target.y - cueBall.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const direct = pathClear(cueBall.x, cueBall.y, target.x, target.y, [0, target.id]);
+                // Try a thin graze (offset ±0.12 rad) so cue continues to a cushion
+                for (const offset of [-0.12, 0, 0.12]) {
+                    const angle = Math.atan2(dy, dx) + offset;
+                    const score = (direct ? 5 : -30) - dist * 0.05;
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestShot = {
+                            angle,
+                            power: Math.max(4.0, Math.min(POOL_CUE_MAX_POWER * 0.7, dist * 0.06 + 3.5)),
+                            spinX: 0, spinY: 0, type: 'safety'
+                        };
+                    }
+                }
+            }
+        }
+
+        // Absolute fallback
+        if (!bestShot) {
+            const nearest = targets[0];
+            if (nearest) {
+                const dx = nearest.x - cueBall.x, dy = nearest.y - cueBall.y;
+                bestShot = { angle: Math.atan2(dy, dx), power: POOL_CUE_MAX_POWER * 0.6, spinX: 0, spinY: 0, type: 'fallback' };
+            } else {
+                bestShot = { angle: Math.random() * Math.PI * 2, power: POOL_CUE_MAX_POWER * 0.5, spinX: 0, spinY: 0, type: 'fallback' };
+            }
+        }
+
+        // Noise: cushion shots are harder to calculate perfectly → slightly more jitter
+        const angleNoise = bestShot.type === 'cushion' ? 0.028 : 0.018;
+        bestShot.angle += (Math.random() - 0.5) * angleNoise;
+        bestShot.power *= 0.97 + Math.random() * 0.06;
+        bestShot.power  = Math.max(3.5, Math.min(POOL_CUE_MAX_POWER, bestShot.power));
+
+        // Apply computed spin
+        poolCueSpinX = bestShot.spinX || 0;
+        poolCueSpinY = bestShot.spinY || 0;
+
+        // Fire the shot
+        poolFireShot(cueBall, bestShot.angle, bestShot.power);
+    }
+
+    function poolFireShot(cueBall, angle, power) {
+        cueBall.vx = Math.cos(angle) * power;
+        cueBall.vy = Math.sin(angle) * power;
+
+        // Apply spin to cue ball velocity
+        if (poolCueSpinX !== 0 || poolCueSpinY !== 0) {
+            cueBall.vx += poolCueSpinX * power * 0.15;
+            cueBall.vy += poolCueSpinY * power * 0.15;
+        }
+
+        poolShotFired = true;
+        poolFirstBallHit = -1;
+        poolCushionAfterHit = false;
+        poolPocketedThisShot = [];
+        poolAiming = false;
+        poolDragging = false;
+        poolShotTimer = POOL_SHOT_CLOCK;
+        poolShotTimerFrame = 0;
+    }
+
+    // ====================================
+    // POOL RENDERING
+    // ====================================
+
+    function poolGetTableColors() {
+        const key = userPreferences.poolTableColor || 'green';
+        return POOL_TABLE_COLORS[key] || POOL_TABLE_COLORS.green;
+    }
+
+    function drawPoolFrame() {
+        if (!poolCtx) return;
+        const ctx = poolCtx;
+        const W = poolCanvas.width;
+        const H = poolCanvas.height;
+        const scaleX = W / POOL_W;
+        const scaleY = H / POOL_H;
+
+        ctx.save();
+        ctx.scale(scaleX, scaleY);
+
+        const colors = poolGetTableColors();
+
+        // Draw outer wood border
+        ctx.fillStyle = colors.border;
+        ctx.fillRect(0, 0, POOL_W, POOL_H);
+
+        // Draw felt
+        const cx1 = POOL_CUSHION_X1 - 2;
+        const cy1 = POOL_CUSHION_Y1 - 2;
+        const cx2 = POOL_CUSHION_X2 + 2;
+        const cy2 = POOL_CUSHION_Y2 + 2;
+        ctx.fillStyle = colors.felt;
+        ctx.fillRect(cx1, cy1, cx2 - cx1, cy2 - cy1);
+
+        // Draw cushion rails
+        ctx.fillStyle = colors.cushion;
+        // Top rail
+        ctx.fillRect(cx1, 0, cx2 - cx1, POOL_CUSHION_Y1);
+        // Bottom rail
+        ctx.fillRect(cx1, POOL_CUSHION_Y2, cx2 - cx1, POOL_H - POOL_CUSHION_Y2);
+        // Left rail
+        ctx.fillRect(0, cy1, POOL_CUSHION_X1, cy2 - cy1);
+        // Right rail
+        ctx.fillRect(POOL_CUSHION_X2, cy1, POOL_W - POOL_CUSHION_X2, cy2 - cy1);
+
+        // Draw diamond markers on rails
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        const diamondSize = 2;
+        // Top rail diamonds
+        for (let i = 1; i <= 6; i++) {
+            const dx = POOL_CUSHION_X1 + (POOL_CUSHION_X2 - POOL_CUSHION_X1) * i / 7;
+            ctx.beginPath();
+            ctx.arc(dx, POOL_CUSHION_Y1 / 2, diamondSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        // Bottom rail diamonds
+        for (let i = 1; i <= 6; i++) {
+            const dx = POOL_CUSHION_X1 + (POOL_CUSHION_X2 - POOL_CUSHION_X1) * i / 7;
+            ctx.beginPath();
+            ctx.arc(dx, POOL_CUSHION_Y2 + (POOL_H - POOL_CUSHION_Y2) / 2, diamondSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Draw pockets
+        for (const p of poolPockets) {
+            ctx.fillStyle = colors.pocket;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, POOL_POCKET_R, 0, Math.PI * 2);
+            ctx.fill();
+            // Inner pocket shadow
+            const pg = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, POOL_POCKET_R);
+            pg.addColorStop(0, 'rgba(0,0,0,0.9)');
+            pg.addColorStop(1, 'rgba(0,0,0,0.3)');
+            ctx.fillStyle = pg;
+            ctx.fill();
+        }
+
+        // Draw head string (faint line)
+        ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(POOL_W * 0.25, POOL_CUSHION_Y1);
+        ctx.lineTo(POOL_W * 0.25, POOL_CUSHION_Y2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw balls
+        for (const b of poolBalls) {
+            if (b.pocketed) continue;
+            poolDrawBall(ctx, b);
+        }
+
+        // Draw cue ball ghost when placing
+        if (poolPlacingBall) {
+            const cueBall = poolBalls[0];
+            ctx.globalAlpha = 0.4;
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(poolMouseX / scaleX, poolMouseY / scaleY, POOL_BALL_R, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+
+        // Draw aiming line and cue stick
+        const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
+        const isHumanTurn = poolTurn === 1 || poolMode === 'pvp';
+        if (cueBall && poolAllStopped() && !poolGameOver && !poolPlacingBall && isHumanTurn) {
+            poolDrawCue(ctx, cueBall, scaleX, scaleY);
+        }
+
+        // Draw spin indicator
+        if (cueBall && !cueBall.pocketed && poolAllStopped() && !poolGameOver && isHumanTurn && !poolPlacingBall) {
+            poolDrawSpinIndicator(ctx);
+        }
+
+        // Draw HUD
+        poolDrawHUD(ctx);
+
+        // Draw shot clock
+        if (poolGameRunning && !poolGameOver && poolAllStopped() && !poolShotFired) {
+            const isHumanTurn = poolTurn === 1 || (poolMode === 'pvp' && poolTurn === 2);
+            if (isHumanTurn && !poolPlacingBall) {
+                const timerColor = poolShotTimer <= 5 ? '#ff4444' : poolShotTimer <= 10 ? '#ffaa00' : 'rgba(255,255,255,0.7)';
+                ctx.fillStyle = timerColor;
+                ctx.font = 'bold 8px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('⏱ ' + poolShotTimer + 's', POOL_W / 2, POOL_CUSHION_Y1 + 8);
+            }
+        }
+
+        // Draw foul message
+        if (poolFoulMessage) {
+            ctx.fillStyle = 'rgba(220, 50, 50, 0.85)';
+            ctx.font = 'bold 9px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(poolFoulMessage, POOL_W / 2, POOL_H / 2 - 2);
+            ctx.fillStyle = 'rgba(255,255,255,0.7)';
+            ctx.font = '7px Inter, sans-serif';
+            ctx.fillText('Ball in hand for opponent', POOL_W / 2, POOL_H / 2 + 8);
+        }
+
+        // Draw game over overlay
+        if (poolGameOver) {
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(0, 0, POOL_W, POOL_H);
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 14px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            const winnerName = poolWinner === 1 ? 'Player 1' : (poolMode === 'cpu' ? 'CPU' : 'Player 2');
+            ctx.fillText(`${winnerName} Wins!`, POOL_W / 2, POOL_H / 2 - 8);
+            ctx.font = '9px Inter, sans-serif';
+            ctx.fillText('Click Reset to play again', POOL_W / 2, POOL_H / 2 + 10);
+        }
+
+        ctx.restore();
+    }
+
+    function poolDrawBall(ctx, ball) {
+        const x = ball.x, y = ball.y, r = ball.r;
+
+        // Ball body
+        if (ball.stripe) {
+            // Stripe ball: white base with colored band
+            ctx.fillStyle = '#f5f5f5';
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Colored stripe band (middle horizontal)
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x - r, y - r * 0.45, r * 2, r * 0.9);
+            ctx.clip();
+            ctx.fillStyle = ball.color;
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        } else {
+            // Solid ball or cue ball
+            ctx.fillStyle = ball.color;
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Number circle (not for cue ball)
+        if (ball.num > 0) {
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(x, y, r * 0.45, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#111';
+            ctx.font = `bold ${Math.round(r * 0.65)}px Inter, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(ball.num.toString(), x, y + 0.5);
+        }
+
+        // 3D highlight
+        const grad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
+        grad.addColorStop(0, 'rgba(255,255,255,0.4)');
+        grad.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ball outline
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    function poolDrawCue(ctx, cueBall, scaleX, scaleY) {
+        const mx = poolMouseX / scaleX;
+        const my = poolMouseY / scaleY;
+        const angle = Math.atan2(my - cueBall.y, mx - cueBall.x);
+        poolCueAngle = angle;
+
+        // Aiming line (dotted)
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 0.5;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+
+        // Cast line from cue ball in shot direction until hitting something
+        const dirX = Math.cos(angle);
+        const dirY = Math.sin(angle);
+        let lineLen = 200;
+
+        // Find first collision along the line
+        for (const b of poolBalls) {
+            if (b.pocketed || b.id === 0) continue;
+            const dx = b.x - cueBall.x;
+            const dy = b.y - cueBall.y;
+            const proj = dx * dirX + dy * dirY;
+            if (proj <= 0) continue;
+            const perpDist = Math.abs(-dx * dirY + dy * dirX);
+            if (perpDist < POOL_BALL_R * 2) {
+                lineLen = Math.min(lineLen, proj - POOL_BALL_R);
+            }
+        }
+
+        // Check cushion intersections
+        if (dirX > 0) lineLen = Math.min(lineLen, (POOL_CUSHION_X2 - cueBall.x) / dirX);
+        else if (dirX < 0) lineLen = Math.min(lineLen, (POOL_CUSHION_X1 - cueBall.x) / dirX);
+        if (dirY > 0) lineLen = Math.min(lineLen, (POOL_CUSHION_Y2 - cueBall.y) / dirY);
+        else if (dirY < 0) lineLen = Math.min(lineLen, (POOL_CUSHION_Y1 - cueBall.y) / dirY);
+
+        lineLen = Math.max(0, lineLen);
+
+        ctx.moveTo(cueBall.x, cueBall.y);
+        ctx.lineTo(cueBall.x + dirX * lineLen, cueBall.y + dirY * lineLen);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw cue stick
+        const pullBack = poolDragging ? poolCuePower * 2 : 0;
+        const cueStart = POOL_BALL_R + 2 + pullBack;
+        const cueLen = 60;
+
+        // Cue stick colors
+        const cueEndX = cueBall.x - Math.cos(angle) * (cueStart + cueLen);
+        const cueEndY = cueBall.y - Math.sin(angle) * (cueStart + cueLen);
+        const cueStartX = cueBall.x - Math.cos(angle) * cueStart;
+        const cueStartY = cueBall.y - Math.sin(angle) * cueStart;
+
+        // Cue tip (white ferrule)
+        ctx.strokeStyle = '#eee';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cueStartX, cueStartY);
+        const ferruleX = cueBall.x - Math.cos(angle) * (cueStart + 4);
+        const ferruleY = cueBall.y - Math.sin(angle) * (cueStart + 4);
+        ctx.lineTo(ferruleX, ferruleY);
+        ctx.stroke();
+
+        // Cue shaft (wood)
+        ctx.strokeStyle = '#d4a76a';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(ferruleX, ferruleY);
+        const midX = cueBall.x - Math.cos(angle) * (cueStart + cueLen * 0.5);
+        const midY = cueBall.y - Math.sin(angle) * (cueStart + cueLen * 0.5);
+        ctx.lineTo(midX, midY);
+        ctx.stroke();
+
+        // Cue butt (darker)
+        ctx.strokeStyle = '#8b5e3c';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(midX, midY);
+        ctx.lineTo(cueEndX, cueEndY);
+        ctx.stroke();
+
+        // Power indicator
+        if (poolDragging) {
+            const powerPct = poolCuePower / POOL_CUE_MAX_POWER;
+            ctx.fillStyle = `rgba(${Math.round(255 * powerPct)}, ${Math.round(255 * (1 - powerPct))}, 0, 0.7)`;
+            ctx.fillRect(POOL_W - 14, POOL_CUSHION_Y1 + 2, 6, (POOL_CUSHION_Y2 - POOL_CUSHION_Y1 - 4));
+            ctx.fillStyle = `rgb(${Math.round(255 * powerPct)}, ${Math.round(255 * (1 - powerPct))}, 0)`;
+            const barH = (POOL_CUSHION_Y2 - POOL_CUSHION_Y1 - 4) * powerPct;
+            ctx.fillRect(POOL_W - 14, POOL_CUSHION_Y2 - 2 - barH, 6, barH);
+        }
+    }
+
+    function poolDrawSpinIndicator(ctx) {
+        // Small cue ball spin indicator in bottom-left corner
+        const indicatorR = 10;
+        const ix = 30;
+        const iy = POOL_H - 26;
+
+        // Background circle
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.beginPath();
+        ctx.arc(ix, iy, indicatorR + 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // White ball
+        ctx.fillStyle = '#ddd';
+        ctx.beginPath();
+        ctx.arc(ix, iy, indicatorR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+
+        // Spin dot (red)
+        const dotX = ix + poolCueSpinX * indicatorR * 0.7;
+        const dotY = iy + poolCueSpinY * indicatorR * 0.7;
+        ctx.fillStyle = '#e33';
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Label
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.font = '5px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('SPIN', ix, iy + indicatorR + 8);
+    }
+
+    function poolDrawHUD(ctx) {
+        // Player indicators at the top
+        const p1Name = 'Player 1';
+        const p2Name = poolMode === 'cpu' ? 'CPU' : 'Player 2';
+        const p1Group = poolPlayer1Group;
+        const p2Group = poolPlayer2Group;
+
+        // Turn indicator backgrounds
+        ctx.fillStyle = poolTurn === 1 ? 'rgba(100,200,100,0.4)' : 'rgba(255,255,255,0.1)';
+        ctx.fillRect(POOL_CUSHION_X1, 1, 60, 11);
+        ctx.fillStyle = poolTurn === 2 ? 'rgba(100,200,100,0.4)' : 'rgba(255,255,255,0.1)';
+        ctx.fillRect(POOL_W - POOL_CUSHION_X1 - 60, 1, 60, 11);
+
+        // Player names
+        ctx.font = 'bold 6px Inter, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(p1Name, POOL_CUSHION_X1 + 2, 9);
+        ctx.textAlign = 'right';
+        ctx.fillText(p2Name, POOL_W - POOL_CUSHION_X1 - 2, 9);
+
+        // Group indicators
+        if (p1Group) {
+            ctx.font = '5px Inter, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+            const p1Label = p1Group === 'solids' ? '● Solids' : '◐ Stripes';
+            ctx.fillText(p1Label, POOL_CUSHION_X1 + 2, 15);
+            ctx.textAlign = 'right';
+            const p2Label = p2Group === 'solids' ? '● Solids' : '◐ Stripes';
+            ctx.fillText(p2Label, POOL_W - POOL_CUSHION_X1 - 2, 15);
+        }
+
+        // Pocketed ball indicators (tiny balls along bottom border)
+        const trayY = POOL_H - 5;
+        ctx.font = '4px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        // Player 1 pocketed
+        for (let i = 0; i < poolPlayer1Pocketed.length; i++) {
+            const def = POOL_BALL_DEFS[poolPlayer1Pocketed[i]];
+            ctx.fillStyle = def.color;
+            ctx.beginPath();
+            ctx.arc(POOL_CUSHION_X1 + 5 + i * 8, trayY, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        // Player 2 pocketed
+        for (let i = 0; i < poolPlayer2Pocketed.length; i++) {
+            const def = POOL_BALL_DEFS[poolPlayer2Pocketed[i]];
+            ctx.fillStyle = def.color;
+            ctx.beginPath();
+            ctx.arc(POOL_W - POOL_CUSHION_X1 - 5 - i * 8, trayY, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    // ====================================
+    // POOL INPUT HANDLERS
+    // ====================================
+
+    function handlePoolMouseDown(e) {
+        if (!poolGameRunning || poolGameOver) return;
+        if (currentGame !== 'pool') return;
+        const rect = poolCanvas.getBoundingClientRect();
+        const scaleX = poolCanvas.width / POOL_W;
+        const scaleY = poolCanvas.height / POOL_H;
+        const mx = (e.clientX - rect.left) / scaleX * (POOL_W / (poolCanvas.width / scaleX));
+        const my = (e.clientY - rect.top) / scaleY * (POOL_H / (poolCanvas.height / scaleY));
+
+        // Simplified coordinate calculation
+        const canvasX = e.clientX - rect.left;
+        const canvasY = e.clientY - rect.top;
+        poolMouseX = canvasX;
+        poolMouseY = canvasY;
+
+        const gameX = canvasX / (rect.width / POOL_W);
+        const gameY = canvasY / (rect.height / POOL_H);
+
+        // Check spin indicator click
+        const spinIX = 30, spinIY = POOL_H - 26, spinIR = 12;
+        if (Math.sqrt((gameX - spinIX) ** 2 + (gameY - spinIY) ** 2) < spinIR) {
+            poolCueSpinX = Math.max(-1, Math.min(1, (gameX - spinIX) / 10));
+            poolCueSpinY = Math.max(-1, Math.min(1, (gameY - spinIY) / 10));
+            return;
+        }
+
+        // Ball in hand placement
+        if (poolPlacingBall) {
+            const cueBall = poolBalls[0];
+            // Check valid placement (not overlapping other balls)
+            let valid = true;
+            const placeX = gameX;
+            const placeY = gameY;
+
+            // Must be within table bounds
+            if (placeX < POOL_CUSHION_X1 + POOL_BALL_R || placeX > POOL_CUSHION_X2 - POOL_BALL_R ||
+                placeY < POOL_CUSHION_Y1 + POOL_BALL_R || placeY > POOL_CUSHION_Y2 - POOL_BALL_R) {
+                valid = false;
+            }
+
+            // Check overlap with other balls
+            for (const b of poolBalls) {
+                if (b.pocketed || b.id === 0) continue;
+                const d = Math.sqrt((placeX - b.x) ** 2 + (placeY - b.y) ** 2);
+                if (d < POOL_BALL_R * 2.5) {
+                    valid = false;
+                    break;
+                }
+            }
+
+            if (valid) {
+                cueBall.x = placeX;
+                cueBall.y = placeY;
+                cueBall.pocketed = false;
+                poolPlacingBall = false;
+                poolBallInHand = false;
+                poolFoulMessage = '';
+            }
+            return;
+        }
+
+        if (!poolAllStopped()) return;
+        const isHumanTurn = poolTurn === 1 || poolMode === 'pvp';
+        if (!isHumanTurn) return;
+
+        poolAiming = true;
+        poolDragging = true;
+        poolCuePower = 0;
+    }
+
+    function handlePoolMouseMove(e) {
+        if (currentGame !== 'pool') return;
+        const rect = poolCanvas.getBoundingClientRect();
+        poolMouseX = e.clientX - rect.left;
+        poolMouseY = e.clientY - rect.top;
+
+        if (poolDragging) {
+            const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
+            if (!cueBall) return;
+            const scaleRatioX = rect.width / POOL_W;
+            const scaleRatioY = rect.height / POOL_H;
+            const mx = poolMouseX / scaleRatioX;
+            const my = poolMouseY / scaleRatioY;
+            const dx = cueBall.x - mx;
+            const dy = cueBall.y - my;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            poolCuePower = Math.min(POOL_CUE_MAX_POWER, Math.max(0, (dist - 10) * 0.15));
+            poolCueAngle = Math.atan2(my - cueBall.y, mx - cueBall.x);
+        }
+    }
+
+    function handlePoolMouseUp(e) {
+        if (currentGame !== 'pool') return;
+        if (!poolDragging) return;
+
+        const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
+        if (cueBall && poolCuePower > 0.5 && poolAllStopped()) {
+            poolFireShot(cueBall, poolCueAngle, poolCuePower);
+        }
+
+        poolDragging = false;
+        poolAiming = false;
+        poolCuePower = 0;
+    }
+
+    function handlePoolTouchStart(e) {
+        e.preventDefault();
+        if (e.touches.length > 0) {
+            const touch = e.touches[0];
+            handlePoolMouseDown({ clientX: touch.clientX, clientY: touch.clientY, preventDefault: () => {} });
+        }
+    }
+
+    function handlePoolTouchMove(e) {
+        e.preventDefault();
+        if (e.touches.length > 0) {
+            const touch = e.touches[0];
+            handlePoolMouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+        }
+    }
+
+    function handlePoolTouchEnd(e) {
+        e.preventDefault();
+        handlePoolMouseUp({});
+    }
+
+    // ====================================
+    // POOL GAME LIFECYCLE
+    // ====================================
+
+    function initPoolGame() {
+        poolCanvas = document.getElementById('pool-canvas');
+        if (!poolCanvas) return;
+        poolCtx = poolCanvas.getContext('2d');
+        poolGamesWon = loadPoolHighScore();
+        poolPockets = poolGetPockets();
+        resetPoolGame();
+        updatePoolScoreboard();
+    }
+
+    function resetPoolGame() {
+        poolBalls = poolRackBalls();
+        poolPockets = poolGetPockets();
+        poolTurn = 1;
+        poolGameOver = false;
+        poolGameRunning = false;
+        poolWinner = 0;
+        poolFirstPocket = false;
+        poolPlayer1Group = null;
+        poolPlayer2Group = null;
+        poolPlayer1Pocketed = [];
+        poolPlayer2Pocketed = [];
+        poolFoulMessage = '';
+        poolShotFired = false;
+        poolFirstBallHit = -1;
+        poolCushionAfterHit = false;
+        poolPocketedThisShot = [];
+        poolBallInHand = false;
+        poolPlacingBall = false;
+        poolAiming = false;
+        poolDragging = false;
+        poolCuePower = 0;
+        poolCueSpinX = 0;
+        poolCueSpinY = 0;
+        poolAIDelay = 0;
+        poolShotTimer = POOL_SHOT_CLOCK;
+        poolShotTimerFrame = 0;
+        if (poolAnimFrame) { cancelAnimationFrame(poolAnimFrame); poolAnimFrame = null; }
+        drawPoolFrame();
+        updatePoolScoreboard();
+    }
+
+    function startPoolGame() {
+        if (poolGameRunning) return;
+        poolGameRunning = true;
+        poolGameOver = false;
+        if (!poolBalls.length) poolBalls = poolRackBalls();
+        poolLoop();
+    }
+
+    function poolLoop() {
+        if (!poolGameRunning) return;
+
+        if (!poolAllStopped()) {
+            poolPhysicsUpdate();
+            poolFoulMessage = ''; // Clear foul message while balls are moving
+            poolShotTimer = POOL_SHOT_CLOCK; // reset timer while balls move
+            poolShotTimerFrame = 0;
+        } else if (poolShotFired) {
+            // All balls stopped after a shot — process turn
+            poolProcessTurnResult();
+            poolShotTimer = POOL_SHOT_CLOCK;
+            poolShotTimerFrame = 0;
+        } else if (poolMode === 'cpu' && poolTurn === 2 && !poolGameOver) {
+            // AI turn — auto-place ball if needed
+            if (poolPlacingBall || poolBallInHand) {
+                poolAIPlaceBall();
+            }
+            if (poolAIDelay > 0) {
+                poolAIDelay--;
+            } else {
+                poolAITakeShot();
+            }
+        } else if (!poolGameOver && !poolPlacingBall) {
+            // Shot clock for human player
+            poolShotTimerFrame++;
+            if (poolShotTimerFrame >= 60) {
+                poolShotTimerFrame = 0;
+                poolShotTimer--;
+                if (poolShotTimer <= 0) {
+                    // Time expired — foul, switch turns
+                    poolFoulMessage = 'Shot clock expired!';
+                    poolTurn = poolTurn === 1 ? 2 : 1;
+                    poolBallInHand = true;
+                    poolPlacingBall = true;
+                    poolShotTimer = POOL_SHOT_CLOCK;
+                    poolShotTimerFrame = 0;
+                    if (poolMode === 'cpu' && poolTurn === 2) {
+                        poolAIDelay = 60;
+                    }
+                    updatePoolScoreboard();
+                }
+            }
+        }
+
+        drawPoolFrame();
+        poolAnimFrame = requestAnimationFrame(poolLoop);
+    }
+
+    function endPoolGame() {
+        poolGameOver = true;
+        poolGameRunning = false;
+        if (poolAnimFrame) { cancelAnimationFrame(poolAnimFrame); poolAnimFrame = null; }
+
+        if (poolWinner === 1) {
+            poolGamesWon++;
+            savePoolHighScore(poolGamesWon);
+            awardGameXP('pool', { won: true });
+        }
+
+        updatePoolScoreboard();
+        drawPoolFrame();
+    }
+
+    function updatePoolScoreboard() {
+        const p1 = document.getElementById('pool-p1-score');
+        const p2 = document.getElementById('pool-p2-score');
+        const turn = document.getElementById('pool-turn-label');
+        if (p1) p1.textContent = poolPlayer1Pocketed.length;
+        if (p2) p2.textContent = poolPlayer2Pocketed.length;
+        if (turn) {
+            if (poolGameOver) {
+                const w = poolWinner === 1 ? 'P1 Wins!' : (poolMode === 'cpu' ? 'CPU Wins!' : 'P2 Wins!');
+                turn.textContent = w;
+            } else {
+                turn.textContent = poolTurn === 1 ? 'Turn: P1' : (poolMode === 'cpu' ? 'Turn: CPU' : 'Turn: P2');
+            }
+        }
+    }
+
+    function togglePoolMode() {
+        poolMode = poolMode === 'cpu' ? 'pvp' : 'cpu';
+        const btns = document.querySelectorAll('#pool-controls .snake-btn');
+        if (btns.length > 0) btns[0].textContent = poolMode === 'cpu' ? '🔄 PvCPU' : '🔄 PvP';
+        resetPoolGame();
+    }
+
+    // ====================================
+    // POOL MAXIMIZE
+    // ====================================
+    let poolOriginalStyles = null;
+    let poolModalOverlay = null;
+    let poolModalPlaceholder = null; // invisible placeholder keeping layout space
+
+    function togglePoolMaximize() {
+        const canvas = document.getElementById('pool-canvas');
+        if (!canvas) return;
+
+        if (!poolMaximized) {
+            // --- Open modal ---
+            const gameContainer = canvas.closest('.snake-game-container') || canvas.parentElement;
+
+            // Insert an invisible placeholder so the widget doesn't collapse
+            poolModalPlaceholder = document.createElement('div');
+            poolModalPlaceholder.style.cssText =
+                'width:' + canvas.offsetWidth + 'px;height:' + canvas.offsetHeight + 'px;visibility:hidden;';
+            gameContainer.insertBefore(poolModalPlaceholder, canvas);
+
+            // Build overlay
+            poolModalOverlay = document.createElement('div');
+            poolModalOverlay.id = 'pool-modal-overlay';
+            poolModalOverlay.className = 'pool-modal-overlay';
+
+            // Inner modal panel
+            const panel = document.createElement('div');
+            panel.className = 'pool-modal-panel';
+
+            // Header row
+            const header = document.createElement('div');
+            header.className = 'pool-modal-header';
+            header.innerHTML = '<span class="pool-modal-title">🎱 8-Ball Pool</span>';
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'pool-modal-close';
+            closeBtn.textContent = '✕';
+            closeBtn.onclick = togglePoolMaximize;
+            header.appendChild(closeBtn);
+
+            // Canvas wrapper — scales canvas to fit without distortion
+            const canvasWrap = document.createElement('div');
+            canvasWrap.className = 'pool-modal-canvas-wrap';
+
+            // Move canvas into modal
+            poolOriginalStyles = {
+                bufferWidth: canvas.width,
+                bufferHeight: canvas.height,
+                width: canvas.style.width,
+                height: canvas.style.height,
+                maxWidth: canvas.style.maxWidth,
+                transform: canvas.style.transform,
+                transformOrigin: canvas.style.transformOrigin,
+                parent: gameContainer,
+            };
+            // Scale the canvas buffer to 2x — drawPoolFrame uses canvas.width/POOL_W
+            // as its internal scale factor, so everything redraws crisp at 2x resolution.
+            canvas.width = POOL_W * 2;
+            canvas.height = POOL_H * 2;
+            canvas.style.width = '100%';
+            canvas.style.height = 'auto';
+            canvas.style.maxWidth = '100%';
+            canvas.style.transform = '';
+            canvas.style.transformOrigin = '';
+            canvasWrap.appendChild(canvas);
+
+            panel.appendChild(header);
+            panel.appendChild(canvasWrap);
+            poolModalOverlay.appendChild(panel);
+            document.body.appendChild(poolModalOverlay);
+
+            // Trigger CSS transition
+            requestAnimationFrame(() => {
+                poolModalOverlay.classList.add('active');
+                panel.classList.add('active');
+            });
+
+            // Close on backdrop click
+            poolModalOverlay.addEventListener('click', function(e) {
+                if (e.target === poolModalOverlay) togglePoolMaximize();
+            });
+
+            // Close on Escape
+            poolModalOverlay._escHandler = function(e) {
+                if (e.key === 'Escape') togglePoolMaximize();
+            };
+            document.addEventListener('keydown', poolModalOverlay._escHandler);
+
+            poolMaximized = true;
+        } else {
+            // --- Close modal ---
+            if (poolModalOverlay) {
+                const canvas2 = document.getElementById('pool-canvas');
+                if (canvas2 && poolOriginalStyles) {
+                    // Restore canvas buffer size first, then CSS styles
+                    canvas2.width = poolOriginalStyles.bufferWidth;
+                    canvas2.height = poolOriginalStyles.bufferHeight;
+                    canvas2.style.width = poolOriginalStyles.width;
+                    canvas2.style.height = poolOriginalStyles.height;
+                    canvas2.style.maxWidth = poolOriginalStyles.maxWidth;
+                    canvas2.style.transform = poolOriginalStyles.transform;
+                    canvas2.style.transformOrigin = poolOriginalStyles.transformOrigin;
+                    // Move canvas back before placeholder
+                    if (poolModalPlaceholder && poolOriginalStyles.parent) {
+                        poolOriginalStyles.parent.insertBefore(canvas2, poolModalPlaceholder);
+                    }
+                }
+                // Remove placeholder
+                if (poolModalPlaceholder) {
+                    poolModalPlaceholder.parentNode && poolModalPlaceholder.parentNode.removeChild(poolModalPlaceholder);
+                    poolModalPlaceholder = null;
+                }
+                // Remove esc listener
+                if (poolModalOverlay._escHandler) {
+                    document.removeEventListener('keydown', poolModalOverlay._escHandler);
+                }
+                poolModalOverlay.classList.remove('active');
+                const panelEl = poolModalOverlay.querySelector('.pool-modal-panel');
+                if (panelEl) panelEl.classList.remove('active');
+                setTimeout(() => {
+                    if (poolModalOverlay && poolModalOverlay.parentNode) {
+                        poolModalOverlay.parentNode.removeChild(poolModalOverlay);
+                    }
+                    poolModalOverlay = null;
+                }, 300);
+            }
+
+            poolMaximized = false;
+        }
+
+        drawPoolFrame();
     }
 
 
@@ -2815,7 +4463,6 @@
                     snakeAccumulatorMs = 0;
                 }
                 document.removeEventListener('keydown', handleSnakeKeyPress);
-                initSnakeGame();
                 break;
                 
             case 'reflex':
@@ -2852,6 +4499,19 @@
                     breakoutCanvas.removeEventListener('click', brkHandleClick);
                 }
                 break;
+            case 'pool':
+                if (poolAnimFrame) { cancelAnimationFrame(poolAnimFrame); poolAnimFrame = null; }
+                poolGameRunning = false;
+                if (poolCanvas) {
+                    poolCanvas.removeEventListener('mousedown', handlePoolMouseDown);
+                    poolCanvas.removeEventListener('mousemove', handlePoolMouseMove);
+                    poolCanvas.removeEventListener('mouseup', handlePoolMouseUp);
+                    poolCanvas.removeEventListener('touchstart', handlePoolTouchStart);
+                    poolCanvas.removeEventListener('touchmove', handlePoolTouchMove);
+                    poolCanvas.removeEventListener('touchend', handlePoolTouchEnd);
+                }
+                if (poolMaximized) togglePoolMaximize();
+                break;
         }
     }
     
@@ -2862,7 +4522,8 @@
         const gameArea = document.getElementById('multi-game-area');
         // Hide all first
         const breakoutCv = document.getElementById('breakout-canvas');
-        [snakeCv, flappyCv, tetrisCv, breakoutCv].forEach(c => { if (c) c.style.display = 'none'; });
+        const poolCv = document.getElementById('pool-canvas');
+        [snakeCv, flappyCv, tetrisCv, breakoutCv, poolCv].forEach(c => { if (c) c.style.display = 'none'; });
         if (gameArea) gameArea.style.display = 'none';
 
         switch (currentGame) {
@@ -2900,11 +4561,23 @@
                     breakoutCanvas.addEventListener('touchmove', handleBreakoutTouchMove, { passive: false });
                 }
                 break;
+            case 'pool':
+                if (poolCv) poolCv.style.display = 'block';
+                initPoolGame();
+                if (poolCanvas) {
+                    poolCanvas.addEventListener('mousedown', handlePoolMouseDown);
+                    poolCanvas.addEventListener('mousemove', handlePoolMouseMove);
+                    poolCanvas.addEventListener('mouseup', handlePoolMouseUp);
+                    poolCanvas.addEventListener('touchstart', handlePoolTouchStart, { passive: false });
+                    poolCanvas.addEventListener('touchmove', handlePoolTouchMove, { passive: false });
+                    poolCanvas.addEventListener('touchend', handlePoolTouchEnd);
+                }
+                break;
         }
     }
     
     function updateGameSwitcher() {
-        const ids = ['snake', 'reflex', 'aim', 'flappy', 'tetris', 'breakout'];
+        const ids = ['snake', 'reflex', 'aim', 'flappy', 'tetris', 'breakout', 'pool'];
         ids.forEach(id => {
             const btn = document.getElementById('game-switch-' + id);
             if (btn) btn.classList.toggle('active', currentGame === id);
@@ -2912,8 +4585,8 @@
     }
     
     function updateGameControls() {
-        const ctrlIds = ['snake-controls', 'reflex-controls', 'aim-controls', 'flappy-controls', 'tetris-controls', 'breakout-controls'];
-        const statIds = ['snake-scoreboard', 'reflex-stats', 'aim-stats', 'flappy-scoreboard', 'tetris-scoreboard', 'breakout-scoreboard'];
+        const ctrlIds = ['snake-controls', 'reflex-controls', 'aim-controls', 'flappy-controls', 'tetris-controls', 'breakout-controls', 'pool-controls'];
+        const statIds = ['snake-scoreboard', 'reflex-stats', 'aim-stats', 'flappy-scoreboard', 'tetris-scoreboard', 'breakout-scoreboard', 'pool-scoreboard'];
         ctrlIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
         statIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
         
@@ -2941,6 +4614,10 @@
             case 'breakout':
                 { const c = document.getElementById('breakout-controls'); if (c) c.style.display = 'flex'; }
                 { const s = document.getElementById('breakout-scoreboard'); if (s) s.style.display = 'flex'; }
+                break;
+            case 'pool':
+                { const c = document.getElementById('pool-controls'); if (c) c.style.display = 'flex'; }
+                { const s = document.getElementById('pool-scoreboard'); if (s) s.style.display = 'flex'; }
                 break;
         }
     }
@@ -4922,6 +6599,94 @@
                 opacity: 1;
                 visibility: visible;
             }
+
+            /* Pool Maximize Modal */
+            .pool-modal-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.65);
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+                z-index: 9999;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                opacity: 0;
+                visibility: hidden;
+                transition: opacity 0.3s ease, visibility 0.3s ease;
+            }
+
+            .pool-modal-overlay.active {
+                opacity: 1;
+                visibility: visible;
+            }
+
+            .pool-modal-panel {
+                background: linear-gradient(135deg, rgba(255,255,255,0.13), rgba(255,255,255,0.07));
+                backdrop-filter: blur(30px);
+                -webkit-backdrop-filter: blur(30px);
+                border: 1px solid rgba(255,255,255,0.18);
+                border-radius: 20px;
+                padding: 18px;
+                box-shadow: 0 24px 80px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.18);
+                width: min(780px, 94vw);
+                transform: scale(0.88);
+                opacity: 0;
+                transition: transform 0.32s cubic-bezier(0.34,1.56,0.64,1), opacity 0.28s ease;
+            }
+
+            .pool-modal-panel.active {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            .pool-modal-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 14px;
+            }
+
+            .pool-modal-title {
+                font-size: 1.1rem;
+                font-weight: 700;
+                color: rgba(255,255,255,0.9);
+                letter-spacing: 0.02em;
+            }
+
+            .pool-modal-close {
+                background: rgba(255,255,255,0.1);
+                border: 1px solid rgba(255,255,255,0.2);
+                border-radius: 8px;
+                color: rgba(255,255,255,0.8);
+                font-size: 1rem;
+                width: 32px;
+                height: 32px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: background 0.2s ease;
+            }
+
+            .pool-modal-close:hover {
+                background: rgba(255,80,80,0.4);
+                color: #fff;
+            }
+
+            .pool-modal-canvas-wrap {
+                width: 100%;
+                border-radius: 10px;
+                overflow: hidden;
+                line-height: 0;
+            }
+
+            .pool-modal-canvas-wrap canvas {
+                display: block;
+                width: 100% !important;
+                height: auto !important;
+                border-radius: 10px;
+            }
             
             .settings-title {
                 font-size: 1.5rem;
@@ -5804,12 +7569,29 @@
             /* ==================== MULTI-GAME SWITCHER STYLES ==================== */
             .game-switcher {
                 display: flex;
-                justify-content: center;
-                gap: 8px;
+                gap: 6px;
                 margin-bottom: 12px;
                 padding: 8px;
                 background: rgba(0, 0, 0, 0.2);
                 border-radius: 12px;
+                overflow-x: auto;
+                overflow-y: hidden;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: thin;
+                scrollbar-color: rgba(255,255,255,0.2) transparent;
+            }
+
+            .game-switcher::-webkit-scrollbar {
+                height: 4px;
+            }
+
+            .game-switcher::-webkit-scrollbar-track {
+                background: transparent;
+            }
+
+            .game-switcher::-webkit-scrollbar-thumb {
+                background: rgba(255,255,255,0.2);
+                border-radius: 4px;
             }
             
             .game-switch-btn {
@@ -6431,6 +8213,42 @@
                 cursor: none;
             }
 
+            #pool-canvas {
+                border-radius: 12px;
+                box-shadow: 0 0 20px rgba(45, 138, 78, 0.3), inset 0 2px 8px rgba(0, 0, 0, 0.4);
+                display: block;
+                cursor: crosshair;
+                aspect-ratio: 2 / 1;
+                width: 100%;
+                height: auto;
+            }
+
+            .pool-color-swatches {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+            }
+
+            .pool-color-swatch {
+                width: 28px;
+                height: 28px;
+                border-radius: 50%;
+                border: 2px solid rgba(255,255,255,0.2);
+                cursor: pointer;
+                transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+            }
+
+            .pool-color-swatch:hover {
+                transform: scale(1.15);
+                border-color: rgba(255,255,255,0.5);
+            }
+
+            .pool-color-swatch.active {
+                border-color: #fff;
+                box-shadow: 0 0 8px rgba(255,255,255,0.4);
+                transform: scale(1.1);
+            }
+
             .tetris-wrapper {
                 display: flex;
                 justify-content: center;
@@ -6625,6 +8443,15 @@
                 <span class="settings-option-label">🎮 Game Mode <small style="opacity:0.6;font-size:0.75rem;">Hides side panels</small></span>
                 <div class="toggle-switch ${userPreferences.gameModeHidden ? 'active' : ''}" data-pref="gameModeHidden"></div>
             </div>
+            <div class="settings-option">
+                <span class="settings-option-label">🎱 Pool Table Color</span>
+                <div class="pool-color-swatches" id="pool-color-swatches">
+                    <div class="pool-color-swatch ${userPreferences.poolTableColor === 'green' ? 'active' : ''}" data-pool-color="green" style="background: linear-gradient(135deg, #2d8a4e, #1a5c32);" title="Green"></div>
+                    <div class="pool-color-swatch ${userPreferences.poolTableColor === 'red' ? 'active' : ''}" data-pool-color="red" style="background: linear-gradient(135deg, #8b3a3a, #5c1a1a);" title="Red"></div>
+                    <div class="pool-color-swatch ${userPreferences.poolTableColor === 'blue' ? 'active' : ''}" data-pool-color="blue" style="background: linear-gradient(135deg, #2a5a8a, #1a3a5c);" title="Blue"></div>
+                    <div class="pool-color-swatch ${userPreferences.poolTableColor === 'lightgrey' ? 'active' : ''}" data-pool-color="lightgrey" style="background: linear-gradient(135deg, #a8b0b8, #c8cfd6);" title="Light Grey"></div>
+                </div>
+            </div>
             <button class="close-modal-button">✨ Save & Close</button>
         `;
         
@@ -6680,6 +8507,17 @@
         
         // Add close button listener
         modal.querySelector('.close-modal-button').addEventListener('click', toggleSettingsModal);
+
+        // Add pool color swatch listeners
+        modal.querySelectorAll('.pool-color-swatch').forEach(swatch => {
+            swatch.addEventListener('click', function() {
+                const color = this.dataset.poolColor;
+                userPreferences.poolTableColor = color;
+                savePreferences();
+                modal.querySelectorAll('.pool-color-swatch').forEach(s => s.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
     }
     
     // Apply user preferences
@@ -7698,6 +9536,7 @@
                         <button id="game-switch-reflex" class="game-switch-btn" onclick="window.switchGame('reflex')" title="RefleX Game">⚡</button>
                         <button id="game-switch-aim" class="game-switch-btn" onclick="window.switchGame('aim')" title="Chaos Aim">💥</button>
                         <button id="game-switch-breakout" class="game-switch-btn" onclick="window.switchGame('breakout')" title="Breakout">🏓</button>
+                        <button id="game-switch-pool" class="game-switch-btn" onclick="window.switchGame('pool')" title="8-Ball Pool">🎱</button>
                     </div>
                     
                     <!-- Game Header (Dynamic) -->
@@ -7727,6 +9566,11 @@
                             <span class="snake-score">Lv: <span id="breakout-level">1</span></span>
                             <span id="breakout-lives" class="snake-score">❤️❤️❤️</span>
                         </div>
+                        <div id="pool-scoreboard" class="snake-scoreboard" style="display: none;">
+                            <span class="snake-score">P1: <span id="pool-p1-score">0</span></span>
+                            <span class="snake-score">P2: <span id="pool-p2-score">0</span></span>
+                            <span class="snake-score" id="pool-turn-label">Turn: P1</span>
+                        </div>
                     </div>
                     
                     <!-- Snake Canvas -->
@@ -7738,6 +9582,7 @@
                     <!-- Tetris Canvas -->
                     <canvas id="tetris-canvas" class="snake-canvas" width="368" height="368" style="display:none;"></canvas>
                     <canvas id="breakout-canvas" class="snake-canvas" width="368" height="368" style="display:none; cursor:none;"></canvas>
+                    <canvas id="pool-canvas" width="368" height="184" style="display:none; cursor:crosshair;"></canvas>
                     
                     <!-- Multi-Game Area (for RefleX and AimTrainer) -->
                     <div id="multi-game-area" class="multi-game-area" style="display: none;"></div>
@@ -7788,6 +9633,14 @@
                     <div id="breakout-controls" class="snake-controls" style="display: none;">
                         <button class="snake-btn" onclick="window.startBreakoutGameBtn()">▶ Play</button>
                         <button class="snake-btn" onclick="window.resetBreakoutGameBtn()">🔄 Reset</button>
+                    </div>
+
+                    <!-- Pool Controls -->
+                    <div id="pool-controls" class="snake-controls" style="display: none;">
+                        <button class="snake-btn" onclick="window.togglePoolModeBtn()">🔄 PvCPU</button>
+                        <button class="snake-btn" onclick="window.startPoolGameBtn()">▶ Play</button>
+                        <button class="snake-btn" onclick="window.resetPoolGameBtn()">🔄 Reset</button>
+                        <button class="snake-btn" onclick="window.togglePoolMaximizeBtn()">⛶ Max</button>
                     </div>
                     
                     <!-- Game Over Overlays -->
@@ -7978,6 +9831,7 @@
                         case '4': window.switchGame('reflex'); break;
                         case '5': window.switchGame('aim'); break;
                         case '6': window.switchGame('breakout'); break;
+                        case '7': window.switchGame('pool'); break;
                         case 'p': case 'P':
                             if (currentGame === 'snake' && snakeGameRunning) pauseSnakeGame();
                             break;
@@ -7989,6 +9843,7 @@
                                 case 'flappy': resetFlappyGame(); break;
                                 case 'tetris': resetTetrisGame(); break;
                                 case 'breakout': resetBreakoutGame(); break;
+                                case 'pool': resetPoolGame(); break;
                             }
                             break;
                     }
@@ -8043,6 +9898,10 @@
         window.resetTetrisGameBtn = () => { resetTetrisGame(); };
         window.startBreakoutGameBtn = () => { startBreakoutGame(); };
         window.resetBreakoutGameBtn = () => { resetBreakoutGame(); };
+        window.startPoolGameBtn = () => { startPoolGame(); };
+        window.resetPoolGameBtn = () => { resetPoolGame(); };
+        window.togglePoolModeBtn = () => { togglePoolMode(); };
+        window.togglePoolMaximizeBtn = () => { togglePoolMaximize(); };
         
         // Helper function to update game title
         function updateGameTitle(gameKey) {
@@ -8068,6 +9927,9 @@
                     break;
                 case 'breakout':
                     titleElement.textContent = '🏓 Breakout';
+                    break;
+                case 'pool':
+                    titleElement.textContent = '🎱 8-Ball Pool';
                     break;
             }
         }

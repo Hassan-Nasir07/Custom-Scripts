@@ -462,7 +462,7 @@
     let poolAIDelay = 0; // frames to wait before AI shoots
 
     // Shot clock
-    const POOL_SHOT_CLOCK = 20; // seconds per turn
+    const POOL_SHOT_CLOCK = 30; // seconds per turn
     let poolShotTimer = POOL_SHOT_CLOCK;
     let poolShotTimerFrame = 0; // frame counter for 1-second ticks
 
@@ -474,7 +474,8 @@
     const POOL_FRICTION = 0.985;
     const POOL_RESTITUTION = 0.92;
     const POOL_MIN_VEL = 0.08;
-    const POOL_CUE_MAX_POWER = 12;
+    const POOL_CUE_MAX_POWER = 18;
+    const POOL_SUB_STEPS = 3; // prevents tunneling at high speeds
     const POOL_CUSHION_X1 = 16;
     const POOL_CUSHION_Y1 = 16;
     const POOL_CUSHION_X2 = POOL_W - 16;
@@ -1263,7 +1264,8 @@
         balls.push({
             id: 0, x: POOL_W * 0.25, y: POOL_H / 2,
             vx: 0, vy: 0, r: POOL_BALL_R,
-            color: cueDef.color, stripe: false, num: 0, pocketed: false
+            color: cueDef.color, stripe: false, num: 0, pocketed: false,
+            rotation: 0, spinX: 0, spinY: 0
         });
 
         // Create racked balls
@@ -1272,7 +1274,8 @@
             balls.push({
                 id: def.id, x: rackPositions[i].x, y: rackPositions[i].y,
                 vx: 0, vy: 0, r: POOL_BALL_R,
-                color: def.color, stripe: def.stripe, num: def.num, pocketed: false
+                color: def.color, stripe: def.stripe, num: def.num, pocketed: false,
+                rotation: 0, spinX: 0, spinY: 0
             });
         }
 
@@ -1288,200 +1291,261 @@
     }
 
     function poolPhysicsUpdate() {
-        const activeBalls = poolBalls.filter(b => !b.pocketed);
+        // Sub-stepping prevents tunneling at high speeds.
+        // At max power 18, each sub-step moves max 6px (= 1 ball radius).
+        for (let step = 0; step < POOL_SUB_STEPS; step++) {
+            const activeBalls = poolBalls.filter(b => !b.pocketed);
 
-        // Move balls
-        for (const b of activeBalls) {
-            b.x += b.vx;
-            b.y += b.vy;
+            // Move balls (fractional step)
+            for (const b of activeBalls) {
+                b.x += b.vx / POOL_SUB_STEPS;
+                b.y += b.vy / POOL_SUB_STEPS;
+            }
+
+            // Ball-cushion collisions
+            for (const b of activeBalls) {
+                if (b.x - b.r < POOL_CUSHION_X1) {
+                    b.x = POOL_CUSHION_X1 + b.r;
+                    b.vx = Math.abs(b.vx) * POOL_RESTITUTION;
+                    if (poolShotFired) poolCushionAfterHit = true;
+                }
+                if (b.x + b.r > POOL_CUSHION_X2) {
+                    b.x = POOL_CUSHION_X2 - b.r;
+                    b.vx = -Math.abs(b.vx) * POOL_RESTITUTION;
+                    if (poolShotFired) poolCushionAfterHit = true;
+                }
+                if (b.y - b.r < POOL_CUSHION_Y1) {
+                    b.y = POOL_CUSHION_Y1 + b.r;
+                    b.vy = Math.abs(b.vy) * POOL_RESTITUTION;
+                    if (poolShotFired) poolCushionAfterHit = true;
+                }
+                if (b.y + b.r > POOL_CUSHION_Y2) {
+                    b.y = POOL_CUSHION_Y2 - b.r;
+                    b.vy = -Math.abs(b.vy) * POOL_RESTITUTION;
+                    if (poolShotFired) poolCushionAfterHit = true;
+                }
+            }
+
+            // Ball-ball collisions
+            for (let i = 0; i < activeBalls.length; i++) {
+                for (let j = i + 1; j < activeBalls.length; j++) {
+                    const a = activeBalls[i];
+                    const bj = activeBalls[j];
+                    const dx = bj.x - a.x;
+                    const dy = bj.y - a.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const minDist = a.r + bj.r;
+
+                    if (dist < minDist && dist > 0.001) {
+                        // Track first ball hit by cue ball
+                        if (poolShotFired && poolFirstBallHit === -1) {
+                            if (a.id === 0) poolFirstBallHit = bj.id;
+                            else if (bj.id === 0) poolFirstBallHit = a.id;
+                        }
+
+                        // Unit normal from a toward bj
+                        const nx = dx / dist;
+                        const ny = dy / dist;
+
+                        // Relative velocity along normal
+                        const dvx = a.vx - bj.vx;
+                        const dvy = a.vy - bj.vy;
+                        const dvn = dvx * nx + dvy * ny;
+
+                        // Don't resolve if separating
+                        if (dvn <= 0) continue;
+
+                        // Elastic impulse for equal mass: balls swap normal velocity components
+                        a.vx -= dvn * nx;
+                        a.vy -= dvn * ny;
+                        bj.vx += dvn * nx;
+                        bj.vy += dvn * ny;
+
+                        // Separate overlapping balls (push apart along normal)
+                        const overlap = minDist - dist;
+                        a.x -= (overlap * 0.5) * nx;
+                        a.y -= (overlap * 0.5) * ny;
+                        bj.x += (overlap * 0.5) * nx;
+                        bj.y += (overlap * 0.5) * ny;
+
+                        // Apply cue ball spin (English) AFTER hitting target ball
+                        if (a.id === 0 && a.spinX !== undefined && (a.spinX !== 0 || a.spinY !== 0)) {
+                            const postSpeed = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
+                            const spinMag = Math.min(postSpeed * 0.35, 4); // capped spin effect
+                            // Side spin: perpendicular deflection
+                            a.vx += (-ny) * a.spinX * spinMag;
+                            a.vy += nx * a.spinX * spinMag;
+                            // Top/back spin: along contact normal
+                            a.vx -= nx * a.spinY * spinMag * 0.4;
+                            a.vy -= ny * a.spinY * spinMag * 0.4;
+                            a.spinX = 0;
+                            a.spinY = 0;
+                        } else if (bj.id === 0 && bj.spinX !== undefined && (bj.spinX !== 0 || bj.spinY !== 0)) {
+                            const postSpeed = Math.sqrt(bj.vx * bj.vx + bj.vy * bj.vy);
+                            const spinMag = Math.min(postSpeed * 0.35, 4);
+                            bj.vx += ny * bj.spinX * spinMag;
+                            bj.vy += (-nx) * bj.spinX * spinMag;
+                            bj.vx += nx * bj.spinY * spinMag * 0.4;
+                            bj.vy += ny * bj.spinY * spinMag * 0.4;
+                            bj.spinX = 0;
+                            bj.spinY = 0;
+                        }
+                    }
+                }
+            }
+
+            // Ball-pocket collisions
+            for (const b of activeBalls) {
+                if (b.pocketed) continue;
+                for (const p of poolPockets) {
+                    const dx = b.x - p.x;
+                    const dy = b.y - p.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < POOL_POCKET_R) {
+                        b.pocketed = true;
+                        b.vx = 0;
+                        b.vy = 0;
+                        if (poolShotFired) {
+                            poolPocketedThisShot.push(b.id);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Apply friction and rotation once per frame (after all sub-steps)
+        const postBalls = poolBalls.filter(b => !b.pocketed);
+        for (const b of postBalls) {
             b.vx *= POOL_FRICTION;
             b.vy *= POOL_FRICTION;
 
-            // Stop tiny velocities
+            const speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+            if (speed > POOL_MIN_VEL) {
+                b.rotation += speed / b.r;
+            }
+
             if (Math.abs(b.vx) < POOL_MIN_VEL) b.vx = 0;
             if (Math.abs(b.vy) < POOL_MIN_VEL) b.vy = 0;
-        }
-
-        // Ball-cushion collisions
-        for (const b of activeBalls) {
-            if (b.x - b.r < POOL_CUSHION_X1) {
-                b.x = POOL_CUSHION_X1 + b.r;
-                b.vx = Math.abs(b.vx) * POOL_RESTITUTION;
-                if (poolShotFired) poolCushionAfterHit = true;
-            }
-            if (b.x + b.r > POOL_CUSHION_X2) {
-                b.x = POOL_CUSHION_X2 - b.r;
-                b.vx = -Math.abs(b.vx) * POOL_RESTITUTION;
-                if (poolShotFired) poolCushionAfterHit = true;
-            }
-            if (b.y - b.r < POOL_CUSHION_Y1) {
-                b.y = POOL_CUSHION_Y1 + b.r;
-                b.vy = Math.abs(b.vy) * POOL_RESTITUTION;
-                if (poolShotFired) poolCushionAfterHit = true;
-            }
-            if (b.y + b.r > POOL_CUSHION_Y2) {
-                b.y = POOL_CUSHION_Y2 - b.r;
-                b.vy = -Math.abs(b.vy) * POOL_RESTITUTION;
-                if (poolShotFired) poolCushionAfterHit = true;
-            }
-        }
-
-        // Ball-ball collisions
-        for (let i = 0; i < activeBalls.length; i++) {
-            for (let j = i + 1; j < activeBalls.length; j++) {
-                const a = activeBalls[i];
-                const bj = activeBalls[j];
-                const dx = bj.x - a.x;
-                const dy = bj.y - a.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                const minDist = a.r + bj.r;
-
-                if (dist < minDist && dist > 0) {
-                    // Track first ball hit by cue ball
-                    if (poolShotFired && poolFirstBallHit === -1) {
-                        if (a.id === 0) poolFirstBallHit = bj.id;
-                        else if (bj.id === 0) poolFirstBallHit = a.id;
-                    }
-
-                    // Normal vector
-                    const nx = dx / dist;
-                    const ny = dy / dist;
-
-                    // Relative velocity along normal
-                    const dvx = a.vx - bj.vx;
-                    const dvy = a.vy - bj.vy;
-                    const dvn = dvx * nx + dvy * ny;
-
-                    // Don't resolve if moving apart
-                    if (dvn <= 0) continue;
-
-                    // Apply impulse (equal mass)
-                    const impulse = dvn * POOL_RESTITUTION;
-                    a.vx -= impulse * nx;
-                    a.vy -= impulse * ny;
-                    bj.vx += impulse * nx;
-                    bj.vy += impulse * ny;
-
-                    // Apply cue ball spin transfer
-                    const spinFactor = 0.3;
-                    if (a.id === 0 && (poolCueSpinX !== 0 || poolCueSpinY !== 0)) {
-                        bj.vx += poolCueSpinX * spinFactor;
-                        bj.vy += poolCueSpinY * spinFactor;
-                    } else if (bj.id === 0 && (poolCueSpinX !== 0 || poolCueSpinY !== 0)) {
-                        a.vx += poolCueSpinX * spinFactor;
-                        a.vy += poolCueSpinY * spinFactor;
-                    }
-
-                    // Separate overlapping balls
-                    const overlap = minDist - dist;
-                    const sepX = (overlap / 2) * nx;
-                    const sepY = (overlap / 2) * ny;
-                    a.x -= sepX;
-                    a.y -= sepY;
-                    bj.x += sepX;
-                    bj.y += sepY;
-                }
-            }
-        }
-
-        // Ball-pocket collisions
-        for (const b of activeBalls) {
-            for (const p of poolPockets) {
-                const dx = b.x - p.x;
-                const dy = b.y - p.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist < POOL_POCKET_R) {
-                    b.pocketed = true;
-                    b.vx = 0;
-                    b.vy = 0;
-                    if (poolShotFired) {
-                        poolPocketedThisShot.push(b.id);
-                    }
-                }
-            }
         }
     }
 
     function poolProcessTurnResult() {
-        const cueBall = poolBalls[0];
+        // ── BCA Official 8-Ball Rules ─────────────────────────────────────────
+        // Ref: BCA Rule 7 (Legal Shot), Rule 8 (Combination), Rule 9 (8-ball)
+        //
+        // TABLE OPEN: until first legal pocket after break — any ball may be
+        //   struck first; potting the 8-ball on open table is a foul (loss).
+        // AFTER GROUPS ASSIGNED, not on-the-8:
+        //   Must strike own group ball first.
+        //   Hitting 8-ball first = foul (ball in hand).
+        //   Hitting opponent's ball first = foul (ball in hand).
+        // ON THE 8 (all 7 group balls cleared):
+        //   Must strike 8-ball first; scratch on the 8 = loss.
+        //   Legally pocket 8-ball = win.
+        //   Pocket 8-ball on a foul (including scratch) = loss.
+        // ─────────────────────────────────────────────────────────────────────
+
+        const cueBall  = poolBalls[0];
         const pocketed = poolPocketedThisShot;
         let foul = false;
         poolFoulMessage = '';
 
-        // Check scratch (cue ball pocketed)
+        const myPocketed = poolTurn === 1 ? poolPlayer1Pocketed : poolPlayer2Pocketed;
+        const myGroup    = poolTurn === 1 ? poolPlayer1Group    : poolPlayer2Group;
+        const tableOpen  = !poolFirstPocket;
+        const onThe8     = !tableOpen && myPocketed.length >= 7;
+
+        // ── 1. SCRATCH ────────────────────────────────────────────────────────
         if (cueBall.pocketed) {
-            foul = true;
-            poolFoulMessage = 'Scratch! Cue ball pocketed';
             cueBall.pocketed = false;
+            if (onThe8) {
+                // BCA Rule 9c: scratch while shooting at 8-ball → loss
+                poolFoulMessage = 'Scratch on 8-ball! You lose';
+                poolWinner = poolTurn === 1 ? 2 : 1;
+                endPoolGame();
+                return;
+            }
+            foul = true;
+            poolFoulMessage = 'Scratch! Ball in hand';
         }
 
-        // Check if no ball was hit
+        // ── 2. NO BALL CONTACTED ─────────────────────────────────────────────
         if (!foul && poolFirstBallHit === -1) {
             foul = true;
-            poolFoulMessage = 'Foul! No ball hit';
+            poolFoulMessage = 'Foul! No ball contacted';
         }
 
-        // Check if wrong ball hit first (after groups assigned)
-        if (!foul && poolFirstPocket && poolFirstBallHit !== -1) {
-            const currentGroup = poolTurn === 1 ? poolPlayer1Group : poolPlayer2Group;
-            const hitBallId = poolFirstBallHit;
-            if (currentGroup === 'solids' && (hitBallId >= 9 && hitBallId <= 15)) {
-                // Check if player has cleared all their balls (then they must hit 8)
-                const myPocketed = poolTurn === 1 ? poolPlayer1Pocketed : poolPlayer2Pocketed;
-                const needed = currentGroup === 'solids' ? 7 : 7;
-                if (myPocketed.length < needed || hitBallId !== 8) {
+        // ── 3. WRONG FIRST BALL (BCA Rule 7 — groups must be assigned) ───────
+        // NOTE: when table is open, any ball may be struck first (even 8-ball
+        // used as a carom is legal per BCA; only pocketing it is illegal).
+        if (!foul && !tableOpen && poolFirstBallHit !== -1) {
+            const hitId     = poolFirstBallHit;
+            const hitSolid  = hitId >= 1 && hitId <= 7;
+            const hitStripe = hitId >= 9 && hitId <= 15;
+            const hit8      = hitId === 8;
+
+            if (onThe8) {
+                // Must hit 8-ball first
+                if (!hit8) {
                     foul = true;
-                    poolFoulMessage = 'Foul! Hit stripe first';
+                    poolFoulMessage = 'Foul! Must hit 8-ball first';
                 }
-            } else if (currentGroup === 'stripes' && (hitBallId >= 1 && hitBallId <= 7)) {
-                const myPocketed = poolTurn === 1 ? poolPlayer1Pocketed : poolPlayer2Pocketed;
-                if (myPocketed.length < 7 || hitBallId !== 8) {
+            } else {
+                // Must hit own group first — hitting 8-ball early = foul
+                if (hit8) {
                     foul = true;
-                    poolFoulMessage = 'Foul! Hit solid first';
+                    poolFoulMessage = 'Foul! Hit 8-ball before clearing your group';
+                } else if (myGroup === 'solids' && hitStripe) {
+                    foul = true;
+                    poolFoulMessage = "Foul! Hit opponent's ball first";
+                } else if (myGroup === 'stripes' && hitSolid) {
+                    foul = true;
+                    poolFoulMessage = "Foul! Hit opponent's ball first";
                 }
             }
         }
 
-        // Check no cushion contact after hitting object ball (no rail rule)
-        // Simplified: only foul if no ball pocketed and no cushion after first hit
+        // ── 4. NO RAIL AFTER CONTACT ─────────────────────────────────────────
+        // BCA Rule 7: must pocket a ball OR cause any ball to contact a rail.
         if (!foul && pocketed.length === 0 && poolFirstBallHit !== -1 && !poolCushionAfterHit) {
             foul = true;
             poolFoulMessage = 'Foul! No rail after contact';
         }
 
-        // Process pocketed balls
-        let legalPocket = false;
-        let legalPotCount = 0; // count legal pots by the current human player
+        // ── 5. PROCESS POCKETED BALLS ─────────────────────────────────────────
+        let legalPocket  = false;
+        let legalPotCount = 0;
+
         for (const bid of pocketed) {
             if (bid === 0) continue; // cue ball handled above
-            if (bid === 8) {
-                // 8-ball pocketed — check win or loss
-                const currentGroup = poolTurn === 1 ? poolPlayer1Group : poolPlayer2Group;
-                const myPocketed = poolTurn === 1 ? poolPlayer1Pocketed : poolPlayer2Pocketed;
 
-                if (!poolFirstPocket) {
-                    // 8-ball pocketed before groups assigned — loss
+            if (bid === 8) {
+                // 8-ball pocketed ─────────────────────────────────────────────
+                if (tableOpen) {
+                    // Potting 8-ball on open table → loss (BCA)
+                    poolFoulMessage = 'Pocketed 8-ball on open table! You lose';
                     poolWinner = poolTurn === 1 ? 2 : 1;
                     endPoolGame();
                     return;
                 }
-
-                const neededCount = 7;
-                if (myPocketed.length >= neededCount && !foul) {
-                    // Win!
+                if (onThe8 && !foul) {
+                    // All group balls cleared and no foul → WIN
                     poolWinner = poolTurn;
                     endPoolGame();
                     return;
                 } else {
-                    // Loss — pocketed 8-ball too early or on a foul
+                    // Pocketed 8 too early, or pocketed 8 on a foul → loss
                     poolWinner = poolTurn === 1 ? 2 : 1;
                     endPoolGame();
                     return;
                 }
             }
 
-            // Assign groups on first legal pocket
-            if (!poolFirstPocket && !foul) {
+            // ── Assign groups on first pocket (stays, even on foul) ───────────
+            // Balls pocketed on a foul stay down; groups are assigned so the
+            // off-table balls are always correctly attributed.
+            if (!poolFirstPocket) {
                 const isSolid = bid >= 1 && bid <= 7;
                 poolFirstPocket = true;
                 if (poolTurn === 1) {
@@ -1493,34 +1557,25 @@
                 }
             }
 
-            // Add to pocketed list
-            const isSolid = bid >= 1 && bid <= 7;
-            const isStripe = bid >= 9 && bid <= 15;
-            const currentGroup = poolTurn === 1 ? poolPlayer1Group : poolPlayer2Group;
+            // Credit the ball to the correct player using the definitive group map
+            const p1IsSolids = poolPlayer1Group === 'solids';
+            const ballIsSolid = bid >= 1 && bid <= 7;
+            // isP1Ball: true if this ball belongs to player 1's group
+            const isP1Ball = (p1IsSolids && ballIsSolid) || (!p1IsSolids && !ballIsSolid);
 
-            if (currentGroup === 'solids' && isSolid) {
-                poolPlayer1Pocketed.push(bid);
-                if (!foul) { legalPocket = true; legalPotCount++; }
-            } else if (currentGroup === 'stripes' && isStripe) {
-                if (poolTurn === 1) poolPlayer1Pocketed.push(bid);
-                else poolPlayer2Pocketed.push(bid);
-                if (!foul) { legalPocket = true; legalPotCount++; }
-            } else if (currentGroup === 'solids' && isStripe) {
-                poolPlayer2Pocketed.push(bid);
-            } else if (currentGroup === 'stripes' && isSolid) {
-                if (poolTurn === 1) poolPlayer2Pocketed.push(bid);
-                else poolPlayer1Pocketed.push(bid);
-            } else if (!poolFirstPocket) {
-                // Not yet assigned
-                if (!foul) { legalPocket = true; legalPotCount++; }
+            if (isP1Ball) {
+                if (!poolPlayer1Pocketed.includes(bid)) poolPlayer1Pocketed.push(bid);
+                if (poolTurn === 1 && !foul) { legalPocket = true; legalPotCount++; }
+            } else {
+                if (!poolPlayer2Pocketed.includes(bid)) poolPlayer2Pocketed.push(bid);
+                if (poolTurn === 2 && !foul) { legalPocket = true; legalPotCount++; }
             }
         }
 
-        // Award XP for legal pots (human player only — not CPU's pots)
+        // ── 6. XP FOR LEGAL POTS ─────────────────────────────────────────────
         const isHumanTurn = poolTurn === 1 || poolMode === 'pvp';
         if (isHumanTurn && legalPotCount > 0 && xpSystemReady) {
-            const XP_PER_POT = 5;
-            const xpGained = legalPotCount * XP_PER_POT;
+            const xpGained = legalPotCount * 5;
             userXP.currentXP += xpGained;
             userXP.totalXP   += xpGained;
             checkLevelUp();
@@ -1530,31 +1585,30 @@
             updateXPDisplay();
         }
 
-        // Handle foul — ball in hand for opponent
+        // ── 7. TURN MANAGEMENT ────────────────────────────────────────────────
         if (foul) {
+            // Opponent gets ball in hand
             poolTurn = poolTurn === 1 ? 2 : 1;
             poolBallInHand = true;
             poolPlacingBall = true;
-            // Reset cue ball position
-            cueBall.x = POOL_W * 0.25;
-            cueBall.y = POOL_H / 2;
+            cueBall.x  = POOL_W * 0.25;
+            cueBall.y  = POOL_H / 2;
             cueBall.vx = 0;
             cueBall.vy = 0;
         } else if (!legalPocket) {
-            // No legal pocket — switch turns
+            // No legal pot — change turns
             poolTurn = poolTurn === 1 ? 2 : 1;
         }
         // If legal pocket — same player continues
 
-        // Reset shot tracking
-        poolShotFired = false;
-        poolFirstBallHit = -1;
+        // ── 8. RESET SHOT STATE ───────────────────────────────────────────────
+        poolShotFired       = false;
+        poolFirstBallHit    = -1;
         poolCushionAfterHit = false;
         poolPocketedThisShot = [];
         poolCueSpinX = 0;
         poolCueSpinY = 0;
 
-        // AI turn — longer delay so CPU appears to "think"
         if (poolMode === 'cpu' && poolTurn === 2 && !poolGameOver) {
             poolAIDelay = 90 + Math.floor(Math.random() * 60); // 1.5–2.5 s
         }
@@ -1906,11 +1960,9 @@
         cueBall.vx = Math.cos(angle) * power;
         cueBall.vy = Math.sin(angle) * power;
 
-        // Apply spin to cue ball velocity
-        if (poolCueSpinX !== 0 || poolCueSpinY !== 0) {
-            cueBall.vx += poolCueSpinX * power * 0.15;
-            cueBall.vy += poolCueSpinY * power * 0.15;
-        }
+        // Store spin on cue ball — applied AFTER hitting a target ball
+        cueBall.spinX = poolCueSpinX;
+        cueBall.spinY = poolCueSpinY;
 
         poolShotFired = true;
         poolFirstBallHit = -1;
@@ -2040,17 +2092,7 @@
         // Draw HUD
         poolDrawHUD(ctx);
 
-        // Draw shot clock
-        if (poolGameRunning && !poolGameOver && poolAllStopped() && !poolShotFired) {
-            const isHumanTurn = poolTurn === 1 || (poolMode === 'pvp' && poolTurn === 2);
-            if (isHumanTurn && !poolPlacingBall) {
-                const timerColor = poolShotTimer <= 5 ? '#ff4444' : poolShotTimer <= 10 ? '#ffaa00' : 'rgba(255,255,255,0.7)';
-                ctx.fillStyle = timerColor;
-                ctx.font = 'bold 8px Inter, sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText('⏱ ' + poolShotTimer + 's', POOL_W / 2, POOL_CUSHION_Y1 + 8);
-            }
-        }
+        // Shot clock is now drawn inside poolDrawHUD (depleting bar inside the active player badge)
 
         // Draw foul message
         if (poolFoulMessage) {
@@ -2081,6 +2123,15 @@
 
     function poolDrawBall(ctx, ball) {
         const x = ball.x, y = ball.y, r = ball.r;
+        // Calculate rolling offset — the label/stripe orbits around the ball center
+        // This simulates the label appearing to roll toward movement direction
+        const rollAngle = ball.rotation || 0;
+        // Offset for the number circle "orbiting" the surface
+        const orbitR = r * 0.25; // how far the label can shift from center
+        const labelOffX = Math.sin(rollAngle) * orbitR;
+        const labelOffY = -Math.cos(rollAngle) * orbitR;
+        // Visibility factor — label fades as it "rotates" to the back
+        const labelVis = Math.max(0, Math.cos(rollAngle));
 
         // Ball body
         if (ball.stripe) {
@@ -2090,14 +2141,17 @@
             ctx.arc(x, y, r, 0, Math.PI * 2);
             ctx.fill();
 
-            // Colored stripe band (middle horizontal)
+            // Colored stripe band — rolls with the ball
             ctx.save();
+            ctx.translate(x, y);
+            // Rotate the stripe clipping area to simulate rolling
+            ctx.rotate(rollAngle * 0.3); // slower visual rotation for stripe
             ctx.beginPath();
-            ctx.rect(x - r, y - r * 0.45, r * 2, r * 0.9);
+            ctx.rect(-r, -r * 0.45, r * 2, r * 0.9);
             ctx.clip();
             ctx.fillStyle = ball.color;
             ctx.beginPath();
-            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
             ctx.fill();
             ctx.restore();
         } else {
@@ -2108,17 +2162,25 @@
             ctx.fill();
         }
 
-        // Number circle (not for cue ball)
-        if (ball.num > 0) {
+        // Number circle (not for cue ball) — orbits to simulate 3D rolling
+        if (ball.num > 0 && labelVis > 0.1) {
+            const lx = x + labelOffX;
+            const ly = y + labelOffY;
+            // Scale shrinks as label "rotates" away
+            const scale = 0.7 + labelVis * 0.3;
+            ctx.save();
+            ctx.translate(lx, ly);
+            ctx.scale(scale, scale);
             ctx.fillStyle = '#fff';
             ctx.beginPath();
-            ctx.arc(x, y, r * 0.45, 0, Math.PI * 2);
+            ctx.arc(0, 0, r * 0.45, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = '#111';
             ctx.font = `bold ${Math.round(r * 0.65)}px Inter, sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(ball.num.toString(), x, y + 0.5);
+            ctx.fillText(ball.num.toString(), 0, 0.5);
+            ctx.restore();
         }
 
         // 3D highlight
@@ -2154,17 +2216,30 @@
         const dirX = Math.cos(angle);
         const dirY = Math.sin(angle);
         let lineLen = 200;
+        let hitBall = null;
+        let hitDist = Infinity;
 
-        // Find first collision along the line
+        // Find first collision along the line using proper ray-circle intersection
+        // The ghost ball (cue ball) touches the target when center-to-center = 2*R
         for (const b of poolBalls) {
             if (b.pocketed || b.id === 0) continue;
             const dx = b.x - cueBall.x;
             const dy = b.y - cueBall.y;
             const proj = dx * dirX + dy * dirY;
             if (proj <= 0) continue;
+            // Perpendicular distance from ball center to the aim line
             const perpDist = Math.abs(-dx * dirY + dy * dirX);
-            if (perpDist < POOL_BALL_R * 2) {
-                lineLen = Math.min(lineLen, proj - POOL_BALL_R);
+            const combinedR = POOL_BALL_R * 2; // sum of radii
+            if (perpDist < combinedR) {
+                // Ray-circle intersection: find exact contact distance
+                // d = proj - sqrt(combinedR^2 - perpDist^2)
+                const halfChord = Math.sqrt(combinedR * combinedR - perpDist * perpDist);
+                const contactDist = proj - halfChord;
+                if (contactDist > 0 && contactDist < hitDist) {
+                    hitDist = contactDist;
+                    hitBall = b;
+                }
+                lineLen = Math.min(lineLen, contactDist > 0 ? contactDist : 0);
             }
         }
 
@@ -2181,10 +2256,86 @@
         ctx.stroke();
         ctx.setLineDash([]);
 
+        // Draw ghost ball contact guide at point of impact
+        if (hitBall) {
+            const ghostX = cueBall.x + dirX * hitDist;
+            const ghostY = cueBall.y + dirY * hitDist;
+
+            // Ghost ball outline (where cue ball will be at contact)
+            ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+            ctx.lineWidth = 0.8;
+            ctx.setLineDash([2, 2]);
+            ctx.beginPath();
+            ctx.arc(ghostX, ghostY, POOL_BALL_R, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Fill ghost ball with subtle transparency
+            ctx.fillStyle = 'rgba(255,255,255,0.08)';
+            ctx.beginPath();
+            ctx.arc(ghostX, ghostY, POOL_BALL_R, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Compute accurate target ball direction using contact physics
+            // The impulse is along the line connecting ghost center to target center
+            const contactNX = (hitBall.x - ghostX);
+            const contactNY = (hitBall.y - ghostY);
+            const contactLen = Math.sqrt(contactNX * contactNX + contactNY * contactNY);
+            if (contactLen > 0) {
+                const nx = contactNX / contactLen;
+                const ny = contactNY / contactLen;
+                // Target ball receives velocity along contact normal
+                // v_target = (v_cue . n) * n (for equal mass elastic collision)
+                const cueDotN = dirX * nx + dirY * ny;
+
+                // Only draw if a meaningful hit
+                if (cueDotN > 0.1) {
+                    const targetDirX = nx;
+                    const targetDirY = ny;
+                    const projLen = 30 * cueDotN; // length proportional to how direct the hit is
+
+                    ctx.strokeStyle = 'rgba(255,200,0,0.5)';
+                    ctx.lineWidth = 0.7;
+                    ctx.setLineDash([2, 3]);
+                    ctx.beginPath();
+                    ctx.moveTo(hitBall.x, hitBall.y);
+                    ctx.lineTo(hitBall.x + targetDirX * projLen, hitBall.y + targetDirY * projLen);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // Small arrow head
+                    const arrowX = hitBall.x + targetDirX * projLen;
+                    const arrowY = hitBall.y + targetDirY * projLen;
+                    ctx.fillStyle = 'rgba(255,200,0,0.5)';
+                    ctx.beginPath();
+                    ctx.arc(arrowX, arrowY, 1.2, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Also show cue ball deflection path
+                    // v_cue_after = v_cue - (v_cue . n) * n
+                    const cueAfterX = dirX - cueDotN * nx;
+                    const cueAfterY = dirY - cueDotN * ny;
+                    const cueAfterLen = Math.sqrt(cueAfterX * cueAfterX + cueAfterY * cueAfterY);
+                    if (cueAfterLen > 0.15) {
+                        const cueDeflX = cueAfterX / cueAfterLen;
+                        const cueDeflY = cueAfterY / cueAfterLen;
+                        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+                        ctx.lineWidth = 0.5;
+                        ctx.setLineDash([1, 2]);
+                        ctx.beginPath();
+                        ctx.moveTo(ghostX, ghostY);
+                        ctx.lineTo(ghostX + cueDeflX * 20, ghostY + cueDeflY * 20);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+                }
+            }
+        }
+
         // Draw cue stick
         const pullBack = poolDragging ? poolCuePower * 2 : 0;
         const cueStart = POOL_BALL_R + 2 + pullBack;
-        const cueLen = 60;
+        const cueLen = 100;
 
         // Cue stick colors
         const cueEndX = cueBall.x - Math.cos(angle) * (cueStart + cueLen);
@@ -2275,50 +2426,188 @@
         const p2Group = poolPlayer2Group;
 
         // Turn indicator backgrounds
-        ctx.fillStyle = poolTurn === 1 ? 'rgba(100,200,100,0.4)' : 'rgba(255,255,255,0.1)';
-        ctx.fillRect(POOL_CUSHION_X1, 1, 60, 11);
-        ctx.fillStyle = poolTurn === 2 ? 'rgba(100,200,100,0.4)' : 'rgba(255,255,255,0.1)';
-        ctx.fillRect(POOL_W - POOL_CUSHION_X1 - 60, 1, 60, 11);
+        const p1Active = poolTurn === 1;
+        const p2Active = poolTurn === 2;
+        const badgeW = 80;
+        const badgeH = 14;
 
-        // Player names
-        ctx.font = 'bold 6px Inter, sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillStyle = '#fff';
-        ctx.fillText(p1Name, POOL_CUSHION_X1 + 2, 9);
-        ctx.textAlign = 'right';
-        ctx.fillText(p2Name, POOL_W - POOL_CUSHION_X1 - 2, 9);
+        // Shot clock percentage for depleting bar inside active badge
+        const showTimer = poolGameRunning && !poolGameOver && poolAllStopped() && !poolShotFired && !poolPlacingBall;
+        const timerPct = poolShotTimer / POOL_SHOT_CLOCK;
+        let timerBarColor;
+        if (timerPct > 0.5) timerBarColor = `rgba(80,220,100,0.85)`;
+        else if (timerPct > 0.25) timerBarColor = `rgba(255,180,40,0.85)`;
+        else timerBarColor = `rgba(255,70,50,0.85)`;
 
-        // Group indicators
-        if (p1Group) {
-            ctx.font = '5px Inter, sans-serif';
-            ctx.textAlign = 'left';
-            ctx.fillStyle = 'rgba(255,255,255,0.6)';
-            const p1Label = p1Group === 'solids' ? '● Solids' : '◐ Stripes';
-            ctx.fillText(p1Label, POOL_CUSHION_X1 + 2, 15);
-            ctx.textAlign = 'right';
-            const p2Label = p2Group === 'solids' ? '● Solids' : '◐ Stripes';
-            ctx.fillText(p2Label, POOL_W - POOL_CUSHION_X1 - 2, 15);
+        // Player 1 badge — dark background
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.beginPath();
+        ctx.roundRect(POOL_CUSHION_X1, 1, badgeW, badgeH, 3);
+        ctx.fill();
+
+        // Depleting timer bar fills inside P1 badge when it's their turn
+        if (p1Active && showTimer) {
+            ctx.fillStyle = timerBarColor;
+            ctx.beginPath();
+            ctx.roundRect(POOL_CUSHION_X1, 1, badgeW * timerPct, badgeH, 3);
+            ctx.fill();
+            // Low time glow
+            if (timerPct < 0.25) {
+                ctx.shadowColor = '#ff3333';
+                ctx.shadowBlur = 5;
+                ctx.fillStyle = timerBarColor;
+                ctx.beginPath();
+                ctx.roundRect(POOL_CUSHION_X1, 1, badgeW * timerPct, badgeH, 3);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        } else if (p1Active) {
+            ctx.fillStyle = 'rgba(80,200,120,0.35)';
+            ctx.beginPath();
+            ctx.roundRect(POOL_CUSHION_X1, 1, badgeW, badgeH, 3);
+            ctx.fill();
         }
 
-        // Pocketed ball indicators (tiny balls along bottom border)
-        const trayY = POOL_H - 5;
-        ctx.font = '4px Inter, sans-serif';
-        ctx.textAlign = 'center';
+        // Player 2 badge — dark background
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.beginPath();
+        ctx.roundRect(POOL_W - POOL_CUSHION_X1 - badgeW, 1, badgeW, badgeH, 3);
+        ctx.fill();
+
+        // Depleting timer bar fills inside P2 badge when it's their turn (depletes from right)
+        if (p2Active && showTimer) {
+            const barW = badgeW * timerPct;
+            ctx.fillStyle = timerBarColor;
+            ctx.beginPath();
+            ctx.roundRect(POOL_W - POOL_CUSHION_X1 - badgeW + (badgeW - barW), 1, barW, badgeH, 3);
+            ctx.fill();
+            if (timerPct < 0.25) {
+                ctx.shadowColor = '#ff3333';
+                ctx.shadowBlur = 5;
+                ctx.fillStyle = timerBarColor;
+                ctx.beginPath();
+                ctx.roundRect(POOL_W - POOL_CUSHION_X1 - badgeW + (badgeW - barW), 1, barW, badgeH, 3);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        } else if (p2Active) {
+            ctx.fillStyle = 'rgba(80,200,120,0.35)';
+            ctx.beginPath();
+            ctx.roundRect(POOL_W - POOL_CUSHION_X1 - badgeW, 1, badgeW, badgeH, 3);
+            ctx.fill();
+        }
+
+        // Badge border for active player
+        if (p1Active) {
+            ctx.strokeStyle = 'rgba(120,255,150,0.5)';
+            ctx.lineWidth = 0.6;
+            ctx.beginPath();
+            ctx.roundRect(POOL_CUSHION_X1, 1, badgeW, badgeH, 3);
+            ctx.stroke();
+        }
+        if (p2Active) {
+            ctx.strokeStyle = 'rgba(120,255,150,0.5)';
+            ctx.lineWidth = 0.6;
+            ctx.beginPath();
+            ctx.roundRect(POOL_W - POOL_CUSHION_X1 - badgeW, 1, badgeW, badgeH, 3);
+            ctx.stroke();
+        }
+
+        // Player names
+        ctx.font = 'bold 7px Inter, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(p1Name, POOL_CUSHION_X1 + 4, 10);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(p2Name, POOL_W - POOL_CUSHION_X1 - 4, 10);
+
+        // Group indicators — bigger with colored dot
+        if (p1Group) {
+            ctx.font = 'bold 5.5px Inter, sans-serif';
+            ctx.textAlign = 'left';
+            // Player 1 group
+            const p1IsSolids = p1Group === 'solids';
+            ctx.fillStyle = p1IsSolids ? '#f0c830' : '#74b9ff';
+            ctx.beginPath();
+            ctx.arc(POOL_CUSHION_X1 + 6, 18, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.85)';
+            ctx.fillText(p1IsSolids ? 'Solids' : 'Stripes', POOL_CUSHION_X1 + 11, 20);
+
+            // Player 2 group
+            ctx.textAlign = 'right';
+            const p2IsSolids = p2Group === 'solids';
+            ctx.fillStyle = p2IsSolids ? '#f0c830' : '#74b9ff';
+            ctx.beginPath();
+            ctx.arc(POOL_W - POOL_CUSHION_X1 - 6, 18, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.85)';
+            ctx.fillText(p2IsSolids ? 'Solids' : 'Stripes', POOL_W - POOL_CUSHION_X1 - 11, 20);
+        }
+
+        // Pocketed ball tray — enhanced with mini ball rendering
+        const trayY = POOL_H - 7;
         // Player 1 pocketed
         for (let i = 0; i < poolPlayer1Pocketed.length; i++) {
             const def = POOL_BALL_DEFS[poolPlayer1Pocketed[i]];
-            ctx.fillStyle = def.color;
-            ctx.beginPath();
-            ctx.arc(POOL_CUSHION_X1 + 5 + i * 8, trayY, 3, 0, Math.PI * 2);
-            ctx.fill();
+            const bx = POOL_CUSHION_X1 + 6 + i * 9;
+            // Mini ball with number
+            if (def.stripe) {
+                ctx.fillStyle = '#f5f5f5';
+                ctx.beginPath();
+                ctx.arc(bx, trayY, 3.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(bx - 3.5, trayY - 1.5, 7, 3);
+                ctx.clip();
+                ctx.fillStyle = def.color;
+                ctx.beginPath();
+                ctx.arc(bx, trayY, 3.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            } else {
+                ctx.fillStyle = def.color;
+                ctx.beginPath();
+                ctx.arc(bx, trayY, 3.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 3.5px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(def.num.toString(), bx, trayY + 0.3);
         }
         // Player 2 pocketed
         for (let i = 0; i < poolPlayer2Pocketed.length; i++) {
             const def = POOL_BALL_DEFS[poolPlayer2Pocketed[i]];
-            ctx.fillStyle = def.color;
-            ctx.beginPath();
-            ctx.arc(POOL_W - POOL_CUSHION_X1 - 5 - i * 8, trayY, 3, 0, Math.PI * 2);
-            ctx.fill();
+            const bx = POOL_W - POOL_CUSHION_X1 - 6 - i * 9;
+            if (def.stripe) {
+                ctx.fillStyle = '#f5f5f5';
+                ctx.beginPath();
+                ctx.arc(bx, trayY, 3.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(bx - 3.5, trayY - 1.5, 7, 3);
+                ctx.clip();
+                ctx.fillStyle = def.color;
+                ctx.beginPath();
+                ctx.arc(bx, trayY, 3.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            } else {
+                ctx.fillStyle = def.color;
+                ctx.beginPath();
+                ctx.arc(bx, trayY, 3.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 3.5px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(def.num.toString(), bx, trayY + 0.3);
         }
     }
 
@@ -2412,7 +2701,7 @@
             const dx = cueBall.x - mx;
             const dy = cueBall.y - my;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            poolCuePower = Math.min(POOL_CUE_MAX_POWER, Math.max(0, (dist - 10) * 0.15));
+            poolCuePower = Math.min(POOL_CUE_MAX_POWER, Math.max(0, (dist - 10) * 0.20));
             poolCueAngle = Math.atan2(my - cueBall.y, mx - cueBall.x);
         }
     }

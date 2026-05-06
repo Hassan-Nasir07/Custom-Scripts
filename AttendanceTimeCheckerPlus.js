@@ -443,6 +443,10 @@
     let poolMouseX = 0;
     let poolMouseY = 0;
 
+    // Aim-lock state: angle locks on mouse-down; power controlled by pull-back
+    let poolAimLocked = false;  // true while mouse button held
+    let poolLockedAngle = 0;    // the aim angle frozen at mouse-down
+
     // Ball-in-hand state
     let poolBallInHand = false;
     let poolPlacingBall = false;
@@ -1970,6 +1974,8 @@
         poolPocketedThisShot = [];
         poolAiming = false;
         poolDragging = false;
+        poolAimLocked = false;
+        poolLockedAngle = 0;
         poolShotTimer = POOL_SHOT_CLOCK;
         poolShotTimerFrame = 0;
     }
@@ -2201,10 +2207,17 @@
     }
 
     function poolDrawCue(ctx, cueBall, scaleX, scaleY) {
-        const mx = poolMouseX / scaleX;
-        const my = poolMouseY / scaleY;
-        const angle = Math.atan2(my - cueBall.y, mx - cueBall.x);
-        poolCueAngle = angle;
+        // When aim is locked (mouse held), use the frozen angle.
+        // During free aim, compute from current mouse position.
+        let angle;
+        if (poolAimLocked) {
+            angle = poolLockedAngle;
+        } else {
+            const mx = poolMouseX / scaleX;
+            const my = poolMouseY / scaleY;
+            angle = Math.atan2(my - cueBall.y, mx - cueBall.x);
+            poolCueAngle = angle; // keep in sync for when aim-lock fires
+        }
 
         // Aiming line (dotted)
         ctx.strokeStyle = 'rgba(255,255,255,0.3)';
@@ -2680,6 +2693,9 @@
         const isHumanTurn = poolTurn === 1 || poolMode === 'pvp';
         if (!isHumanTurn) return;
 
+        // Lock current aim angle at the moment of mouse-down
+        poolLockedAngle = poolCueAngle;
+        poolAimLocked = true;
         poolAiming = true;
         poolDragging = true;
         poolCuePower = 0;
@@ -2691,19 +2707,30 @@
         poolMouseX = e.clientX - rect.left;
         poolMouseY = e.clientY - rect.top;
 
-        if (poolDragging) {
+        if (poolDragging && poolAimLocked) {
+            // Aim is locked — compute power from how far the mouse is pulled
+            // back along the locked shot axis (projection onto shot direction).
             const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
             if (!cueBall) return;
             const scaleRatioX = rect.width / POOL_W;
             const scaleRatioY = rect.height / POOL_H;
             const mx = poolMouseX / scaleRatioX;
             const my = poolMouseY / scaleRatioY;
-            const dx = cueBall.x - mx;
-            const dy = cueBall.y - my;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            poolCuePower = Math.min(POOL_CUE_MAX_POWER, Math.max(0, (dist - 10) * 0.20));
-            poolCueAngle = Math.atan2(my - cueBall.y, mx - cueBall.x);
+            // Shot direction unit vector
+            const shotDirX = Math.cos(poolLockedAngle);
+            const shotDirY = Math.sin(poolLockedAngle);
+            // Pull vector: from mouse toward cue ball along shot axis
+            const pullX = cueBall.x - mx;
+            const pullY = cueBall.y - my;
+            const projection = pullX * shotDirX + pullY * shotDirY;
+            // Use absolute value — power builds whether the mouse is pulled
+            // behind the cue ball OR dragged forward toward the target.
+            // This removes the canvas-bounds restriction for corner shots.
+            poolCuePower = Math.min(POOL_CUE_MAX_POWER, Math.max(0, (Math.abs(projection) - 5) * 0.20));
+            // Angle stays locked — do NOT update poolCueAngle here
         }
+        // Free aim (no button held): poolDrawCue reads poolMouseX/Y and
+        // updates poolCueAngle itself every frame, so nothing to do here.
     }
 
     function handlePoolMouseUp(e) {
@@ -2712,10 +2739,12 @@
 
         const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
         if (cueBall && poolCuePower > 0.5 && poolAllStopped()) {
-            poolFireShot(cueBall, poolCueAngle, poolCuePower);
+            // Fire at the locked angle
+            poolFireShot(cueBall, poolLockedAngle, poolCuePower);
         }
-
+        // Whether shot or not — always release the drag/lock
         poolDragging = false;
+        poolAimLocked = false;
         poolAiming = false;
         poolCuePower = 0;
     }
@@ -2776,6 +2805,8 @@
         poolPlacingBall = false;
         poolAiming = false;
         poolDragging = false;
+        poolAimLocked = false;
+        poolLockedAngle = 0;
         poolCuePower = 0;
         poolCueSpinX = 0;
         poolCueSpinY = 0;

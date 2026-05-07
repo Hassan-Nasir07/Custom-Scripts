@@ -2220,9 +2220,9 @@
         }
 
         // Aiming line (dotted)
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-        ctx.lineWidth = 0.5;
-        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.82)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
         ctx.beginPath();
 
         // Cast line from cue ball in shot direction until hitting something
@@ -2275,16 +2275,16 @@
             const ghostY = cueBall.y + dirY * hitDist;
 
             // Ghost ball outline (where cue ball will be at contact)
-            ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-            ctx.lineWidth = 0.8;
-            ctx.setLineDash([2, 2]);
+            ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+            ctx.lineWidth = 1.8;
+            ctx.setLineDash([3, 2]);
             ctx.beginPath();
             ctx.arc(ghostX, ghostY, POOL_BALL_R, 0, Math.PI * 2);
             ctx.stroke();
             ctx.setLineDash([]);
 
             // Fill ghost ball with subtle transparency
-            ctx.fillStyle = 'rgba(255,255,255,0.08)';
+            ctx.fillStyle = 'rgba(255,255,255,0.22)';
             ctx.beginPath();
             ctx.arc(ghostX, ghostY, POOL_BALL_R, 0, Math.PI * 2);
             ctx.fill();
@@ -2307,21 +2307,21 @@
                     const targetDirY = ny;
                     const projLen = 30 * cueDotN; // length proportional to how direct the hit is
 
-                    ctx.strokeStyle = 'rgba(255,200,0,0.5)';
-                    ctx.lineWidth = 0.7;
-                    ctx.setLineDash([2, 3]);
+                    ctx.strokeStyle = 'rgba(255,220,0,0.95)';
+                    ctx.lineWidth = 1.8;
+                    ctx.setLineDash([4, 3]);
                     ctx.beginPath();
                     ctx.moveTo(hitBall.x, hitBall.y);
                     ctx.lineTo(hitBall.x + targetDirX * projLen, hitBall.y + targetDirY * projLen);
                     ctx.stroke();
                     ctx.setLineDash([]);
 
-                    // Small arrow head
+                    // Arrow head dot
                     const arrowX = hitBall.x + targetDirX * projLen;
                     const arrowY = hitBall.y + targetDirY * projLen;
-                    ctx.fillStyle = 'rgba(255,200,0,0.5)';
+                    ctx.fillStyle = 'rgba(255,220,0,0.95)';
                     ctx.beginPath();
-                    ctx.arc(arrowX, arrowY, 1.2, 0, Math.PI * 2);
+                    ctx.arc(arrowX, arrowY, 2.5, 0, Math.PI * 2);
                     ctx.fill();
 
                     // Also show cue ball deflection path
@@ -2332,12 +2332,12 @@
                     if (cueAfterLen > 0.15) {
                         const cueDeflX = cueAfterX / cueAfterLen;
                         const cueDeflY = cueAfterY / cueAfterLen;
-                        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-                        ctx.lineWidth = 0.5;
-                        ctx.setLineDash([1, 2]);
+                        ctx.strokeStyle = 'rgba(180,220,255,0.75)';
+                        ctx.lineWidth = 1.4;
+                        ctx.setLineDash([3, 3]);
                         ctx.beginPath();
                         ctx.moveTo(ghostX, ghostY);
-                        ctx.lineTo(ghostX + cueDeflX * 20, ghostY + cueDeflY * 20);
+                        ctx.lineTo(ghostX + cueDeflX * 28, ghostY + cueDeflY * 28);
                         ctx.stroke();
                         ctx.setLineDash([]);
                     }

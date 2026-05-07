@@ -1464,11 +1464,16 @@
         if (cueBall.pocketed) {
             cueBall.pocketed = false;
             if (onThe8) {
-                // BCA Rule 9c: scratch while shooting at 8-ball → loss
-                poolFoulMessage = 'Scratch on 8-ball! You lose';
-                poolWinner = poolTurn === 1 ? 2 : 1;
-                endPoolGame();
-                return;
+                // Only a loss if the 8-ball was ALSO pocketed on the same shot.
+                // Cue ball scratch alone (8-ball still on table) = ball in hand foul.
+                const also8Pocketed = poolPocketedThisShot.includes(8);
+                if (also8Pocketed) {
+                    poolFoulMessage = 'Scratch on 8-ball! You lose';
+                    poolWinner = poolTurn === 1 ? 2 : 1;
+                    endPoolGame();
+                    return;
+                }
+                // 8-ball not pocketed — fall through to normal ball-in-hand foul
             }
             foul = true;
             poolFoulMessage = 'Scratch! Ball in hand';

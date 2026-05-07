@@ -464,6 +464,7 @@
     let poolCushionAfterHit = false;
     let poolPocketedThisShot = [];
     let poolAIDelay = 0; // frames to wait before AI shoots
+    let poolIsBreakShot = false; // true from game-start until first shot — restricts cue placement to kitchen
 
     // Shot clock
     const POOL_SHOT_CLOCK = 30; // seconds per turn
@@ -484,6 +485,7 @@
     const POOL_CUSHION_Y1 = 16;
     const POOL_CUSHION_X2 = POOL_W - 16;
     const POOL_CUSHION_Y2 = POOL_H - 16;
+    const POOL_BAULK_X = Math.round(POOL_W * 0.25); // head string — kitchen boundary for break shot
 
     // Table color definitions
     const POOL_TABLE_COLORS = {
@@ -1721,6 +1723,115 @@
         poolPlacingBall = false;
     }
 
+    // ====================================================================
+    // POOL AI — Trial Simulation
+    // Runs a lightweight physics sim to verify if a shot will pot the
+    // target ball. Returns { potted, finalDist } where finalDist is
+    // how close the target got to the pocket center (lower = better).
+    // ====================================================================
+    function poolTrialSim(cueX, cueY, targetX, targetY, pocketX, pocketY, angle, power) {
+        // Simulate just cue ball + target ball, check if target enters pocket
+        let cx = cueX, cy = cueY;
+        let cvx = Math.cos(angle) * power, cvy = Math.sin(angle) * power;
+        let tx = targetX, ty = targetY;
+        let tvx = 0, tvy = 0;
+        let hit = false;
+        const R2 = POOL_BALL_R * 2;
+        const steps = 180; // enough frames for ball to reach pocket
+
+        for (let i = 0; i < steps; i++) {
+            // Sub-steps (same as real physics)
+            for (let s = 0; s < POOL_SUB_STEPS; s++) {
+                cx += cvx / POOL_SUB_STEPS;
+                cy += cvy / POOL_SUB_STEPS;
+                tx += tvx / POOL_SUB_STEPS;
+                ty += tvy / POOL_SUB_STEPS;
+
+                // Cushion bounce for target ball
+                if (tx - POOL_BALL_R < POOL_CUSHION_X1) { tx = POOL_CUSHION_X1 + POOL_BALL_R; tvx = Math.abs(tvx) * POOL_RESTITUTION; }
+                if (tx + POOL_BALL_R > POOL_CUSHION_X2) { tx = POOL_CUSHION_X2 - POOL_BALL_R; tvx = -Math.abs(tvx) * POOL_RESTITUTION; }
+                if (ty - POOL_BALL_R < POOL_CUSHION_Y1) { ty = POOL_CUSHION_Y1 + POOL_BALL_R; tvy = Math.abs(tvy) * POOL_RESTITUTION; }
+                if (ty + POOL_BALL_R > POOL_CUSHION_Y2) { ty = POOL_CUSHION_Y2 - POOL_BALL_R; tvy = -Math.abs(tvy) * POOL_RESTITUTION; }
+
+                // Cushion bounce for cue ball
+                if (cx - POOL_BALL_R < POOL_CUSHION_X1) { cx = POOL_CUSHION_X1 + POOL_BALL_R; cvx = Math.abs(cvx) * POOL_RESTITUTION; }
+                if (cx + POOL_BALL_R > POOL_CUSHION_X2) { cx = POOL_CUSHION_X2 - POOL_BALL_R; cvx = -Math.abs(cvx) * POOL_RESTITUTION; }
+                if (cy - POOL_BALL_R < POOL_CUSHION_Y1) { cy = POOL_CUSHION_Y1 + POOL_BALL_R; cvy = Math.abs(cvy) * POOL_RESTITUTION; }
+                if (cy + POOL_BALL_R > POOL_CUSHION_Y2) { cy = POOL_CUSHION_Y2 - POOL_BALL_R; cvy = -Math.abs(cvy) * POOL_RESTITUTION; }
+
+                // Ball-ball collision (elastic, equal mass)
+                if (!hit) {
+                    const dx = tx - cx, dy = ty - cy;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < R2 && dist > 0.001) {
+                        hit = true;
+                        const nx = dx / dist, ny = dy / dist;
+                        const dvx = cvx - tvx, dvy = cvy - tvy;
+                        const dvn = dvx * nx + dvy * ny;
+                        if (dvn > 0) {
+                            cvx -= dvn * nx;
+                            cvy -= dvn * ny;
+                            tvx += dvn * nx;
+                            tvy += dvn * ny;
+                        }
+                        // Separate overlap
+                        const overlap = R2 - dist;
+                        cx -= (overlap * 0.5) * nx;
+                        cy -= (overlap * 0.5) * ny;
+                        tx += (overlap * 0.5) * nx;
+                        ty += (overlap * 0.5) * ny;
+                    }
+                }
+
+                // Check if target entered pocket
+                const pdx = tx - pocketX, pdy = ty - pocketY;
+                if (Math.sqrt(pdx * pdx + pdy * pdy) < POOL_POCKET_R) {
+                    return { potted: true, finalDist: 0 };
+                }
+            }
+
+            // Friction
+            cvx *= POOL_FRICTION; cvy *= POOL_FRICTION;
+            tvx *= POOL_FRICTION; tvy *= POOL_FRICTION;
+            if (Math.abs(cvx) < POOL_MIN_VEL) cvx = 0;
+            if (Math.abs(cvy) < POOL_MIN_VEL) cvy = 0;
+            if (Math.abs(tvx) < POOL_MIN_VEL) tvx = 0;
+            if (Math.abs(tvy) < POOL_MIN_VEL) tvy = 0;
+
+            // Early exit if both stopped
+            if (cvx === 0 && cvy === 0 && tvx === 0 && tvy === 0) break;
+        }
+
+        // Not potted — return closest approach distance to pocket
+        const fd = Math.sqrt((tx - pocketX) ** 2 + (ty - pocketY) ** 2);
+        return { potted: false, finalDist: fd };
+    }
+
+    // Given a base angle, try micro-adjustments to find one that pots.
+    // Returns the corrected angle or the original if none work.
+    function poolAIRefineAngle(cueX, cueY, targetX, targetY, pocketX, pocketY, baseAngle, power) {
+        // Try the base angle first
+        const base = poolTrialSim(cueX, cueY, targetX, targetY, pocketX, pocketY, baseAngle, power);
+        if (base.potted) return baseAngle;
+
+        // Try progressively larger micro-adjustments
+        const adjustments = [0.004, -0.004, 0.008, -0.008, 0.013, -0.013, 0.018, -0.018, 0.025, -0.025];
+        let bestAngle = baseAngle;
+        let bestDist = base.finalDist;
+
+        for (const adj of adjustments) {
+            const testAngle = baseAngle + adj;
+            const result = poolTrialSim(cueX, cueY, targetX, targetY, pocketX, pocketY, testAngle, power);
+            if (result.potted) return testAngle; // Found a working angle
+            if (result.finalDist < bestDist) {
+                bestDist = result.finalDist;
+                bestAngle = testAngle;
+            }
+        }
+
+        return bestAngle; // Return closest even if none pot
+    }
+
     function poolAITakeShot() {
         const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
         if (!cueBall) return;
@@ -1754,7 +1865,7 @@
                     ((b.x - x1) * dx + (b.y - y1) * dy) / len2
                 ));
                 const cx = x1 + proj * dx, cy = y1 + proj * dy;
-                if (Math.sqrt((b.x - cx) ** 2 + (b.y - cy) ** 2) < POOL_BALL_R * 2.1) return false;
+                if (Math.sqrt((b.x - cx) ** 2 + (b.y - cy) ** 2) < POOL_BALL_R * 2.0) return false;
             }
             return true;
         }
@@ -1775,6 +1886,7 @@
 
                 const ghostX = target.x - (tpx / tpDist) * (POOL_BALL_R * 2);
                 const ghostY = target.y - (tpy / tpDist) * (POOL_BALL_R * 2);
+
                 const cax = ghostX - cueBall.x, cay = ghostY - cueBall.y;
                 const caDist = Math.sqrt(cax * cax + cay * cay);
                 if (caDist < 1) continue;
@@ -1817,10 +1929,20 @@
                     }
                 }
 
-                const rawPower = Math.min(POOL_CUE_MAX_POWER * 0.88,
-                    Math.max(3.5, caDist * 0.055 + tpDist * 0.04 + 3.0));
+                // Power: account for friction loss over both legs (cue→ghost and target→pocket)
+                // Slightly over-power to ensure ball reaches pocket center
+                const rawPower = Math.min(POOL_CUE_MAX_POWER * 0.92,
+                    Math.max(4.5, caDist * 0.065 + tpDist * 0.055 + 3.5));
 
-                if (score > bestScore) {
+                if (score > bestScore && !blocked && !tpBlocked) {
+                    // Use trial simulation to refine the angle for verified potting
+                    const refinedAngle = poolAIRefineAngle(
+                        cueBall.x, cueBall.y, target.x, target.y,
+                        pocket.x, pocket.y, shotAngle, rawPower
+                    );
+                    bestScore = score;
+                    bestShot = { angle: refinedAngle, power: rawPower, spinX, spinY, type: 'direct' };
+                } else if (score > bestScore) {
                     bestScore = score;
                     bestShot = { angle: shotAngle, power: rawPower, spinX, spinY, type: 'direct' };
                 }
@@ -1951,10 +2073,20 @@
             }
         }
 
-        // Noise: cushion shots are harder to calculate perfectly → slightly more jitter
-        const angleNoise = bestShot.type === 'cushion' ? 0.028 : 0.018;
-        bestShot.angle += (Math.random() - 0.5) * angleNoise;
-        bestShot.power *= 0.97 + Math.random() * 0.06;
+        // Hard difficulty AI — simulation-verified shots get ZERO noise.
+        // Only cushion/safety/fallback shots get slight imprecision.
+        let angleNoise;
+        if (bestShot.type === 'direct') {
+            // Direct shots are already refined by trial simulation — no noise needed.
+            angleNoise = 0;
+        } else if (bestShot.type === 'cushion') {
+            angleNoise = 0.012; // inherent bounce imprecision
+        } else {
+            angleNoise = 0.006; // safety/fallback
+        }
+        if (angleNoise > 0) bestShot.angle += (Math.random() - 0.5) * angleNoise;
+        // Minimal power variation — hard CPU controls power precisely
+        bestShot.power *= 0.995 + Math.random() * 0.01;
         bestShot.power  = Math.max(3.5, Math.min(POOL_CUE_MAX_POWER, bestShot.power));
 
         // Apply computed spin
@@ -1974,6 +2106,7 @@
         cueBall.spinY = poolCueSpinY;
 
         poolShotFired = true;
+        poolIsBreakShot = false;  // kitchen restriction lifts after first shot
         poolFirstBallHit = -1;
         poolCushionAfterHit = false;
         poolPocketedThisShot = [];
@@ -2062,14 +2195,44 @@
             ctx.fill();
         }
 
-        // Draw head string (faint line)
-        ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(POOL_W * 0.25, POOL_CUSHION_Y1);
-        ctx.lineTo(POOL_W * 0.25, POOL_CUSHION_Y2);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        // Head string / baulk line
+        if (poolIsBreakShot && poolPlacingBall) {
+            // Kitchen zone highlight — valid break placement area
+            ctx.fillStyle = 'rgba(255,255,160,0.10)';
+            ctx.fillRect(POOL_CUSHION_X1, POOL_CUSHION_Y1,
+                POOL_BAULK_X - POOL_CUSHION_X1, POOL_CUSHION_Y2 - POOL_CUSHION_Y1);
+
+            // Prominent baulk line
+            ctx.strokeStyle = 'rgba(255,255,160,0.80)';
+            ctx.lineWidth = 0.9;
+            ctx.setLineDash([3, 2]);
+            ctx.beginPath();
+            ctx.moveTo(POOL_BAULK_X, POOL_CUSHION_Y1);
+            ctx.lineTo(POOL_BAULK_X, POOL_CUSHION_Y2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // "D" semicircle (opening toward rack, i.e. right)
+            const dCY = POOL_H / 2;
+            const dR  = (POOL_CUSHION_Y2 - POOL_CUSHION_Y1) * 0.20;
+            ctx.strokeStyle = 'rgba(255,255,160,0.45)';
+            ctx.lineWidth = 0.7;
+            ctx.setLineDash([2, 2]);
+            ctx.beginPath();
+            ctx.arc(POOL_BAULK_X, dCY, dR, Math.PI * 0.5, Math.PI * 1.5);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        } else {
+            // Faint head string during normal play
+            ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+            ctx.lineWidth = 0.5;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(POOL_BAULK_X, POOL_CUSHION_Y1);
+            ctx.lineTo(POOL_BAULK_X, POOL_CUSHION_Y2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
 
         // Draw balls
         for (const b of poolBalls) {
@@ -2079,12 +2242,22 @@
 
         // Draw cue ball ghost when placing
         if (poolPlacingBall) {
-            const cueBall = poolBalls[0];
-            ctx.globalAlpha = 0.4;
-            ctx.fillStyle = '#fff';
+            const gx = poolMouseX / scaleX;
+            const gy = poolMouseY / scaleY;
+            // Red tint if outside kitchen during break shot, white otherwise
+            const inKitchen = !poolIsBreakShot || (gx <= POOL_BAULK_X - POOL_BALL_R);
+            ctx.globalAlpha = 0.55;
+            ctx.fillStyle = inKitchen ? '#ffffff' : '#ff5555';
             ctx.beginPath();
-            ctx.arc(poolMouseX / scaleX, poolMouseY / scaleY, POOL_BALL_R, 0, Math.PI * 2);
+            ctx.arc(gx, gy, POOL_BALL_R, 0, Math.PI * 2);
             ctx.fill();
+            // Outline for clarity
+            ctx.globalAlpha = 0.85;
+            ctx.strokeStyle = inKitchen ? 'rgba(255,255,255,0.9)' : 'rgba(255,80,80,0.9)';
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.arc(gx, gy, POOL_BALL_R, 0, Math.PI * 2);
+            ctx.stroke();
             ctx.globalAlpha = 1;
         }
 
@@ -2673,6 +2846,11 @@
                 valid = false;
             }
 
+            // Break shot: cue ball must stay inside the kitchen (behind the head string)
+            if (poolIsBreakShot && placeX > POOL_BAULK_X - POOL_BALL_R) {
+                valid = false;
+            }
+
             // Check overlap with other balls
             for (const b of poolBalls) {
                 if (b.pocketed || b.id === 0) continue;
@@ -2806,8 +2984,9 @@
         poolFirstBallHit = -1;
         poolCushionAfterHit = false;
         poolPocketedThisShot = [];
-        poolBallInHand = false;
-        poolPlacingBall = false;
+        poolBallInHand = true;      // break shot: player must place cue ball in kitchen
+        poolPlacingBall = true;
+        poolIsBreakShot = true;      // kitchen restriction active until first shot
         poolAiming = false;
         poolDragging = false;
         poolAimLocked = false;

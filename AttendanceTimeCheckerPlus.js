@@ -464,6 +464,7 @@
     let poolCushionAfterHit = false;
     let poolPocketedThisShot = [];
     let poolAIDelay = 0; // frames to wait before AI shoots
+    let poolAIPendingShot = null; // { angle, power, spinX, spinY } — pre-computed CPU shot shown during delay
     let poolIsBreakShot = false; // true from game-start until first shot — restricts cue placement to kitchen
 
     // Shot clock
@@ -1832,7 +1833,7 @@
         return bestAngle; // Return closest even if none pot
     }
 
-    function poolAITakeShot() {
+    function poolAITakeShot(precomputeOnly = false) {
         const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
         if (!cueBall) return;
 
@@ -2093,8 +2094,13 @@
         poolCueSpinX = bestShot.spinX || 0;
         poolCueSpinY = bestShot.spinY || 0;
 
-        // Fire the shot
-        poolFireShot(cueBall, bestShot.angle, bestShot.power);
+        if (precomputeOnly) {
+            // Store shot for visual display — fire later when poolAIDelay hits 0
+            poolAIPendingShot = { angle: bestShot.angle, power: bestShot.power, spinX: poolCueSpinX, spinY: poolCueSpinY };
+            poolCueAngle = bestShot.angle; // point cue at chosen angle for rendering
+        } else {
+            poolFireShot(cueBall, bestShot.angle, bestShot.power);
+        }
     }
 
     function poolFireShot(cueBall, angle, power) {
@@ -2264,8 +2270,20 @@
         // Draw aiming line and cue stick
         const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
         const isHumanTurn = poolTurn === 1 || poolMode === 'pvp';
-        if (cueBall && poolAllStopped() && !poolGameOver && !poolPlacingBall && isHumanTurn) {
-            poolDrawCue(ctx, cueBall, scaleX, scaleY);
+        const isCPUAiming = poolMode === 'cpu' && poolTurn === 2 && poolAIPendingShot !== null && !poolPlacingBall;
+        if (cueBall && poolAllStopped() && !poolGameOver && !poolPlacingBall) {
+            if (isHumanTurn) {
+                poolDrawCue(ctx, cueBall, scaleX, scaleY);
+            } else if (isCPUAiming) {
+                // Temporarily lock the angle to the CPU's chosen angle so poolDrawCue renders it correctly
+                const savedLocked = poolAimLocked;
+                const savedLockedAngle = poolLockedAngle;
+                poolAimLocked = true;
+                poolLockedAngle = poolAIPendingShot.angle;
+                poolDrawCue(ctx, cueBall, scaleX, scaleY);
+                poolAimLocked = savedLocked;
+                poolLockedAngle = savedLockedAngle;
+            }
         }
 
         // Draw spin indicator
@@ -3002,6 +3020,7 @@
         poolCueSpinX = 0;
         poolCueSpinY = 0;
         poolAIDelay = 0;
+        poolAIPendingShot = null;
         poolShotTimer = POOL_SHOT_CLOCK;
         poolShotTimerFrame = 0;
         if (poolAnimFrame) { cancelAnimationFrame(poolAnimFrame); poolAnimFrame = null; }
@@ -3034,11 +3053,24 @@
             // AI turn — auto-place ball if needed
             if (poolPlacingBall || poolBallInHand) {
                 poolAIPlaceBall();
-            }
-            if (poolAIDelay > 0) {
-                poolAIDelay--;
+                poolAIPendingShot = null; // clear preview while placing
             } else {
-                poolAITakeShot();
+                // Pre-compute shot once so we can display the aim during the delay
+                if (poolAIPendingShot === null) {
+                    poolAITakeShot(true);
+                }
+                if (poolAIDelay > 0) {
+                    poolAIDelay--;
+                } else {
+                    // Fire the pre-computed shot
+                    const aiCueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
+                    if (aiCueBall && poolAIPendingShot) {
+                        poolCueSpinX = poolAIPendingShot.spinX || 0;
+                        poolCueSpinY = poolAIPendingShot.spinY || 0;
+                        poolFireShot(aiCueBall, poolAIPendingShot.angle, poolAIPendingShot.power);
+                        poolAIPendingShot = null;
+                    }
+                }
             }
         } else if (!poolGameOver && !poolPlacingBall) {
             // Shot clock for human player

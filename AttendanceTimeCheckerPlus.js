@@ -418,6 +418,13 @@
     function savePoolHighScore(score) {
         localStorage.setItem('poolGamesWon', score.toString());
     }
+    function loadPoolRecord() {
+        const saved = localStorage.getItem('poolRecord');
+        return saved ? JSON.parse(saved) : { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
+    }
+    function savePoolRecord(rec) {
+        localStorage.setItem('poolRecord', JSON.stringify(rec));
+    }
 
     // ====================================
     // 8-BALL POOL GAME VARIABLES
@@ -432,6 +439,8 @@
     let poolBalls = [];
     let poolPockets = [];
     let poolGamesWon = 0;
+    let poolRecord = { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
+    let poolBgTime = 0; // animated background time counter
 
     // Cue stick aiming state
     let poolAiming = false;
@@ -474,7 +483,9 @@
 
     // Physics constants
     const POOL_W = 368;
-    const POOL_H = 184; // 2:1 ratio
+    const POOL_H = 184; // 2:1 table ratio
+    const POOL_CANVAS_H = 368; // Match other games for consistent canvas height
+    const POOL_TABLE_OFFSET_Y = (POOL_CANVAS_H - POOL_H) / 2; // 92 — centers table vertically
     const POOL_BALL_R = 6;
     const POOL_POCKET_R = 11;
     const POOL_FRICTION = 0.985;
@@ -2139,10 +2150,74 @@
         const W = poolCanvas.width;
         const H = poolCanvas.height;
         const scaleX = W / POOL_W;
-        const scaleY = H / POOL_H;
+        const scaleY = H / POOL_CANVAS_H;
 
         ctx.save();
         ctx.scale(scaleX, scaleY);
+
+        // Animated ambient background — palette shifts with table color
+        poolBgTime += 0.008;
+        const _tk = userPreferences.poolTableColor || 'green';
+        // c0 = dark base, c1 = lighter accent (visibly different), g1/g2 = glow RGBA prefix
+        const _bgPals = {
+            green:     { c0:'#0a1a0e', c1:'#1c3d24', g1:'rgba(56,168,90,',  g2:'rgba(34,110,58,' },
+            red:       { c0:'#1a080a', c1:'#3a1214', g1:'rgba(180,60,60,',   g2:'rgba(130,30,30,' },
+            blue:      { c0:'#08101e', c1:'#122038', g1:'rgba(50,110,180,',  g2:'rgba(30,70,140,' },
+            lightgrey: { c0:'#111820', c1:'#1e2e3e', g1:'rgba(160,180,200,', g2:'rgba(110,140,165,'},
+        };
+        const _bp = _bgPals[_tk] || _bgPals.green;
+        const _s1 = (Math.sin(poolBgTime) + 1) * 0.5;           // 0→1 slow oscillator
+        const _s2 = (Math.sin(poolBgTime * 0.71 + 1.4) + 1) * 0.5; // offset oscillator
+
+        // --- Sweeping diagonal base gradient (oscillates left↔right) ---
+        const _gx0 = POOL_W * (0.1 + _s1 * 0.35);
+        const _gx1 = POOL_W * (0.55 + _s2 * 0.35);
+        const _bgGrad = ctx.createLinearGradient(_gx0, 0, _gx1, POOL_CANVAS_H);
+        _bgGrad.addColorStop(0,   _bp.c0);
+        _bgGrad.addColorStop(0.5, _bp.c1);
+        _bgGrad.addColorStop(1,   _bp.c0);
+        ctx.fillStyle = _bgGrad;
+        ctx.fillRect(0, 0, POOL_W, POOL_CANVAS_H);
+
+        // --- Top margin: pulsing radial glow (centre, breathing in/out) ---
+        const _tgA  = 0.55 + 0.25 * Math.sin(poolBgTime * 1.1);   // 0.30→0.80
+        const _tgR  = POOL_TABLE_OFFSET_Y * (1.6 + 0.55 * _s1);   // radius breathes
+        const _tcx  = POOL_W * (0.35 + 0.30 * _s2);               // centre drifts
+        const _tcy  = POOL_TABLE_OFFSET_Y * 0.50;
+        const _tGrad = ctx.createRadialGradient(_tcx, _tcy, 0, _tcx, _tcy, _tgR);
+        _tGrad.addColorStop(0,   _bp.g1 + _tgA + ')');
+        _tGrad.addColorStop(0.6, _bp.g1 + ((_tgA * 0.25).toFixed(3)) + ')');
+        _tGrad.addColorStop(1,   'rgba(0,0,0,0)');
+        ctx.fillStyle = _tGrad;
+        ctx.fillRect(0, 0, POOL_W, POOL_TABLE_OFFSET_Y + 18);
+
+        // --- Bottom margin: second pulsing radial glow (opposite phase) ---
+        const _botCY = POOL_TABLE_OFFSET_Y + POOL_H + POOL_TABLE_OFFSET_Y * 0.50;
+        const _bgA2  = 0.50 + 0.22 * Math.sin(poolBgTime * 0.85 + Math.PI); // opposite phase
+        const _bgR2  = POOL_TABLE_OFFSET_Y * (1.5 + 0.50 * _s1);
+        const _bcx   = POOL_W * (0.65 - 0.30 * _s2);              // drifts opposite to top
+        const _bGrad = ctx.createRadialGradient(_bcx, _botCY, 0, _bcx, _botCY, _bgR2);
+        _bGrad.addColorStop(0,   _bp.g2 + _bgA2 + ')');
+        _bGrad.addColorStop(0.6, _bp.g2 + ((_bgA2 * 0.25).toFixed(3)) + ')');
+        _bGrad.addColorStop(1,   'rgba(0,0,0,0)');
+        ctx.fillStyle = _bGrad;
+        ctx.fillRect(0, POOL_TABLE_OFFSET_Y + POOL_H - 14, POOL_W, POOL_TABLE_OFFSET_Y + 14);
+
+        // --- Sweeping shimmer band (diagonal streak across margins) ---
+        const _swOff = (poolBgTime * 72) % (POOL_W * 1.8) - 120;
+        const _swGrad = ctx.createLinearGradient(_swOff, 0, _swOff + 120, POOL_CANVAS_H * 0.55);
+        _swGrad.addColorStop(0,   'rgba(255,255,255,0)');
+        _swGrad.addColorStop(0.45, _bp.g1 + '0.18)');
+        _swGrad.addColorStop(0.55, _bp.g1 + '0.22)');
+        _swGrad.addColorStop(1,   'rgba(255,255,255,0)');
+        ctx.fillStyle = _swGrad;
+        // Paint shimmer only in top + bottom margins (not over the table area)
+        ctx.fillRect(0, 0, POOL_W, POOL_TABLE_OFFSET_Y);
+        ctx.fillRect(0, POOL_TABLE_OFFSET_Y + POOL_H, POOL_W, POOL_TABLE_OFFSET_Y);
+
+        // ---- TABLE (translated to center vertically) ----
+        ctx.save();
+        ctx.translate(0, POOL_TABLE_OFFSET_Y);
 
         const colors = poolGetTableColors();
 
@@ -2160,26 +2235,20 @@
 
         // Draw cushion rails
         ctx.fillStyle = colors.cushion;
-        // Top rail
         ctx.fillRect(cx1, 0, cx2 - cx1, POOL_CUSHION_Y1);
-        // Bottom rail
         ctx.fillRect(cx1, POOL_CUSHION_Y2, cx2 - cx1, POOL_H - POOL_CUSHION_Y2);
-        // Left rail
         ctx.fillRect(0, cy1, POOL_CUSHION_X1, cy2 - cy1);
-        // Right rail
         ctx.fillRect(POOL_CUSHION_X2, cy1, POOL_W - POOL_CUSHION_X2, cy2 - cy1);
 
         // Draw diamond markers on rails
         ctx.fillStyle = 'rgba(255,255,255,0.3)';
         const diamondSize = 2;
-        // Top rail diamonds
         for (let i = 1; i <= 6; i++) {
             const dx = POOL_CUSHION_X1 + (POOL_CUSHION_X2 - POOL_CUSHION_X1) * i / 7;
             ctx.beginPath();
             ctx.arc(dx, POOL_CUSHION_Y1 / 2, diamondSize, 0, Math.PI * 2);
             ctx.fill();
         }
-        // Bottom rail diamonds
         for (let i = 1; i <= 6; i++) {
             const dx = POOL_CUSHION_X1 + (POOL_CUSHION_X2 - POOL_CUSHION_X1) * i / 7;
             ctx.beginPath();
@@ -2193,7 +2262,6 @@
             ctx.beginPath();
             ctx.arc(p.x, p.y, POOL_POCKET_R, 0, Math.PI * 2);
             ctx.fill();
-            // Inner pocket shadow
             const pg = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, POOL_POCKET_R);
             pg.addColorStop(0, 'rgba(0,0,0,0.9)');
             pg.addColorStop(1, 'rgba(0,0,0,0.3)');
@@ -2203,12 +2271,9 @@
 
         // Head string / baulk line
         if (poolIsBreakShot && poolPlacingBall) {
-            // Kitchen zone highlight — valid break placement area
             ctx.fillStyle = 'rgba(255,255,160,0.10)';
             ctx.fillRect(POOL_CUSHION_X1, POOL_CUSHION_Y1,
                 POOL_BAULK_X - POOL_CUSHION_X1, POOL_CUSHION_Y2 - POOL_CUSHION_Y1);
-
-            // Prominent baulk line
             ctx.strokeStyle = 'rgba(255,255,160,0.80)';
             ctx.lineWidth = 0.9;
             ctx.setLineDash([3, 2]);
@@ -2217,8 +2282,6 @@
             ctx.lineTo(POOL_BAULK_X, POOL_CUSHION_Y2);
             ctx.stroke();
             ctx.setLineDash([]);
-
-            // "D" semicircle (opening toward rack, i.e. right)
             const dCY = POOL_H / 2;
             const dR  = (POOL_CUSHION_Y2 - POOL_CUSHION_Y1) * 0.20;
             ctx.strokeStyle = 'rgba(255,255,160,0.45)';
@@ -2229,7 +2292,6 @@
             ctx.stroke();
             ctx.setLineDash([]);
         } else {
-            // Faint head string during normal play
             ctx.strokeStyle = 'rgba(255,255,255,0.1)';
             ctx.lineWidth = 0.5;
             ctx.setLineDash([4, 4]);
@@ -2249,15 +2311,13 @@
         // Draw cue ball ghost when placing
         if (poolPlacingBall) {
             const gx = poolMouseX / scaleX;
-            const gy = poolMouseY / scaleY;
-            // Red tint if outside kitchen during break shot, white otherwise
+            const gy = poolMouseY / scaleY - POOL_TABLE_OFFSET_Y;
             const inKitchen = !poolIsBreakShot || (gx <= POOL_BAULK_X - POOL_BALL_R);
             ctx.globalAlpha = 0.55;
             ctx.fillStyle = inKitchen ? '#ffffff' : '#ff5555';
             ctx.beginPath();
             ctx.arc(gx, gy, POOL_BALL_R, 0, Math.PI * 2);
             ctx.fill();
-            // Outline for clarity
             ctx.globalAlpha = 0.85;
             ctx.strokeStyle = inKitchen ? 'rgba(255,255,255,0.9)' : 'rgba(255,80,80,0.9)';
             ctx.lineWidth = 0.8;
@@ -2267,7 +2327,7 @@
             ctx.globalAlpha = 1;
         }
 
-        // Draw aiming line and cue stick
+        // Aiming line and cue stick (drawn in table-space)
         const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
         const isHumanTurn = poolTurn === 1 || poolMode === 'pvp';
         const isCPUAiming = poolMode === 'cpu' && poolTurn === 2 && poolAIPendingShot !== null && !poolPlacingBall;
@@ -2275,7 +2335,6 @@
             if (isHumanTurn) {
                 poolDrawCue(ctx, cueBall, scaleX, scaleY);
             } else if (isCPUAiming) {
-                // Temporarily lock the angle to the CPU's chosen angle so poolDrawCue renders it correctly
                 const savedLocked = poolAimLocked;
                 const savedLockedAngle = poolLockedAngle;
                 poolAimLocked = true;
@@ -2286,38 +2345,38 @@
             }
         }
 
-        // Draw spin indicator
+        // Foul message (over table)
+        if (poolFoulMessage) {
+            ctx.fillStyle = 'rgba(220, 50, 50, 0.85)';
+            ctx.font = 'bold 11px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(poolFoulMessage, POOL_W / 2, POOL_H / 2 - 4);
+            ctx.fillStyle = 'rgba(255,255,255,0.7)';
+            ctx.font = '8px Inter, sans-serif';
+            ctx.fillText('Ball in hand for opponent', POOL_W / 2, POOL_H / 2 + 10);
+        }
+
+        ctx.restore(); // end table translate
+
+        // ---- HUD in top & bottom margins ----
+        poolDrawHUD(ctx);
+
+        // Spin indicator in bottom margin
         if (cueBall && !cueBall.pocketed && poolAllStopped() && !poolGameOver && isHumanTurn && !poolPlacingBall) {
             poolDrawSpinIndicator(ctx);
         }
 
-        // Draw HUD
-        poolDrawHUD(ctx);
-
-        // Shot clock is now drawn inside poolDrawHUD (depleting bar inside the active player badge)
-
-        // Draw foul message
-        if (poolFoulMessage) {
-            ctx.fillStyle = 'rgba(220, 50, 50, 0.85)';
-            ctx.font = 'bold 9px Inter, sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(poolFoulMessage, POOL_W / 2, POOL_H / 2 - 2);
-            ctx.fillStyle = 'rgba(255,255,255,0.7)';
-            ctx.font = '7px Inter, sans-serif';
-            ctx.fillText('Ball in hand for opponent', POOL_W / 2, POOL_H / 2 + 8);
-        }
-
-        // Draw game over overlay
+        // Game over overlay (full canvas)
         if (poolGameOver) {
             ctx.fillStyle = 'rgba(0,0,0,0.6)';
-            ctx.fillRect(0, 0, POOL_W, POOL_H);
+            ctx.fillRect(0, 0, POOL_W, POOL_CANVAS_H);
             ctx.fillStyle = '#fff';
-            ctx.font = 'bold 14px Inter, sans-serif';
+            ctx.font = 'bold 16px Inter, sans-serif';
             ctx.textAlign = 'center';
             const winnerName = poolWinner === 1 ? 'Player 1' : (poolMode === 'cpu' ? 'CPU' : 'Player 2');
-            ctx.fillText(`${winnerName} Wins!`, POOL_W / 2, POOL_H / 2 - 8);
-            ctx.font = '9px Inter, sans-serif';
-            ctx.fillText('Click Reset to play again', POOL_W / 2, POOL_H / 2 + 10);
+            ctx.fillText(`${winnerName} Wins!`, POOL_W / 2, POOL_CANVAS_H / 2 - 10);
+            ctx.font = '10px Inter, sans-serif';
+            ctx.fillText('Click Reset to play again', POOL_W / 2, POOL_CANVAS_H / 2 + 14);
         }
 
         ctx.restore();
@@ -2410,7 +2469,7 @@
             angle = poolLockedAngle;
         } else {
             const mx = poolMouseX / scaleX;
-            const my = poolMouseY / scaleY;
+            const my = poolMouseY / scaleY - POOL_TABLE_OFFSET_Y;
             const targetAngle = Math.atan2(my - cueBall.y, mx - cueBall.x);
             // Smooth angular interpolation to prevent pixel-skipping jitter.
             // Lerp factor 0.35 = responsive but silky smooth.
@@ -2599,15 +2658,15 @@
     }
 
     function poolDrawSpinIndicator(ctx) {
-        // Small cue ball spin indicator in bottom-left corner
-        const indicatorR = 10;
-        const ix = 30;
-        const iy = POOL_H - 26;
+        // Spin indicator centered in bottom margin
+        const indicatorR = 14;
+        const ix = POOL_W / 2;
+        const iy = POOL_TABLE_OFFSET_Y + POOL_H + 46;
 
         // Background circle
-        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
         ctx.beginPath();
-        ctx.arc(ix, iy, indicatorR + 2, 0, Math.PI * 2);
+        ctx.arc(ix, iy, indicatorR + 3, 0, Math.PI * 2);
         ctx.fill();
 
         // White ball
@@ -2619,212 +2678,246 @@
         ctx.lineWidth = 0.5;
         ctx.stroke();
 
+        // Crosshairs
+        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(ix - indicatorR, iy);
+        ctx.lineTo(ix + indicatorR, iy);
+        ctx.moveTo(ix, iy - indicatorR);
+        ctx.lineTo(ix, iy + indicatorR);
+        ctx.stroke();
+
         // Spin dot (red)
         const dotX = ix + poolCueSpinX * indicatorR * 0.7;
         const dotY = iy + poolCueSpinY * indicatorR * 0.7;
         ctx.fillStyle = '#e33';
         ctx.beginPath();
-        ctx.arc(dotX, dotY, 2, 0, Math.PI * 2);
+        ctx.arc(dotX, dotY, 2.5, 0, Math.PI * 2);
         ctx.fill();
 
         // Label
-        ctx.fillStyle = 'rgba(255,255,255,0.5)';
-        ctx.font = '5px Inter, sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.font = '7px Inter, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('SPIN', ix, iy + indicatorR + 8);
+        ctx.fillText('SPIN', ix, iy + indicatorR + 11);
     }
 
     function poolDrawHUD(ctx) {
-        // Player indicators at the top
         const p1Name = 'Player 1';
         const p2Name = poolMode === 'cpu' ? 'CPU' : 'Player 2';
         const p1Group = poolPlayer1Group;
         const p2Group = poolPlayer2Group;
 
-        // Turn indicator backgrounds
         const p1Active = poolTurn === 1;
         const p2Active = poolTurn === 2;
-        const badgeW = 80;
-        const badgeH = 14;
 
-        // Shot clock percentage for depleting bar inside active badge
+        // Shot clock
         const showTimer = poolGameRunning && !poolGameOver && poolAllStopped() && !poolShotFired && !poolPlacingBall;
         const timerPct = poolShotTimer / POOL_SHOT_CLOCK;
         let timerBarColor;
-        if (timerPct > 0.5) timerBarColor = `rgba(80,220,100,0.85)`;
-        else if (timerPct > 0.25) timerBarColor = `rgba(255,180,40,0.85)`;
-        else timerBarColor = `rgba(255,70,50,0.85)`;
+        if (timerPct > 0.5) timerBarColor = 'rgba(80,220,100,0.85)';
+        else if (timerPct > 0.25) timerBarColor = 'rgba(255,180,40,0.85)';
+        else timerBarColor = 'rgba(255,70,50,0.85)';
 
-        // Player 1 badge — dark background
-        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        // ---- TOP HUD AREA (y: 0 .. POOL_TABLE_OFFSET_Y) ----
+        const badgeW = 140;
+        const badgeH = 26;
+        const badgeY = 20;
+
+        // Player 1 badge
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
         ctx.beginPath();
-        ctx.roundRect(POOL_CUSHION_X1, 1, badgeW, badgeH, 3);
+        ctx.roundRect(14, badgeY, badgeW, badgeH, 5);
         ctx.fill();
-
-        // Depleting timer bar fills inside P1 badge when it's their turn
         if (p1Active && showTimer) {
             ctx.fillStyle = timerBarColor;
             ctx.beginPath();
-            ctx.roundRect(POOL_CUSHION_X1, 1, badgeW * timerPct, badgeH, 3);
+            ctx.roundRect(14, badgeY, badgeW * timerPct, badgeH, 5);
             ctx.fill();
-            // Low time glow
             if (timerPct < 0.25) {
                 ctx.shadowColor = '#ff3333';
-                ctx.shadowBlur = 5;
+                ctx.shadowBlur = 6;
                 ctx.fillStyle = timerBarColor;
                 ctx.beginPath();
-                ctx.roundRect(POOL_CUSHION_X1, 1, badgeW * timerPct, badgeH, 3);
+                ctx.roundRect(14, badgeY, badgeW * timerPct, badgeH, 5);
                 ctx.fill();
                 ctx.shadowBlur = 0;
             }
         } else if (p1Active) {
-            ctx.fillStyle = 'rgba(80,200,120,0.35)';
+            ctx.fillStyle = 'rgba(80,200,120,0.30)';
             ctx.beginPath();
-            ctx.roundRect(POOL_CUSHION_X1, 1, badgeW, badgeH, 3);
+            ctx.roundRect(14, badgeY, badgeW, badgeH, 5);
             ctx.fill();
         }
 
-        // Player 2 badge — dark background
-        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        // Player 2 badge
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
         ctx.beginPath();
-        ctx.roundRect(POOL_W - POOL_CUSHION_X1 - badgeW, 1, badgeW, badgeH, 3);
+        ctx.roundRect(POOL_W - 14 - badgeW, badgeY, badgeW, badgeH, 5);
         ctx.fill();
-
-        // Depleting timer bar fills inside P2 badge when it's their turn (depletes from right)
         if (p2Active && showTimer) {
             const barW = badgeW * timerPct;
             ctx.fillStyle = timerBarColor;
             ctx.beginPath();
-            ctx.roundRect(POOL_W - POOL_CUSHION_X1 - badgeW + (badgeW - barW), 1, barW, badgeH, 3);
+            ctx.roundRect(POOL_W - 14 - badgeW + (badgeW - barW), badgeY, barW, badgeH, 5);
             ctx.fill();
             if (timerPct < 0.25) {
                 ctx.shadowColor = '#ff3333';
-                ctx.shadowBlur = 5;
+                ctx.shadowBlur = 6;
                 ctx.fillStyle = timerBarColor;
                 ctx.beginPath();
-                ctx.roundRect(POOL_W - POOL_CUSHION_X1 - badgeW + (badgeW - barW), 1, barW, badgeH, 3);
+                ctx.roundRect(POOL_W - 14 - badgeW + (badgeW - barW), badgeY, barW, badgeH, 5);
                 ctx.fill();
                 ctx.shadowBlur = 0;
             }
         } else if (p2Active) {
-            ctx.fillStyle = 'rgba(80,200,120,0.35)';
+            ctx.fillStyle = 'rgba(80,200,120,0.30)';
             ctx.beginPath();
-            ctx.roundRect(POOL_W - POOL_CUSHION_X1 - badgeW, 1, badgeW, badgeH, 3);
+            ctx.roundRect(POOL_W - 14 - badgeW, badgeY, badgeW, badgeH, 5);
             ctx.fill();
         }
 
-        // Badge border for active player
+        // Active badge border
         if (p1Active) {
             ctx.strokeStyle = 'rgba(120,255,150,0.5)';
-            ctx.lineWidth = 0.6;
+            ctx.lineWidth = 0.8;
             ctx.beginPath();
-            ctx.roundRect(POOL_CUSHION_X1, 1, badgeW, badgeH, 3);
+            ctx.roundRect(14, badgeY, badgeW, badgeH, 5);
             ctx.stroke();
         }
         if (p2Active) {
             ctx.strokeStyle = 'rgba(120,255,150,0.5)';
-            ctx.lineWidth = 0.6;
+            ctx.lineWidth = 0.8;
             ctx.beginPath();
-            ctx.roundRect(POOL_W - POOL_CUSHION_X1 - badgeW, 1, badgeW, badgeH, 3);
+            ctx.roundRect(POOL_W - 14 - badgeW, badgeY, badgeW, badgeH, 5);
             ctx.stroke();
         }
 
         // Player names
-        ctx.font = 'bold 7px Inter, sans-serif';
+        ctx.font = 'bold 11px Inter, sans-serif';
         ctx.textAlign = 'left';
         ctx.fillStyle = '#fff';
-        ctx.fillText(p1Name, POOL_CUSHION_X1 + 4, 10);
+        ctx.fillText(p1Name, 22, badgeY + 17);
         ctx.textAlign = 'right';
-        ctx.fillStyle = '#fff';
-        ctx.fillText(p2Name, POOL_W - POOL_CUSHION_X1 - 4, 10);
+        ctx.fillText(p2Name, POOL_W - 22, badgeY + 17);
 
-        // Group indicators — bigger with colored dot
+        // W/L record labels inside badges
+        ctx.font = '8px Inter, sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.60)';
+        const p1WL = `${poolRecord.p1Wins}W ${poolRecord.p1Losses}L`;
+        const p2WL = `${poolRecord.p2Wins}W ${poolRecord.p2Losses}L`;
+        ctx.textAlign = 'right';
+        ctx.fillText(p1WL, 14 + badgeW - 6, badgeY + 10);
+        ctx.textAlign = 'left';
+        ctx.fillText(p2WL, POOL_W - 14 - badgeW + 6, badgeY + 10);
+
+        // Group indicators below badges
         if (p1Group) {
-            ctx.font = 'bold 5.5px Inter, sans-serif';
+            const groupY = badgeY + badgeH + 14;
+            ctx.font = 'bold 8px Inter, sans-serif';
+
             ctx.textAlign = 'left';
-            // Player 1 group
             const p1IsSolids = p1Group === 'solids';
             ctx.fillStyle = p1IsSolids ? '#f0c830' : '#74b9ff';
             ctx.beginPath();
-            ctx.arc(POOL_CUSHION_X1 + 6, 18, 2.5, 0, Math.PI * 2);
+            ctx.arc(22, groupY - 3, 4, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = 'rgba(255,255,255,0.85)';
-            ctx.fillText(p1IsSolids ? 'Solids' : 'Stripes', POOL_CUSHION_X1 + 11, 20);
+            ctx.fillText(p1IsSolids ? 'Solids' : 'Stripes', 30, groupY);
 
-            // Player 2 group
             ctx.textAlign = 'right';
             const p2IsSolids = p2Group === 'solids';
             ctx.fillStyle = p2IsSolids ? '#f0c830' : '#74b9ff';
             ctx.beginPath();
-            ctx.arc(POOL_W - POOL_CUSHION_X1 - 6, 18, 2.5, 0, Math.PI * 2);
+            ctx.arc(POOL_W - 22, groupY - 3, 4, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = 'rgba(255,255,255,0.85)';
-            ctx.fillText(p2IsSolids ? 'Solids' : 'Stripes', POOL_W - POOL_CUSHION_X1 - 11, 20);
+            ctx.fillText(p2IsSolids ? 'Solids' : 'Stripes', POOL_W - 30, groupY);
         }
 
-        // Pocketed ball tray — enhanced with mini ball rendering
-        const trayY = POOL_H - 7;
+        // ---- BOTTOM HUD AREA (y: POOL_TABLE_OFFSET_Y + POOL_H .. POOL_CANVAS_H) ----
+        const bottomStart = POOL_TABLE_OFFSET_Y + POOL_H;
+        const trayLabelY = bottomStart + 20;
+        const trayBallY = bottomStart + 38;
+        const ballR = 5.5;
+
         // Player 1 pocketed
+        if (poolPlayer1Pocketed.length > 0) {
+            ctx.fillStyle = 'rgba(255,255,255,0.40)';
+            ctx.font = 'bold 7px Inter, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'alphabetic';
+            ctx.fillText('P1 Pocketed', 14, trayLabelY);
+        }
         for (let i = 0; i < poolPlayer1Pocketed.length; i++) {
             const def = POOL_BALL_DEFS[poolPlayer1Pocketed[i]];
-            const bx = POOL_CUSHION_X1 + 6 + i * 9;
-            // Mini ball with number
+            const bx = 14 + i * (ballR * 2 + 3);
             if (def.stripe) {
                 ctx.fillStyle = '#f5f5f5';
                 ctx.beginPath();
-                ctx.arc(bx, trayY, 3.5, 0, Math.PI * 2);
+                ctx.arc(bx, trayBallY, ballR, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.save();
                 ctx.beginPath();
-                ctx.rect(bx - 3.5, trayY - 1.5, 7, 3);
+                ctx.rect(bx - ballR, trayBallY - 2, ballR * 2, 4);
                 ctx.clip();
                 ctx.fillStyle = def.color;
                 ctx.beginPath();
-                ctx.arc(bx, trayY, 3.5, 0, Math.PI * 2);
+                ctx.arc(bx, trayBallY, ballR, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.restore();
             } else {
                 ctx.fillStyle = def.color;
                 ctx.beginPath();
-                ctx.arc(bx, trayY, 3.5, 0, Math.PI * 2);
+                ctx.arc(bx, trayBallY, ballR, 0, Math.PI * 2);
                 ctx.fill();
             }
             ctx.fillStyle = '#fff';
-            ctx.font = 'bold 3.5px Inter, sans-serif';
+            ctx.font = 'bold 5px Inter, sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(def.num.toString(), bx, trayY + 0.3);
+            ctx.fillText(def.num.toString(), bx, trayBallY + 0.3);
         }
+
         // Player 2 pocketed
+        if (poolPlayer2Pocketed.length > 0) {
+            ctx.fillStyle = 'rgba(255,255,255,0.40)';
+            ctx.font = 'bold 7px Inter, sans-serif';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'alphabetic';
+            ctx.fillText('P2 Pocketed', POOL_W - 14, trayLabelY);
+        }
         for (let i = 0; i < poolPlayer2Pocketed.length; i++) {
             const def = POOL_BALL_DEFS[poolPlayer2Pocketed[i]];
-            const bx = POOL_W - POOL_CUSHION_X1 - 6 - i * 9;
+            const bx = POOL_W - 14 - i * (ballR * 2 + 3);
             if (def.stripe) {
                 ctx.fillStyle = '#f5f5f5';
                 ctx.beginPath();
-                ctx.arc(bx, trayY, 3.5, 0, Math.PI * 2);
+                ctx.arc(bx, trayBallY, ballR, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.save();
                 ctx.beginPath();
-                ctx.rect(bx - 3.5, trayY - 1.5, 7, 3);
+                ctx.rect(bx - ballR, trayBallY - 2, ballR * 2, 4);
                 ctx.clip();
                 ctx.fillStyle = def.color;
                 ctx.beginPath();
-                ctx.arc(bx, trayY, 3.5, 0, Math.PI * 2);
+                ctx.arc(bx, trayBallY, ballR, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.restore();
             } else {
                 ctx.fillStyle = def.color;
                 ctx.beginPath();
-                ctx.arc(bx, trayY, 3.5, 0, Math.PI * 2);
+                ctx.arc(bx, trayBallY, ballR, 0, Math.PI * 2);
                 ctx.fill();
             }
             ctx.fillStyle = '#fff';
-            ctx.font = 'bold 3.5px Inter, sans-serif';
+            ctx.font = 'bold 5px Inter, sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(def.num.toString(), bx, trayY + 0.3);
+            ctx.fillText(def.num.toString(), bx, trayBallY + 0.3);
         }
+        ctx.textBaseline = 'alphabetic';
     }
 
     // ====================================
@@ -2835,25 +2928,22 @@
         if (!poolGameRunning || poolGameOver) return;
         if (currentGame !== 'pool') return;
         const rect = poolCanvas.getBoundingClientRect();
-        const scaleX = poolCanvas.width / POOL_W;
-        const scaleY = poolCanvas.height / POOL_H;
-        const mx = (e.clientX - rect.left) / scaleX * (POOL_W / (poolCanvas.width / scaleX));
-        const my = (e.clientY - rect.top) / scaleY * (POOL_H / (poolCanvas.height / scaleY));
 
-        // Simplified coordinate calculation
         const canvasX = e.clientX - rect.left;
         const canvasY = e.clientY - rect.top;
         poolMouseX = canvasX;
         poolMouseY = canvasY;
 
-        const gameX = canvasX / (rect.width / POOL_W);
-        const gameY = canvasY / (rect.height / POOL_H);
+        const canvasGameX = canvasX / (rect.width / POOL_W);
+        const canvasGameY = canvasY / (rect.height / POOL_CANVAS_H);
+        const gameX = canvasGameX;
+        const gameY = canvasGameY - POOL_TABLE_OFFSET_Y;
 
-        // Check spin indicator click
-        const spinIX = 30, spinIY = POOL_H - 26, spinIR = 12;
-        if (Math.sqrt((gameX - spinIX) ** 2 + (gameY - spinIY) ** 2) < spinIR) {
-            poolCueSpinX = Math.max(-1, Math.min(1, (gameX - spinIX) / 10));
-            poolCueSpinY = Math.max(-1, Math.min(1, (gameY - spinIY) / 10));
+        // Check spin indicator click (bottom-center margin)
+        const spinIX = POOL_W / 2, spinIY = POOL_TABLE_OFFSET_Y + POOL_H + 46, spinIR = 17;
+        if (Math.sqrt((canvasGameX - spinIX) ** 2 + (canvasGameY - spinIY) ** 2) < spinIR) {
+            poolCueSpinX = Math.max(-1, Math.min(1, (canvasGameX - spinIX) / 14));
+            poolCueSpinY = Math.max(-1, Math.min(1, (canvasGameY - spinIY) / 14));
             return;
         }
 
@@ -2921,9 +3011,9 @@
             const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
             if (!cueBall) return;
             const scaleRatioX = rect.width / POOL_W;
-            const scaleRatioY = rect.height / POOL_H;
+            const scaleRatioY = rect.height / POOL_CANVAS_H;
             const mx = poolMouseX / scaleRatioX;
-            const my = poolMouseY / scaleRatioY;
+            const my = poolMouseY / scaleRatioY - POOL_TABLE_OFFSET_Y;
             // Shot direction unit vector
             const shotDirX = Math.cos(poolLockedAngle);
             const shotDirY = Math.sin(poolLockedAngle);
@@ -2987,6 +3077,7 @@
         if (!poolCanvas) return;
         poolCtx = poolCanvas.getContext('2d');
         poolGamesWon = loadPoolHighScore();
+        poolRecord = loadPoolRecord();
         poolPockets = poolGetPockets();
         resetPoolGame();
         updatePoolScoreboard();
@@ -3106,7 +3197,14 @@
         if (poolWinner === 1) {
             poolGamesWon++;
             savePoolHighScore(poolGamesWon);
+            poolRecord.p1Wins++;
+            poolRecord.p2Losses++;
+            savePoolRecord(poolRecord);
             awardGameXP('pool', { won: true });
+        } else if (poolWinner === 2) {
+            poolRecord.p2Wins++;
+            poolRecord.p1Losses++;
+            savePoolRecord(poolRecord);
         }
 
         updatePoolScoreboard();
@@ -3194,7 +3292,7 @@
             // Scale the canvas buffer to 2x — drawPoolFrame uses canvas.width/POOL_W
             // as its internal scale factor, so everything redraws crisp at 2x resolution.
             canvas.width = POOL_W * 2;
-            canvas.height = POOL_H * 2;
+            canvas.height = POOL_CANVAS_H * 2;
             canvas.style.width = '100%';
             canvas.style.height = 'auto';
             canvas.style.maxWidth = '100%';
@@ -8761,7 +8859,7 @@
                 box-shadow: 0 0 20px rgba(45, 138, 78, 0.3), inset 0 2px 8px rgba(0, 0, 0, 0.4);
                 display: block;
                 cursor: crosshair;
-                aspect-ratio: 2 / 1;
+                aspect-ratio: 1 / 1;
                 width: 100%;
                 height: auto;
             }
@@ -10125,7 +10223,7 @@
                     <!-- Tetris Canvas -->
                     <canvas id="tetris-canvas" class="snake-canvas" width="368" height="368" style="display:none;"></canvas>
                     <canvas id="breakout-canvas" class="snake-canvas" width="368" height="368" style="display:none; cursor:none;"></canvas>
-                    <canvas id="pool-canvas" width="368" height="184" style="display:none; cursor:crosshair;"></canvas>
+                    <canvas id="pool-canvas" width="368" height="368" style="display:none; cursor:crosshair;"></canvas>
                     
                     <!-- Multi-Game Area (for RefleX and AimTrainer) -->
                     <div id="multi-game-area" class="multi-game-area" style="display: none;"></div>

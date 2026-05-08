@@ -480,7 +480,7 @@
     const POOL_RESTITUTION = 0.92;
     const POOL_MIN_VEL = 0.08;
     const POOL_CUE_MAX_POWER = 18;
-    const POOL_SUB_STEPS = 3; // prevents tunneling at high speeds
+    const POOL_SUB_STEPS = 6; // 18/6 = 3px per step — well under ball radius, prevents collision normal errors at high power
     const POOL_CUSHION_X1 = 16;
     const POOL_CUSHION_Y1 = 16;
     const POOL_CUSHION_X2 = POOL_W - 16;
@@ -2386,15 +2386,22 @@
 
     function poolDrawCue(ctx, cueBall, scaleX, scaleY) {
         // When aim is locked (mouse held), use the frozen angle.
-        // During free aim, compute from current mouse position.
+        // During free aim, compute from current mouse position with smoothing.
         let angle;
         if (poolAimLocked) {
             angle = poolLockedAngle;
         } else {
             const mx = poolMouseX / scaleX;
             const my = poolMouseY / scaleY;
-            angle = Math.atan2(my - cueBall.y, mx - cueBall.x);
-            poolCueAngle = angle; // keep in sync for when aim-lock fires
+            const targetAngle = Math.atan2(my - cueBall.y, mx - cueBall.x);
+            // Smooth angular interpolation to prevent pixel-skipping jitter.
+            // Lerp factor 0.35 = responsive but silky smooth.
+            let delta = targetAngle - poolCueAngle;
+            // Normalize delta to [-PI, PI] to avoid wrapping jumps
+            while (delta > Math.PI) delta -= 2 * Math.PI;
+            while (delta < -Math.PI) delta += 2 * Math.PI;
+            poolCueAngle += delta * 0.35;
+            angle = poolCueAngle;
         }
 
         // Aiming line (dotted)

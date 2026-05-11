@@ -425,6 +425,9 @@
     function savePoolRecord(rec) {
         localStorage.setItem('poolRecord', JSON.stringify(rec));
     }
+    // Prayer Counter Storage
+    function loadPrayerCount() { return parseInt(localStorage.getItem('prayerCount') || '0', 10); }
+    function savePrayerCount(n) { localStorage.setItem('prayerCount', String(n)); }
 
     // ====================================
     // 8-BALL POOL GAME VARIABLES
@@ -441,6 +444,11 @@
     let poolGamesWon = 0;
     let poolRecord = { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
     let poolBgTime = 0; // animated background time counter
+
+    // ====================================
+    // PRAYER COUNTER VARIABLES
+    // ====================================
+    let prayerCount = 0;
 
     // Cue stick aiming state
     let poolAiming = false;
@@ -1199,13 +1207,15 @@
         const x1 = POOL_CUSHION_X1, y1 = POOL_CUSHION_Y1;
         const x2 = POOL_CUSHION_X2, y2 = POOL_CUSHION_Y2;
         const mx = (x1 + x2) / 2;
+        const cornerInset = 1; // Move corner pockets inward by set pixels
+        const centerInset = 1;  // Move center pockets outwards by set pixels
         return [
-            { x: x1, y: y1 },       // top-left
-            { x: mx, y: y1 - 2 },   // top-mid
-            { x: x2, y: y1 },       // top-right
-            { x: x1, y: y2 },       // bottom-left
-            { x: mx, y: y2 + 2 },   // bottom-mid
-            { x: x2, y: y2 }        // bottom-right
+            { x: x1 + cornerInset, y: y1 + cornerInset },       // top-left
+            { x: mx, y: y1 - 2 - centerInset },                 // top-mid
+            { x: x2 - cornerInset, y: y1 + cornerInset },       // top-right
+            { x: x1 + cornerInset, y: y2 - cornerInset },       // bottom-left
+            { x: mx, y: y2 + 2 + centerInset },                 // bottom-mid
+            { x: x2 - cornerInset, y: y2 - cornerInset }        // bottom-right
         ];
     }
 
@@ -5074,6 +5084,41 @@
     }
 
     // ====================================
+    // PRAYER COUNTER LOGIC
+    // ====================================
+
+    function initPrayerCounter() {
+        prayerCount = loadPrayerCount();
+        updatePrayerDisplay();
+    }
+
+    function prayerIncrement() {
+        if (prayerCount >= 999999) return;
+        prayerCount++;
+        savePrayerCount(prayerCount);
+        updatePrayerDisplay();
+        const btn = document.querySelector('.prayer-plus-btn');
+        if (btn) {
+            btn.classList.add('prayer-tap-flash');
+            setTimeout(() => btn.classList.remove('prayer-tap-flash'), 150);
+        }
+    }
+
+    function prayerReset() {
+        if (!confirm('Reset prayer counter to 0?')) return;
+        prayerCount = 0;
+        savePrayerCount(0);
+        updatePrayerDisplay();
+    }
+
+    function updatePrayerDisplay() {
+        const el = document.getElementById('prayer-count-display');
+        if (el) el.textContent = String(prayerCount).padStart(6, '0');
+        const hdr = document.getElementById('prayer-hdr-count');
+        if (hdr) hdr.textContent = prayerCount;
+    }
+
+    // ====================================
     // GAME SWITCHING SYSTEM
     // ====================================
     
@@ -5153,6 +5198,8 @@
                 }
                 if (poolMaximized) togglePoolMaximize();
                 break;
+            case 'prayer':
+                break;
         }
     }
     
@@ -5164,8 +5211,10 @@
         // Hide all first
         const breakoutCv = document.getElementById('breakout-canvas');
         const poolCv = document.getElementById('pool-canvas');
+        const prayerPanel = document.getElementById('prayer-panel');
         [snakeCv, flappyCv, tetrisCv, breakoutCv, poolCv].forEach(c => { if (c) c.style.display = 'none'; });
         if (gameArea) gameArea.style.display = 'none';
+        if (prayerPanel) prayerPanel.style.display = 'none';
 
         switch (currentGame) {
             case 'snake':
@@ -5214,11 +5263,15 @@
                     poolCanvas.addEventListener('touchend', handlePoolTouchEnd);
                 }
                 break;
+            case 'prayer':
+                if (prayerPanel) prayerPanel.style.display = 'flex';
+                initPrayerCounter();
+                break;
         }
     }
     
     function updateGameSwitcher() {
-        const ids = ['snake', 'reflex', 'aim', 'flappy', 'tetris', 'breakout', 'pool'];
+        const ids = ['snake', 'reflex', 'aim', 'flappy', 'tetris', 'breakout', 'pool', 'prayer'];
         ids.forEach(id => {
             const btn = document.getElementById('game-switch-' + id);
             if (btn) btn.classList.toggle('active', currentGame === id);
@@ -5226,8 +5279,8 @@
     }
     
     function updateGameControls() {
-        const ctrlIds = ['snake-controls', 'reflex-controls', 'aim-controls', 'flappy-controls', 'tetris-controls', 'breakout-controls', 'pool-controls'];
-        const statIds = ['snake-scoreboard', 'reflex-stats', 'aim-stats', 'flappy-scoreboard', 'tetris-scoreboard', 'breakout-scoreboard', 'pool-scoreboard'];
+        const ctrlIds = ['snake-controls', 'reflex-controls', 'aim-controls', 'flappy-controls', 'tetris-controls', 'breakout-controls', 'pool-controls', 'prayer-controls'];
+        const statIds = ['snake-scoreboard', 'reflex-stats', 'aim-stats', 'flappy-scoreboard', 'tetris-scoreboard', 'breakout-scoreboard', 'pool-scoreboard', 'prayer-scoreboard'];
         ctrlIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
         statIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
         
@@ -5259,6 +5312,10 @@
             case 'pool':
                 { const c = document.getElementById('pool-controls'); if (c) c.style.display = 'flex'; }
                 { const s = document.getElementById('pool-scoreboard'); if (s) s.style.display = 'flex'; }
+                break;
+            case 'prayer':
+                { const c = document.getElementById('prayer-controls'); if (c) c.style.display = 'flex'; }
+                { const s = document.getElementById('prayer-scoreboard'); if (s) s.style.display = 'flex'; }
                 break;
         }
     }
@@ -8277,6 +8334,112 @@
                 will-change: transform;
                 contain: layout style paint;
             }
+
+            /* ==================== PRAYER COUNTER STYLES ==================== */
+            .prayer-panel {
+                width: 100%;
+                height: 368px;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 20px;
+                background: linear-gradient(160deg, #0d1b2a 0%, #1a2744 50%, #0d1b2a 100%);
+                border-radius: 12px;
+                position: relative;
+                overflow: hidden;
+            }
+            .prayer-panel::before {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background: radial-gradient(ellipse at 50% 30%, rgba(102,126,234,0.15) 0%, transparent 65%);
+                pointer-events: none;
+            }
+            .prayer-screen {
+                background: rgba(0, 0, 0, 0.55);
+                border: 1.5px solid rgba(102,126,234,0.35);
+                border-radius: 14px;
+                padding: 18px 28px 14px;
+                text-align: center;
+                box-shadow: 0 0 24px rgba(102,126,234,0.20), inset 0 0 12px rgba(0,0,0,0.4);
+                min-width: 220px;
+            }
+            .prayer-label {
+                font-size: 0.65rem;
+                letter-spacing: 0.18em;
+                color: rgba(102,126,234,0.75);
+                text-transform: uppercase;
+                margin-bottom: 8px;
+                font-family: 'Courier New', monospace;
+            }
+            .prayer-digital {
+                font-family: 'Courier New', 'Lucida Console', monospace;
+                font-size: 3.2rem;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                color: #4ade80;
+                text-shadow: 0 0 14px rgba(74,222,128,0.65), 0 0 28px rgba(74,222,128,0.25);
+                line-height: 1.2;
+                user-select: none;
+                -webkit-font-smoothing: antialiased;
+                font-variant-numeric: tabular-nums;
+                word-spacing: -0.2em;
+            }
+            .prayer-sublabel {
+                font-size: 0.6rem;
+                color: rgba(255,255,255,0.35);
+                margin-top: 6px;
+                font-family: 'Courier New', monospace;
+                letter-spacing: 0.08em;
+            }
+            .prayer-plus-btn {
+                width: 88px;
+                height: 88px;
+                border-radius: 50%;
+                border: 2.5px solid rgba(102,126,234,0.5);
+                background: linear-gradient(145deg, #667eea, #764ba2);
+                color: #fff;
+                font-size: 1.6rem;
+                font-weight: 700;
+                font-family: 'Courier New', monospace;
+                cursor: pointer;
+                box-shadow: 0 4px 18px rgba(102,126,234,0.45), 0 2px 6px rgba(0,0,0,0.4);
+                transition: transform 0.08s ease, box-shadow 0.08s ease;
+                user-select: none;
+                -webkit-tap-highlight-color: transparent;
+            }
+            .prayer-plus-btn:hover {
+                transform: scale(1.06);
+                box-shadow: 0 6px 24px rgba(102,126,234,0.6);
+            }
+            .prayer-plus-btn:active,
+            .prayer-plus-btn.prayer-tap-flash {
+                transform: scale(0.94);
+                background: linear-gradient(145deg, #4ade80, #22d3ee);
+                box-shadow: 0 2px 10px rgba(74,222,128,0.55);
+            }
+            .prayer-reset-btn {
+                position: absolute;
+                top: 10px;
+                right: 12px;
+                width: 30px;
+                height: 30px;
+                border-radius: 50%;
+                border: 1.5px solid rgba(255,255,255,0.18);
+                background: rgba(255,255,255,0.07);
+                color: rgba(255,255,255,0.55);
+                font-size: 0.85rem;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: background 0.2s, color 0.2s;
+            }
+            .prayer-reset-btn:hover {
+                background: rgba(239,68,68,0.25);
+                color: #f87171;
+                border-color: rgba(239,68,68,0.4);
+            }
             
             /* ==================== REFLEX GAME STYLES ==================== */
             .reflex-game-area {
@@ -10178,6 +10341,7 @@
                         <button id="game-switch-aim" class="game-switch-btn" onclick="window.switchGame('aim')" title="Chaos Aim">💥</button>
                         <button id="game-switch-breakout" class="game-switch-btn" onclick="window.switchGame('breakout')" title="Breakout">🏓</button>
                         <button id="game-switch-pool" class="game-switch-btn" onclick="window.switchGame('pool')" title="8-Ball Pool">🎱</button>
+                        <button id="game-switch-prayer" class="game-switch-btn" onclick="window.switchGame('prayer')" title="Prayer Counter">📿</button>
                     </div>
                     
                     <!-- Game Header (Dynamic) -->
@@ -10212,6 +10376,9 @@
                             <span class="snake-score">P2: <span id="pool-p2-score">0</span></span>
                             <span class="snake-score" id="pool-turn-label">Turn: P1</span>
                         </div>
+                        <div id="prayer-scoreboard" class="snake-scoreboard" style="display: none;">
+                            <span class="snake-score">📿 Count: <span id="prayer-hdr-count">0</span></span>
+                        </div>
                     </div>
                     
                     <!-- Snake Canvas -->
@@ -10227,6 +10394,17 @@
                     
                     <!-- Multi-Game Area (for RefleX and AimTrainer) -->
                     <div id="multi-game-area" class="multi-game-area" style="display: none;"></div>
+
+                    <!-- Prayer Counter Panel -->
+                    <div id="prayer-panel" class="prayer-panel" style="display: none;">
+                        <div class="prayer-screen">
+                            <div class="prayer-label">TASBIH COUNTER</div>
+                            <div id="prayer-count-display" class="prayer-digital">000000</div>
+                            <div class="prayer-sublabel">tap +1 to count dhikr</div>
+                        </div>
+                        <button class="prayer-plus-btn" onclick="window.prayerIncrementBtn()">+1</button>
+                        <button class="prayer-reset-btn" onclick="window.prayerResetBtn()" title="Reset counter">🔄</button>
+                    </div>
                     
                     <!-- Game Stats -->
                     <div id="reflex-stats" style="display: none;"></div>
@@ -10283,6 +10461,9 @@
                         <button class="snake-btn" onclick="window.resetPoolGameBtn()">🔄 Reset</button>
                         <button class="snake-btn" onclick="window.togglePoolMaximizeBtn()">⛶ Max</button>
                     </div>
+
+                    <!-- Prayer Counter Controls (empty — interaction is on the panel itself) -->
+                    <div id="prayer-controls" class="snake-controls" style="display: none;"></div>
                     
                     <!-- Game Over Overlays -->
                     <div id="snake-game-over" class="snake-game-over">
@@ -10543,6 +10724,8 @@
         window.resetPoolGameBtn = () => { resetPoolGame(); };
         window.togglePoolModeBtn = () => { togglePoolMode(); };
         window.togglePoolMaximizeBtn = () => { togglePoolMaximize(); };
+        window.prayerIncrementBtn = prayerIncrement;
+        window.prayerResetBtn = prayerReset;
         
         // Helper function to update game title
         function updateGameTitle(gameKey) {
@@ -10571,6 +10754,9 @@
                     break;
                 case 'pool':
                     titleElement.textContent = '🎱 8-Ball Pool';
+                    break;
+                case 'prayer':
+                    titleElement.textContent = '📿 Prayer Counter';
                     break;
             }
         }

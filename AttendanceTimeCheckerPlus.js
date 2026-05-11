@@ -7908,6 +7908,182 @@
                 .image-placeholder {
                     color: rgba(0, 0, 0, 0.4);
                 }
+
+                /* ---- Game Switcher ---- */
+                .game-switcher {
+                    background: rgba(0, 0, 0, 0.06);
+                    scrollbar-color: rgba(0,0,0,0.15) transparent;
+                }
+                .game-switch-btn {
+                    background: rgba(0, 0, 0, 0.06);
+                    border-color: rgba(0, 0, 0, 0.12);
+                    color: rgba(0, 0, 0, 0.65);
+                }
+                .game-switch-btn:hover {
+                    background: rgba(0, 0, 0, 0.1);
+                    border-color: rgba(0, 0, 0, 0.2);
+                }
+                .game-switch-btn.active {
+                    background: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
+                    border-color: var(--aurora-1);
+                    color: white;
+                }
+
+                /* ---- Multi-Game Area ---- */
+                .multi-game-area {
+                    background: rgba(0, 0, 0, 0.06);
+                }
+
+                /* ---- Snake Game Overlay ---- */
+                .snake-game-over {
+                    background: rgba(255, 255, 255, 0.92);
+                    box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+                }
+                .snake-game-over h3 {
+                    color: #d63031;
+                }
+                .snake-game-over p {
+                    color: rgba(0, 0, 0, 0.7);
+                }
+                .snake-game-header {
+                    color: rgba(0, 0, 0, 0.85);
+                }
+
+                /* ---- Prayer Counter ---- */
+                .prayer-panel {
+                    background: linear-gradient(160deg, #f0f2f5 0%, #e8edf4 50%, #f0f2f5 100%);
+                }
+                .prayer-panel::before {
+                    background: radial-gradient(ellipse at 50% 30%, rgba(102,126,234,0.10) 0%, transparent 65%);
+                }
+                .prayer-screen {
+                    background: rgba(255, 255, 255, 0.75);
+                    border-color: rgba(102,126,234,0.22);
+                    box-shadow: 0 0 18px rgba(102,126,234,0.10), inset 0 0 8px rgba(0,0,0,0.04);
+                }
+                .prayer-label {
+                    color: rgba(102,126,234,0.8);
+                }
+                .prayer-digital {
+                    color: #059669;
+                    text-shadow: 0 0 8px rgba(5,150,105,0.25);
+                }
+                .prayer-sublabel {
+                    color: rgba(0,0,0,0.38);
+                }
+                .prayer-plus-btn {
+                    box-shadow: 0 4px 14px rgba(102,126,234,0.3), 0 2px 6px rgba(0,0,0,0.12);
+                }
+                .prayer-reset-btn {
+                    border-color: rgba(0,0,0,0.12);
+                    background: rgba(0,0,0,0.05);
+                    color: rgba(0,0,0,0.5);
+                }
+                .prayer-reset-btn:hover {
+                    background: rgba(239,68,68,0.12);
+                    color: #dc2626;
+                    border-color: rgba(239,68,68,0.3);
+                }
+
+                /* ---- Settings Modal ---- */
+                .settings-modal {
+                    background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(245,245,250,0.95));
+                    border-color: rgba(0,0,0,0.12);
+                    box-shadow: 0 20px 60px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.9);
+                }
+                .settings-option {
+                    background: rgba(0,0,0,0.03);
+                    border-color: rgba(0,0,0,0.08);
+                }
+                .settings-option:hover {
+                    background: rgba(0,0,0,0.06);
+                }
+                .settings-option-label {
+                    color: rgba(0,0,0,0.85);
+                }
+                .toggle-switch {
+                    background: rgba(0,0,0,0.15);
+                }
+                .settings-select {
+                    background: rgba(255,255,255,0.85);
+                    border-color: rgba(0,0,0,0.15);
+                    color: rgba(0,0,0,0.85);
+                }
+                .settings-select:hover {
+                    background: rgba(255,255,255,0.95);
+                    border-color: rgba(0,0,0,0.25);
+                }
+                .settings-select option {
+                    background: #fff;
+                    color: #222;
+                }
+                .settings-modal-overlay {
+                    background: rgba(0,0,0,0.35);
+                }
+
+                /* ---- Pool Maximize Modal ---- */
+                .pool-modal-panel {
+                    background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(245,245,250,0.95));
+                    border-color: rgba(0,0,0,0.12);
+                    box-shadow: 0 24px 80px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.9);
+                }
+                .pool-modal-title {
+                    color: rgba(0,0,0,0.85);
+                }
+                .pool-modal-close {
+                    background: rgba(0,0,0,0.06);
+                    border-color: rgba(0,0,0,0.12);
+                    color: rgba(0,0,0,0.7);
+                }
+                .pool-modal-close:hover {
+                    background: rgba(255,80,80,0.15);
+                    color: #dc2626;
+                }
+
+                /* ---- XP Details ---- */
+                .xp-info {
+                    color: rgba(0,0,0,0.55);
+                }
+                .xp-stat-value {
+                    color: #6c5ce7;
+                }
+                .xp-streak {
+                    background: rgba(255,107,53,0.08);
+                    border-color: rgba(255,107,53,0.22);
+                    color: rgba(0,0,0,0.8);
+                }
+                .xp-achievements {
+                    background: rgba(0,0,0,0.04);
+                }
+                .xp-achievements:empty::before {
+                    color: rgba(0,0,0,0.35);
+                }
+                .xp-next-milestone {
+                    background: rgba(255,193,7,0.1);
+                    border-color: rgba(255,193,7,0.25);
+                    color: #b8860b;
+                }
+                .level-badge {
+                    color: white;
+                }
+
+                /* ---- Quote Author ---- */
+                .quote-author {
+                    color: rgba(0,0,0,0.5);
+                }
+
+                /* ---- Progress Bar Text ---- */
+                .progress-text {
+                    color: rgba(0,0,0,0.6);
+                }
+                .progress-fill {
+                    box-shadow: none;
+                }
+
+                /* ---- Image Box Header ---- */
+                .image-box-title {
+                    color: rgba(0,0,0,0.85);
+                }
             }
             /* Retro theme specific styles for main display */
             .attendance-summary.retro-theme {
@@ -9101,6 +9277,362 @@
                     gap: 16px;
                 }
             }
+
+            /* ================================================================
+               LIGHT MODE — FINAL OVERRIDES
+               Must be AFTER all component styles so cascade order wins.
+               ================================================================ */
+            @media (prefers-color-scheme: light) {
+
+                /* --- Glassmorphic containers --- */
+                .snake-game-container,
+                .quotes-container,
+                .image-box-container {
+                    background: rgba(255, 255, 255, 0.82);
+                    border-color: rgba(0, 0, 0, 0.10);
+                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+                }
+
+                .xp-container {
+                    background: linear-gradient(135deg, rgba(108, 92, 231, 0.10), rgba(102, 126, 234, 0.06));
+                    border-color: rgba(108, 92, 231, 0.20);
+                    box-shadow: 0 4px 16px rgba(108, 92, 231, 0.10);
+                }
+
+                /* --- Snake Game Header & Scores --- */
+                .snake-game-header {
+                    color: rgba(0, 0, 0, 0.85);
+                }
+                .snake-game-title {
+                    color: rgba(0, 0, 0, 0.88);
+                }
+                .snake-score {
+                    color: rgba(0, 0, 0, 0.60);
+                }
+                .snake-canvas {
+                    background: rgba(0, 0, 0, 0.05);
+                }
+                .snake-game-over {
+                    background: rgba(255, 255, 255, 0.94);
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+                }
+                .snake-game-over h3 {
+                    color: #d63031;
+                }
+                .snake-game-over p {
+                    color: rgba(0, 0, 0, 0.7);
+                }
+                .snake-btn {
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+                }
+
+                /* --- Game Switcher --- */
+                .game-switcher {
+                    background: rgba(0, 0, 0, 0.04);
+                    scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+                }
+                .game-switch-btn {
+                    background: rgba(0, 0, 0, 0.05);
+                    border-color: rgba(0, 0, 0, 0.10);
+                    color: rgba(0, 0, 0, 0.65);
+                }
+                .game-switch-btn:hover {
+                    background: rgba(0, 0, 0, 0.09);
+                    border-color: rgba(0, 0, 0, 0.18);
+                }
+                .game-switch-btn.active {
+                    background: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
+                    border-color: var(--aurora-1);
+                    color: #fff;
+                }
+
+                /* --- Multi-Game Area --- */
+                .multi-game-area {
+                    background: rgba(0, 0, 0, 0.04);
+                }
+
+                /* --- Prayer Counter --- */
+                .prayer-panel {
+                    background: linear-gradient(160deg, #f0f2f5 0%, #e8edf4 50%, #f0f2f5 100%);
+                }
+                .prayer-panel::before {
+                    background: radial-gradient(ellipse at 50% 30%, rgba(102,126,234,0.08) 0%, transparent 65%);
+                }
+                .prayer-screen {
+                    background: rgba(255, 255, 255, 0.80);
+                    border-color: rgba(102, 126, 234, 0.20);
+                    box-shadow: 0 0 14px rgba(102,126,234,0.08), inset 0 0 6px rgba(0,0,0,0.03);
+                }
+                .prayer-label {
+                    color: rgba(102, 126, 234, 0.75);
+                }
+                .prayer-digital {
+                    color: #059669;
+                    text-shadow: 0 0 6px rgba(5,150,105,0.20);
+                }
+                .prayer-sublabel {
+                    color: rgba(0, 0, 0, 0.36);
+                }
+                .prayer-plus-btn {
+                    box-shadow: 0 4px 14px rgba(102,126,234,0.25), 0 2px 6px rgba(0,0,0,0.10);
+                }
+                .prayer-reset-btn {
+                    border-color: rgba(0, 0, 0, 0.10);
+                    background: rgba(0, 0, 0, 0.04);
+                    color: rgba(0, 0, 0, 0.45);
+                }
+                .prayer-reset-btn:hover {
+                    background: rgba(239,68,68,0.10);
+                    color: #dc2626;
+                    border-color: rgba(239,68,68,0.25);
+                }
+
+                /* --- Reflex & Aim Game --- */
+                #reflex-stats,
+                #aim-stats {
+                    background: rgba(0, 0, 0, 0.06);
+                    color: rgba(0, 0, 0, 0.80);
+                }
+                .reflex-mode-toggle {
+                    background: rgba(0, 0, 0, 0.08);
+                    border-color: rgba(0, 0, 0, 0.12);
+                    color: rgba(0, 0, 0, 0.75);
+                }
+                .reflex-mode-toggle:hover {
+                    background: rgba(0, 0, 0, 0.14);
+                }
+                #reflex-results,
+                #aim-results {
+                    background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(245,245,250,0.95));
+                    border-color: rgba(0, 0, 0, 0.12);
+                    box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+                }
+
+                /* --- Quotes --- */
+                .quotes-title {
+                    color: rgba(0, 0, 0, 0.88);
+                }
+                .quote-add-btn {
+                    background: rgba(0, 0, 0, 0.06);
+                    border-color: rgba(0, 0, 0, 0.12);
+                    color: rgba(0, 0, 0, 0.75);
+                }
+                .quote-add-btn:hover {
+                    background: rgba(0, 0, 0, 0.10);
+                }
+                .quote-text {
+                    color: rgba(0, 0, 0, 0.80);
+                }
+                .quote-author {
+                    color: rgba(0, 0, 0, 0.50);
+                }
+
+                /* --- XP System --- */
+                .xp-title {
+                    color: rgba(0, 0, 0, 0.88);
+                }
+                .xp-info {
+                    color: rgba(0, 0, 0, 0.55);
+                }
+                .xp-stat-item {
+                    background: rgba(0, 0, 0, 0.04);
+                }
+                .xp-stat-label {
+                    color: rgba(0, 0, 0, 0.60);
+                }
+                .xp-stat-value {
+                    color: #6c5ce7;
+                }
+                .xp-progress-bar {
+                    background: rgba(0, 0, 0, 0.08);
+                }
+                .xp-streak {
+                    background: rgba(255, 107, 53, 0.07);
+                    border-color: rgba(255, 107, 53, 0.18);
+                    color: rgba(0, 0, 0, 0.78);
+                }
+                .xp-achievements {
+                    background: rgba(0, 0, 0, 0.03);
+                }
+                .xp-achievements:empty::before {
+                    color: rgba(0, 0, 0, 0.35);
+                }
+                .xp-next-milestone {
+                    background: rgba(255, 193, 7, 0.10);
+                    border-color: rgba(255, 193, 7, 0.22);
+                    color: #b8860b;
+                }
+                .level-badge {
+                    color: #fff;
+                }
+
+                /* --- Image Box --- */
+                .image-box-title {
+                    color: rgba(0, 0, 0, 0.85);
+                }
+                .image-change-btn {
+                    background: rgba(0, 0, 0, 0.06);
+                    border-color: rgba(0, 0, 0, 0.12);
+                    color: rgba(0, 0, 0, 0.75);
+                }
+                .image-change-btn:hover {
+                    background: rgba(0, 0, 0, 0.10);
+                }
+                .aspect-ratio-btn {
+                    background: rgba(0, 0, 0, 0.06);
+                    border-color: rgba(0, 0, 0, 0.12);
+                    color: rgba(0, 0, 0, 0.72);
+                }
+                .aspect-ratio-btn:hover {
+                    background: rgba(0, 0, 0, 0.10);
+                }
+                .aspect-ratio-btn.active {
+                    background: linear-gradient(135deg, #667eea, #764ba2);
+                    border-color: #667eea;
+                    color: #fff;
+                }
+                .image-placeholder {
+                    color: rgba(0, 0, 0, 0.38);
+                }
+
+                /* --- Pool Color Swatches --- */
+                .pool-color-swatch {
+                    border-color: rgba(0, 0, 0, 0.15);
+                }
+                .pool-color-swatch:hover {
+                    border-color: rgba(0, 0, 0, 0.35);
+                }
+                .pool-color-swatch.active {
+                    border-color: #333;
+                    box-shadow: 0 0 8px rgba(0, 0, 0, 0.25);
+                }
+
+                /* --- Settings Modal --- */
+                .settings-modal {
+                    background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(248,248,252,0.96));
+                    border-color: rgba(0, 0, 0, 0.10);
+                    box-shadow: 0 20px 60px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.95);
+                }
+                .settings-title {
+                    -webkit-text-fill-color: transparent;
+                }
+                .settings-option {
+                    background: rgba(0, 0, 0, 0.03);
+                    border-color: rgba(0, 0, 0, 0.06);
+                }
+                .settings-option:hover {
+                    background: rgba(0, 0, 0, 0.06);
+                }
+                .settings-option-label {
+                    color: rgba(0, 0, 0, 0.85);
+                }
+                .toggle-switch {
+                    background: rgba(0, 0, 0, 0.14);
+                }
+                .settings-select {
+                    background: rgba(255, 255, 255, 0.88);
+                    border-color: rgba(0, 0, 0, 0.14);
+                    color: rgba(0, 0, 0, 0.85);
+                }
+                .settings-select:hover {
+                    background: rgba(255, 255, 255, 0.96);
+                    border-color: rgba(0, 0, 0, 0.22);
+                }
+                .settings-select option {
+                    background: #fff;
+                    color: #222;
+                }
+                .settings-modal-overlay {
+                    background: rgba(0, 0, 0, 0.30);
+                }
+
+                /* --- Pool Maximize Modal --- */
+                .pool-modal-panel {
+                    background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(248,248,252,0.96));
+                    border-color: rgba(0, 0, 0, 0.10);
+                    box-shadow: 0 24px 80px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.95);
+                }
+                .pool-modal-title {
+                    color: rgba(0, 0, 0, 0.85);
+                }
+                .pool-modal-close {
+                    background: rgba(0, 0, 0, 0.05);
+                    border-color: rgba(0, 0, 0, 0.10);
+                    color: rgba(0, 0, 0, 0.65);
+                }
+                .pool-modal-close:hover {
+                    background: rgba(255, 80, 80, 0.12);
+                    color: #dc2626;
+                }
+
+                /* --- Attendance core (re-assert after retro theme) --- */
+                .attendance-summary {
+                    background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(240,240,240,0.90));
+                    border-color: rgba(0, 0, 0, 0.10);
+                    color: rgba(0, 0, 0, 0.88);
+                }
+                .modern-table td {
+                    color: rgba(0, 0, 0, 0.78);
+                    border-bottom-color: rgba(0, 0, 0, 0.08);
+                }
+                .stat-label {
+                    color: rgba(0, 0, 0, 0.58);
+                }
+                .remaining-desc {
+                    color: rgba(0, 0, 0, 0.55);
+                }
+                .progress-bar {
+                    background: rgba(0, 0, 0, 0.08);
+                }
+                .progress-fill {
+                    box-shadow: none;
+                }
+                .developer-info {
+                    background: rgba(255, 255, 255, 0.82);
+                    border-color: rgba(0, 0, 0, 0.08);
+                }
+                .developer-info:hover {
+                    background: rgba(255, 255, 255, 0.92);
+                    border-color: rgba(0, 0, 0, 0.16);
+                }
+                .developer-tooltip {
+                    background: rgba(30, 30, 30, 0.92);
+                }
+                .settings-button {
+                    background: rgba(255, 255, 255, 0.82);
+                    border-color: rgba(0, 0, 0, 0.08);
+                }
+                .settings-button:hover {
+                    background: rgba(255, 255, 255, 0.92);
+                    border-color: rgba(0, 0, 0, 0.16);
+                }
+                .stat-card {
+                    background: rgba(255, 255, 255, 0.72);
+                    border-color: rgba(0, 0, 0, 0.08);
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+                }
+                .stat-card:hover {
+                    background: rgba(255, 255, 255, 0.90);
+                    border-color: rgba(0, 0, 0, 0.14);
+                    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.10);
+                }
+                .stat-card.worked-time-card {
+                    background: linear-gradient(135deg, rgba(0,184,148,0.12), rgba(0,184,148,0.04));
+                    border-color: rgba(0,184,148,0.25);
+                }
+                .stat-card.remaining-time-card {
+                    background: linear-gradient(135deg, rgba(225,112,85,0.12), rgba(225,112,85,0.04));
+                    border-color: rgba(225,112,85,0.25);
+                }
+                .stat-card.completion-time-card {
+                    background: linear-gradient(135deg, rgba(108,92,231,0.12), rgba(108,92,231,0.04));
+                    border-color: rgba(108,92,231,0.25);
+                }
+                .gap-warning {
+                    background: linear-gradient(135deg, #ffeaa7, #fab1a0) !important;
+                    color: #2d3436 !important;
+                }
+            }
         </style>
     `;
 
@@ -9146,18 +9678,21 @@
             <div class="developer-tooltip">
                 <strong>Core Logic:</strong> Websoft Team<br>
                 <strong>Enhanced by:</strong> Hassan Nasir<br>
-                <small>Build: v4.0.2026 (Game Edition)</small><br>
-                <small>Last Modified: 28 Feb 2026</small><br>
+                <small>Build: v4.1.2026 (Light Mode Edition)</small><br>
+                <small>Last Modified: 11 May 2026</small><br>
                 <hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin:6px 0;">
-                <small>🎮 <strong>Games:</strong> Snake · Flappy Bird · Tetris · Reflex · Aim · Breakout</small><br>
+                <small>🎮 <strong>Games:</strong> Snake · Flappy · Tetris · Reflex · Aim · Breakout · Pool</small><br>
+                <small>📿 <strong>Prayer:</strong> Digital Tasbih Counter with localStorage</small><br>
                 <small>⭐ <strong>XP System:</strong> Levels, streaks & rewards per game</small><br>
-                <small>🏓 <strong>Breakout:</strong> 11 powerups, multi-ball, combos</small><br>
-                <small>🐍 <strong>Snake:</strong> Smooth 60fps interpolation, dynamic speed</small><br>
-                <small>🐦 <strong>Flappy:</strong> Progressive speed + narrowing gaps</small><br>
-                <small>🧱 <strong>Tetris:</strong> Centered board, neon gutters, ghost piece</small><br>
+                <small>🌗 <strong>Light Mode:</strong> Full Material Design 3 support</small><br>
                 <hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin:6px 0;">
-                <small>💡 <strong>Tip:</strong> Click the emoji 😮</small><br>
-                <small>⚙️ Game Mode also available in Settings panel</small>
+                <small>🏓 <strong>Pool:</strong> AI opponent, shot physics, spin control</small><br>
+                <small>🐍 <strong>Snake:</strong> 60fps smooth interpolation</small><br>
+                <small>🐦 <strong>Flappy:</strong> Progressive difficulty scaling</small><br>
+                <small>🧱 <strong>Tetris:</strong> Ghost piece, centered board</small><br>
+                <hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin:6px 0;">
+                <small>💡 <strong>Tip:</strong> Click emoji to toggle Game Mode</small><br>
+                <small>⚙️ Settings → Shift duration, Emoji style, Display theme</small>
             </div>
         `;
         

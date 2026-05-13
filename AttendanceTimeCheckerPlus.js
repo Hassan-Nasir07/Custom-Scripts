@@ -9718,7 +9718,7 @@
             ℹ️
             <div class="developer-tooltip">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                    <span style="font-size:1.4rem;">🛠️</span>
+                    <span style="font-size:1.4rem;">📅</span>
                     <div style="text-align:left;">
                         <div style="font-size:0.85rem;font-weight:700;letter-spacing:0.3px;">Attendance Tracker Plus</div>
                         <div style="font-size:0.65rem;opacity:0.7;">by Hassan Nasir &middot; Core: Websoft Team</div>
@@ -9727,14 +9727,14 @@
                 </div>
                 <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0;"></div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;text-align:left;">
-                    <small>🎱 <strong>Pool</strong> — Real spin physics, cushion English, throw, AI with shot simulation</small>
-                    <small>🐍 <strong>Snake</strong> — 60fps interpolated rendering, progressive speed</small>
+                    <small>🎱 <strong>Pool</strong> — Spin physics, cushion, Competitive AI</small>
+                    <small>🐍 <strong>Snake</strong> — 60fps rendering, progressive speed</small>
                     <small>🐦 <strong>Flappy</strong> — Dynamic gap & speed scaling per score</small>
                     <small>🧱 <strong>Tetris</strong> — Ghost piece, wall kicks, level progression</small>
-                    <small>🧱 <strong>Breakout</strong> — 11 powerups, multi-ball, combo system</small>
+                    <small>🏓 <strong>Breakout</strong> — 11 powerups, multi-ball, combo system</small>
                     <small>⚡ <strong>Reflex</strong> — Screen & target modes, reaction benchmarks</small>
                     <small>🎯 <strong>Aim</strong> — Chaos mode, accuracy tracking, bullet holes</small>
-                    <small>📿 <strong>Tasbih</strong> — Digital prayer counter with localStorage</small>
+                    <small>📿 <strong>Tasbih</strong> — Digital prayer counter with memory</small>
                 </div>
                 <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0;"></div>
                 <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">

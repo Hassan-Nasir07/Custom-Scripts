@@ -6353,6 +6353,7 @@
                 background: rgba(255, 255, 255, 0.12);
                 border-color: rgba(255, 255, 255, 0.25);
                 box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
+                z-index: 1000;
             }
             
             /* Settings Button */
@@ -6380,21 +6381,22 @@
                 bottom: calc(100% + 8px);
                 left: 50%;
                 transform: translateX(-50%) translateY(10px);
-                background: rgba(0, 0, 0, 0.92);
+                background: linear-gradient(145deg, rgba(15, 15, 30, 0.96), rgba(25, 20, 50, 0.96));
                 color: white;
-                padding: 10px 14px;
-                border-radius: 8px;
-                font-size: 0.75rem;
+                padding: 14px 16px;
+                border-radius: 14px;
+                font-size: 0.72rem;
                 font-weight: 500;
                 white-space: nowrap;
                 opacity: 0;
                 visibility: hidden;
-                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-                min-width: 180px;
+                transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(102, 126, 234, 0.15);
+                min-width: 340px;
                 text-align: center;
                 z-index: 1001;
-                backdrop-filter: blur(8px);
+                backdrop-filter: blur(50px);
+                border: 1px solid rgba(255, 255, 255, 0.08);
             }
             
             .developer-info:hover .developer-tooltip {
@@ -6410,7 +6412,7 @@
                 left: 50%;
                 transform: translateX(-50%);
                 border: 5px solid transparent;
-                border-top-color: rgba(0, 0, 0, 0.92);
+                border-top-color: rgba(25, 20, 50, 0.96);
             }
             
             /* Picture-in-Picture Button Styles - Material Design 3 FAB */
@@ -7608,6 +7610,7 @@
                 
                 .developer-info:hover {
                     transform: translateX(50px) scale(1.08) translateY(-4px);
+                    z-index: 1000;
                 }
             }
             
@@ -7687,6 +7690,7 @@
                 
                 .developer-info:hover {
                     transform: translateX(30px) scale(1.08) translateY(-4px);
+                    z-index: 1000;
                 }
                 
                 .pip-button {
@@ -7813,6 +7817,7 @@
                 .developer-info:hover {
                     background: rgba(255, 255, 255, 0.9);
                     border-color: rgba(0, 0, 0, 0.2);
+                    z-index: 1000;
                 }
                 
                 .progress-bar {
@@ -8299,6 +8304,7 @@
             .attendance-summary.retro-theme .settings-button:hover {
                 background: rgba(0, 240, 255, 0.2) !important;
                 box-shadow: 0 0 15px var(--neon-cyan) !important;
+                z-index: 1000;
             }
             
             .attendance-summary.retro-theme .pip-button {
@@ -9626,9 +9632,12 @@
                 .developer-info:hover {
                     background: rgba(255, 255, 255, 0.92);
                     border-color: rgba(0, 0, 0, 0.16);
+                    z-index: 1000;
                 }
                 .developer-tooltip {
-                    background: rgba(30, 30, 30, 0.92);
+                    background: linear-gradient(145deg, rgba(15, 15, 30, 0.96), rgba(25, 20, 50, 0.96));
+                    backdrop-filter: blur(50px);
+                    min-width: 340px;
                 }
                 .settings-button {
                     background: rgba(255, 255, 255, 0.82);
@@ -9708,23 +9717,39 @@
         developerDiv.innerHTML = `
             ℹ️
             <div class="developer-tooltip">
-                <strong>Core Logic:</strong> Websoft Team<br>
-                <strong>Enhanced by:</strong> Hassan Nasir<br>
-                <small>Build: v4.1.2026 (Light Mode Edition)</small><br>
-                <small>Last Modified: 11 May 2026</small><br>
-                <hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin:6px 0;">
-                <small>🎮 <strong>Games:</strong> Snake · Flappy · Tetris · Reflex · Aim · Breakout · Pool</small><br>
-                <small>📿 <strong>Prayer:</strong> Digital Tasbih Counter with localStorage</small><br>
-                <small>⭐ <strong>XP System:</strong> Levels, streaks & rewards per game</small><br>
-                <small>🌗 <strong>Light Mode:</strong> Full Material Design 3 support</small><br>
-                <hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin:6px 0;">
-                <small>🏓 <strong>Pool:</strong> AI opponent, shot physics, spin control</small><br>
-                <small>🐍 <strong>Snake:</strong> 60fps smooth interpolation</small><br>
-                <small>🐦 <strong>Flappy:</strong> Progressive difficulty scaling</small><br>
-                <small>🧱 <strong>Tetris:</strong> Ghost piece, centered board</small><br>
-                <hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin:6px 0;">
-                <small>💡 <strong>Tip:</strong> Click emoji to toggle Game Mode</small><br>
-                <small>⚙️ Settings → Shift duration, Emoji style, Display theme</small>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                    <span style="font-size:1.4rem;">🛠️</span>
+                    <div style="text-align:left;">
+                        <div style="font-size:0.85rem;font-weight:700;letter-spacing:0.3px;">Attendance Tracker Plus</div>
+                        <div style="font-size:0.65rem;opacity:0.7;">by Hassan Nasir &middot; Core: Websoft Team</div>
+                    </div>
+                    <span style="margin-left:auto;background:linear-gradient(135deg,#667eea,#764ba2);padding:2px 8px;border-radius:10px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;">v5.0</span>
+                </div>
+                <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0;"></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;text-align:left;">
+                    <small>🎱 <strong>Pool</strong> — Real spin physics, cushion English, throw, AI with shot simulation</small>
+                    <small>🐍 <strong>Snake</strong> — 60fps interpolated rendering, progressive speed</small>
+                    <small>🐦 <strong>Flappy</strong> — Dynamic gap & speed scaling per score</small>
+                    <small>🧱 <strong>Tetris</strong> — Ghost piece, wall kicks, level progression</small>
+                    <small>🧱 <strong>Breakout</strong> — 11 powerups, multi-ball, combo system</small>
+                    <small>⚡ <strong>Reflex</strong> — Screen & target modes, reaction benchmarks</small>
+                    <small>🎯 <strong>Aim</strong> — Chaos mode, accuracy tracking, bullet holes</small>
+                    <small>📿 <strong>Tasbih</strong> — Digital prayer counter with localStorage</small>
+                </div>
+                <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0;"></div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">
+                    <span style="background:rgba(102,126,234,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">⭐ XP & Levels</span>
+                    <span style="background:rgba(118,75,162,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🖼️ PiP Mode</span>
+                    <span style="background:rgba(46,213,115,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🌗 Light/Dark</span>
+                    <span style="background:rgba(255,165,2,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">💬 Quotes</span>
+                    <span style="background:rgba(255,71,87,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🏆 Achievements</span>
+                </div>
+                <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0;"></div>
+                <div style="display:flex;justify-content:space-between;align-items:center;opacity:0.6;font-size:0.58rem;">
+                    <span>13 May 2026</span>
+                    <span>💡 Click emoji → Game Mode</span>
+                    <span>⚙️ → Settings</span>
+                </div>
             </div>
         `;
         

@@ -1,10 +1,7 @@
 (function() {
     'use strict';
     
-    // ====================================
-    // ENHANCED ATTENDANCE TIME CHECKER 2025
-    // Modern UI with Glassmorphism & Emoji Progression
-    // ====================================
+    // ENHANCED ATTENDANCE TIME CHECKER 2026
     
     const currentUrl = window.location.href;
     const targetUrl = "https://globalportal.mtbc.com/#/time-absence/attendence-record";
@@ -36,9 +33,7 @@
     // which would overwrite saved data with default values and reset progress to Level 1.
     let xpSystemReady = false;
     
-    // ====================================
     // SNAKE GAME VARIABLES
-    // ====================================
     let snakeCanvas, snakeCtx;
     let snake = [{x: 10, y: 10}];
     let food = {x: 15, y: 15};
@@ -56,15 +51,11 @@
     const snakeGridSize = 20;
     const snakeCellSize = 2; // 2px per cell for smooth growth
     
-    // ====================================
     // MULTI-GAME SYSTEM VARIABLES
-    // ====================================
     let currentGame = 'snake'; // 'snake' | 'reflex' | 'aim'
     let gameAreaElement = null;
     
-    // ====================================
     // REFLEX GAME VARIABLES
-    // ====================================
     let reflexGameStarted = false;
     let reflexGameFinished = false;
     let reflexIsWaiting = false;
@@ -105,9 +96,7 @@
         }
     };
     
-    // ====================================
     // AIM TRAINER GAME VARIABLES
-    // ====================================
     let aimGameStarted = false;
     let aimGameFinished = false;
     let aimTimer = 30;
@@ -133,9 +122,7 @@
         timeLimit: 30
     };
     
-    // ====================================
     // FLAPPY BIRD GAME VARIABLES
-    // ====================================
     let flappyCanvas, flappyCtx;
     let flappyGameRunning = false;
     let flappyGameOver = false;
@@ -154,9 +141,7 @@
     const FLAPPY_PIPE_INTERVAL = 90; // frames
     let flappyStarted = false; // waiting for first tap
 
-    // ====================================
     // TETRIS GAME VARIABLES
-    // ====================================
     let tetrisCanvas, tetrisCtx;
     let tetrisBoard = [];
     let tetrisCurrentPiece = null;
@@ -183,17 +168,13 @@
         { shape: [[0,0,1],[1,1,1]], color: '#0000f0' },      // L
     ];
 
-    // ====================================
     // QUOTES SYSTEM VARIABLES
-    // ====================================
     let quotesArray = [];
     let currentQuoteIndex = 0;
     let quoteInterval = null;
     let quotesInitialized = false; // Track if quotes system is already set up
     
-    // ====================================
     // XP SYSTEM VARIABLES
-    // ====================================
     let userXP = { 
         level: 1, 
         currentXP: 0, 
@@ -230,9 +211,7 @@
         gamer:      { icon: '🎮', name: 'Office Gamer',      desc: 'Earn XP in 10 game sessions' }
     };
     
-    // ====================================
     // IMAGE BOX VARIABLES
-    // ====================================
     let currentImageURL = '';
     let currentAspectRatio = '16:9'; // Default: Widescreen ratio
     
@@ -429,9 +408,7 @@
     function loadPrayerCount() { return parseInt(localStorage.getItem('prayerCount') || '0', 10); }
     function savePrayerCount(n) { localStorage.setItem('prayerCount', String(n)); }
 
-    // ====================================
     // 8-BALL POOL GAME VARIABLES
-    // ====================================
     let poolCanvas, poolCtx;
     let poolAnimFrame = null;
     let poolGameRunning = false;
@@ -445,9 +422,7 @@
     let poolRecord = { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
     let poolBgTime = 0; // animated background time counter
 
-    // ====================================
     // PRAYER COUNTER VARIABLES
-    // ====================================
     let prayerCount = 0;
 
     // Cue stick aiming state
@@ -499,8 +474,8 @@
     const POOL_FRICTION = 0.985;
     const POOL_RESTITUTION = 0.92;
     const POOL_MIN_VEL = 0.08;
-    const POOL_CUE_MAX_POWER = 18;
-    const POOL_SUB_STEPS = 6; // 18/6 = 3px per step — well under ball radius, prevents collision normal errors at high power
+    const POOL_CUE_MAX_POWER = 24;
+    const POOL_SUB_STEPS = 8; // 24/8 = 3px per step — well under ball radius, prevents collision normal errors at high power
     const POOL_CUSHION_X1 = 16;
     const POOL_CUSHION_Y1 = 16;
     const POOL_CUSHION_X2 = POOL_W - 16;
@@ -1336,21 +1311,49 @@
                     b.x = POOL_CUSHION_X1 + b.r;
                     b.vx = Math.abs(b.vx) * POOL_RESTITUTION;
                     if (poolShotFired) poolCushionAfterHit = true;
+                    // Cushion English: side spin alters rebound angle (LEFT wall)
+                    if (b.id === 0 && b.spinSide) {
+                        const sf = Math.min(Math.sqrt(b.vx*b.vx + b.vy*b.vy) * 0.12, 3);
+                        b.vy += b.spinSide * sf;
+                        b.vy += (-b.spinVert) * Math.sign(b.vy) * sf * 0.4;
+                        b.spinSide *= 0.6; b.spinVert *= 0.5;
+                    }
                 }
                 if (b.x + b.r > POOL_CUSHION_X2) {
                     b.x = POOL_CUSHION_X2 - b.r;
                     b.vx = -Math.abs(b.vx) * POOL_RESTITUTION;
                     if (poolShotFired) poolCushionAfterHit = true;
+                    // Cushion English: RIGHT wall
+                    if (b.id === 0 && b.spinSide) {
+                        const sf = Math.min(Math.sqrt(b.vx*b.vx + b.vy*b.vy) * 0.12, 3);
+                        b.vy -= b.spinSide * sf;
+                        b.vy += (-b.spinVert) * Math.sign(b.vy) * sf * 0.4;
+                        b.spinSide *= 0.6; b.spinVert *= 0.5;
+                    }
                 }
                 if (b.y - b.r < POOL_CUSHION_Y1) {
                     b.y = POOL_CUSHION_Y1 + b.r;
                     b.vy = Math.abs(b.vy) * POOL_RESTITUTION;
                     if (poolShotFired) poolCushionAfterHit = true;
+                    // Cushion English: TOP wall
+                    if (b.id === 0 && b.spinSide) {
+                        const sf = Math.min(Math.sqrt(b.vx*b.vx + b.vy*b.vy) * 0.12, 3);
+                        b.vx += b.spinSide * sf;
+                        b.vx += (-b.spinVert) * Math.sign(b.vx) * sf * 0.4;
+                        b.spinSide *= 0.6; b.spinVert *= 0.5;
+                    }
                 }
                 if (b.y + b.r > POOL_CUSHION_Y2) {
                     b.y = POOL_CUSHION_Y2 - b.r;
                     b.vy = -Math.abs(b.vy) * POOL_RESTITUTION;
                     if (poolShotFired) poolCushionAfterHit = true;
+                    // Cushion English: BOTTOM wall
+                    if (b.id === 0 && b.spinSide) {
+                        const sf = Math.min(Math.sqrt(b.vx*b.vx + b.vy*b.vy) * 0.12, 3);
+                        b.vx -= b.spinSide * sf;
+                        b.vx += (-b.spinVert) * Math.sign(b.vx) * sf * 0.4;
+                        b.spinSide *= 0.6; b.spinVert *= 0.5;
+                    }
                 }
             }
 
@@ -1383,6 +1386,17 @@
                         // Don't resolve if separating
                         if (dvn <= 0) continue;
 
+                        // Capture cue ball speed BEFORE elastic collision for spin calculation.
+                        // On head-on shots the collision transfers ALL velocity to the object ball,
+                        // leaving postSpeed ≈ 0 — which would kill follow/draw entirely.
+                        // Pre-collision speed correctly scales spin with shot power.
+                        let cueBallPreSpeed = 0;
+                        if (a.id === 0) {
+                            cueBallPreSpeed = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
+                        } else if (bj.id === 0) {
+                            cueBallPreSpeed = Math.sqrt(bj.vx * bj.vx + bj.vy * bj.vy);
+                        }
+
                         // Elastic impulse for equal mass: balls swap normal velocity components
                         a.vx -= dvn * nx;
                         a.vy -= dvn * ny;
@@ -1396,27 +1410,49 @@
                         bj.x += (overlap * 0.5) * nx;
                         bj.y += (overlap * 0.5) * ny;
 
-                        // Apply cue ball spin (English) AFTER hitting target ball
+                        // Apply cue ball spin (English) using PRE-collision speed.
+                        // Real pool physics: spin is angular momentum stored on the ball.
+                        // Follow (spinY=-1, top): cue ball continues forward after contact.
+                        // Draw   (spinY=+1, bottom): cue ball reverses backward.
+                        // Side   (spinX): cue ball deflects perpendicular to contact line.
+                        // 60% applied instantly at collision, 40% stored as residual drift
+                        // that gets applied gradually via cloth friction each frame.
                         if (a.id === 0 && a.spinX !== undefined && (a.spinX !== 0 || a.spinY !== 0)) {
-                            const postSpeed = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
-                            const spinMag = Math.min(postSpeed * 0.35, 4); // capped spin effect
-                            // Side spin: perpendicular deflection
-                            a.vx += (-ny) * a.spinX * spinMag;
-                            a.vy += nx * a.spinX * spinMag;
-                            // Top/back spin: along contact normal
-                            a.vx -= nx * a.spinY * spinMag * 0.4;
-                            a.vy -= ny * a.spinY * spinMag * 0.4;
+                            const spinMag = Math.min(cueBallPreSpeed * 0.4, 10);
+                            // Side spin: perpendicular to contact normal (0.5× follow strength)
+                            a.vx += (-ny) * a.spinX * spinMag * 0.5;
+                            a.vy += nx * a.spinX * spinMag * 0.5;
+                            // Follow/draw: along contact normal (full strength)
+                            a.vx -= nx * a.spinY * spinMag;
+                            a.vy -= ny * a.spinY * spinMag;
+                            // Store residual spin for gradual cloth-friction drift
+                            a.spinDriftVx = ((-ny) * a.spinX * 0.2 - nx * a.spinY * 0.35) * cueBallPreSpeed;
+                            a.spinDriftVy = (nx * a.spinX * 0.2 - ny * a.spinY * 0.35) * cueBallPreSpeed;
                             a.spinX = 0;
                             a.spinY = 0;
                         } else if (bj.id === 0 && bj.spinX !== undefined && (bj.spinX !== 0 || bj.spinY !== 0)) {
-                            const postSpeed = Math.sqrt(bj.vx * bj.vx + bj.vy * bj.vy);
-                            const spinMag = Math.min(postSpeed * 0.35, 4);
-                            bj.vx += ny * bj.spinX * spinMag;
-                            bj.vy += (-nx) * bj.spinX * spinMag;
-                            bj.vx += nx * bj.spinY * spinMag * 0.4;
-                            bj.vy += ny * bj.spinY * spinMag * 0.4;
+                            const spinMag = Math.min(cueBallPreSpeed * 0.4, 10);
+                            bj.vx += ny * bj.spinX * spinMag * 0.5;
+                            bj.vy += (-nx) * bj.spinX * spinMag * 0.5;
+                            bj.vx += nx * bj.spinY * spinMag;
+                            bj.vy += ny * bj.spinY * spinMag;
+                            bj.spinDriftVx = (ny * bj.spinX * 0.2 + nx * bj.spinY * 0.35) * cueBallPreSpeed;
+                            bj.spinDriftVy = ((-nx) * bj.spinX * 0.2 + ny * bj.spinY * 0.35) * cueBallPreSpeed;
                             bj.spinX = 0;
                             bj.spinY = 0;
+                        }
+
+                        // Throw: side spin deflects object ball perpendicular to contact line
+                        if (a.id === 0 && a.spinSide) {
+                            const tF = Math.min(cueBallPreSpeed * 0.015, 1.5);
+                            bj.vx += (-ny) * (-a.spinSide) * tF;
+                            bj.vy += nx * (-a.spinSide) * tF;
+                            a.spinSide *= 0.5; a.spinVert *= 0.4;
+                        } else if (bj.id === 0 && bj.spinSide) {
+                            const tF = Math.min(cueBallPreSpeed * 0.015, 1.5);
+                            a.vx += ny * (-bj.spinSide) * tF;
+                            a.vy += (-nx) * (-bj.spinSide) * tF;
+                            bj.spinSide *= 0.5; bj.spinVert *= 0.4;
                         }
                     }
                 }
@@ -1445,6 +1481,27 @@
         // Apply friction and rotation once per frame (after all sub-steps)
         const postBalls = poolBalls.filter(b => !b.pocketed);
         for (const b of postBalls) {
+            // Apply residual spin drift from cloth friction (gradual follow/draw/english curve)
+            // This makes the cue ball arc realistically after collision rather than
+            // snapping instantly to its final trajectory.
+            if (b.id === 0 && b.spinDriftVx !== undefined &&
+                (b.spinDriftVx !== 0 || b.spinDriftVy !== 0)) {
+                b.vx += b.spinDriftVx * 0.12;
+                b.vy += b.spinDriftVy * 0.12;
+                b.spinDriftVx *= 0.90;
+                b.spinDriftVy *= 0.90;
+                if (Math.abs(b.spinDriftVx) < 0.01 && Math.abs(b.spinDriftVy) < 0.01) {
+                    b.spinDriftVx = 0;
+                    b.spinDriftVy = 0;
+                }
+            }
+
+            // Per-frame spin decay via cloth friction
+            if (b.id === 0) {
+                if (b.spinSide) { b.spinSide *= 0.998; if (Math.abs(b.spinSide) < 0.01) b.spinSide = 0; }
+                if (b.spinVert) { b.spinVert *= 0.993; if (Math.abs(b.spinVert) < 0.01) b.spinVert = 0; }
+            }
+
             b.vx *= POOL_FRICTION;
             b.vy *= POOL_FRICTION;
 
@@ -2131,6 +2188,10 @@
         // Store spin on cue ball — applied AFTER hitting a target ball
         cueBall.spinX = poolCueSpinX;
         cueBall.spinY = poolCueSpinY;
+        cueBall.spinSide = poolCueSpinX;   // persistent for cushion English
+        cueBall.spinVert = poolCueSpinY;   // persistent for cushion angle
+        cueBall.spinDriftVx = 0;
+        cueBall.spinDriftVy = 0;
 
         poolShotFired = true;
         poolIsBreakShot = false;  // kitchen restriction lifts after first shot
@@ -2930,9 +2991,7 @@
         ctx.textBaseline = 'alphabetic';
     }
 
-    // ====================================
     // POOL INPUT HANDLERS
-    // ====================================
 
     function handlePoolMouseDown(e) {
         if (!poolGameRunning || poolGameOver) return;
@@ -3037,8 +3096,6 @@
             poolCuePower = Math.min(POOL_CUE_MAX_POWER, Math.max(0, (Math.abs(projection) - 5) * 0.20));
             // Angle stays locked — do NOT update poolCueAngle here
         }
-        // Free aim (no button held): poolDrawCue reads poolMouseX/Y and
-        // updates poolCueAngle itself every frame, so nothing to do here.
     }
 
     function handlePoolMouseUp(e) {
@@ -3078,9 +3135,7 @@
         handlePoolMouseUp({});
     }
 
-    // ====================================
     // POOL GAME LIFECYCLE
-    // ====================================
 
     function initPoolGame() {
         poolCanvas = document.getElementById('pool-canvas');
@@ -3244,9 +3299,7 @@
         resetPoolGame();
     }
 
-    // ====================================
     // POOL MAXIMIZE
-    // ====================================
     let poolOriginalStyles = null;
     let poolModalOverlay = null;
     let poolModalPlaceholder = null; // invisible placeholder keeping layout space
@@ -3377,10 +3430,7 @@
         drawPoolFrame();
     }
 
-
-    // ====================================
     // SNAKE GAME LOGIC
-    // ====================================
     
     function initSnakeGame() {
         snakeCanvas = document.getElementById('snake-canvas');
@@ -3692,9 +3742,7 @@
         }
     }
     
-    // ====================================
     // REFLEX GAME LOGIC
-    // ====================================
     
     function initReflexGame() {
         gameAreaElement = document.getElementById('multi-game-area');
@@ -4074,9 +4122,7 @@
         }
     }
     
-    // ====================================
     // AIM TRAINER CHAOS MODE LOGIC
-    // ====================================
     
     function initAimTrainerGame() {
         gameAreaElement = document.getElementById('multi-game-area');
@@ -4494,9 +4540,7 @@
         }
     }
     
-    // ====================================
     // FLAPPY BIRD GAME LOGIC
-    // ====================================
     function initFlappyGame() {
         flappyCanvas = document.getElementById('flappy-canvas');
         if (!flappyCanvas) return;
@@ -4756,9 +4800,7 @@
         if (hs) hs.textContent = 'Best: ' + flappyHighScore;
     }
 
-    // ====================================
     // TETRIS GAME LOGIC
-    // ====================================
     function initTetrisGame() {
         tetrisCanvas = document.getElementById('tetris-canvas');
         if (!tetrisCanvas) return;
@@ -5083,9 +5125,7 @@
         if (hs) hs.textContent = 'Best: ' + tetrisHighScore;
     }
 
-    // ====================================
     // PRAYER COUNTER LOGIC
-    // ====================================
 
     function initPrayerCounter() {
         prayerCount = loadPrayerCount();
@@ -5118,9 +5158,7 @@
         if (hdr) hdr.textContent = prayerCount;
     }
 
-    // ====================================
     // GAME SWITCHING SYSTEM
-    // ====================================
     
     function switchToGame(gameKey) {
         if (currentGame === gameKey) return;
@@ -5320,9 +5358,7 @@
         }
     }
     
-    // ====================================
     // QUOTES SYSTEM LOGIC
-    // ====================================
     
     function initQuotesSystem() {
         // Prevent re-initialization to avoid resetting animations
@@ -5399,9 +5435,7 @@
         startQuoteCycling();
     }
     
-    // ====================================
     // XP SYSTEM LOGIC
-    // ====================================
     
     function initXPSystem() {
         userXP = loadUserXP();
@@ -5814,9 +5848,7 @@
         }
     }
     
-    // ====================================
     // IMAGE BOX LOGIC
-    // ====================================
     
     function initImageBox() {
         currentImageURL = loadImageURL();
@@ -10191,9 +10223,7 @@
         return `rgba(${result[0]}, ${result[1]}, ${result[2]}, 0.2)`;
     }
     
-    // ====================================
     // PICTURE-IN-PICTURE FUNCTIONALITY
-    // ====================================
     
     // Check if Picture-in-Picture is supported
     function isPipSupported() {

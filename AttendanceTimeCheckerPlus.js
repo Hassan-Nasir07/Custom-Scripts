@@ -232,7 +232,8 @@
         displayTheme: 'glassmorphic', // 'glassmorphic' or 'retro-futuristic'
         gameModeHidden: true, // true = Game Mode ON (panels visible); false = Game Mode OFF (panels hidden, widget shrinks)
         shiftDuration: '8h', // '4h' = short leave, '8h' = standard, '9h' = overtime
-        poolTableColor: 'green' // 'green', 'red', 'blue', 'lightgrey'
+        poolTableColor: 'green', // 'green', 'red', 'blue', 'lightgrey'
+        gameFps: 60 // 30 or 60 — half or full vsync
     };
 
     // Returns the selected shift duration in seconds
@@ -240,6 +241,27 @@
         const map = { '4h': 14400, '8h': 28800, '9h': 32400 };
         return map[userPreferences.shiftDuration] || 28800;
     }
+
+    // Fixed game-logic timestep: 60 updates/sec regardless of monitor refresh rate
+    const FIXED_DT = 1000 / 60; // 16.667ms
+
+    // Frame interval in ms for the selected render FPS cap
+    function getFrameInterval() {
+        return Number(userPreferences.gameFps) === 30 ? 33.33 : 16.67;
+    }
+
+    // Per-game render timestamps (FPS cap) and logic accumulators (fixed timestep)
+    let breakoutLastFrameMs = 0;
+    let breakoutLastLogicMs = 0;
+    let breakoutAccumulator = 0;
+    let flappyLastFrameMs = 0;
+    let flappyLastLogicMs = 0;
+    let flappyAccumulator = 0;
+    let poolLastFrameMs = 0;
+    let poolLastLogicMs = 0;
+    let poolAccumulator = 0;
+    let tetrisLastFrameMs = 0;
+    let snakeLastRenderMs = 0;
     
     // Load saved preferences
     function loadPreferences() {
@@ -661,16 +683,34 @@
         if (breakoutGameRunning) return;
         resetBreakoutGame();
         breakoutGameRunning = true;
+        breakoutLastLogicMs = 0;
+        breakoutAccumulator = 0;
+        breakoutLastFrameMs = 0;
         breakoutAnimFrame = requestAnimationFrame(breakoutLoop);
         // click to release sticky ball
         breakoutCanvas.addEventListener('click', brkHandleClick);
     }
 
-    function breakoutLoop() {
+    function breakoutLoop(now) {
         if (!breakoutGameRunning) return;
-        updateBreakout();
-        drawBreakoutFrame();
         breakoutAnimFrame = requestAnimationFrame(breakoutLoop);
+
+        // Fixed timestep: game logic always runs at 60 updates/sec
+        if (!breakoutLastLogicMs) breakoutLastLogicMs = now;
+        let delta = now - breakoutLastLogicMs;
+        breakoutLastLogicMs = now;
+        if (delta > 100) delta = 100; // cap to prevent spiral of death
+        breakoutAccumulator += delta;
+        while (breakoutAccumulator >= FIXED_DT) {
+            updateBreakout();
+            breakoutAccumulator -= FIXED_DT;
+        }
+
+        // Render: capped by FPS setting
+        const renderElapsed = now - breakoutLastFrameMs;
+        if (renderElapsed < getFrameInterval()) return;
+        breakoutLastFrameMs = now - (renderElapsed % getFrameInterval());
+        drawBreakoutFrame();
     }
 
     function brkHandleClick() {
@@ -2553,10 +2593,9 @@
         }
 
         // Aiming line (dotted)
-        ctx.strokeStyle = 'rgba(255,255,255,0.82)';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([5, 4]);
-        ctx.beginPath();
+        // --- Determine if the aimed ball is illegal for the current player ---
+        // (mirrors poolProcessTurnResult foul checks)
+        // Cast ahead to find hitBall first, then choose guide colours.
 
         // Cast line from cue ball in shot direction until hitting something
         const dirX = Math.cos(angle);
@@ -2597,6 +2636,36 @@
 
         lineLen = Math.max(0, lineLen);
 
+        // --- Illegal ball check ---
+        let aimIllegal = false;
+        if (hitBall) {
+            const curGroup = poolTurn === 1 ? poolPlayer1Group : poolPlayer2Group;
+            const tableOpen = !poolFirstPocket;
+            const myPocketed = poolTurn === 1 ? poolPlayer1Pocketed : poolPlayer2Pocketed;
+            const onThe8 = !tableOpen && myPocketed.length >= 7;
+
+            if (!tableOpen) {
+                const hid = hitBall.id;
+                const isSolid  = hid >= 1 && hid <= 7;
+                const isStripe = hid >= 9 && hid <= 15;
+                const is8      = hid === 8;
+
+                if (onThe8) {
+                    if (!is8) aimIllegal = true; // must hit 8-ball
+                } else {
+                    if (is8) aimIllegal = true; // can't hit 8 early
+                    else if (curGroup === 'solids' && isStripe) aimIllegal = true;
+                    else if (curGroup === 'stripes' && isSolid) aimIllegal = true;
+                }
+            }
+        }
+
+        // --- Draw the aim line (white = legal, red = illegal) ---
+        ctx.strokeStyle = aimIllegal ? 'rgba(255,60,60,0.85)' : 'rgba(255,255,255,0.82)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+
         ctx.moveTo(cueBall.x, cueBall.y);
         ctx.lineTo(cueBall.x + dirX * lineLen, cueBall.y + dirY * lineLen);
         ctx.stroke();
@@ -2607,72 +2676,102 @@
             const ghostX = cueBall.x + dirX * hitDist;
             const ghostY = cueBall.y + dirY * hitDist;
 
-            // Ghost ball outline (where cue ball will be at contact)
-            ctx.strokeStyle = 'rgba(255,255,255,0.92)';
-            ctx.lineWidth = 1.8;
-            ctx.setLineDash([3, 2]);
-            ctx.beginPath();
-            ctx.arc(ghostX, ghostY, POOL_BALL_R, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.setLineDash([]);
+            if (aimIllegal) {
+                // ===== PROHIBITION SIGN (NOT ALLOWED) =====
+                const prohibR = POOL_BALL_R + 3; // slightly larger than ball
 
-            // Fill ghost ball with subtle transparency
-            ctx.fillStyle = 'rgba(255,255,255,0.22)';
-            ctx.beginPath();
-            ctx.arc(ghostX, ghostY, POOL_BALL_R, 0, Math.PI * 2);
-            ctx.fill();
+                // Red circle
+                ctx.strokeStyle = 'rgba(255,50,50,0.92)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(ghostX, ghostY, prohibR, 0, Math.PI * 2);
+                ctx.stroke();
 
-            // Compute accurate target ball direction using contact physics
-            // The impulse is along the line connecting ghost center to target center
-            const contactNX = (hitBall.x - ghostX);
-            const contactNY = (hitBall.y - ghostY);
-            const contactLen = Math.sqrt(contactNX * contactNX + contactNY * contactNY);
-            if (contactLen > 0) {
-                const nx = contactNX / contactLen;
-                const ny = contactNY / contactLen;
-                // Target ball receives velocity along contact normal
-                // v_target = (v_cue . n) * n (for equal mass elastic collision)
-                const cueDotN = dirX * nx + dirY * ny;
+                // Translucent red fill
+                ctx.fillStyle = 'rgba(255,40,40,0.18)';
+                ctx.beginPath();
+                ctx.arc(ghostX, ghostY, prohibR, 0, Math.PI * 2);
+                ctx.fill();
 
-                // Only draw if a meaningful hit
-                if (cueDotN > 0.1) {
-                    const targetDirX = nx;
-                    const targetDirY = ny;
-                    const projLen = 30 * cueDotN; // length proportional to how direct the hit is
+                // Diagonal slash (top-left to bottom-right, rotated 45 degrees)
+                ctx.strokeStyle = 'rgba(255,50,50,0.92)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                const slashAngle = Math.PI / 4; // 45 degrees
+                ctx.moveTo(ghostX - Math.cos(slashAngle) * prohibR, ghostY - Math.sin(slashAngle) * prohibR);
+                ctx.lineTo(ghostX + Math.cos(slashAngle) * prohibR, ghostY + Math.sin(slashAngle) * prohibR);
+                ctx.stroke();
 
-                    ctx.strokeStyle = 'rgba(255,220,0,0.95)';
-                    ctx.lineWidth = 1.8;
-                    ctx.setLineDash([4, 3]);
-                    ctx.beginPath();
-                    ctx.moveTo(hitBall.x, hitBall.y);
-                    ctx.lineTo(hitBall.x + targetDirX * projLen, hitBall.y + targetDirY * projLen);
-                    ctx.stroke();
-                    ctx.setLineDash([]);
+            } else {
+                // ===== NORMAL GHOST BALL & TRAJECTORY GUIDES =====
 
-                    // Arrow head dot
-                    const arrowX = hitBall.x + targetDirX * projLen;
-                    const arrowY = hitBall.y + targetDirY * projLen;
-                    ctx.fillStyle = 'rgba(255,220,0,0.95)';
-                    ctx.beginPath();
-                    ctx.arc(arrowX, arrowY, 2.5, 0, Math.PI * 2);
-                    ctx.fill();
+                // Ghost ball outline (where cue ball will be at contact)
+                ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+                ctx.lineWidth = 1.8;
+                ctx.setLineDash([3, 2]);
+                ctx.beginPath();
+                ctx.arc(ghostX, ghostY, POOL_BALL_R, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
 
-                    // Also show cue ball deflection path
-                    // v_cue_after = v_cue - (v_cue . n) * n
-                    const cueAfterX = dirX - cueDotN * nx;
-                    const cueAfterY = dirY - cueDotN * ny;
-                    const cueAfterLen = Math.sqrt(cueAfterX * cueAfterX + cueAfterY * cueAfterY);
-                    if (cueAfterLen > 0.15) {
-                        const cueDeflX = cueAfterX / cueAfterLen;
-                        const cueDeflY = cueAfterY / cueAfterLen;
-                        ctx.strokeStyle = 'rgba(180,220,255,0.75)';
-                        ctx.lineWidth = 1.4;
-                        ctx.setLineDash([3, 3]);
+                // Fill ghost ball with subtle transparency
+                ctx.fillStyle = 'rgba(255,255,255,0.22)';
+                ctx.beginPath();
+                ctx.arc(ghostX, ghostY, POOL_BALL_R, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Compute accurate target ball direction using contact physics
+                // The impulse is along the line connecting ghost center to target center
+                const contactNX = (hitBall.x - ghostX);
+                const contactNY = (hitBall.y - ghostY);
+                const contactLen = Math.sqrt(contactNX * contactNX + contactNY * contactNY);
+                if (contactLen > 0) {
+                    const nx = contactNX / contactLen;
+                    const ny = contactNY / contactLen;
+                    // Target ball receives velocity along contact normal
+                    // v_target = (v_cue . n) * n (for equal mass elastic collision)
+                    const cueDotN = dirX * nx + dirY * ny;
+
+                    // Only draw if a meaningful hit
+                    if (cueDotN > 0.1) {
+                        const targetDirX = nx;
+                        const targetDirY = ny;
+                        const projLen = 30 * cueDotN; // length proportional to how direct the hit is
+
+                        ctx.strokeStyle = 'rgba(255,220,0,0.95)';
+                        ctx.lineWidth = 1.8;
+                        ctx.setLineDash([4, 3]);
                         ctx.beginPath();
-                        ctx.moveTo(ghostX, ghostY);
-                        ctx.lineTo(ghostX + cueDeflX * 28, ghostY + cueDeflY * 28);
+                        ctx.moveTo(hitBall.x, hitBall.y);
+                        ctx.lineTo(hitBall.x + targetDirX * projLen, hitBall.y + targetDirY * projLen);
                         ctx.stroke();
                         ctx.setLineDash([]);
+
+                        // Arrow head dot
+                        const arrowX = hitBall.x + targetDirX * projLen;
+                        const arrowY = hitBall.y + targetDirY * projLen;
+                        ctx.fillStyle = 'rgba(255,220,0,0.95)';
+                        ctx.beginPath();
+                        ctx.arc(arrowX, arrowY, 2.5, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        // Also show cue ball deflection path
+                        // v_cue_after = v_cue - (v_cue . n) * n
+                        const cueAfterX = dirX - cueDotN * nx;
+                        const cueAfterY = dirY - cueDotN * ny;
+                        const cueAfterLen = Math.sqrt(cueAfterX * cueAfterX + cueAfterY * cueAfterY);
+                        if (cueAfterLen > 0.15) {
+                            const cueDeflX = cueAfterX / cueAfterLen;
+                            const cueDeflY = cueAfterY / cueAfterLen;
+                            ctx.strokeStyle = 'rgba(180,220,255,0.75)';
+                            ctx.lineWidth = 1.4;
+                            ctx.setLineDash([3, 3]);
+                            ctx.beginPath();
+                            ctx.moveTo(ghostX, ghostY);
+                            ctx.lineTo(ghostX + cueDeflX * 28, ghostY + cueDeflY * 28);
+                            ctx.stroke();
+                            ctx.setLineDash([]);
+                        }
                     }
                 }
             }
@@ -3188,70 +3287,81 @@
         if (poolGameRunning) return;
         poolGameRunning = true;
         poolGameOver = false;
+        poolLastLogicMs = 0;
+        poolAccumulator = 0;
+        poolLastFrameMs = 0;
         if (!poolBalls.length) poolBalls = poolRackBalls();
         poolLoop();
     }
 
-    function poolLoop() {
+    function poolLoop(now) {
         if (!poolGameRunning) return;
+        poolAnimFrame = requestAnimationFrame(poolLoop);
+        if (!now) return; // first manual call has no timestamp
 
-        if (!poolAllStopped()) {
-            poolPhysicsUpdate();
-            poolFoulMessage = ''; // Clear foul message while balls are moving
-            poolShotTimer = POOL_SHOT_CLOCK; // reset timer while balls move
-            poolShotTimerFrame = 0;
-        } else if (poolShotFired) {
-            // All balls stopped after a shot — process turn
-            poolProcessTurnResult();
-            poolShotTimer = POOL_SHOT_CLOCK;
-            poolShotTimerFrame = 0;
-        } else if (poolMode === 'cpu' && poolTurn === 2 && !poolGameOver) {
-            // AI turn — auto-place ball if needed
-            if (poolPlacingBall || poolBallInHand) {
-                poolAIPlaceBall();
-                poolAIPendingShot = null; // clear preview while placing
-            } else {
-                // Pre-compute shot once so we can display the aim during the delay
-                if (poolAIPendingShot === null) {
-                    poolAITakeShot(true);
-                }
-                if (poolAIDelay > 0) {
-                    poolAIDelay--;
-                } else {
-                    // Fire the pre-computed shot
-                    const aiCueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
-                    if (aiCueBall && poolAIPendingShot) {
-                        poolCueSpinX = poolAIPendingShot.spinX || 0;
-                        poolCueSpinY = poolAIPendingShot.spinY || 0;
-                        poolFireShot(aiCueBall, poolAIPendingShot.angle, poolAIPendingShot.power);
-                        poolAIPendingShot = null;
-                    }
-                }
-            }
-        } else if (!poolGameOver && !poolPlacingBall) {
-            // Shot clock for human player
-            poolShotTimerFrame++;
-            if (poolShotTimerFrame >= 60) {
+        // Fixed timestep: game logic always runs at 60 updates/sec
+        if (!poolLastLogicMs) poolLastLogicMs = now;
+        let delta = now - poolLastLogicMs;
+        poolLastLogicMs = now;
+        if (delta > 100) delta = 100;
+        poolAccumulator += delta;
+        while (poolAccumulator >= FIXED_DT) {
+            if (!poolAllStopped()) {
+                poolPhysicsUpdate();
+                poolFoulMessage = '';
+                poolShotTimer = POOL_SHOT_CLOCK;
                 poolShotTimerFrame = 0;
-                poolShotTimer--;
-                if (poolShotTimer <= 0) {
-                    // Time expired — foul, switch turns
-                    poolFoulMessage = 'Shot clock expired!';
-                    poolTurn = poolTurn === 1 ? 2 : 1;
-                    poolBallInHand = true;
-                    poolPlacingBall = true;
-                    poolShotTimer = POOL_SHOT_CLOCK;
-                    poolShotTimerFrame = 0;
-                    if (poolMode === 'cpu' && poolTurn === 2) {
-                        poolAIDelay = 60;
+            } else if (poolShotFired) {
+                poolProcessTurnResult();
+                poolShotTimer = POOL_SHOT_CLOCK;
+                poolShotTimerFrame = 0;
+            } else if (poolMode === 'cpu' && poolTurn === 2 && !poolGameOver) {
+                if (poolPlacingBall || poolBallInHand) {
+                    poolAIPlaceBall();
+                    poolAIPendingShot = null;
+                } else {
+                    if (poolAIPendingShot === null) {
+                        poolAITakeShot(true);
                     }
-                    updatePoolScoreboard();
+                    if (poolAIDelay > 0) {
+                        poolAIDelay--;
+                    } else {
+                        const aiCueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
+                        if (aiCueBall && poolAIPendingShot) {
+                            poolCueSpinX = poolAIPendingShot.spinX || 0;
+                            poolCueSpinY = poolAIPendingShot.spinY || 0;
+                            poolFireShot(aiCueBall, poolAIPendingShot.angle, poolAIPendingShot.power);
+                            poolAIPendingShot = null;
+                        }
+                    }
+                }
+            } else if (!poolGameOver && !poolPlacingBall) {
+                poolShotTimerFrame++;
+                if (poolShotTimerFrame >= 60) {
+                    poolShotTimerFrame = 0;
+                    poolShotTimer--;
+                    if (poolShotTimer <= 0) {
+                        poolFoulMessage = 'Shot clock expired!';
+                        poolTurn = poolTurn === 1 ? 2 : 1;
+                        poolBallInHand = true;
+                        poolPlacingBall = true;
+                        poolShotTimer = POOL_SHOT_CLOCK;
+                        poolShotTimerFrame = 0;
+                        if (poolMode === 'cpu' && poolTurn === 2) {
+                            poolAIDelay = 60;
+                        }
+                        updatePoolScoreboard();
+                    }
                 }
             }
+            poolAccumulator -= FIXED_DT;
         }
 
+        // Render: capped by FPS setting
+        const renderElapsed = now - poolLastFrameMs;
+        if (renderElapsed < getFrameInterval()) return;
+        poolLastFrameMs = now - (renderElapsed % getFrameInterval());
         drawPoolFrame();
-        poolAnimFrame = requestAnimationFrame(poolLoop);
     }
 
     function endPoolGame() {
@@ -3562,10 +3672,12 @@
     // Keep alias so any other callers still work
     function updateSnakeGame() { snakeTick(); }
 
-    // rAF render loop — runs at ~60fps, interpolates between logic ticks
+    // rAF render loop — logic always runs via accumulator, render is FPS-capped
     function snakeRenderLoop(timestamp) {
         if (!snakeGameRunning) return;
+        snakeAnimFrame = requestAnimationFrame(snakeRenderLoop);
 
+        // Logic: always runs, frame-rate independent via accumulator
         if (!snakeLastTickMs) snakeLastTickMs = timestamp;
         const delta = timestamp - snakeLastTickMs;
         snakeLastTickMs = timestamp;
@@ -3578,10 +3690,13 @@
             }
         }
 
-        // t: 0 = just ticked, 1 = about to tick. Clamp so we never overshoot.
+        // Render: capped by FPS setting
+        const renderElapsed = timestamp - snakeLastRenderMs;
+        if (renderElapsed < getFrameInterval()) return;
+        snakeLastRenderMs = timestamp - (renderElapsed % getFrameInterval());
+
         const t = Math.min(1, snakeAccumulatorMs / snakeTickInterval);
         drawSnakeGame(t);
-        snakeAnimFrame = requestAnimationFrame(snakeRenderLoop);
     }
     
     function spawnFood() {
@@ -4579,14 +4694,33 @@
     function startFlappyGame() {
         resetFlappyGame();
         flappyGameRunning = true;
+        flappyLastLogicMs = 0;
+        flappyAccumulator = 0;
+        flappyLastFrameMs = 0;
         flappyLoop();
     }
 
-    function flappyLoop() {
+    function flappyLoop(now) {
         if (!flappyGameRunning) return;
-        updateFlappy();
-        drawFlappyFrame();
         flappyAnimFrame = requestAnimationFrame(flappyLoop);
+        if (!now) return; // first manual call has no timestamp
+
+        // Fixed timestep: game logic always runs at 60 updates/sec
+        if (!flappyLastLogicMs) flappyLastLogicMs = now;
+        let delta = now - flappyLastLogicMs;
+        flappyLastLogicMs = now;
+        if (delta > 100) delta = 100;
+        flappyAccumulator += delta;
+        while (flappyAccumulator >= FIXED_DT) {
+            updateFlappy();
+            flappyAccumulator -= FIXED_DT;
+        }
+
+        // Render: capped by FPS setting
+        const renderElapsed = now - flappyLastFrameMs;
+        if (renderElapsed < getFrameInterval()) return;
+        flappyLastFrameMs = now - (renderElapsed % getFrameInterval());
+        drawFlappyFrame();
     }
 
     function flappyCurrentSpeed() {
@@ -4841,6 +4975,7 @@
         tetrisCurrentPiece = spawnTetrisPiece();
         tetrisGameRunning = true;
         tetrisLastDrop = performance.now();
+        tetrisLastFrameMs = 0;
         tetrisLoop();
     }
 
@@ -4856,13 +4991,21 @@
 
     function tetrisLoop(now) {
         if (!tetrisGameRunning) return;
+        tetrisAnimFrame = requestAnimationFrame(tetrisLoop);
+        if (!now) return; // first manual call has no timestamp
+
+        // Logic: timestamp-based drop interval — already frame-rate independent
         const dropInterval = Math.max(80, 600 - (tetrisLevel - 1) * 55);
         if (now - tetrisLastDrop >= dropInterval) {
             if (!moveTetris(0, 1)) lockTetrisPiece();
             tetrisLastDrop = now;
         }
+
+        // Render: capped by FPS setting
+        const renderElapsed = now - tetrisLastFrameMs;
+        if (renderElapsed < getFrameInterval()) return;
+        tetrisLastFrameMs = now - (renderElapsed % getFrameInterval());
         drawTetrisFrame();
-        tetrisAnimFrame = requestAnimationFrame(tetrisLoop);
     }
 
     function moveTetris(dx, dy) {
@@ -9840,6 +9983,13 @@
                 <div class="toggle-switch ${userPreferences.gameModeHidden ? 'active' : ''}" data-pref="gameModeHidden"></div>
             </div>
             <div class="settings-option">
+                <span class="settings-option-label">🖥️ VSync</span>
+                <select class="settings-select" data-pref="gameFps" id="fps-selector">
+                    <option value="60" ${userPreferences.gameFps === 60 || userPreferences.gameFps === '60' ? 'selected' : ''}>Full (60 FPS)</option>
+                    <option value="30" ${userPreferences.gameFps === 30 || userPreferences.gameFps === '30' ? 'selected' : ''}>Half (30 FPS)</option>
+                </select>
+            </div>
+            <div class="settings-option">
                 <span class="settings-option-label">🎱 Pool Table Color</span>
                 <div class="pool-color-swatches" id="pool-color-swatches">
                     <div class="pool-color-swatch ${userPreferences.poolTableColor === 'green' ? 'active' : ''}" data-pool-color="green" style="background: linear-gradient(135deg, #2d8a4e, #1a5c32);" title="Green"></div>
@@ -9873,7 +10023,7 @@
         modal.querySelectorAll('.settings-select').forEach(select => {
             select.addEventListener('change', function() {
                 const pref = this.getAttribute('data-pref');
-                userPreferences[pref] = this.value;
+                userPreferences[pref] = pref === 'gameFps' ? parseInt(this.value) : this.value;
                 savePreferences();
                 applyPreferences();
                 

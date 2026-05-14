@@ -6100,15 +6100,15 @@
             
             .attendance-summary {
                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
-                backdrop-filter: blur(20px);
-                -webkit-backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.2);
+                background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
+                backdrop-filter: blur(28px) saturate(160%);
+                -webkit-backdrop-filter: blur(28px) saturate(160%);
+                border: 1px solid rgba(255, 255, 255, 0.22);
                 border-radius: 24px;
                 box-shadow: 
                     0 8px 32px rgba(0, 0, 0, 0.1),
                     0 1px 2px rgba(0, 0, 0, 0.05),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.12),
                     5px 5px 15px rgba(0, 0, 0, 0.08),
                     -5px -5px 15px rgba(255, 255, 255, 0.05);
                 margin: 32px auto;
@@ -6271,10 +6271,13 @@
                 width: 100%;
                 border-collapse: collapse;
                 margin: 24px 0;
-                background: rgba(255, 255, 255, 0.05);
+                background: rgba(255, 255, 255, 0.06);
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
                 border-radius: 16px;
                 overflow: hidden;
                 box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 transition: background 0.5s ease, box-shadow 0.5s ease;
             }
             
@@ -6739,147 +6742,30 @@
                     -webkit-text-fill-color: transparent !important;
                 }
                 
-                /* Retro-Futuristic Theme for PiP */
+                /* Retro-Futuristic Theme for PiP — inherits tokens from main .retro-theme rules.
+                   Only PiP-specific overrides (compact button, sizing) needed here. */
                 .pip-window-content.retro-theme {
-                    background: linear-gradient(135deg, var(--retro-dark) 0%, var(--retro-dark-alt) 100%) !important;
-                    color: var(--neon-cyan) !important;
+                    background: linear-gradient(135deg, var(--rt-bg-1) 0%, var(--rt-bg-2) 100%) !important;
+                    color: var(--rt-text) !important;
                     position: relative !important;
                     overflow: hidden !important;
                 }
-                
-                .pip-window-content.retro-theme::before {
-                    content: '' !important;
-                    position: absolute !important;
-                    top: 0 !important;
-                    left: 0 !important;
-                    right: 0 !important;
-                    bottom: 0 !important;
-                    background: repeating-linear-gradient(
-                        0deg,
-                        rgba(0, 240, 255, 0.02) 0px,
-                        transparent 1px,
-                        transparent 2px,
-                        rgba(0, 240, 255, 0.02) 3px
-                    ) !important;
-                    animation: scanlines 8s linear infinite !important;
-                    pointer-events: none !important;
-                    z-index: 0 !important;
-                }
-                
-                .pip-window-content.retro-theme .modern-table {
-                    background: rgba(0, 0, 0, 0.5) !important;
-                    box-shadow: 
-                        0 0 10px rgba(0, 240, 255, 0.3),
-                        inset 0 0 20px rgba(0, 240, 255, 0.05) !important;
-                    border: 1px solid rgba(0, 240, 255, 0.2) !important;
-                    position: relative !important;
-                    z-index: 1 !important;
-                }
-                
-                .pip-window-content.retro-theme .modern-table td {
-                    color: rgba(0, 240, 255, 0.9) !important;
-                    font-family: 'Share Tech Mono', monospace !important;
-                    border-bottom: 1px solid rgba(0, 240, 255, 0.15) !important;
-                }
-                
-                .pip-window-content.retro-theme .stat-card {
-                    background: rgba(0, 0, 0, 0.6) !important;
-                    border: 1px solid var(--neon-cyan) !important;
-                    box-shadow: 
-                        0 0 10px var(--neon-cyan),
-                        inset 0 0 10px rgba(0, 240, 255, 0.1) !important;
-                    position: relative !important;
-                    z-index: 1 !important;
-                    animation: neonPulse 4s ease-in-out infinite !important;
-                }
-                
-                .pip-window-content.retro-theme .stat-card.worked-time-card {
-                    border-color: var(--neon-cyan) !important;
-                    box-shadow: 
-                        0 0 15px var(--neon-cyan),
-                        inset 0 0 15px rgba(0, 240, 255, 0.15) !important;
-                }
-                
-                .pip-window-content.retro-theme .stat-card.remaining-time-card {
-                    border-color: var(--neon-magenta) !important;
-                    box-shadow: 
-                        0 0 15px var(--neon-magenta),
-                        inset 0 0 15px rgba(255, 0, 255, 0.15) !important;
-                }
-                
-                .pip-window-content.retro-theme .stat-card.completion-time-card {
-                    border-color: var(--neon-green) !important;
-                    box-shadow: 
-                        0 0 15px var(--neon-green),
-                        inset 0 0 15px rgba(0, 255, 65, 0.15) !important;
-                }
-                
-                .pip-window-content.retro-theme .stat-label {
-                    color: rgba(0, 240, 255, 0.7) !important;
-                    font-family: 'Orbitron', sans-serif !important;
-                    text-shadow: 0 0 5px var(--neon-cyan) !important;
-                }
-                
-                .pip-window-content.retro-theme .stat-value {
-                    font-family: 'Share Tech Mono', monospace !important;
-                    text-shadow: 0 0 10px currentColor !important;
-                }
-                
-                .pip-window-content.retro-theme .worked-time {
-                    color: var(--neon-cyan) !important;
-                    text-shadow: 0 0 15px var(--neon-cyan) !important;
-                }
-                
-                .pip-window-content.retro-theme .remaining-time {
-                    color: var(--neon-magenta) !important;
-                    text-shadow: 0 0 15px var(--neon-magenta) !important;
-                }
-                
-                .pip-window-content.retro-theme .completion-time {
-                    color: var(--neon-green) !important;
-                    text-shadow: 0 0 15px var(--neon-green) !important;
-                }
-                
-                .pip-window-content.retro-theme .progress-bar {
-                    background: rgba(0, 0, 0, 0.5) !important;
-                    border: 1px solid rgba(0, 240, 255, 0.3) !important;
-                    box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.2) !important;
-                }
-                
-                .pip-window-content.retro-theme .progress-fill {
-                    background: linear-gradient(
-                        90deg,
-                        var(--neon-cyan),
-                        var(--neon-magenta),
-                        var(--neon-green),
-                        var(--neon-cyan)
-                    ) !important;
-                    box-shadow: 
-                        0 0 10px var(--neon-cyan),
-                        0 0 20px rgba(0, 240, 255, 0.5) !important;
-                }
-                
+
                 .pip-window-content.retro-theme .pip-compact-button {
-                    background: rgba(0, 0, 0, 0.8) !important;
-                    color: var(--neon-cyan) !important;
-                    border: 1px solid var(--neon-cyan) !important;
-                    box-shadow: 0 0 5px var(--neon-cyan) !important;
+                    background: var(--rt-panel-strong) !important;
+                    color: var(--rt-accent) !important;
+                    border: 1px solid var(--rt-border-strong) !important;
+                    box-shadow: inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.2) !important;
                     font-family: 'Orbitron', sans-serif !important;
+                    font-weight: 700 !important;
                 }
-                
+
                 .pip-window-content.retro-theme .pip-compact-button:hover {
-                    background: rgba(0, 240, 255, 0.2) !important;
-                    color: white !important;
-                    box-shadow: 0 0 15px var(--neon-cyan) !important;
-                }
-                
-                .pip-window-content.retro-theme .summary-title {
-                    font-family: 'Orbitron', sans-serif !important;
-                    color: var(--neon-cyan) !important;
-                    text-shadow: 
-                        0 0 10px var(--neon-cyan),
-                        0 0 20px var(--neon-cyan),
-                        0 0 30px rgba(0, 240, 255, 0.5) !important;
+                    background: rgba(var(--rt-accent-rgb), 0.2) !important;
+                    color: var(--rt-text) !important;
+                    box-shadow:
+                        inset 0 0 0 1px var(--rt-accent),
+                        0 0 12px rgba(var(--rt-accent-rgb), 0.45) !important;
                 }
             }
             
@@ -6914,7 +6800,7 @@
                     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
                     position: relative !important;
                     z-index: 1 !important;
-                }\n                \n                .pip-window-content:not(.retro-theme) .stat-card.worked-time-card {\n                    background: linear-gradient(135deg, rgba(0, 184, 148, 0.15), rgba(0, 184, 148, 0.08)) !important;\n                    border-color: rgba(0, 184, 148, 0.3) !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-card.remaining-time-card {\n                    background: linear-gradient(135deg, rgba(225, 112, 85, 0.15), rgba(225, 112, 85, 0.08)) !important;\n                    border-color: rgba(225, 112, 85, 0.3) !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-card.completion-time-card {\n                    background: linear-gradient(135deg, rgba(108, 92, 231, 0.15), rgba(108, 92, 231, 0.08)) !important;\n                    border-color: rgba(108, 92, 231, 0.3) !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-label {\n                    color: rgba(0, 0, 0, 0.6) !important;\n                    font-family: 'Inter', sans-serif !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-value {\n                    font-family: 'Inter', sans-serif !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .progress-bar {\n                    background: rgba(0, 0, 0, 0.1) !important;\n                    border: none !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .pip-compact-button {\n                    background: rgba(0, 0, 0, 0.1) !important;\n                    color: rgba(0, 0, 0, 0.7) !important;\n                    border: 1px solid rgba(0, 0, 0, 0.1) !important;\n                    font-family: 'Inter', sans-serif !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .pip-compact-button:hover {\n                    background: rgba(108, 92, 231, 0.8) !important;\n                    color: white !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .summary-title {\n                    font-family: 'Inter', sans-serif !important;\n                    background: linear-gradient(135deg, #667eea, #764ba2) !important;\n                    -webkit-background-clip: text !important;\n                    -webkit-text-fill-color: transparent !important;\n                }\n                \n                /* Retro-Futuristic Theme for PiP */\n                .pip-window-content.retro-theme {\n                    background: linear-gradient(135deg, #1a1d3a 0%, #2a2d4a 100%) !important;\n                    color: var(--neon-cyan) !important;\n                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;\n                    position: relative !important;\n                    overflow: hidden !important;\n                }\n                \n                .pip-window-content.retro-theme::before {\n                    content: '' !important;\n                    position: absolute !important;\n                    top: 0 !important;\n                    left: 0 !important;\n                    right: 0 !important;\n                    bottom: 0 !important;\n                    background: repeating-linear-gradient(\n                        0deg,\n                        rgba(0, 240, 255, 0.02) 0px,\n                        transparent 1px,\n                        transparent 2px,\n                        rgba(0, 240, 255, 0.02) 3px\n                    ) !important;\n                    animation: scanlines 8s linear infinite !important;\n                    pointer-events: none !important;\n                    z-index: 0 !important;\n                }\n                \n                .pip-window-content.retro-theme .modern-table {\n                    background: rgba(0, 0, 0, 0.6) !important;\n                    box-shadow: \n                        0 0 10px rgba(0, 240, 255, 0.3),\n                        inset 0 0 20px rgba(0, 240, 255, 0.05) !important;\n                    border: 1px solid rgba(0, 240, 255, 0.3) !important;\n                    position: relative !important;\n                    z-index: 1 !important;\n                }\n                \n                .pip-window-content.retro-theme .modern-table td {\n                    color: rgba(0, 240, 255, 0.95) !important;\n                    font-family: 'Share Tech Mono', monospace !important;\n                    border-bottom: 1px solid rgba(0, 240, 255, 0.2) !important;\n                }\n                \n                .pip-window-content.retro-theme .stat-card {\n                    background: rgba(0, 0, 0, 0.7) !important;\n                    border: 1px solid var(--neon-cyan) !important;\n                    box-shadow: \n                        0 0 10px var(--neon-cyan),\n                        inset 0 0 10px rgba(0, 240, 255, 0.1) !important;\n                    position: relative !important;\n                    z-index: 1 !important;\n                    animation: neonPulse 4s ease-in-out infinite !important;\n                }\n                \n                .pip-window-content.retro-theme .stat-card.worked-time-card {\n                    border-color: var(--neon-cyan) !important;\n                    box-shadow: \n                        0 0 15px var(--neon-cyan),\n                        inset 0 0 15px rgba(0, 240, 255, 0.15) !important;\n                }\n                \n                .pip-window-content.retro-theme .stat-card.remaining-time-card {\n                    border-color: var(--neon-magenta) !important;\n                    box-shadow: \n                        0 0 15px var(--neon-magenta),\n                        inset 0 0 15px rgba(255, 0, 255, 0.15) !important;\n                }\n                \n                .pip-window-content.retro-theme .stat-card.completion-time-card {\n                    border-color: var(--neon-green) !important;\n                    box-shadow: \n                        0 0 15px var(--neon-green),\n                        inset 0 0 15px rgba(0, 255, 65, 0.15) !important;\n                }\n                \n                .pip-window-content.retro-theme .stat-label {\n                    color: rgba(0, 240, 255, 0.8) !important;\n                    font-family: 'Orbitron', sans-serif !important;\n                    text-shadow: 0 0 5px var(--neon-cyan) !important;\n                }\n                \n                .pip-window-content.retro-theme .stat-value {\n                    font-family: 'Share Tech Mono', monospace !important;\n                    text-shadow: 0 0 10px currentColor !important;\n                }\n                \n                .pip-window-content.retro-theme .worked-time {\n                    color: var(--neon-cyan) !important;\n                    text-shadow: 0 0 15px var(--neon-cyan) !important;\n                }\n                \n                .pip-window-content.retro-theme .remaining-time {\n                    color: var(--neon-magenta) !important;\n                    text-shadow: 0 0 15px var(--neon-magenta) !important;\n                }\n                \n                .pip-window-content.retro-theme .completion-time {\n                    color: var(--neon-green) !important;\n                    text-shadow: 0 0 15px var(--neon-green) !important;\n                }\n                \n                .pip-window-content.retro-theme .progress-bar {\n                    background: rgba(0, 0, 0, 0.5) !important;\n                    border: 1px solid rgba(0, 240, 255, 0.3) !important;\n                    box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.2) !important;\n                }\n                \n                .pip-window-content.retro-theme .progress-fill {\n                    background: linear-gradient(\n                        90deg,\n                        var(--neon-cyan),\n                        var(--neon-magenta),\n                        var(--neon-green),\n                        var(--neon-cyan)\n                    ) !important;\n                    box-shadow: \n                        0 0 10px var(--neon-cyan),\n                        0 0 20px rgba(0, 240, 255, 0.5) !important;\n                }\n                \n                .pip-window-content.retro-theme .pip-compact-button {\n                    background: rgba(0, 0, 0, 0.9) !important;\n                    color: var(--neon-cyan) !important;\n                    border: 1px solid var(--neon-cyan) !important;\n                    box-shadow: 0 0 5px var(--neon-cyan) !important;\n                    font-family: 'Orbitron', sans-serif !important;\n                }\n                \n                .pip-window-content.retro-theme .pip-compact-button:hover {\n                    background: rgba(0, 240, 255, 0.3) !important;\n                    color: white !important;\n                    box-shadow: 0 0 15px var(--neon-cyan) !important;\n                }\n                \n                .pip-window-content.retro-theme .summary-title {\n                    font-family: 'Orbitron', sans-serif !important;\n                    color: var(--neon-cyan) !important;\n                    text-shadow: \n                        0 0 10px var(--neon-cyan),\n                        0 0 20px var(--neon-cyan),\n                        0 0 30px rgba(0, 240, 255, 0.5) !important;\n                }\n                \n                .pip-window-content .gap-warning {\n                    background: linear-gradient(135deg, #ffeaa7, #fab1a0) !important;\n                    color: #2d3436 !important;\n                }\n            }
+                }\n                \n                .pip-window-content:not(.retro-theme) .stat-card.worked-time-card {\n                    background: linear-gradient(135deg, rgba(0, 184, 148, 0.15), rgba(0, 184, 148, 0.08)) !important;\n                    border-color: rgba(0, 184, 148, 0.3) !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-card.remaining-time-card {\n                    background: linear-gradient(135deg, rgba(225, 112, 85, 0.15), rgba(225, 112, 85, 0.08)) !important;\n                    border-color: rgba(225, 112, 85, 0.3) !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-card.completion-time-card {\n                    background: linear-gradient(135deg, rgba(108, 92, 231, 0.15), rgba(108, 92, 231, 0.08)) !important;\n                    border-color: rgba(108, 92, 231, 0.3) !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-label {\n                    color: rgba(0, 0, 0, 0.6) !important;\n                    font-family: 'Inter', sans-serif !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-value {\n                    font-family: 'Inter', sans-serif !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .progress-bar {\n                    background: rgba(0, 0, 0, 0.1) !important;\n                    border: none !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .pip-compact-button {\n                    background: rgba(0, 0, 0, 0.1) !important;\n                    color: rgba(0, 0, 0, 0.7) !important;\n                    border: 1px solid rgba(0, 0, 0, 0.1) !important;\n                    font-family: 'Inter', sans-serif !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .pip-compact-button:hover {\n                    background: rgba(108, 92, 231, 0.8) !important;\n                    color: white !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .summary-title {\n                    font-family: 'Inter', sans-serif !important;\n                    background: linear-gradient(135deg, #667eea, #764ba2) !important;\n                    -webkit-background-clip: text !important;\n                    -webkit-text-fill-color: transparent !important;\n                }\n                \n                /* Retro-Futuristic Theme for PiP (light mode) — inherits tokens from main .retro-theme */\n                .pip-window-content.retro-theme {\n                    background: linear-gradient(135deg, var(--rt-bg-1) 0%, var(--rt-bg-2) 100%) !important;\n                    color: var(--rt-text) !important;\n                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12) !important;\n                    position: relative !important;\n                    overflow: hidden !important;\n                }\n                \n                .pip-window-content.retro-theme .pip-compact-button {\n                    background: var(--rt-panel-strong) !important;\n                    color: var(--rt-accent) !important;\n                    border: 1px solid var(--rt-border-strong) !important;\n                    box-shadow: inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.2) !important;\n                    font-family: 'Orbitron', sans-serif !important;\n                    font-weight: 700 !important;\n                }\n                \n                .pip-window-content.retro-theme .pip-compact-button:hover {\n                    background: rgba(var(--rt-accent-rgb), 0.18) !important;\n                    color: var(--rt-text) !important;\n                    box-shadow:\n                        inset 0 0 0 1px var(--rt-accent),\n                        0 0 12px rgba(var(--rt-accent-rgb), 0.4) !important;\n                }\n                \n                .pip-window-content .gap-warning {\n                    background: linear-gradient(135deg, #ffeaa7, #fab1a0) !important;\n                    color: #2d3436 !important;\n                }\n            }
             
             .pip-window-content .summary-header {
                 margin-bottom: 20px;
@@ -7094,98 +6980,93 @@
                 z-index: 1 !important;
             }
             
-            /* Compact mode - Retro-Futuristic theme */
+            /* Compact mode — Cyberpunk HUD (light/dark adaptive via .retro-theme tokens) */
             .compact-mode.retro-theme .pip-compact-display {
                 text-align: center !important;
-                background: linear-gradient(135deg, var(--retro-dark) 0%, var(--retro-dark-alt) 100%) !important;
-                border: 2px solid rgba(0, 240, 255, 0.4) !important;
-                border-radius: 0 !important;
-                padding: 16px 20px !important;
+                background: linear-gradient(135deg, var(--rt-bg-1) 0%, var(--rt-bg-2) 100%) !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: 2px !important;
+                clip-path: var(--rt-clip);
+                padding: 16px 24px !important;
                 backdrop-filter: none !important;
                 -webkit-backdrop-filter: none !important;
-                box-shadow: 
-                    0 0 20px rgba(0, 240, 255, 0.6),
-                    0 0 40px rgba(255, 0, 255, 0.5),
-                    0 0 60px rgba(0, 255, 65, 0.4),
-                    inset 0 0 30px rgba(0, 240, 255, 0.2),
-                    inset 0 0 20px rgba(255, 0, 255, 0.15) !important;
+                box-shadow:
+                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.18),
+                    0 6px 20px rgba(0, 0, 0, 0.18),
+                    var(--rt-glow) !important;
                 transition: all 0.3s ease !important;
                 cursor: pointer !important;
                 position: relative !important;
                 overflow: hidden !important;
-                animation: neonGlowPulse 3s ease-in-out infinite !important;
+                animation: neonGlowPulse 4s ease-in-out infinite !important;
             }
-            
+
             .compact-mode.retro-theme .pip-compact-display::before {
                 content: '' !important;
                 position: absolute !important;
                 top: 0 !important;
                 left: 0 !important;
                 right: 0 !important;
-                bottom: 0 !important;
+                height: 2px !important;
                 background: linear-gradient(
                     90deg,
-                    rgba(0, 240, 255, 0.3),
-                    rgba(255, 0, 255, 0.3),
-                    rgba(0, 255, 65, 0.3),
-                    rgba(0, 240, 255, 0.3)
+                    transparent,
+                    var(--rt-cyan),
+                    var(--rt-accent),
+                    var(--rt-magenta),
+                    transparent
                 ) !important;
-                background-size: 300% 100% !important;
-                animation: rgbFlowBacklight 6s ease-in-out infinite !important;
+                background-size: 200% 100% !important;
+                animation: rgbFlowBacklight 5s ease-in-out infinite !important;
                 pointer-events: none !important;
-                z-index: 0 !important;
-                opacity: 1 !important;
-                mix-blend-mode: screen !important;
+                z-index: 2 !important;
+                opacity: 0.95 !important;
             }
-            
+
             .compact-mode.retro-theme .pip-compact-display:hover {
-                transform: scale(1.02) !important;
-                box-shadow: 
-                    inset 0 0 30px rgba(0, 240, 255, 0.2),
-                    0 0 40px rgba(0, 240, 255, 0.5),
-                    0 0 15px rgba(255, 0, 255, 0.3) !important;
+                transform: translateY(-1px) !important;
+                box-shadow:
+                    inset 0 0 0 1px var(--rt-accent),
+                    0 8px 24px rgba(0, 0, 0, 0.22),
+                    0 0 18px rgba(var(--rt-accent-rgb), 0.4) !important;
             }
-            
+
             .compact-mode.retro-theme .pip-compact-time {
                 font-family: 'Share Tech Mono', 'Orbitron', monospace !important;
-                font-size: 1.5rem !important;
+                font-size: 1.6rem !important;
                 font-weight: 700 !important;
-                color: var(--neon-cyan) !important;
-                margin: 10px 0px 0px 0px !important;
-                line-height: 0.2 !important;
-                text-shadow: 
-                    0 0 10px var(--neon-cyan),
-                    0 0 20px var(--neon-cyan),
-                    0 0 30px rgba(0, 240, 255, 0.5) !important;
-                letter-spacing: 0.1em !important;
+                color: var(--rt-accent) !important;
+                margin: 6px 0 0 0 !important;
+                line-height: 1.1 !important;
+                text-shadow:
+                    0 1px 0 rgba(0, 0, 0, 0.15),
+                    0 0 12px rgba(var(--rt-accent-rgb), 0.45) !important;
+                letter-spacing: 0.08em !important;
                 position: relative !important;
-                z-index: 2 !important;
-                animation: glitchText 3s ease-in-out infinite !important;
+                z-index: 1 !important;
             }
-            
+
             .compact-mode.retro-theme .pip-compact-label {
                 font-family: 'Orbitron', sans-serif !important;
                 font-size: 0.65rem !important;
-                font-weight: 600 !important;
-                color: var(--neon-magenta) !important;
+                font-weight: 700 !important;
+                color: var(--rt-text-dim) !important;
                 margin: 8px 0 0 0 !important;
                 text-transform: uppercase !important;
-                letter-spacing: 0.2em !important;
-                text-shadow: 
-                    0 0 5px var(--neon-magenta),
-                    0 0 10px rgba(255, 0, 255, 0.5) !important;
+                letter-spacing: 0.22em !important;
+                text-shadow: none !important;
                 position: relative !important;
-                z-index: 2 !important;
+                z-index: 1 !important;
             }
-            
+
             .compact-mode.retro-theme .pip-compact-emoji {
                 font-size: 1rem !important;
-                margin-left: 12px !important;
+                margin-left: 10px !important;
                 display: inline-block !important;
-                filter: drop-shadow(0 0 8px var(--neon-cyan)) !important;
+                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25)) drop-shadow(0 0 6px rgba(var(--rt-accent-rgb), 0.45)) !important;
                 animation: emojiPulse 2s ease-in-out infinite !important;
                 position: relative !important;
-                z-index: 2 !important;
+                z-index: 1 !important;
             }
             
             /* Performance optimization for dynamic elements */
@@ -7845,22 +7726,27 @@
             /* Dark mode enhancements */
             @media (prefers-color-scheme: dark) {
                 .attendance-summary {
-                    background: linear-gradient(135deg, rgba(30, 30, 30, 0.9), rgba(20, 20, 20, 0.8));
-                    border-color: rgba(255, 255, 255, 0.15);
-                    color: rgba(255, 255, 255, 0.9);
+                    background: linear-gradient(135deg, rgba(22, 20, 35, 0.92), rgba(12, 10, 25, 0.88));
+                    backdrop-filter: blur(28px) saturate(150%);
+                    -webkit-backdrop-filter: blur(28px) saturate(150%);
+                    border-color: rgba(255, 255, 255, 0.12);
+                    color: rgba(255, 255, 255, 0.92);
                 }
                 
                 .modern-table {
-                    background: rgba(0, 0, 0, 0.2);
+                    background: rgba(0, 0, 0, 0.25);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
                 }
                 
                 .stat-card {
-                    background: rgba(0, 0, 0, 0.3);
+                    background: rgba(255, 255, 255, 0.04);
                     border-color: rgba(255, 255, 255, 0.1);
+                    backdrop-filter: blur(6px);
+                    -webkit-backdrop-filter: blur(6px);
                 }
                 
                 .modern-table td {
-                    color: rgba(255, 255, 255, 0.7);
+                    color: rgba(255, 255, 255, 0.75);
                 }
                 
                 .stat-label {
@@ -7868,15 +7754,15 @@
                 }
                 
                 .stat-card:hover {
-                    background: rgba(255, 255, 255, 0.12);
-                    border-color: rgba(255, 255, 255, 0.25);
+                    background: rgba(255, 255, 255, 0.1);
+                    border-color: rgba(255, 255, 255, 0.2);
                 }
                 
                 .attendance-summary:hover {
                     box-shadow: 
-                        0 16px 48px rgba(0, 0, 0, 0.2),
-                        0 4px 12px rgba(0, 0, 0, 0.15),
-                        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+                        0 16px 48px rgba(0, 0, 0, 0.25),
+                        0 4px 12px rgba(0, 0, 0, 0.18),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.15);
                 }
                 
                 .pip-placeholder {
@@ -7903,33 +7789,50 @@
                 /* Light mode enhancements */
             @media (prefers-color-scheme: light) {
                 .attendance-summary {
-                    background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(240, 240, 240, 0.9));
-                    border-color: rgba(0, 0, 0, 0.1);
+                    background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(245, 243, 255, 0.88));
+                    backdrop-filter: blur(28px) saturate(150%);
+                    -webkit-backdrop-filter: blur(28px) saturate(150%);
+                    border-color: rgba(102, 126, 234, 0.12);
                     color: rgba(0, 0, 0, 0.9);
                     box-shadow: 
-                        0 8px 32px rgba(0, 0, 0, 0.15),
-                        0 1px 2px rgba(0, 0, 0, 0.1),
-                        inset 0 1px 0 rgba(255, 255, 255, 0.8);
+                        0 8px 32px rgba(0, 0, 0, 0.08),
+                        0 1px 2px rgba(0, 0, 0, 0.06),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.9);
                 }
                 
                 .attendance-summary::before {
-                    background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.1), transparent);
+                    background: linear-gradient(
+                        90deg, 
+                        transparent, 
+                        rgba(102, 126, 234, 0.5), 
+                        rgba(118, 75, 162, 0.5), 
+                        rgba(240, 147, 251, 0.5), 
+                        rgba(79, 172, 254, 0.5), 
+                        transparent
+                    );
+                    background-size: 200% 100%;
+                    opacity: 0.7;
                 }
                 
                 .modern-table {
-                    background: rgba(255, 255, 255, 0.8);
-                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+                    background: rgba(255, 255, 255, 0.75);
+                    backdrop-filter: blur(8px);
+                    -webkit-backdrop-filter: blur(8px);
+                    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+                    border: 1px solid rgba(0, 0, 0, 0.06);
                 }
                 
                 .modern-table td {
                     color: rgba(0, 0, 0, 0.8);
-                    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+                    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
                 }
                 
                 .stat-card {
-                    background: rgba(255, 255, 255, 0.7);
-                    border-color: rgba(0, 0, 0, 0.1);
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                    background: rgba(255, 255, 255, 0.65);
+                    backdrop-filter: blur(8px);
+                    -webkit-backdrop-filter: blur(8px);
+                    border-color: rgba(0, 0, 0, 0.06);
+                    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
                 }
                 
                 .stat-card.worked-time-card {
@@ -7973,15 +7876,15 @@
                 }
                 
                 .stat-card:hover {
-                    background: rgba(255, 255, 255, 0.9);
-                    border-color: rgba(0, 0, 0, 0.2);
-                    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+                    background: rgba(255, 255, 255, 0.85);
+                    border-color: rgba(102, 126, 234, 0.2);
+                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
                 }
                 
                 .attendance-summary:hover {
                     box-shadow: 
-                        0 16px 48px rgba(0, 0, 0, 0.2),
-                        0 4px 12px rgba(0, 0, 0, 0.15),
+                        0 12px 40px rgba(0, 0, 0, 0.1),
+                        0 4px 12px rgba(0, 0, 0, 0.06),
                         inset 0 1px 0 rgba(255, 255, 255, 0.9);
                 }
                 
@@ -8265,209 +8168,623 @@
                     color: rgba(0,0,0,0.85);
                 }
             }
-            /* Retro theme specific styles for main display */
+            /* ============================================================
+               NEUMORPHIC DEPTH — class-toggled via .neumorphic-active
+               Adds pronounced 3-D inset / outset shadows to every surface
+               ============================================================ */
+
+            /* --- Dark mode neumorphic --- */
+            .attendance-summary.neumorphic-active {
+                box-shadow:
+                    14px 14px 28px rgba(0, 0, 0, 0.22),
+                    -10px -10px 22px rgba(255, 255, 255, 0.04),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+                    0 8px 32px rgba(0, 0, 0, 0.12) !important;
+                border-color: rgba(255, 255, 255, 0.22);
+            }
+
+            .attendance-summary.neumorphic-active .stat-card {
+                box-shadow:
+                    inset 5px 5px 10px rgba(0, 0, 0, 0.15),
+                    inset -5px -5px 10px rgba(255, 255, 255, 0.04),
+                    8px 8px 18px rgba(0, 0, 0, 0.18),
+                    -4px -4px 12px rgba(255, 255, 255, 0.03) !important;
+            }
+
+            .attendance-summary.neumorphic-active .stat-card:hover {
+                box-shadow:
+                    inset 7px 7px 14px rgba(0, 0, 0, 0.18),
+                    inset -7px -7px 14px rgba(255, 255, 255, 0.05),
+                    12px 12px 24px rgba(0, 0, 0, 0.22),
+                    -6px -6px 16px rgba(255, 255, 255, 0.04) !important;
+            }
+
+            .attendance-summary.neumorphic-active .modern-table {
+                box-shadow:
+                    inset 0 2px 6px rgba(0, 0, 0, 0.12),
+                    6px 6px 14px rgba(0, 0, 0, 0.14),
+                    -4px -4px 10px rgba(255, 255, 255, 0.03) !important;
+                border-radius: 18px;
+            }
+
+            .attendance-summary.neumorphic-active .progress-bar {
+                box-shadow:
+                    inset 4px 4px 10px rgba(0, 0, 0, 0.18),
+                    inset -4px -4px 10px rgba(255, 255, 255, 0.04) !important;
+            }
+
+            .attendance-summary.neumorphic-active .completion-message {
+                box-shadow:
+                    inset 4px 4px 10px rgba(0, 0, 0, 0.12),
+                    inset -3px -3px 8px rgba(255, 255, 255, 0.04),
+                    8px 8px 20px rgba(0, 184, 148, 0.25),
+                    -4px -4px 12px rgba(255, 255, 255, 0.03) !important;
+            }
+
+            .attendance-summary.neumorphic-active .developer-info,
+            .attendance-summary.neumorphic-active .settings-button,
+            .attendance-summary.neumorphic-active .pip-button {
+                box-shadow:
+                    4px 4px 10px rgba(0, 0, 0, 0.15),
+                    -3px -3px 8px rgba(255, 255, 255, 0.03),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+            }
+
+            /* --- Light mode neumorphic overrides --- */
+            @media (prefers-color-scheme: light) {
+                .attendance-summary.neumorphic-active {
+                    box-shadow:
+                        14px 14px 28px rgba(0, 0, 0, 0.06),
+                        -10px -10px 22px rgba(255, 255, 255, 0.85),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.9),
+                        0 8px 32px rgba(0, 0, 0, 0.06) !important;
+                    border-color: rgba(0, 0, 0, 0.08);
+                }
+
+                .attendance-summary.neumorphic-active .stat-card {
+                    box-shadow:
+                        inset 4px 4px 8px rgba(0, 0, 0, 0.05),
+                        inset -4px -4px 8px rgba(255, 255, 255, 0.8),
+                        6px 6px 14px rgba(0, 0, 0, 0.06),
+                        -4px -4px 10px rgba(255, 255, 255, 0.8) !important;
+                }
+
+                .attendance-summary.neumorphic-active .stat-card:hover {
+                    box-shadow:
+                        inset 6px 6px 12px rgba(0, 0, 0, 0.07),
+                        inset -6px -6px 12px rgba(255, 255, 255, 0.85),
+                        10px 10px 20px rgba(0, 0, 0, 0.08),
+                        -6px -6px 14px rgba(255, 255, 255, 0.85) !important;
+                }
+
+                .attendance-summary.neumorphic-active .modern-table {
+                    box-shadow:
+                        inset 0 2px 6px rgba(0, 0, 0, 0.04),
+                        6px 6px 14px rgba(0, 0, 0, 0.05),
+                        -4px -4px 10px rgba(255, 255, 255, 0.75) !important;
+                }
+
+                .attendance-summary.neumorphic-active .progress-bar {
+                    box-shadow:
+                        inset 4px 4px 10px rgba(0, 0, 0, 0.06),
+                        inset -4px -4px 10px rgba(255, 255, 255, 0.7) !important;
+                }
+
+                .attendance-summary.neumorphic-active .completion-message {
+                    box-shadow:
+                        inset 3px 3px 8px rgba(0, 0, 0, 0.08),
+                        inset -3px -3px 8px rgba(255, 255, 255, 0.7),
+                        8px 8px 20px rgba(0, 184, 148, 0.15),
+                        -4px -4px 12px rgba(255, 255, 255, 0.75) !important;
+                }
+
+                .attendance-summary.neumorphic-active .developer-info,
+                .attendance-summary.neumorphic-active .settings-button,
+                .attendance-summary.neumorphic-active .pip-button {
+                    box-shadow:
+                        4px 4px 10px rgba(0, 0, 0, 0.06),
+                        -3px -3px 8px rgba(255, 255, 255, 0.7),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+                }
+            }
+
+            /* Neumorphic OFF = flat clean look (reset from defaults) */
+            .attendance-summary:not(.neumorphic-active):not(.retro-theme) {
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08) !important;
+            }
+            .attendance-summary:not(.neumorphic-active):not(.retro-theme) .stat-card {
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+            }
+            .attendance-summary:not(.neumorphic-active):not(.retro-theme) .stat-card:hover {
+                box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12) !important;
+            }
+
+            /* ============================================================
+               FLUID GRADIENTS — class-toggled OFF via .no-fluid
+               Removes all animated color-flow; makes everything static
+               ============================================================ */
+
+            /* Title: static single color instead of animated gradient text */
+            .attendance-summary.no-fluid .summary-title {
+                animation: none !important;
+                background: var(--aurora-1) !important;
+                background-size: 100% 100% !important;
+                -webkit-background-clip: text !important;
+                -webkit-text-fill-color: transparent !important;
+                background-clip: text !important;
+            }
+
+            /* Top accent bar: static line instead of flowing shimmer */
+            .attendance-summary.no-fluid::before {
+                animation: none !important;
+                background: var(--aurora-1) !important;
+                opacity: 0.5 !important;
+            }
+
+            /* Stat card hover shimmer: disabled */
+            .attendance-summary.no-fluid .stat-card::before {
+                display: none !important;
+            }
+
+            /* Stat cards: solid tints instead of gradient */
+            .attendance-summary.no-fluid .stat-card.worked-time-card {
+                background: rgba(0, 184, 148, 0.12) !important;
+            }
+            .attendance-summary.no-fluid .stat-card.remaining-time-card {
+                background: rgba(225, 112, 85, 0.12) !important;
+            }
+            .attendance-summary.no-fluid .stat-card.completion-time-card {
+                background: rgba(108, 92, 231, 0.12) !important;
+            }
+
+            /* Progress bar fill: solid color, no rainbow animation */
+            .attendance-summary.no-fluid .progress-fill {
+                animation: none !important;
+                background: var(--aurora-1) !important;
+                background-size: 100% 100% !important;
+            }
+            .attendance-summary.no-fluid .progress-fill::after {
+                display: none !important;
+            }
+
+            /* Completion message: solid instead of gradient */
+            .attendance-summary.no-fluid .completion-message {
+                animation: none !important;
+                background: #00b894 !important;
+            }
+
+            /* Stat value text glow removed for clean look */
+            .attendance-summary.no-fluid .worked-time {
+                text-shadow: none !important;
+            }
+            .attendance-summary.no-fluid .remaining-time {
+                text-shadow: none !important;
+            }
+            .attendance-summary.no-fluid .completion-time {
+                text-shadow: none !important;
+            }
+
+            /* Table header: solid color */
+            .attendance-summary.no-fluid .modern-table thead {
+                background: #667eea !important;
+            }
+
+            /* PiP compact glassmorphic aurora glow: static */
+            .no-fluid.compact-mode:not(.retro-theme) .pip-compact-display {
+                animation: none !important;
+            }
+            .no-fluid.compact-mode:not(.retro-theme) .pip-compact-display::before {
+                animation: none !important;
+                opacity: 0.3 !important;
+            }
+
+            /* Light mode overrides for no-fluid */
+            @media (prefers-color-scheme: light) {
+                .attendance-summary.no-fluid .stat-card.worked-time-card {
+                    background: rgba(0, 184, 148, 0.08) !important;
+                }
+                .attendance-summary.no-fluid .stat-card.remaining-time-card {
+                    background: rgba(225, 112, 85, 0.08) !important;
+                }
+                .attendance-summary.no-fluid .stat-card.completion-time-card {
+                    background: rgba(108, 92, 231, 0.08) !important;
+                }
+            }
+
+            /* ============================================================
+               CYBERPUNK HUD THEME (rebrand of "Sci-Fi Retro Futuristic")
+               — Adapts to light & dark mode via CSS custom properties
+               — Inspired by Cyberpunk 2077 menu / HUD bracket interfaces
+               ============================================================ */
+
+            /* Default tokens = LIGHT mode (readable on light backgrounds) */
+            .retro-theme {
+                --rt-bg-1: #f4f6fb;
+                --rt-bg-2: #e6ebf3;
+                --rt-panel: rgba(255, 255, 255, 0.78);
+                --rt-panel-strong: rgba(255, 255, 255, 0.92);
+                --rt-text: #0f172a;
+                --rt-text-dim: rgba(15, 23, 42, 0.62);
+                --rt-accent: #d97706;          /* gold/amber — primary HUD signal */
+                --rt-accent-rgb: 217, 119, 6;
+                --rt-cyan: #0e7490;
+                --rt-cyan-rgb: 14, 116, 144;
+                --rt-magenta: #be185d;
+                --rt-magenta-rgb: 190, 24, 93;
+                --rt-lime: #15803d;
+                --rt-lime-rgb: 21, 128, 61;
+                --rt-border: rgba(15, 23, 42, 0.18);
+                --rt-border-strong: rgba(15, 23, 42, 0.45);
+                --rt-grid: rgba(15, 23, 42, 0.045);
+                --rt-glow: 0 0 0 transparent;  /* glow muted in light mode for clarity */
+                --rt-scanline: rgba(15, 23, 42, 0.025);
+            }
+
+            /* DARK mode tokens — true cyberpunk neon */
+            @media (prefers-color-scheme: dark) {
+                .retro-theme {
+                    --rt-bg-1: #07091a;
+                    --rt-bg-2: #11142b;
+                    --rt-panel: rgba(8, 10, 26, 0.78);
+                    --rt-panel-strong: rgba(8, 10, 26, 0.92);
+                    --rt-text: #fff200;            /* signature cyberpunk yellow */
+                    --rt-text-dim: rgba(255, 242, 0, 0.72);
+                    --rt-accent: #fff200;
+                    --rt-accent-rgb: 255, 242, 0;
+                    --rt-cyan: #00e5ff;
+                    --rt-cyan-rgb: 0, 229, 255;
+                    --rt-magenta: #ff2a6d;
+                    --rt-magenta-rgb: 255, 42, 109;
+                    --rt-lime: #05ffa1;
+                    --rt-lime-rgb: 5, 255, 161;
+                    --rt-border: rgba(255, 242, 0, 0.32);
+                    --rt-border-strong: rgba(255, 242, 0, 0.7);
+                    --rt-grid: rgba(255, 242, 0, 0.06);
+                    --rt-glow: 0 0 18px rgba(255, 242, 0, 0.35);
+                    --rt-scanline: rgba(0, 229, 255, 0.04);
+                }
+            }
+
+            /* Shared HUD clip-path with notched corners (top-left + bottom-right) */
+            .retro-theme {
+                --rt-clip: polygon(
+                    14px 0,
+                    100% 0,
+                    100% calc(100% - 14px),
+                    calc(100% - 14px) 100%,
+                    0 100%,
+                    0 14px
+                );
+            }
+
+            /* ---- Main container ---- */
             .attendance-summary.retro-theme {
-                background: linear-gradient(135deg, var(--retro-dark) 0%, var(--retro-dark-alt) 100%) !important;
-                color: var(--neon-cyan) !important;
-                border: 1px solid var(--neon-cyan) !important;
-                border-radius: 0px 0px 8px 8px !important;            
-                box-shadow: 
-                    0 0 20px rgba(0, 240, 255, 0.3),
-                    inset 0 0 30px rgba(0, 240, 255, 0.05) !important;
+                background:
+                    linear-gradient(135deg, var(--rt-bg-1) 0%, var(--rt-bg-2) 100%) !important;
+                color: var(--rt-text) !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: 4px !important;
+                box-shadow:
+                    0 8px 32px rgba(0, 0, 0, 0.12),
+                    inset 0 0 0 1px var(--rt-border),
+                    var(--rt-glow) !important;
                 position: relative;
                 overflow: hidden;
             }
-            
+
+            /* Top accent bar — animated RGB flow */
             .attendance-summary.retro-theme::before {
                 background: linear-gradient(
                     90deg,
-                    transparent,
-                    var(--neon-cyan),
-                    var(--neon-magenta),
-                    var(--neon-green),
-                    transparent
+                    transparent 0%,
+                    var(--rt-accent) 20%,
+                    var(--rt-magenta) 50%,
+                    var(--rt-cyan) 80%,
+                    transparent 100%
                 ) !important;
                 background-size: 200% 100% !important;
-                animation: rgbFlowBacklight 4s ease-in-out infinite !important;
+                height: 3px !important;
+                animation: rgbFlowBacklight 5s ease-in-out infinite !important;
                 z-index: 2;
+                opacity: 0.95;
             }
-            
+
+            /* Background grid + scanlines overlay */
             .attendance-summary.retro-theme::after {
                 content: '';
                 position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: repeating-linear-gradient(
-                    0deg,
-                    rgba(0, 240, 255, 0.03) 0px,
-                    transparent 1px,
-                    transparent 2px,
-                    rgba(0, 240, 255, 0.03) 3px
-                );
-                animation: scanlines 8s linear infinite;
+                inset: 0;
+                background:
+                    linear-gradient(var(--rt-grid) 1px, transparent 1px) 0 0 / 32px 32px,
+                    linear-gradient(90deg, var(--rt-grid) 1px, transparent 1px) 0 0 / 32px 32px,
+                    repeating-linear-gradient(
+                        0deg,
+                        var(--rt-scanline) 0px,
+                        transparent 1px,
+                        transparent 3px,
+                        var(--rt-scanline) 4px
+                    );
+                animation: scanlines 10s linear infinite;
                 pointer-events: none;
                 z-index: 0;
+                opacity: 0.9;
             }
-            
+
             .attendance-summary.retro-theme .summary-header,
             .attendance-summary.retro-theme .modern-table,
             .attendance-summary.retro-theme .time-stats,
             .attendance-summary.retro-theme .progress-bar,
-            .attendance-summary.retro-theme .completion-message {
+            .attendance-summary.retro-theme .completion-message,
+            .attendance-summary.retro-theme .left-panel,
+            .attendance-summary.retro-theme .right-panel,
+            .attendance-summary.retro-theme .main-attendance-content {
                 position: relative;
                 z-index: 1;
             }
-            
+
+            /* ---- Title ---- */
             .attendance-summary.retro-theme .summary-title {
                 font-family: 'Orbitron', sans-serif !important;
-                color: var(--neon-cyan) !important;
+                font-weight: 800 !important;
+                letter-spacing: 0.18em !important;
+                text-transform: uppercase !important;
+                color: var(--rt-accent) !important;
                 background: none !important;
                 -webkit-background-clip: unset !important;
-                -webkit-text-fill-color: var(--neon-cyan) !important;
-                text-shadow: 
-                    0 0 10px var(--neon-cyan),
-                    0 0 20px var(--neon-cyan),
-                    0 0 30px rgba(0, 240, 255, 0.5) !important;
+                -webkit-text-fill-color: var(--rt-accent) !important;
+                text-shadow:
+                    0 0 1px var(--rt-accent),
+                    var(--rt-glow) !important;
             }
-            
+
             .attendance-summary.retro-theme .emoji-display {
-                filter: drop-shadow(0 0 10px var(--neon-cyan)) !important;
+                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25)) drop-shadow(0 0 8px rgba(var(--rt-accent-rgb), 0.45)) !important;
             }
-            
+
+            /* ---- Table ---- */
             .attendance-summary.retro-theme .modern-table {
-                background: rgba(0, 0, 0, 0.5) !important;
-                border: 1px solid rgba(0, 240, 255, 0.3) !important;
-                box-shadow: 
-                    0 0 10px rgba(0, 240, 255, 0.3),
-                    inset 0 0 20px rgba(0, 240, 255, 0.05) !important;
+                background: var(--rt-panel) !important;
+                border: 1px solid var(--rt-border) !important;
+                border-radius: 2px !important;
+                clip-path: var(--rt-clip);
+                box-shadow:
+                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.08),
+                    0 4px 16px rgba(0, 0, 0, 0.08) !important;
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
             }
-            
+
             .attendance-summary.retro-theme .modern-table thead {
-                background: linear-gradient(135deg, rgba(0, 240, 255, 0.3), rgba(255, 0, 255, 0.3)) !important;
+                background: linear-gradient(
+                    90deg,
+                    rgba(var(--rt-accent-rgb), 0.18),
+                    rgba(var(--rt-magenta-rgb), 0.14)
+                ) !important;
+                border-bottom: 1px solid var(--rt-border-strong) !important;
             }
-            
+
             .attendance-summary.retro-theme .modern-table th {
                 font-family: 'Orbitron', sans-serif !important;
-                color: var(--neon-cyan) !important;
-                text-shadow: 0 0 5px var(--neon-cyan) !important;
+                font-weight: 700 !important;
+                letter-spacing: 0.14em !important;
+                text-transform: uppercase !important;
+                color: var(--rt-accent) !important;
+                text-shadow: var(--rt-glow) !important;
+                font-size: 0.72rem !important;
             }
-            
+
             .attendance-summary.retro-theme .modern-table td {
-                color: rgba(0, 240, 255, 0.9) !important;
+                color: var(--rt-text) !important;
                 font-family: 'Share Tech Mono', monospace !important;
-                border-bottom: 1px solid rgba(0, 240, 255, 0.15) !important;
+                border-bottom: 1px solid var(--rt-border) !important;
             }
-            
+
+            /* ---- Stat cards — HUD bracket panels ---- */
             .attendance-summary.retro-theme .stat-card {
-                background: rgba(0, 0, 0, 0.6) !important;
-                border: 1px solid var(--neon-cyan) !important;
-                box-shadow: 
-                    0 0 10px var(--neon-cyan),
-                    inset 0 0 10px rgba(0, 240, 255, 0.1) !important;
-                animation: neonPulse 4s ease-in-out infinite !important;
+                background: var(--rt-panel-strong) !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: 2px !important;
+                clip-path: var(--rt-clip);
+                box-shadow:
+                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.12),
+                    0 4px 14px rgba(0, 0, 0, 0.10) !important;
+                animation: neonPulse 5s ease-in-out infinite !important;
+                position: relative !important;
+                backdrop-filter: blur(6px);
+                -webkit-backdrop-filter: blur(6px);
             }
-            
+
+            /* Corner HUD bracket marker */
+            .attendance-summary.retro-theme .stat-card::after {
+                content: '';
+                position: absolute;
+                top: 6px;
+                right: 10px;
+                width: 10px;
+                height: 10px;
+                background: var(--card-accent, var(--rt-accent));
+                clip-path: polygon(0 0, 100% 0, 100% 30%, 30% 30%, 30% 100%, 0 100%);
+                opacity: 0.85;
+                pointer-events: none;
+            }
+
             .attendance-summary.retro-theme .stat-card.worked-time-card {
-                border-color: var(--neon-cyan) !important;
-                box-shadow: 
-                    0 0 15px var(--neon-cyan),
-                    inset 0 0 15px rgba(0, 240, 255, 0.15) !important;
+                --card-accent: var(--rt-cyan);
+                border-color: rgba(var(--rt-cyan-rgb), 0.55) !important;
+                box-shadow:
+                    inset 0 0 0 1px rgba(var(--rt-cyan-rgb), 0.18),
+                    0 4px 14px rgba(0, 0, 0, 0.10) !important;
             }
-            
+
             .attendance-summary.retro-theme .stat-card.remaining-time-card {
-                border-color: var(--neon-magenta) !important;
-                box-shadow: 
-                    0 0 15px var(--neon-magenta),
-                    inset 0 0 15px rgba(255, 0, 255, 0.15) !important;
+                --card-accent: var(--rt-magenta);
+                border-color: rgba(var(--rt-magenta-rgb), 0.55) !important;
+                box-shadow:
+                    inset 0 0 0 1px rgba(var(--rt-magenta-rgb), 0.18),
+                    0 4px 14px rgba(0, 0, 0, 0.10) !important;
             }
-            
+
             .attendance-summary.retro-theme .stat-card.completion-time-card {
-                border-color: var(--neon-green) !important;
-                box-shadow: 
-                    0 0 15px var(--neon-green),
-                    inset 0 0 15px rgba(0, 255, 65, 0.15) !important;
+                --card-accent: var(--rt-lime);
+                border-color: rgba(var(--rt-lime-rgb), 0.55) !important;
+                box-shadow:
+                    inset 0 0 0 1px rgba(var(--rt-lime-rgb), 0.18),
+                    0 4px 14px rgba(0, 0, 0, 0.10) !important;
             }
-            
+
             .attendance-summary.retro-theme .stat-label {
-                color: rgba(0, 240, 255, 0.7) !important;
+                color: var(--rt-text-dim) !important;
                 font-family: 'Orbitron', sans-serif !important;
-                text-shadow: 0 0 5px var(--neon-cyan) !important;
+                font-weight: 600 !important;
+                letter-spacing: 0.18em !important;
+                text-transform: uppercase !important;
+                text-shadow: none !important;
             }
-            
+
             .attendance-summary.retro-theme .stat-value {
                 font-family: 'Share Tech Mono', monospace !important;
-                text-shadow: 0 0 10px currentColor !important;
+                font-weight: 700 !important;
+                letter-spacing: 0.04em !important;
+                text-shadow:
+                    0 1px 0 rgba(0, 0, 0, 0.15),
+                    0 0 12px rgba(var(--rt-accent-rgb), 0.25) !important;
             }
-            
+
             .attendance-summary.retro-theme .worked-time {
-                color: var(--neon-cyan) !important;
-                text-shadow: 0 0 15px var(--neon-cyan) !important;
+                color: var(--rt-cyan) !important;
+                text-shadow:
+                    0 1px 0 rgba(0, 0, 0, 0.15),
+                    0 0 14px rgba(var(--rt-cyan-rgb), 0.45) !important;
             }
-            
+
             .attendance-summary.retro-theme .remaining-time {
-                color: var(--neon-magenta) !important;
-                text-shadow: 0 0 15px var(--neon-magenta) !important;
+                color: var(--rt-magenta) !important;
+                text-shadow:
+                    0 1px 0 rgba(0, 0, 0, 0.15),
+                    0 0 14px rgba(var(--rt-magenta-rgb), 0.45) !important;
             }
-            
+
             .attendance-summary.retro-theme .completion-time {
-                color: var(--neon-green) !important;
-                text-shadow: 0 0 15px var(--neon-green) !important;
+                color: var(--rt-lime) !important;
+                text-shadow:
+                    0 1px 0 rgba(0, 0, 0, 0.15),
+                    0 0 14px rgba(var(--rt-lime-rgb), 0.45) !important;
             }
-            
+
+            /* ---- Progress bar ---- */
             .attendance-summary.retro-theme .progress-bar {
-                background: rgba(0, 0, 0, 0.5) !important;
-                border: 1px solid rgba(0, 240, 255, 0.3) !important;
-                box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.2) !important;
+                background: var(--rt-panel) !important;
+                border: 1px solid var(--rt-border) !important;
+                border-radius: 1px !important;
+                box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15) !important;
             }
-            
+
             .attendance-summary.retro-theme .progress-fill {
                 background: linear-gradient(
                     90deg,
-                    var(--neon-cyan),
-                    var(--neon-magenta),
-                    var(--neon-green),
-                    var(--neon-cyan)
+                    var(--rt-cyan),
+                    var(--rt-accent),
+                    var(--rt-magenta),
+                    var(--rt-lime)
                 ) !important;
-                box-shadow: 
-                    0 0 10px var(--neon-cyan),
-                    0 0 20px rgba(0, 240, 255, 0.5) !important;
+                background-size: 200% 100% !important;
+                animation: rgbFlowBacklight 4s linear infinite !important;
+                box-shadow:
+                    0 0 10px rgba(var(--rt-accent-rgb), 0.5),
+                    inset 0 0 6px rgba(255, 255, 255, 0.25) !important;
             }
-            
+
+            /* ---- Buttons / chips ---- */
             .attendance-summary.retro-theme .developer-info,
             .attendance-summary.retro-theme .settings-button {
-                background: rgba(0, 0, 0, 0.8) !important;
-                border-color: var(--neon-cyan) !important;
-                color: var(--neon-cyan) !important;
-                box-shadow: 0 0 5px var(--neon-cyan) !important;
+                background: var(--rt-panel-strong) !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                color: var(--rt-accent) !important;
+                box-shadow:
+                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.15),
+                    0 2px 6px rgba(0, 0, 0, 0.1) !important;
             }
-            
+
             .attendance-summary.retro-theme .developer-info:hover,
             .attendance-summary.retro-theme .settings-button:hover {
-                background: rgba(0, 240, 255, 0.2) !important;
-                box-shadow: 0 0 15px var(--neon-cyan) !important;
+                background: rgba(var(--rt-accent-rgb), 0.15) !important;
+                color: var(--rt-text) !important;
+                box-shadow:
+                    inset 0 0 0 1px var(--rt-accent),
+                    0 4px 12px rgba(var(--rt-accent-rgb), 0.35) !important;
                 z-index: 1000;
             }
-            
+
             .attendance-summary.retro-theme .pip-button {
-                background: linear-gradient(135deg, rgba(0, 240, 255, 0.3), rgba(255, 0, 255, 0.3)) !important;
-                border-color: var(--neon-cyan) !important;
-                color: white !important;
-                box-shadow: 0 0 10px var(--neon-cyan) !important;
+                background: linear-gradient(
+                    135deg,
+                    rgba(var(--rt-cyan-rgb), 0.18),
+                    rgba(var(--rt-magenta-rgb), 0.18)
+                ) !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                color: var(--rt-text) !important;
+                font-family: 'Orbitron', sans-serif !important;
+                font-weight: 700 !important;
+                letter-spacing: 0.1em !important;
+                text-transform: uppercase !important;
+                box-shadow:
+                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.2),
+                    0 2px 8px rgba(0, 0, 0, 0.12) !important;
             }
-            
+
             .attendance-summary.retro-theme .pip-button:hover {
-                background: linear-gradient(135deg, rgba(0, 240, 255, 0.5), rgba(255, 0, 255, 0.5)) !important;
-                box-shadow: 0 0 20px var(--neon-cyan) !important;
+                background: linear-gradient(
+                    135deg,
+                    rgba(var(--rt-cyan-rgb), 0.35),
+                    rgba(var(--rt-magenta-rgb), 0.35)
+                ) !important;
+                box-shadow:
+                    inset 0 0 0 1px var(--rt-accent),
+                    0 6px 18px rgba(var(--rt-accent-rgb), 0.35) !important;
             }
-            
+
+            /* ---- Completion message ---- */
             .attendance-summary.retro-theme .completion-message {
-                background: linear-gradient(135deg, rgba(0, 255, 65, 0.3), rgba(0, 240, 255, 0.3)) !important;
-                border: 1px solid var(--neon-green) !important;
-                color: var(--neon-green) !important;
-                text-shadow: 0 0 10px var(--neon-green) !important;
-                box-shadow: 0 0 20px rgba(0, 255, 65, 0.4) !important;
+                background: linear-gradient(
+                    135deg,
+                    rgba(var(--rt-lime-rgb), 0.18),
+                    rgba(var(--rt-cyan-rgb), 0.18)
+                ) !important;
+                border: 1px solid var(--rt-lime) !important;
+                border-radius: 2px !important;
+                clip-path: var(--rt-clip);
+                color: var(--rt-lime) !important;
+                font-family: 'Orbitron', sans-serif !important;
+                font-weight: 700 !important;
+                letter-spacing: 0.06em !important;
+                text-shadow:
+                    0 1px 0 rgba(0, 0, 0, 0.15),
+                    0 0 12px rgba(var(--rt-lime-rgb), 0.5) !important;
+                box-shadow:
+                    inset 0 0 0 1px rgba(var(--rt-lime-rgb), 0.2),
+                    0 4px 14px rgba(var(--rt-lime-rgb), 0.18) !important;
+            }
+
+            /* ---- Side panels (snake/quotes/xp/image) inherit HUD tokens ---- */
+            .attendance-summary.retro-theme .snake-game-container,
+            .attendance-summary.retro-theme .quotes-container,
+            .attendance-summary.retro-theme .xp-container,
+            .attendance-summary.retro-theme .image-box-container {
+                background: var(--rt-panel) !important;
+                border: 1px solid var(--rt-border) !important;
+                border-radius: 2px !important;
+                clip-path: var(--rt-clip);
+                color: var(--rt-text);
+            }
+
+            .attendance-summary.retro-theme .snake-game-title,
+            .attendance-summary.retro-theme .quotes-title,
+            .attendance-summary.retro-theme .xp-title,
+            .attendance-summary.retro-theme .image-box-title {
+                color: var(--rt-accent) !important;
+                font-family: 'Orbitron', sans-serif !important;
+                letter-spacing: 0.12em !important;
+                text-transform: uppercase !important;
             }
             
             /* Borderless PiP Window - Hide Browser Chrome */
@@ -9975,7 +10292,7 @@
                 <span class="settings-option-label">🎨 Display Theme</span>
                 <select class="settings-select" data-pref="displayTheme" id="theme-selector">
                     <option value="glassmorphic" ${userPreferences.displayTheme === 'glassmorphic' ? 'selected' : ''}>Glassmorphic Aurora</option>
-                    <option value="retro-futuristic" ${userPreferences.displayTheme === 'retro-futuristic' ? 'selected' : ''}>Sci-Fi Retro Futuristic</option>
+                    <option value="retro-futuristic" ${userPreferences.displayTheme === 'retro-futuristic' ? 'selected' : ''}>Cyberpunk HUD</option>
                 </select>
             </div>
             <div class="settings-option">
@@ -10080,17 +10397,14 @@
         
         // Apply neumorphic depth (only for glassmorphic theme)
         if (userPreferences.displayTheme === 'glassmorphic') {
+            container.style.boxShadow = ''; // clear any old inline override
             if (userPreferences.neumorphicDepth) {
-                container.style.boxShadow = `
-                    0 8px 32px rgba(0, 0, 0, 0.1),
-                    0 1px 2px rgba(0, 0, 0, 0.05),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-                    5px 5px 15px rgba(0, 0, 0, 0.08),
-                    -5px -5px 15px rgba(255, 255, 255, 0.05)
-                `;
+                container.classList.add('neumorphic-active');
             } else {
-                container.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.1)';
+                container.classList.remove('neumorphic-active');
             }
+        } else {
+            container.classList.remove('neumorphic-active');
         }
 
         // Apply fluid gradients (only for glassmorphic theme)
@@ -10100,6 +10414,8 @@
             } else {
                 container.classList.add('no-fluid');
             }
+        } else {
+            container.classList.remove('no-fluid');
         }
 
         // Force update emoji
@@ -10573,10 +10889,11 @@
         // Determine background based on user's theme preference
         let backgroundStyle;
         if (userPreferences.displayTheme === 'retro-futuristic') {
-            // Use retro-futuristic dark background for both light and dark modes
-            backgroundStyle = `
-                background: linear-gradient(135deg, var(--retro-dark) 0%, var(--retro-dark-alt) 100%);
-                background: linear-gradient(135deg, #0a0e27 0%, #1a1d3a 100%);
+            // Cyberpunk HUD theme — light & dark adaptive
+            backgroundStyle = isDarkMode ? `
+                background: linear-gradient(135deg, #07091a 0%, #11142b 100%);
+            ` : `
+                background: linear-gradient(135deg, #f4f6fb 0%, #e6ebf3 100%);
             `;
         } else {
             // Use glassmorphic theme-aware background
@@ -10621,27 +10938,21 @@
     function updatePipColorScheme(pipWindow, isDark) {
         if (!pipWindow || pipWindow.closed) return;
         
-        let bodyStyle;
+        let newBg;
         if (userPreferences.displayTheme === 'retro-futuristic') {
-            // Always use retro dark theme
-            bodyStyle = `
-                background: linear-gradient(135deg, #0a0e27 0%, #1a1d3a 100%);
-                color-scheme: dark;
-            `;
+            // Cyberpunk HUD — adapts to system color scheme
+            newBg = isDark
+                ? 'linear-gradient(135deg, #07091a 0%, #11142b 100%)'
+                : 'linear-gradient(135deg, #f4f6fb 0%, #e6ebf3 100%)';
         } else {
-            // Use glassmorphic theme colors
-            bodyStyle = isDark ? `
-                background: linear-gradient(135deg, #2d3436 0%, #636e72 100%);
-                color-scheme: dark;
-            ` : `
-                background: linear-gradient(135deg, #ddd6fe 0%, #8b5cf6 100%);
-                color-scheme: light;
-            `;
+            newBg = isDark
+                ? 'linear-gradient(135deg, #2d3436 0%, #636e72 100%)'
+                : 'linear-gradient(135deg, #ddd6fe 0%, #8b5cf6 100%)';
         }
-        
+
         // Apply the new background with smooth transition
         Object.assign(pipWindow.document.body.style, {
-            background: isDark ? 'linear-gradient(135deg, #2d3436 0%, #636e72 100%)' : 'linear-gradient(135deg, #ddd6fe 0%, #8b5cf6 100%)',
+            background: newBg,
             colorScheme: isDark ? 'dark' : 'light'
         });
         

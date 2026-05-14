@@ -2678,7 +2678,7 @@
 
             if (aimIllegal) {
                 // ===== PROHIBITION SIGN (NOT ALLOWED) =====
-                const prohibR = POOL_BALL_R + 3; // slightly larger than ball
+                const prohibR = POOL_BALL_R;
 
                 // Red circle
                 ctx.strokeStyle = 'rgba(255,50,50,0.92)';

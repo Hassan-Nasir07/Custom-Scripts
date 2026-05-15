@@ -7051,7 +7051,7 @@
                 font-size: 0.65rem !important;
                 font-weight: 700 !important;
                 color: var(--rt-text-dim) !important;
-                margin: 8px 0 0 0 !important;
+                margin: 0 0 0 0 !important;
                 text-transform: uppercase !important;
                 letter-spacing: 0.22em !important;
                 text-shadow: none !important;

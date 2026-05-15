@@ -8516,10 +8516,29 @@
             .attendance-summary.retro-theme .progress-bar,
             .attendance-summary.retro-theme .completion-message,
             .attendance-summary.retro-theme .left-panel,
-            .attendance-summary.retro-theme .right-panel,
-            .attendance-summary.retro-theme .main-attendance-content {
+            .attendance-summary.retro-theme .right-panel {
                 position: relative;
                 z-index: 1;
+            }
+
+            /* Center panel sits above side panels so the tooltip is never clipped */
+            .attendance-summary.retro-theme .main-attendance-content {
+                position: relative;
+                z-index: 2;
+            }
+
+            /* Developer-info & tooltip must stack above all panels */
+            .attendance-summary.retro-theme .developer-info {
+                position: relative;
+                z-index: 10;
+            }
+
+            .attendance-summary.retro-theme .developer-info:hover {
+                z-index: 10;
+            }
+
+            .attendance-summary.retro-theme .developer-tooltip {
+                z-index: 9999 !important;
             }
 
             /* ---- Title ---- */
@@ -8775,6 +8794,8 @@
                 border-radius: 2px !important;
                 clip-path: var(--rt-clip);
                 color: var(--rt-text);
+                position: relative;
+                z-index: 1;
             }
 
             .attendance-summary.retro-theme .snake-game-title,

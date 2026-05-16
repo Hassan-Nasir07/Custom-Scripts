@@ -1580,22 +1580,61 @@
         const myGroup    = poolTurn === 1 ? poolPlayer1Group    : poolPlayer2Group;
         const tableOpen  = !poolFirstPocket;
         const onThe8     = !tableOpen && myPocketed.length >= 7;
+        const opponent   = poolTurn === 1 ? 2 : 1;
 
-        // ── 1. SCRATCH ────────────────────────────────────────────────────────
-        if (cueBall.pocketed) {
-            cueBall.pocketed = false;
-            if (onThe8) {
-                // Only a loss if the 8-ball was ALSO pocketed on the same shot.
-                // Cue ball scratch alone (8-ball still on table) = ball in hand foul.
-                const also8Pocketed = poolPocketedThisShot.includes(8);
-                if (also8Pocketed) {
-                    poolFoulMessage = 'Scratch on 8-ball! You lose';
-                    poolWinner = poolTurn === 1 ? 2 : 1;
-                    endPoolGame();
-                    return;
-                }
-                // 8-ball not pocketed — fall through to normal ball-in-hand foul
+        // Detect scratch via BOTH the ball flag AND the pocketed-this-shot array,
+        // so a stale/reset flag can't bypass the loss path.
+        const cueScratched   = cueBall.pocketed || pocketed.includes(0);
+        const eightPocketed  = pocketed.includes(8);
+
+        // ── 0. 8-BALL POCKETED → IMMEDIATE GAME END ──────────────────────────
+        // Every scenario where the 8 leaves the table ends the game on this
+        // shot. Decide win vs loss up front so nothing in the regular pocket
+        // loop can override it.
+        if (eightPocketed) {
+            // Clean the flag so the post-game render doesn't show a missing cue ball
+            if (cueBall.pocketed) cueBall.pocketed = false;
+
+            // LOSS: scratched cue ball on the same shot — overrides everything else
+            if (cueScratched) {
+                poolFoulMessage = 'Scratch on 8-ball! You lose';
+                poolWinner = opponent;
+                endPoolGame();
+                return;
             }
+            // LOSS: 8 pocketed on the open table (no groups assigned yet)
+            if (tableOpen) {
+                poolFoulMessage = 'Pocketed 8-ball on open table! You lose';
+                poolWinner = opponent;
+                endPoolGame();
+                return;
+            }
+            // LOSS: 8 pocketed before clearing your own group
+            if (!onThe8) {
+                poolFoulMessage = 'Pocketed 8-ball too early! You lose';
+                poolWinner = opponent;
+                endPoolGame();
+                return;
+            }
+            // LOSS: didn't strike the 8 first on the 8-ball shot
+            if (poolFirstBallHit !== 8) {
+                poolFoulMessage = (poolFirstBallHit === -1)
+                    ? 'No ball contacted on 8-ball shot! You lose'
+                    : 'Foul on 8-ball shot! You lose';
+                poolWinner = opponent;
+                endPoolGame();
+                return;
+            }
+            // WIN: all conditions met — legal 8-ball pot
+            poolFoulMessage = '';
+            poolWinner = poolTurn;
+            endPoolGame();
+            return;
+        }
+
+        // ── 1. SCRATCH (no 8-ball involved) ──────────────────────────────────
+        if (cueScratched) {
+            cueBall.pocketed = false;
             foul = true;
             poolFoulMessage = 'Scratch! Ball in hand';
         }
@@ -1644,33 +1683,14 @@
         }
 
         // ── 5. PROCESS POCKETED BALLS ─────────────────────────────────────────
+        // NOTE: The 8-ball case is handled in section 0 (early game-end). The
+        // cue ball case is handled in section 1 (scratch). This loop only
+        // credits group balls (1–7, 9–15) to their owners.
         let legalPocket  = false;
         let legalPotCount = 0;
 
         for (const bid of pocketed) {
-            if (bid === 0) continue; // cue ball handled above
-
-            if (bid === 8) {
-                // 8-ball pocketed ─────────────────────────────────────────────
-                if (tableOpen) {
-                    // Potting 8-ball on open table → loss (BCA)
-                    poolFoulMessage = 'Pocketed 8-ball on open table! You lose';
-                    poolWinner = poolTurn === 1 ? 2 : 1;
-                    endPoolGame();
-                    return;
-                }
-                if (onThe8 && !foul) {
-                    // All group balls cleared and no foul → WIN
-                    poolWinner = poolTurn;
-                    endPoolGame();
-                    return;
-                } else {
-                    // Pocketed 8 too early, or pocketed 8 on a foul → loss
-                    poolWinner = poolTurn === 1 ? 2 : 1;
-                    endPoolGame();
-                    return;
-                }
-            }
+            if (bid === 0 || bid === 8) continue; // cue & 8-ball handled above
 
             // ── Assign groups on first pocket (stays, even on foul) ───────────
             // Balls pocketed on a foul stay down; groups are assigned so the

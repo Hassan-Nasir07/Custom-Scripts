@@ -208,7 +208,8 @@
         onTime:     { icon: '🕐', name: 'Badge of Balance',  desc: 'Finish your exact shift without overtime' },
         level10:    { icon: '⭐', name: 'Level 10',          desc: 'Reach level 10' },
         level25:    { icon: '💎', name: 'Level 25',          desc: 'Reach level 25' },
-        gamer:      { icon: '🎮', name: 'Office Gamer',      desc: 'Earn XP in 10 game sessions' }
+        gamer:      { icon: '🎮', name: 'Office Gamer',      desc: 'Earn XP in 10 game sessions' },
+        teamPlayer: { icon: '🤝', name: 'Team Player',       desc: 'Join the leaderboard' }
     };
     
     // IMAGE BOX VARIABLES
@@ -429,6 +430,297 @@
     // Prayer Counter Storage
     function loadPrayerCount() { return parseInt(localStorage.getItem('prayerCount') || '0', 10); }
     function savePrayerCount(n) { localStorage.setItem('prayerCount', String(n)); }
+
+    // ═══════════════════════════════════════════════════════════════
+    // LEADERBOARD SYSTEM (GitHub Gist Registry)
+    // ═══════════════════════════════════════════════════════════════
+    const REGISTRY_GIST_ID = 'b97357da4f32cfea822c9db36cd48088';
+    const REGISTRY_GIST_PAT = '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';
+    const REGISTRY_GIST_FILE = 'attendance_widget_registry.json';
+
+    let lbClientId = null;
+    let lbDisplayName = '';
+    let lbRegistered = false;
+    let leaderboardData = [];
+    let lbFetching = false;
+
+    // Leaderboard localStorage helpers
+    function loadLeaderboardProfile() {
+        const saved = localStorage.getItem('atc_lb_profile');
+        if (saved) {
+            const profile = JSON.parse(saved);
+            lbClientId = profile.clientId;
+            lbDisplayName = profile.displayName || '';
+            lbRegistered = profile.registered || false;
+        } else {
+            lbClientId = crypto.randomUUID ? crypto.randomUUID() : ('xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            }));
+            saveLeaderboardProfile();
+        }
+    }
+
+    function saveLeaderboardProfile() {
+        localStorage.setItem('atc_lb_profile', JSON.stringify({
+            clientId: lbClientId,
+            displayName: lbDisplayName,
+            registered: lbRegistered
+        }));
+    }
+
+    // Core API functions
+    async function fetchRegistry() {
+        try {
+            const res = await fetch(`https://api.github.com/gists/${REGISTRY_GIST_ID}`, {
+                headers: { 'Accept': 'application/vnd.github+json' },
+                cache: 'no-store'
+            });
+            if (!res.ok) throw new Error(`Gist fetch failed: ${res.status}`);
+            const gist = await res.json();
+            let content = gist.files[REGISTRY_GIST_FILE]?.content;
+            if (!content) return { lastUpdated: new Date().toISOString(), players: [] };
+
+            // Strip any non-JSON prefix (e.g. filename/description lines pasted into the gist)
+            const jsonStart = content.indexOf('{');
+            if (jsonStart === -1) {
+                const clean = { lastUpdated: new Date().toISOString(), players: [] };
+                patchRegistry(clean).catch(() => {});
+                return clean;
+            }
+            if (jsonStart > 0) content = content.slice(jsonStart);
+
+            try {
+                return JSON.parse(content);
+            } catch (parseErr) {
+                // Gist contains malformed JSON (e.g. comments/annotations) — auto-heal
+                console.warn('[Leaderboard] Malformed gist JSON, auto-healing...', parseErr.message);
+                const clean = { lastUpdated: new Date().toISOString(), players: [] };
+                patchRegistry(clean).catch(() => {});
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[Leaderboard] fetchRegistry error:', e);
+            return null;
+        }
+    }
+
+    async function patchRegistry(data) {
+        const body = { files: {} };
+        body.files[REGISTRY_GIST_FILE] = { content: JSON.stringify(data, null, 2) };
+        const res = await fetch(`https://api.github.com/gists/${REGISTRY_GIST_ID}`, {
+            method: 'PATCH',
+            headers: {
+                'Accept': 'application/vnd.github+json',
+                'Authorization': `Bearer ${REGISTRY_GIST_PAT}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+        });
+        if (res.status === 422) {
+            // Conflict — retry once with fresh data
+            await new Promise(r => setTimeout(r, 500));
+            const fresh = await fetchRegistry();
+            if (!fresh) throw new Error('Retry fetch failed');
+            return fresh;
+        }
+        if (!res.ok) throw new Error(`Gist patch failed: ${res.status}`);
+        return data;
+    }
+
+    async function registerPlayer(displayName) {
+        const registry = await fetchRegistry();
+        if (!registry) { showXPNotification('❌ Could not reach leaderboard server', 'hourly'); return false; }
+
+        const existing = registry.players.find(p => p.clientId === lbClientId);
+        if (existing) {
+            lbDisplayName = existing.displayName;
+            lbRegistered = true;
+            saveLeaderboardProfile();
+            return true;
+        }
+
+        // Collect game bests from localStorage on registration
+        const regReflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
+        const regReflexBest = regReflexData?.screen?.best;
+        const regGameBests = {
+            snake: parseInt(localStorage.getItem('snakeHighScore') || '0', 10),
+            flappy: parseInt(localStorage.getItem('flappyHighScore') || '0', 10),
+            tetris: parseInt(localStorage.getItem('tetrisHighScore') || '0', 10),
+            breakout: parseInt(localStorage.getItem('breakoutHighScore') || '0', 10),
+            pool: parseInt(localStorage.getItem('poolGamesWon') || '0', 10),
+            aim: parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
+            reflex: (regReflexBest && regReflexBest !== Infinity && regReflexBest > 0) ? regReflexBest : 0
+        };
+        registry.players.push({
+            clientId: lbClientId,
+            displayName: displayName,
+            level: userXP.level || 1,
+            totalXP: userXP.totalXP || 0,
+            totalWorkDays: userXP.totalWorkDays || 0,
+            consecutiveDays: userXP.consecutiveDays || 0,
+            longestStreak: userXP.longestStreak || 0,
+            gameBests: regGameBests,
+            joinedAt: new Date().toISOString().split('T')[0],
+            lastSync: new Date().toISOString()
+        });
+        registry.lastUpdated = new Date().toISOString();
+
+        try {
+            await patchRegistry(registry);
+            lbDisplayName = displayName;
+            lbRegistered = true;
+            saveLeaderboardProfile();
+            showXPNotification('🤝 Joined the leaderboard!', 'achievement');
+            if (!userXP.achievements.includes('teamPlayer')) unlockAchievement('teamPlayer');
+            return true;
+        } catch (e) {
+            console.error('[Leaderboard] register error:', e);
+            showXPNotification('❌ Registration failed — try again', 'hourly');
+            return false;
+        }
+    }
+
+    async function syncMyScore() {
+        if (!lbRegistered || lbFetching) return;
+        lbFetching = true;
+        try {
+            const registry = await fetchRegistry();
+            if (!registry) return;
+            const idx = registry.players.findIndex(p => p.clientId === lbClientId);
+            if (idx === -1) return;
+
+            const me = registry.players[idx];
+            me.level = userXP.level || 1;
+            me.totalXP = userXP.totalXP || 0;
+            me.totalWorkDays = userXP.totalWorkDays || 0;
+            me.consecutiveDays = userXP.consecutiveDays || 0;
+            me.longestStreak = userXP.longestStreak || 0;
+            me.displayName = lbDisplayName;
+            me.lastSync = new Date().toISOString();
+
+            // Collect game bests from localStorage
+            const snakeHigh = parseInt(localStorage.getItem('snakeHighScore') || '0', 10);
+            const flappyHigh = parseInt(localStorage.getItem('flappyHighScore') || '0', 10);
+            const tetrisHigh = parseInt(localStorage.getItem('tetrisHighScore') || '0', 10);
+            const breakoutHigh = parseInt(localStorage.getItem('breakoutHighScore') || '0', 10);
+            const reflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
+            const reflexBest = reflexData?.screen?.best;
+            me.gameBests = {
+                snake: snakeHigh,
+                flappy: flappyHigh,
+                tetris: tetrisHigh,
+                breakout: breakoutHigh,
+                pool: parseInt(localStorage.getItem('poolGamesWon') || '0', 10),
+                aim: parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
+                reflex: (reflexBest && reflexBest !== Infinity && reflexBest > 0) ? reflexBest : 0
+            };
+
+            registry.players[idx] = me;
+            registry.lastUpdated = new Date().toISOString();
+            await patchRegistry(registry);
+        } catch (e) {
+            console.warn('[Leaderboard] sync error:', e);
+        } finally {
+            lbFetching = false;
+        }
+    }
+
+    async function fetchLeaderboard() {
+        if (lbFetching) return leaderboardData;
+        lbFetching = true;
+        try {
+            const registry = await fetchRegistry();
+            if (!registry) return leaderboardData;
+            leaderboardData = registry.players
+                .sort((a, b) => b.level - a.level || b.totalXP - a.totalXP);
+            return leaderboardData;
+        } catch (e) {
+            console.warn('[Leaderboard] fetch error:', e);
+            return leaderboardData;
+        } finally {
+            lbFetching = false;
+        }
+    }
+
+    // Leaderboard UI
+    function renderLeaderboardPanel() {
+        const panel = document.getElementById('leaderboard-panel');
+        if (!panel) return;
+
+        if (!lbRegistered) {
+            panel.innerHTML = `
+                <div class="lb-register-card">
+                    <div class="lb-register-icon">🏆</div>
+                    <h3 class="lb-register-title">Join the Leaderboard</h3>
+                    <p class="lb-register-desc">Compete with your team! Your level, XP, and game scores will be shared.</p>
+                    <input id="lb-name-input" class="lb-name-input" type="text" placeholder="Display name (e.g. Hassan N.)" maxlength="20" />
+                    <button class="lb-register-btn" onclick="window.lbRegister()">🚀 Join Now</button>
+                </div>`;
+            return;
+        }
+
+        // Build leaderboard table
+        let rows = '';
+        leaderboardData.forEach((p, i) => {
+            const rank = i + 1;
+            const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+            const isMe = p.clientId === lbClientId;
+            const gb = p.gameBests || {};
+            const fmt = v => (v && v > 0) ? v.toLocaleString() : '—';
+            const fmtMs = v => (v && v > 0) ? v + 'ms' : '—';
+            rows += `<tr class="${isMe ? 'lb-row-me' : ''}">
+                <td class="lb-rank">${medal}</td>
+                <td class="lb-name">${escapeHtml(p.displayName)}${isMe ? ' <span class="lb-you">(you)</span>' : ''}</td>
+                <td class="lb-level">Lv.${p.level}</td>
+                <td class="lb-xp">${(p.totalXP || 0).toLocaleString()}</td>
+                <td class="lb-score">${fmt(gb.breakout)}</td>
+                <td class="lb-score">${fmt(gb.pool)}</td>
+                <td class="lb-score">${fmt(gb.tetris)}</td>
+                <td class="lb-score">${fmt(gb.snake)}</td>
+                <td class="lb-score">${fmt(gb.flappy)}</td>
+                <td class="lb-score">${fmt(gb.aim)}</td>
+                <td class="lb-score">${fmtMs(gb.reflex)}</td>
+            </tr>`;
+        });
+
+        const lastSync = leaderboardData.length > 0 ? new Date(leaderboardData[0].lastSync || Date.now()).toLocaleTimeString() : '—';
+        panel.innerHTML = `
+            <div class="lb-table-wrap">
+                <table class="lb-table">
+                    <thead><tr>
+                        <th></th>
+                        <th>Player</th>
+                        <th>Lv.</th>
+                        <th>XP</th>
+                        <th title="Breakout">🏓</th>
+                        <th title="Pool">🎱</th>
+                        <th title="Tetris">🧱</th>
+                        <th title="Snake">🐍</th>
+                        <th title="Flappy">🐦</th>
+                        <th title="Aim Trainer">💥</th>
+                        <th title="Reflex">⚡</th>
+                    </tr></thead>
+                    <tbody>${rows || '<tr><td colspan="11" class="lb-empty">No players yet</td></tr>'}</tbody>
+                </table>
+            </div>
+            <div class="lb-footer">Last updated: ${lastSync}</div>`;
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function initLeaderboard() {
+        loadLeaderboardProfile();
+        if (lbRegistered) {
+            fetchLeaderboard().then(() => renderLeaderboardPanel());
+        } else {
+            renderLeaderboardPanel();
+        }
+    }
 
     // 8-BALL POOL GAME VARIABLES
     let poolCanvas, poolCtx;
@@ -4039,6 +4331,7 @@
         
         if (newHighScore) {
             saveReflexHighScores(highScores);
+            updateReflexScoreDisplay();
         }
         
         // Award XP based on performance
@@ -4206,18 +4499,12 @@
         if (!highScoreElement) return;
         
         const highScores = loadReflexHighScores();
-        const currentModeBest = highScores[reflexMode]?.best || 0;
-        const screenBest = highScores.screen?.best || 0;
-        const targetBest = highScores.target?.best || 0;
+        const screenBest = highScores.screen?.best;
+        const targetBest = highScores.target?.best;
+        const validScreen = screenBest && screenBest !== Infinity && screenBest > 0;
+        const validTarget = targetBest && targetBest !== Infinity && targetBest > 0;
         
-        highScoreElement.innerHTML = `
-            <div style="font-size: 0.875rem; color: #a78bfa;">
-                <div><strong>🏆 High Scores</strong></div>
-                <div style="margin-top: 4px;">⚡ Screen: ${screenBest}ms</div>
-                <div>🎯 Target: ${targetBest}ms</div>
-                <div style="margin-top: 4px; color: #10b981;">Current: ${currentModeBest}ms</div>
-            </div>
-        `;
+        highScoreElement.textContent = `⚡ ${validScreen ? screenBest + 'ms' : '—'}  🎯 ${validTarget ? targetBest + 'ms' : '—'}`;
     }
     
     function showReflexResults(avgTime, bestTime, isNewHighScore) {
@@ -4438,6 +4725,7 @@
         
         if (isNewHighScore) {
             saveAimHighScore(aimScore);
+            updateAimScoreDisplay();
         }
         
         // Award XP based on score
@@ -4631,12 +4919,7 @@
         if (!highScoreElement) return;
         
         const highScore = loadAimHighScore();
-        highScoreElement.innerHTML = `
-            <div style="font-size: 0.875rem; color: #f59e0b;">
-                <div><strong>🏆 High Score</strong></div>
-                <div style="margin-top: 4px; font-size: 1.2rem; color: #ef4444;">${highScore}</div>
-            </div>
-        `;
+        highScoreElement.textContent = `Best: ${highScore > 0 ? highScore : '—'}`;
     }
     
     function showAimResults(isNewHighScore) {
@@ -5401,6 +5684,8 @@
                 break;
             case 'prayer':
                 break;
+            case 'leaderboard':
+                break;
         }
     }
     
@@ -5413,9 +5698,11 @@
         const breakoutCv = document.getElementById('breakout-canvas');
         const poolCv = document.getElementById('pool-canvas');
         const prayerPanel = document.getElementById('prayer-panel');
+        const lbPanelEl = document.getElementById('leaderboard-panel');
         [snakeCv, flappyCv, tetrisCv, breakoutCv, poolCv].forEach(c => { if (c) c.style.display = 'none'; });
         if (gameArea) gameArea.style.display = 'none';
         if (prayerPanel) prayerPanel.style.display = 'none';
+        if (lbPanelEl) lbPanelEl.style.display = 'none';
 
         switch (currentGame) {
             case 'snake':
@@ -5468,11 +5755,17 @@
                 if (prayerPanel) prayerPanel.style.display = 'flex';
                 initPrayerCounter();
                 break;
+            case 'leaderboard': {
+                const lbPanel = document.getElementById('leaderboard-panel');
+                if (lbPanel) lbPanel.style.display = 'flex';
+                initLeaderboard();
+                break;
+            }
         }
     }
     
     function updateGameSwitcher() {
-        const ids = ['snake', 'reflex', 'aim', 'flappy', 'tetris', 'breakout', 'pool', 'prayer'];
+        const ids = ['snake', 'reflex', 'aim', 'flappy', 'tetris', 'breakout', 'pool', 'prayer', 'leaderboard'];
         ids.forEach(id => {
             const btn = document.getElementById('game-switch-' + id);
             if (btn) btn.classList.toggle('active', currentGame === id);
@@ -5480,8 +5773,8 @@
     }
     
     function updateGameControls() {
-        const ctrlIds = ['snake-controls', 'reflex-controls', 'aim-controls', 'flappy-controls', 'tetris-controls', 'breakout-controls', 'pool-controls', 'prayer-controls'];
-        const statIds = ['snake-scoreboard', 'reflex-stats', 'aim-stats', 'flappy-scoreboard', 'tetris-scoreboard', 'breakout-scoreboard', 'pool-scoreboard', 'prayer-scoreboard'];
+        const ctrlIds = ['snake-controls', 'reflex-controls', 'aim-controls', 'flappy-controls', 'tetris-controls', 'breakout-controls', 'pool-controls', 'prayer-controls', 'leaderboard-controls'];
+        const statIds = ['snake-scoreboard', 'reflex-scoreboard', 'reflex-stats', 'aim-scoreboard', 'aim-stats', 'flappy-scoreboard', 'tetris-scoreboard', 'breakout-scoreboard', 'pool-scoreboard', 'prayer-scoreboard', 'leaderboard-scoreboard'];
         ctrlIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
         statIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
         
@@ -5493,10 +5786,12 @@
             case 'reflex':
                 { const c = document.getElementById('reflex-controls'); if (c) c.style.display = 'flex'; }
                 { const s = document.getElementById('reflex-stats'); if (s) s.style.display = 'block'; }
+                { const sb = document.getElementById('reflex-scoreboard'); if (sb) sb.style.display = 'flex'; }
                 break;
             case 'aim':
                 { const c = document.getElementById('aim-controls'); if (c) c.style.display = 'flex'; }
                 { const s = document.getElementById('aim-stats'); if (s) s.style.display = 'block'; }
+                { const sb = document.getElementById('aim-scoreboard'); if (sb) sb.style.display = 'flex'; }
                 break;
             case 'flappy':
                 { const c = document.getElementById('flappy-controls'); if (c) c.style.display = 'flex'; }
@@ -5517,6 +5812,10 @@
             case 'prayer':
                 { const c = document.getElementById('prayer-controls'); if (c) c.style.display = 'flex'; }
                 { const s = document.getElementById('prayer-scoreboard'); if (s) s.style.display = 'flex'; }
+                break;
+            case 'leaderboard':
+                { const c = document.getElementById('leaderboard-controls'); if (c) c.style.display = 'flex'; }
+                { const s = document.getElementById('leaderboard-scoreboard'); if (s) s.style.display = 'flex'; }
                 break;
         }
     }
@@ -5773,6 +6072,7 @@
         const achievement = ACHIEVEMENTS[achievementKey];
         showXPNotification(`${achievement.icon} Achievement Unlocked: ${achievement.name}!`, 'achievement');
         saveUserXP(userXP);
+        updateXPDisplay(); // Refresh badge/achievements panel immediately
     }
     
     function checkLevelUp() {
@@ -10175,6 +10475,153 @@
                     color: #2d3436 !important;
                 }
             }
+
+            /* ═══ LEADERBOARD STYLES ═══ */
+            .leaderboard-panel {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                padding: 16px;
+                min-height: 200px;
+                max-height: 340px;
+                overflow-y: auto;
+                background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+                border-radius: 16px;
+                border: 1px solid rgba(255,255,255,0.1);
+            }
+            .lb-register-card {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 10px;
+                padding: 24px 16px;
+                text-align: center;
+            }
+            .lb-register-icon { font-size: 2.5rem; }
+            .lb-register-title {
+                margin: 0;
+                font-size: 1.1rem;
+                font-weight: 700;
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+            }
+            .lb-register-desc {
+                margin: 0;
+                font-size: 0.8rem;
+                opacity: 0.7;
+                max-width: 260px;
+            }
+            .lb-name-input {
+                width: 80%;
+                max-width: 200px;
+                padding: 8px 12px;
+                border-radius: 10px;
+                border: 1px solid rgba(255,255,255,0.2);
+                background: rgba(255,255,255,0.08);
+                color: inherit;
+                font-size: 0.85rem;
+                outline: none;
+                transition: border-color 0.2s;
+            }
+            .lb-name-input:focus {
+                border-color: #667eea;
+                box-shadow: 0 0 8px rgba(102,126,234,0.3);
+            }
+            .lb-register-btn {
+                padding: 8px 20px;
+                border: none;
+                border-radius: 10px;
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                color: #fff;
+                font-weight: 600;
+                font-size: 0.85rem;
+                cursor: pointer;
+                transition: transform 0.15s, box-shadow 0.2s;
+            }
+            .lb-register-btn:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 4px 16px rgba(102,126,234,0.4);
+            }
+            .lb-register-btn:disabled {
+                opacity: 0.6;
+                cursor: not-allowed;
+                transform: none;
+            }
+            .lb-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+            }
+            .lb-title {
+                font-size: 1rem;
+                font-weight: 700;
+            }
+            .lb-sync-btn {
+                background: rgba(255,255,255,0.1);
+                border: 1px solid rgba(255,255,255,0.15);
+                border-radius: 8px;
+                padding: 4px 10px;
+                cursor: pointer;
+                font-size: 0.8rem;
+                color: inherit;
+                transition: background 0.2s;
+            }
+            .lb-sync-btn:hover { background: rgba(255,255,255,0.2); }
+            .lb-table-wrap {
+                overflow-x: auto;
+                border-radius: 10px;
+                border: 1px solid rgba(255,255,255,0.08);
+                -webkit-overflow-scrolling: touch;
+            }
+            .lb-table {
+                width: max-content;
+                min-width: 100%;
+                border-collapse: collapse;
+                font-size: 0.72rem;
+            }
+            .lb-table thead th {
+                padding: 6px 8px;
+                text-align: left;
+                font-weight: 600;
+                opacity: 0.7;
+                border-bottom: 1px solid rgba(255,255,255,0.1);
+                white-space: nowrap;
+            }
+            .lb-table thead th[title] {
+                text-align: center;
+                font-size: 1rem;
+                padding: 4px 6px;
+                cursor: help;
+            }
+            .lb-table tbody td {
+                padding: 6px 8px;
+                border-bottom: 1px solid rgba(255,255,255,0.04);
+            }
+            .lb-row-me {
+                background: rgba(102,126,234,0.15);
+                font-weight: 600;
+            }
+            .lb-row-me td { border-color: rgba(102,126,234,0.2); }
+            .lb-rank { text-align: center; min-width: 28px; }
+            .lb-level { white-space: nowrap; min-width: 40px; }
+            .lb-xp { white-space: nowrap; min-width: 58px; font-variant-numeric: tabular-nums; }
+            .lb-score { text-align: right; min-width: 52px; font-variant-numeric: tabular-nums; opacity: 0.9; white-space: nowrap; }
+            .lb-you {
+                font-size: 0.65rem;
+                opacity: 0.7;
+                font-weight: 400;
+            }
+            .lb-footer {
+                font-size: 0.7rem;
+                opacity: 0.5;
+                text-align: right;
+            }
+            .lb-empty {
+                text-align: center;
+                opacity: 0.5;
+                padding: 20px !important;
+            }
         </style>
     `;
 
@@ -11434,6 +11881,7 @@
                         <button id="game-switch-breakout" class="game-switch-btn" onclick="window.switchGame('breakout')" title="Breakout">🏓</button>
                         <button id="game-switch-pool" class="game-switch-btn" onclick="window.switchGame('pool')" title="8-Ball Pool">🎱</button>
                         <button id="game-switch-prayer" class="game-switch-btn" onclick="window.switchGame('prayer')" title="Prayer Counter">📿</button>
+                        <button id="game-switch-leaderboard" class="game-switch-btn" onclick="window.switchGame('leaderboard')" title="Leaderboard">🏆</button>
                     </div>
                     
                     <!-- Game Header (Dynamic) -->
@@ -11556,6 +12004,13 @@
 
                     <!-- Prayer Counter Controls (empty — interaction is on the panel itself) -->
                     <div id="prayer-controls" class="snake-controls" style="display: none;"></div>
+
+                    <!-- Leaderboard Panel -->
+                    <div id="leaderboard-panel" class="leaderboard-panel" style="display: none;"></div>
+                    <div id="leaderboard-controls" class="snake-controls" style="display: none;"></div>
+                    <div id="leaderboard-scoreboard" class="snake-scoreboard" style="display: none;">
+                        <button class="lb-sync-btn" onclick="window.lbSync()" title="Sync & Refresh">🔄</button>
+                    </div>
                     
                     <!-- Game Over Overlays -->
                     <div id="snake-game-over" class="snake-game-over">
@@ -11746,6 +12201,7 @@
                         case '5': window.switchGame('aim'); break;
                         case '6': window.switchGame('breakout'); break;
                         case '7': window.switchGame('pool'); break;
+                        case '8': window.switchGame('leaderboard'); break;
                         case 'p': case 'P':
                             if (currentGame === 'snake' && snakeGameRunning) pauseSnakeGame();
                             break;
@@ -11818,6 +12274,73 @@
         window.togglePoolMaximizeBtn = () => { togglePoolMaximize(); };
         window.prayerIncrementBtn = prayerIncrement;
         window.prayerResetBtn = prayerReset;
+
+        // Leaderboard window functions
+        window.lbRegister = async () => {
+            const input = document.getElementById('lb-name-input');
+            const name = (input ? input.value : '').trim();
+            if (!name || name.length < 2) {
+                showXPNotification('⚠️ Enter a display name (2+ chars)', 'hourly');
+                return;
+            }
+            const btn = document.querySelector('.lb-register-btn');
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Joining...'; }
+            const ok = await registerPlayer(name);
+            if (ok) {
+                await fetchLeaderboard();
+                // Ensure own entry is visible immediately even if sync hasn't run
+                if (leaderboardData.length === 0) {
+                    leaderboardData = [{
+                        clientId: lbClientId,
+                        displayName: lbDisplayName,
+                        level: userXP.level || 1,
+                        totalXP: userXP.totalXP || 0,
+                        totalWorkDays: userXP.totalWorkDays || 0,
+                        consecutiveDays: userXP.consecutiveDays || 0,
+                        longestStreak: userXP.longestStreak || 0,
+                        gameBests: {
+                            snake: parseInt(localStorage.getItem('snakeHighScore') || '0', 10),
+                            flappy: parseInt(localStorage.getItem('flappyHighScore') || '0', 10),
+                            tetris: parseInt(localStorage.getItem('tetrisHighScore') || '0', 10),
+                            breakout: parseInt(localStorage.getItem('breakoutHighScore') || '0', 10),
+                            pool: parseInt(localStorage.getItem('poolGamesWon') || '0', 10),
+                            aim: parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
+                            reflex: (() => { const d = JSON.parse(localStorage.getItem('reflexHighScores') || '{}'); return (d?.screen?.best && d.screen.best !== Infinity && d.screen.best > 0) ? d.screen.best : 0; })()
+                        },
+                        joinedAt: new Date().toISOString().split('T')[0],
+                        lastSync: new Date().toISOString()
+                    }];
+                }
+                renderLeaderboardPanel();
+            } else if (btn) { btn.disabled = false; btn.textContent = '🚀 Join Now'; }
+        };
+        window.lbSync = async () => {
+            showXPNotification('🔄 Syncing scores...', 'hourly');
+            await syncMyScore();
+            await fetchLeaderboard();
+            // Ensure local entry reflects latest localStorage scores (avoids stale API cache)
+            const myEntry = leaderboardData.find(p => p.clientId === lbClientId);
+            if (myEntry) {
+                myEntry.level = userXP.level || 1;
+                myEntry.totalXP = userXP.totalXP || 0;
+                myEntry.totalWorkDays = userXP.totalWorkDays || 0;
+                myEntry.consecutiveDays = userXP.consecutiveDays || 0;
+                myEntry.longestStreak = userXP.longestStreak || 0;
+                const syncReflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
+                const syncReflexBest = syncReflexData?.screen?.best;
+                myEntry.gameBests = {
+                    snake: parseInt(localStorage.getItem('snakeHighScore') || '0', 10),
+                    flappy: parseInt(localStorage.getItem('flappyHighScore') || '0', 10),
+                    tetris: parseInt(localStorage.getItem('tetrisHighScore') || '0', 10),
+                    breakout: parseInt(localStorage.getItem('breakoutHighScore') || '0', 10),
+                    pool: parseInt(localStorage.getItem('poolGamesWon') || '0', 10),
+                    aim: parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
+                    reflex: (syncReflexBest && syncReflexBest !== Infinity && syncReflexBest > 0) ? syncReflexBest : 0
+                };
+            }
+            renderLeaderboardPanel();
+            showXPNotification('✅ Leaderboard updated!', 'hourly');
+        };
         
         // Helper function to update game title
         function updateGameTitle(gameKey) {
@@ -11849,6 +12372,9 @@
                     break;
                 case 'prayer':
                     titleElement.textContent = '📿 Prayer Counter';
+                    break;
+                case 'leaderboard':
+                    titleElement.textContent = '🏆 Leaderboard';
                     break;
             }
         }

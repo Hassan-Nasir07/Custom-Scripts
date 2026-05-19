@@ -23,6 +23,7 @@
     let animationFrameId = null; // For requestAnimationFrame
     let pipWindow = null; // Picture-in-Picture window reference
     let isPipActive = false; // Track PiP status
+    let currentTheme = localStorage.getItem('attendance-theme') || 'system'; // Theme: 'light', 'dark', 'system'
     
     // Cache for preventing unnecessary updates
     let cachedValues = {
@@ -91,6 +92,234 @@
                 animation: emojiPulse 3s ease-in-out infinite;
                 filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
                 transition: all 0.3s ease;
+            }
+            
+            /* Achievements / Emoji Progression Display */
+            .achievements-container {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                margin: 16px 0;
+                padding: 12px 16px;
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 16px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                transition: background 0.5s ease, border-color 0.5s ease;
+            }
+            
+            .achievement-item {
+                font-size: 1.8rem;
+                transition: all 0.3s ease;
+                position: relative;
+                cursor: default;
+            }
+            
+            .achievement-item.earned {
+                filter: none;
+                opacity: 1;
+                transform: scale(1);
+            }
+            
+            .achievement-item.current {
+                filter: none;
+                opacity: 1;
+                transform: scale(1.3);
+                animation: emojiPulse 2s ease-in-out infinite;
+            }
+            
+            .achievement-item.unearned {
+                filter: grayscale(1) brightness(0.5);
+                opacity: 0.35;
+                transform: scale(0.85);
+            }
+            
+            .achievement-item.unearned:hover {
+                filter: grayscale(0.5) brightness(0.7);
+                opacity: 0.6;
+                transform: scale(0.95);
+            }
+            
+            .achievements-label {
+                font-size: 0.7rem;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: rgba(255, 255, 255, 0.5);
+                text-align: center;
+                margin-top: 4px;
+                transition: color 0.5s ease;
+            }
+            
+            /* Theme Toggle Styles */
+            .theme-toggle-container {
+                position: absolute;
+                top: 64px;
+                left: 20px;
+                z-index: 10;
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                background: rgba(255, 255, 255, 0.1);
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 10px;
+                padding: 4px;
+                transition: background 0.5s ease, border-color 0.5s ease;
+            }
+            
+            .theme-toggle-btn {
+                background: none;
+                border: none;
+                border-radius: 8px;
+                padding: 6px 8px;
+                cursor: pointer;
+                font-size: 0.85rem;
+                color: rgba(255, 255, 255, 0.6);
+                transition: all 0.3s ease;
+                line-height: 1;
+            }
+            
+            .theme-toggle-btn:hover {
+                background: rgba(255, 255, 255, 0.15);
+                color: rgba(255, 255, 255, 0.9);
+            }
+            
+            .theme-toggle-btn.active {
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                color: white;
+                box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+            }
+            
+            /* Theme class overrides */
+            .attendance-summary.theme-dark {
+                background: linear-gradient(135deg, rgba(30, 30, 30, 0.9), rgba(20, 20, 20, 0.8)) !important;
+                border-color: rgba(255, 255, 255, 0.15) !important;
+                color: rgba(255, 255, 255, 0.9) !important;
+            }
+            
+            .theme-dark .modern-table {
+                background: rgba(0, 0, 0, 0.2) !important;
+            }
+            
+            .theme-dark .modern-table td {
+                color: rgba(255, 255, 255, 0.7) !important;
+            }
+            
+            .theme-dark .stat-card {
+                background: rgba(0, 0, 0, 0.3) !important;
+                border-color: rgba(255, 255, 255, 0.1) !important;
+            }
+            
+            .theme-dark .stat-label {
+                color: rgba(255, 255, 255, 0.7) !important;
+            }
+            
+            .theme-dark .stat-card:hover {
+                background: rgba(255, 255, 255, 0.12) !important;
+                border-color: rgba(255, 255, 255, 0.25) !important;
+            }
+            
+            .theme-dark .achievements-container {
+                background: rgba(0, 0, 0, 0.2) !important;
+                border-color: rgba(255, 255, 255, 0.1) !important;
+            }
+            
+            .theme-dark .achievements-label {
+                color: rgba(255, 255, 255, 0.5) !important;
+            }
+            
+            .theme-dark .theme-toggle-container {
+                background: rgba(255, 255, 255, 0.1) !important;
+                border-color: rgba(255, 255, 255, 0.2) !important;
+            }
+            
+            .theme-dark .theme-toggle-btn {
+                color: rgba(255, 255, 255, 0.6) !important;
+            }
+            
+            .theme-dark .theme-toggle-btn:hover {
+                background: rgba(255, 255, 255, 0.15) !important;
+                color: rgba(255, 255, 255, 0.9) !important;
+            }
+            
+            .theme-dark .pip-placeholder {
+                color: rgba(255, 255, 255, 0.7) !important;
+            }
+            
+            .attendance-summary.theme-light {
+                background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(240, 240, 240, 0.9)) !important;
+                border-color: rgba(0, 0, 0, 0.1) !important;
+                color: rgba(0, 0, 0, 0.9) !important;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+            }
+            
+            .theme-light .modern-table {
+                background: rgba(255, 255, 255, 0.8) !important;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2) !important;
+            }
+            
+            .theme-light .modern-table td {
+                color: rgba(0, 0, 0, 0.8) !important;
+                border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
+            }
+            
+            .theme-light .stat-card {
+                background: rgba(255, 255, 255, 0.7) !important;
+                border-color: rgba(0, 0, 0, 0.1) !important;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+            }
+            
+            .theme-light .stat-card:hover {
+                background: rgba(255, 255, 255, 0.9) !important;
+                border-color: rgba(0, 0, 0, 0.2) !important;
+                box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15) !important;
+            }
+            
+            .theme-light .stat-label {
+                color: rgba(0, 0, 0, 0.6) !important;
+            }
+            
+            .theme-light .progress-bar {
+                background: rgba(0, 0, 0, 0.1) !important;
+            }
+            
+            .theme-light .achievements-container {
+                background: rgba(0, 0, 0, 0.03) !important;
+                border-color: rgba(0, 0, 0, 0.08) !important;
+            }
+            
+            .theme-light .achievements-label {
+                color: rgba(0, 0, 0, 0.4) !important;
+            }
+            
+            .theme-light .achievement-item.unearned {
+                filter: grayscale(1) brightness(1.2) !important;
+                opacity: 0.3 !important;
+            }
+            
+            .theme-light .theme-toggle-container {
+                background: rgba(0, 0, 0, 0.05) !important;
+                border-color: rgba(0, 0, 0, 0.1) !important;
+            }
+            
+            .theme-light .theme-toggle-btn {
+                color: rgba(0, 0, 0, 0.5) !important;
+            }
+            
+            .theme-light .theme-toggle-btn:hover {
+                background: rgba(0, 0, 0, 0.08) !important;
+                color: rgba(0, 0, 0, 0.8) !important;
+            }
+            
+            .theme-light .pip-placeholder {
+                color: rgba(0, 0, 0, 0.7) !important;
+            }
+            
+            .theme-light .developer-info {
+                background: rgba(255, 255, 255, 0.8) !important;
+                border-color: rgba(0, 0, 0, 0.1) !important;
+                color: #667eea !important;
             }
             
             .summary-title {
@@ -619,25 +848,30 @@
             
             /* Compact Mode Styles */
             .pip-window-content.compact-mode {
-                padding: 8px !important;
+                padding: 4px !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
                 min-height: auto !important;
                 height: auto !important;
+                max-height: 60px !important;
+                overflow: hidden !important;
             }
             
             .pip-compact-display {
                 text-align: center !important;
                 background: rgba(225, 112, 85, 0.2) !important;
                 border: 1px solid rgba(225, 112, 85, 0.4) !important;
-                border-radius: 12px !important;
-                padding: 12px 16px !important;
+                border-radius: 8px !important;
+                padding: 6px 12px !important;
                 backdrop-filter: blur(10px) !important;
                 -webkit-backdrop-filter: blur(10px) !important;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2) !important;
                 transition: all 0.3s ease !important;
                 cursor: pointer !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 8px !important;
             }
             
             .pip-compact-display:hover {
@@ -646,20 +880,22 @@
             }
             
             .pip-compact-time {
-                font-size: 1.5rem !important;
+                font-size: 1.1rem !important;
                 font-weight: 700 !important;
                 color: #e17055 !important;
                 margin: 0 !important;
                 line-height: 1 !important;
+                white-space: nowrap !important;
             }
             
             .pip-compact-label {
-                font-size: 0.7rem !important;
+                font-size: 0.6rem !important;
                 font-weight: 500 !important;
                 color: rgba(225, 112, 85, 0.8) !important;
-                margin: 2px 0 0 0 !important;
+                margin: 0 !important;
                 text-transform: uppercase !important;
                 letter-spacing: 0.05em !important;
+                white-space: nowrap !important;
             }
             
             .pip-compact-emoji {
@@ -1043,6 +1279,99 @@
         container.appendChild(developerDiv);
     }
 
+    // Theme management
+    function getEffectiveTheme() {
+        if (currentTheme === 'system') {
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        return currentTheme;
+    }
+    
+    function applyTheme(container) {
+        if (!container) return;
+        container.classList.remove('theme-dark', 'theme-light');
+        if (currentTheme !== 'system') {
+            container.classList.add(`theme-${currentTheme}`);
+        }
+    }
+    
+    function setTheme(theme) {
+        currentTheme = theme;
+        localStorage.setItem('attendance-theme', theme);
+        const container = document.getElementById('total-time-summary');
+        applyTheme(container);
+        // Update toggle button states
+        const buttons = document.querySelectorAll('.theme-toggle-btn');
+        buttons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.theme === theme);
+        });
+        // Update PiP window if active
+        if (isPipActive && pipWindow && !pipWindow.closed) {
+            const pipContent = pipWindow.document.querySelector('.pip-window-content');
+            if (pipContent) {
+                pipContent.classList.remove('theme-dark', 'theme-light');
+                if (currentTheme !== 'system') {
+                    pipContent.classList.add(`theme-${currentTheme}`);
+                }
+            }
+            const effectiveTheme = getEffectiveTheme();
+            updatePipColorScheme(pipWindow, effectiveTheme === 'dark');
+        }
+    }
+    
+    function addThemeToggle(container) {
+        // Remove existing toggle if any
+        const existing = container.querySelector('.theme-toggle-container');
+        if (existing) existing.remove();
+        
+        const toggleContainer = document.createElement('div');
+        toggleContainer.className = 'theme-toggle-container';
+        toggleContainer.innerHTML = `
+            <button class="theme-toggle-btn ${currentTheme === 'light' ? 'active' : ''}" data-theme="light" title="Light Mode">☀️</button>
+            <button class="theme-toggle-btn ${currentTheme === 'system' ? 'active' : ''}" data-theme="system" title="System Preference">🖥️</button>
+            <button class="theme-toggle-btn ${currentTheme === 'dark' ? 'active' : ''}" data-theme="dark" title="Dark Mode">🌙</button>
+        `;
+        
+        toggleContainer.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+            btn.addEventListener('click', () => setTheme(btn.dataset.theme));
+        });
+        
+        container.appendChild(toggleContainer);
+    }
+    
+    // Achievements display - show all emojis with unearned ones greyed out
+    function buildAchievementsHTML(workedSeconds, totalSeconds = 28800) {
+        const progress = Math.min(workedSeconds / totalSeconds, 1);
+        const currentIndex = Math.floor(progress * emojiProgression.length);
+        const isOvertime = workedSeconds > (totalSeconds + 1800);
+        
+        let achievementsHTML = '<div class="achievements-container"><div style="display:flex;flex-direction:column;align-items:center;width:100%;">';
+        achievementsHTML += '<div style="display:flex;align-items:center;justify-content:center;gap:8px;">';
+        
+        emojiProgression.forEach((emoji, index) => {
+            let className = 'achievement-item';
+            if (isOvertime || index < currentIndex) {
+                className += ' earned';
+            } else if (index === currentIndex) {
+                className += ' current';
+            } else {
+                className += ' unearned';
+            }
+            const hourLabel = Math.round((index + 1) * 8 / emojiProgression.length);
+            achievementsHTML += `<span class="${className}" title="${hourLabel}h milestone">${emoji}</span>`;
+        });
+        
+        // Add clown emoji as final "achievement"
+        const clownClass = isOvertime ? 'achievement-item current' : 'achievement-item unearned';
+        achievementsHTML += `<span class="${clownClass}" title="8.5h+ overtime">🤡</span>`;
+        
+        achievementsHTML += '</div>';
+        achievementsHTML += '<div class="achievements-label">Progress Milestones</div>';
+        achievementsHTML += '</div></div>';
+        
+        return achievementsHTML;
+    }
+
     function insertAndCalculate() {
         injectModernStyles();
         
@@ -1303,7 +1632,7 @@
                 const summaryClone = attendanceSummary.cloneNode(true);
                 
                 // Add PiP-specific styling for compact design
-                summaryClone.className = 'attendance-summary pip-window-content';
+                summaryClone.className = 'attendance-summary pip-window-content' + (currentTheme !== 'system' ? ` theme-${currentTheme}` : '');
                 
                 // Remove PiP button from cloned content
                 const pipButtonClone = summaryClone.querySelector('.pip-button');
@@ -1316,6 +1645,12 @@
                 if (developerInfoClone) {
                     developerInfoClone.remove();
                 }
+                
+                // Remove achievements and theme toggle from PiP for space
+                const achievementsClone = summaryClone.querySelector('.achievements-container');
+                if (achievementsClone) achievementsClone.remove();
+                const themeToggleClone = summaryClone.querySelector('.theme-toggle-container');
+                if (themeToggleClone) themeToggleClone.remove();
                 
                 // Add compact mode button to PiP window
                 const compactButton = document.createElement('button');
@@ -1370,8 +1705,8 @@
             pipWindow.document.head.appendChild(pipStyleElement);
         }
         
-        // Detect current color scheme
-        const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        // Detect current effective theme (respects manual toggle)
+        const isDarkMode = getEffectiveTheme() === 'dark';
         
         // Set body styles for PiP window - borderless and theme-aware
         if (isDarkMode) {
@@ -1411,10 +1746,12 @@
             color-scheme: ${isDarkMode ? 'dark' : 'light'};
         `;
         
-        // Listen for color scheme changes and update PiP window accordingly
+        // Listen for color scheme changes and update PiP window accordingly (only relevant in system mode)
         const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
         colorSchemeQuery.addEventListener('change', (e) => {
-            updatePipColorScheme(pipWindow, e.matches);
+            if (currentTheme === 'system') {
+                updatePipColorScheme(pipWindow, e.matches);
+            }
         });
     }
     
@@ -1495,15 +1832,24 @@
             const remainingTime = remainingTimeElement ? remainingTimeElement.textContent : '00:00:00';
             const currentEmoji = emojiElement ? emojiElement.textContent : '⏰';
             
-            // Create compact display
+            // Create compact display - single line, minimal space
             const compactHTML = `
                 <div class="pip-compact-display" title="Click to expand">
-                    <div class="pip-compact-time">${remainingTime}<span class="pip-compact-emoji">${currentEmoji}</span></div>
-                    <div class="pip-compact-label">Time until freedom</div>
+                    <span class="pip-compact-emoji">${currentEmoji}</span>
+                    <span class="pip-compact-time">${remainingTime}</span>
+                    <span class="pip-compact-label">left</span>
                 </div>
             `;
             
             summaryElement.innerHTML = compactHTML;
+            
+            // Hide body overflow to minimize window chrome
+            if (pipWindow && !pipWindow.closed) {
+                pipWindow.document.body.style.overflow = 'hidden';
+                pipWindow.document.body.style.minHeight = 'auto';
+                pipWindow.document.body.style.height = 'auto';
+                pipWindow.document.documentElement.style.overflow = 'hidden';
+            }
             
             // Add expand functionality to the compact display
             const compactDisplay = summaryElement.querySelector('.pip-compact-display');
@@ -1513,7 +1859,6 @@
             
             // Resize window for compact mode
             try {
-                // Note: PiP API doesn't support dynamic resizing, but we optimize the content
                 console.log('Compact mode activated - content optimized for minimal space');
             } catch (error) {
                 console.log('Could not resize PiP window:', error);
@@ -1660,7 +2005,9 @@
                     if (compactTimeElement && originalRemainingTime) {
                         const remainingTime = originalRemainingTime.textContent;
                         const emoji = originalEmojiDisplay ? originalEmojiDisplay.textContent : '⏰';
-                        compactTimeElement.innerHTML = `${remainingTime}<span class="pip-compact-emoji">${emoji}</span>`;
+                        compactTimeElement.textContent = remainingTime;
+                        const emojiEl = pipContent.querySelector('.pip-compact-emoji');
+                        if (emojiEl) emojiEl.textContent = emoji;
                     }
                 } else {
                     // Update full mode display - simple sync approach
@@ -1823,6 +2170,10 @@
         
         // Add developer info inside the card
         addDeveloperInfo(totalTimeDiv);
+        
+        // Add theme toggle
+        addThemeToggle(totalTimeDiv);
+        applyTheme(totalTimeDiv);
         
         // Add PiP button if supported
         createPipButton(totalTimeDiv);

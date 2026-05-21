@@ -234,7 +234,8 @@
         gameModeHidden: true, // true = Game Mode ON (panels visible); false = Game Mode OFF (panels hidden, widget shrinks)
         shiftDuration: '8h', // '4h' = short leave, '8h' = standard, '9h' = overtime
         poolTableColor: 'green', // 'green', 'red', 'blue', 'lightgrey'
-        gameFps: 60 // 30 or 60 — half or full vsync
+        gameFps: 60, // 30 or 60 — half or full vsync
+        colorMode: 'system' // 'light', 'dark', or 'system'
     };
 
     // Returns the selected shift duration in seconds
@@ -6115,15 +6116,15 @@
         if (streakElement) streakElement.textContent = userXP.consecutiveDays;
         if (longestStreakElement) longestStreakElement.textContent = userXP.longestStreak;
         
-        // Update achievements display
+        // Update achievements display - show ALL achievements, grey out unearned
         if (achievementsContainer) {
             achievementsContainer.innerHTML = '';
-            userXP.achievements.forEach(key => {
-                const achievement = ACHIEVEMENTS[key];
+            Object.entries(ACHIEVEMENTS).forEach(([key, achievement]) => {
                 const badge = document.createElement('span');
-                badge.className = 'achievement-badge';
+                const isEarned = userXP.achievements.includes(key);
+                badge.className = 'achievement-badge' + (isEarned ? ' earned' : ' unearned');
                 badge.innerHTML = achievement.icon;
-                badge.title = `${achievement.name}: ${achievement.desc}`;
+                badge.title = `${achievement.name}: ${achievement.desc}${isEarned ? ' ✓' : ' (Locked)'}`;
                 achievementsContainer.appendChild(badge);
             });
         }
@@ -7243,6 +7244,9 @@
                 align-items: center !important;
                 justify-content: center !important;
                 min-height: auto !important;
+                height: auto !important;
+                max-height: 70px !important;
+                overflow: hidden !important;
             }
             
             /* Compact mode - Glassmorphic Aurora theme */
@@ -7251,7 +7255,7 @@
                 background: rgba(255, 255, 255, 0.15) !important;
                 border: 1px solid rgba(255, 255, 255, 0.2) !important;
                 border-radius: 0px 0px 5px 5px !important;
-                padding: 20px 24px !important;
+                padding: 8px 16px !important;
                 backdrop-filter: blur(5px) saturate(180%) !important;
                 -webkit-backdrop-filter: blur(5px) saturate(180%) !important;
                 box-shadow: 
@@ -7298,7 +7302,7 @@
             
             .compact-mode:not(.retro-theme) .pip-compact-time {
                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
-                font-size: 1.6rem !important;
+                font-size: 1.2rem !important;
                 font-weight: 700 !important;
                 color: #667eea !important;
                 margin: 0 !important;
@@ -7310,7 +7314,7 @@
             
             .compact-mode:not(.retro-theme) .pip-compact-label {
                 font-family: 'Inter', sans-serif !important;
-                font-size: 0.75rem !important;
+                font-size: 0.6rem !important;
                 font-weight: 500 !important;
                 color: rgba(102, 126, 234, 0.8) !important;
                 text-transform: uppercase !important;
@@ -7320,8 +7324,8 @@
             }
             
             .compact-mode:not(.retro-theme) .pip-compact-emoji {
-                font-size: 1.5rem !important;
-                margin-left: 12px !important;
+                font-size: 1.1rem !important;
+                margin-left: 8px !important;
                 display: inline-block !important;
                 filter: drop-shadow(0 2px 4px rgba(102, 126, 234, 0.3)) !important;
                 animation: emojiPulse 2s ease-in-out infinite !important;
@@ -7336,7 +7340,7 @@
                 border: 1px solid var(--rt-border-strong) !important;
                 border-radius: 2px !important;
                 clip-path: var(--rt-clip);
-                padding: 16px 24px !important;
+                padding: 8px 16px !important;
                 backdrop-filter: none !important;
                 -webkit-backdrop-filter: none !important;
                 box-shadow:
@@ -7382,10 +7386,10 @@
 
             .compact-mode.retro-theme .pip-compact-time {
                 font-family: 'Share Tech Mono', 'Orbitron', monospace !important;
-                font-size: 1.6rem !important;
+                font-size: 1.2rem !important;
                 font-weight: 700 !important;
                 color: var(--rt-accent) !important;
-                margin: 6px 0 0 0 !important;
+                margin: 2px 0 0 0 !important;
                 line-height: 1.1 !important;
                 text-shadow:
                     0 1px 0 rgba(0, 0, 0, 0.15),
@@ -8516,6 +8520,124 @@
                 .image-box-title {
                     color: rgba(0,0,0,0.85);
                 }
+            }
+            
+            /* ============ Force Dark Mode (user toggle) ============ */
+            .attendance-summary.force-dark {
+                background: linear-gradient(135deg, rgba(22, 20, 35, 0.92), rgba(12, 10, 25, 0.88)) !important;
+                border-color: rgba(255, 255, 255, 0.12) !important;
+                color: rgba(255, 255, 255, 0.92) !important;
+            }
+            .force-dark .modern-table {
+                background: rgba(0, 0, 0, 0.25) !important;
+                border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            }
+            .force-dark .modern-table td {
+                color: rgba(255, 255, 255, 0.75) !important;
+            }
+            .force-dark .stat-card {
+                background: rgba(255, 255, 255, 0.04) !important;
+                border-color: rgba(255, 255, 255, 0.1) !important;
+            }
+            .force-dark .stat-label {
+                color: rgba(255, 255, 255, 0.7) !important;
+            }
+            .force-dark .stat-card:hover {
+                background: rgba(255, 255, 255, 0.1) !important;
+                border-color: rgba(255, 255, 255, 0.2) !important;
+            }
+            .force-dark .pip-placeholder {
+                color: rgba(255, 255, 255, 0.7) !important;
+            }
+            .force-dark .xp-achievements {
+                background: rgba(0, 0, 0, 0.2) !important;
+            }
+            .force-dark .achievement-badge.unearned {
+                filter: grayscale(1) brightness(0.5) !important;
+            }
+            .force-dark .snake-game-container,
+            .force-dark .quotes-container,
+            .force-dark .image-box-container,
+            .force-dark .xp-container {
+                background: rgba(0, 0, 0, 0.3) !important;
+                border-color: rgba(255, 255, 255, 0.1) !important;
+            }
+            .force-dark .snake-game-title,
+            .force-dark .quotes-title,
+            .force-dark .xp-title {
+                color: rgba(255, 255, 255, 0.9) !important;
+            }
+            .force-dark .settings-button {
+                background: rgba(255, 255, 255, 0.1) !important;
+                border-color: rgba(255, 255, 255, 0.2) !important;
+                color: #667eea !important;
+            }
+            .force-dark .progress-bar {
+                background: rgba(255, 255, 255, 0.1) !important;
+            }
+            
+            /* ============ Force Light Mode (user toggle) ============ */
+            .attendance-summary.force-light {
+                background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(245, 243, 255, 0.88)) !important;
+                border-color: rgba(102, 126, 234, 0.12) !important;
+                color: rgba(0, 0, 0, 0.9) !important;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+            }
+            .force-light .modern-table {
+                background: rgba(255, 255, 255, 0.75) !important;
+                box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06) !important;
+                border: 1px solid rgba(0, 0, 0, 0.06) !important;
+            }
+            .force-light .modern-table td {
+                color: rgba(0, 0, 0, 0.8) !important;
+                border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
+            }
+            .force-light .stat-card {
+                background: rgba(255, 255, 255, 0.65) !important;
+                border-color: rgba(0, 0, 0, 0.06) !important;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05) !important;
+            }
+            .force-light .stat-card:hover {
+                background: rgba(255, 255, 255, 0.85) !important;
+                border-color: rgba(102, 126, 234, 0.2) !important;
+            }
+            .force-light .stat-label {
+                color: rgba(0, 0, 0, 0.6) !important;
+            }
+            .force-light .progress-bar {
+                background: rgba(0, 0, 0, 0.1) !important;
+            }
+            .force-light .pip-placeholder {
+                color: rgba(0, 0, 0, 0.7) !important;
+            }
+            .force-light .xp-achievements {
+                background: rgba(0, 0, 0, 0.04) !important;
+            }
+            .force-light .achievement-badge.unearned {
+                filter: grayscale(1) brightness(1.2) !important;
+                opacity: 0.3 !important;
+            }
+            .force-light .snake-game-container,
+            .force-light .quotes-container,
+            .force-light .image-box-container,
+            .force-light .xp-container {
+                background: rgba(255, 255, 255, 0.8) !important;
+                border-color: rgba(0, 0, 0, 0.1) !important;
+            }
+            .force-light .snake-game-title,
+            .force-light .quotes-title,
+            .force-light .xp-title {
+                color: rgba(0, 0, 0, 0.85) !important;
+            }
+            .force-light .settings-button {
+                background: rgba(255, 255, 255, 0.8) !important;
+                border-color: rgba(0, 0, 0, 0.1) !important;
+                color: #764ba2 !important;
+            }
+            .force-light .developer-info {
+                background: rgba(255, 255, 255, 0.8) !important;
+                border-color: rgba(0, 0, 0, 0.1) !important;
+                color: #667eea !important;
             }
             /* ============================================================
                NEUMORPHIC DEPTH — class-toggled via .neumorphic-active
@@ -9855,7 +9977,7 @@
             }
             
             .xp-achievements:empty::before {
-                content: 'Complete tasks to unlock achievements! 🏆';
+                content: 'Loading achievements... 🏆';
                 color: rgba(255, 255, 255, 0.4);
                 font-size: 0.75rem;
                 font-style: italic;
@@ -9864,8 +9986,25 @@
             .achievement-badge {
                 font-size: 1.8rem;
                 cursor: pointer;
-                transition: transform 0.3s ease;
+                transition: transform 0.3s ease, filter 0.3s ease, opacity 0.3s ease;
                 filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+            }
+            
+            .achievement-badge.earned {
+                filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+                opacity: 1;
+            }
+            
+            .achievement-badge.unearned {
+                filter: grayscale(1) brightness(0.5);
+                opacity: 0.35;
+                transform: scale(0.85);
+            }
+            
+            .achievement-badge.unearned:hover {
+                filter: grayscale(0.5) brightness(0.7);
+                opacity: 0.6;
+                transform: scale(1);
             }
             
             .achievement-badge:hover {
@@ -10813,6 +10952,14 @@
                 </select>
             </div>
             <div class="settings-option">
+                <span class="settings-option-label">🌗 Color Mode</span>
+                <select class="settings-select" data-pref="colorMode" id="color-mode-selector">
+                    <option value="system" ${userPreferences.colorMode === 'system' ? 'selected' : ''}>System</option>
+                    <option value="light" ${userPreferences.colorMode === 'light' ? 'selected' : ''}>☀️ Light</option>
+                    <option value="dark" ${userPreferences.colorMode === 'dark' ? 'selected' : ''}>🌙 Dark</option>
+                </select>
+            </div>
+            <div class="settings-option">
                 <span class="settings-option-label">🎮 Game Mode <small style="opacity:0.6;font-size:0.75rem;">Hides side panels</small></span>
                 <div class="toggle-switch ${userPreferences.gameModeHidden ? 'active' : ''}" data-pref="gameModeHidden"></div>
             </div>
@@ -10950,6 +11097,44 @@
 
         // Apply game mode panel visibility
         applyGameMode();
+        
+        // Apply color mode
+        applyColorMode();
+    }
+    
+    // ── Color Mode: force light/dark or follow system ──────────────
+    function getEffectiveColorMode() {
+        if (userPreferences.colorMode === 'system') {
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        return userPreferences.colorMode;
+    }
+    
+    function applyColorMode() {
+        const container = document.getElementById('total-time-summary');
+        if (!container) return;
+        
+        container.classList.remove('force-dark', 'force-light');
+        if (userPreferences.colorMode === 'dark') {
+            container.classList.add('force-dark');
+        } else if (userPreferences.colorMode === 'light') {
+            container.classList.add('force-light');
+        }
+        
+        // Update PiP if active
+        if (isPipActive && pipWindow && !pipWindow.closed) {
+            const effectiveDark = getEffectiveColorMode() === 'dark';
+            updatePipColorScheme(pipWindow, effectiveDark);
+            const pipContent = pipWindow.document.querySelector('.pip-window-content');
+            if (pipContent) {
+                pipContent.classList.remove('force-dark', 'force-light');
+                if (userPreferences.colorMode === 'dark') {
+                    pipContent.classList.add('force-dark');
+                } else if (userPreferences.colorMode === 'light') {
+                    pipContent.classList.add('force-light');
+                }
+            }
+        }
     }
     
     // ── Game Mode: show/hide left and right panels ──────────────
@@ -11400,8 +11585,8 @@
             pipWindow.document.head.appendChild(pipStyleElement);
         }
         
-        // Detect current color scheme
-        const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        // Detect current color scheme (respects user color mode toggle)
+        const isDarkMode = getEffectiveColorMode() === 'dark';
         
         // Determine background based on user's theme preference
         let backgroundStyle;
@@ -11444,10 +11629,12 @@
             color-scheme: ${isDarkMode ? 'dark' : 'light'};
         `;
         
-        // Listen for color scheme changes and update PiP window accordingly
+        // Listen for color scheme changes and update PiP window accordingly (only in system mode)
         const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
         colorSchemeQuery.addEventListener('change', (e) => {
-            updatePipColorScheme(pipWindow, e.matches);
+            if (userPreferences.colorMode === 'system') {
+                updatePipColorScheme(pipWindow, e.matches);
+            }
         });
     }
     
@@ -11555,6 +11742,14 @@
             
             summaryElement.innerHTML = compactHTML;
             
+            // Minimize body space for compact mode
+            if (pipWindow && !pipWindow.closed) {
+                pipWindow.document.body.style.overflow = 'hidden';
+                pipWindow.document.body.style.minHeight = 'auto';
+                pipWindow.document.body.style.height = 'auto';
+                pipWindow.document.documentElement.style.overflow = 'hidden';
+            }
+            
             // Add expand functionality to the compact display
             const compactDisplay = summaryElement.querySelector('.pip-compact-display');
             if (compactDisplay) {
@@ -11563,7 +11758,6 @@
             
             // Resize window for compact mode
             try {
-                // Note: PiP API doesn't support dynamic resizing, but we optimize the content
                 console.log('Compact mode activated - content optimized for minimal space');
             } catch (error) {
                 console.log('Could not resize PiP window:', error);

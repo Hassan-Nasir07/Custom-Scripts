@@ -927,7 +927,7 @@
         const padW = brkPaddleWidth();
         breakoutPaddle = { x: BRK_W/2 - padW/2, y: BRK_PAD_Y, w: padW, h: BRK_PAD_H };
         const angle = -Math.PI/2 + (Math.random()-0.5)*0.8;
-        const spd   = BRK_BASE_SPEED + breakoutLevel*0.3;
+        const spd   = BRK_BASE_SPEED + breakoutLevel*0.15;
         breakoutBalls = [{ x:BRK_W/2, y:BRK_PAD_Y - BRK_BALL_R - 2,
                             vx:Math.cos(angle)*spd, vy:Math.sin(angle)*spd,
                             r:BRK_BALL_R, trail:[], stuck:false }];
@@ -1078,7 +1078,7 @@
 
         // Reset ball speed to normal when slow/fast powerup expires
         if ((prevSlowTimer > 0 && brkPU.slowTimer === 0) || (prevFastTimer > 0 && brkPU.fastTimer === 0)) {
-            const normalSpeed = BRK_BASE_SPEED + breakoutLevel * 0.3;
+            const normalSpeed = BRK_BASE_SPEED + breakoutLevel * 0.15;
             breakoutBalls.forEach(b => brkSetSpeed(b, normalSpeed));
         }
 
@@ -3693,6 +3693,7 @@
             poolRecord.p2Wins++;
             poolRecord.p1Losses++;
             savePoolRecord(poolRecord);
+            awardGameXP('pool', { won: false });
         }
 
         updatePoolScoreboard();
@@ -4336,7 +4337,7 @@
         }
         
         // Award XP based on performance
-        awardGameXP('reflex', { avgTime, bestTime, falseStarts: reflexFalseStarts });
+        awardGameXP('reflex', { avgTime, bestTime, falseStarts: reflexFalseStarts, isHighScore: newHighScore });
         
         updateReflexDisplay();
         showReflexResults(avgTime, bestTime, newHighScore);
@@ -4730,7 +4731,7 @@
         }
         
         // Award XP based on score
-        awardGameXP('aim', { score: aimScore, accuracy: aimAccuracy, hits: aimHits });
+        awardGameXP('aim', { score: aimScore, accuracy: aimAccuracy, hits: aimHits, isHighScore: isNewHighScore });
         
         showAimResults(isNewHighScore);
     }
@@ -5028,12 +5029,12 @@
     }
 
     function flappyCurrentSpeed() {
-        // +0.18 per pipe, cap 5.5
-        return Math.min(5.5, FLAPPY_PIPE_SPEED_BASE + flappyScore * 0.18);
+        // +0.08 per pipe, cap 3.8 — gentler scaling for 60fps playability
+        return Math.min(3.8, FLAPPY_PIPE_SPEED_BASE + flappyScore * 0.08);
     }
     function flappyCurrentGap() {
-        // Narrows 4px per pipe cleared, floor 78px
-        return Math.max(78, FLAPPY_PIPE_GAP_BASE - flappyScore * 4);
+        // Narrows 2px per pipe cleared, floor 100px — less aggressive after pipe 13
+        return Math.max(100, FLAPPY_PIPE_GAP_BASE - flappyScore * 2);
     }
 
     function updateFlappy() {
@@ -5299,7 +5300,7 @@
         if (!now) return; // first manual call has no timestamp
 
         // Logic: timestamp-based drop interval — already frame-rate independent
-        const dropInterval = Math.max(80, 600 - (tetrisLevel - 1) * 55);
+        const dropInterval = Math.max(200, 600 - (tetrisLevel - 1) * 30);
         if (now - tetrisLastDrop >= dropInterval) {
             if (!moveTetris(0, 1)) lockTetrisPiece();
             tetrisLastDrop = now;
@@ -6232,44 +6233,57 @@
             case 'reflex': {
                 // Award XP based on reaction time (faster = more XP)
                 const avgTime = performance.avgTime || 999;
-                if (avgTime < 200) {
+                if (avgTime < 180) {
+                    xpGained = 85;
+                } else if (avgTime < 220) {
+                    xpGained = 65;
+                } else if (avgTime < 260) {
                     xpGained = 50;
-                } else if (avgTime < 250) {
-                    xpGained = 40;
                 } else if (avgTime < 300) {
-                    xpGained = 30;
+                    xpGained = 40;
                 } else if (avgTime < 400) {
-                    xpGained = 20;
+                    xpGained = 28;
                 } else {
-                    xpGained = 10;
+                    xpGained = 15;
                 }
-                xpGained = Math.max(5, xpGained - (performance.falseStarts * 5));
-                message = `⚡ +${xpGained} XP for ${avgTime}ms avg reaction!`;
+                // Bonus for zero false starts
+                if (performance.falseStarts === 0) xpGained += 15;
+                else xpGained = Math.max(8, xpGained - (performance.falseStarts * 5));
+                if (performance.isHighScore) xpGained += 20;
+                message = `⚡ +${xpGained} XP (ReflexX: ${avgTime}ms avg${performance.falseStarts === 0 ? ' 🎯 Perfect!' : ''}${performance.isHighScore ? ' 🏆!' : ''})`;
                 break;
             }
                 
             case 'aim': {
-                // Award XP based on score (higher score = more XP)
+                // Award XP based on score and accuracy
                 const aimScoreVal = performance.score || 0;
-                if (aimScoreVal >= 300) {
-                    xpGained = 75;
+                const aimAcc = performance.accuracy || 0;
+                if (aimScoreVal >= 400) {
+                    xpGained = 100;
+                } else if (aimScoreVal >= 300) {
+                    xpGained = 80;
                 } else if (aimScoreVal >= 250) {
-                    xpGained = 60;
+                    xpGained = 65;
                 } else if (aimScoreVal >= 200) {
-                    xpGained = 45;
+                    xpGained = 50;
                 } else if (aimScoreVal >= 150) {
-                    xpGained = 30;
+                    xpGained = 38;
                 } else if (aimScoreVal >= 100) {
-                    xpGained = 20;
+                    xpGained = 25;
                 } else {
-                    xpGained = 10;
+                    xpGained = 12;
                 }
-                if (performance.accuracy >= 80) {
-                    xpGained += 10;
-                    message = `💥 +${xpGained} XP (${aimScoreVal} pts + accuracy bonus)!`;
+                // Accuracy bonuses
+                if (aimAcc >= 90) {
+                    xpGained += 25;
+                    message = `🎯 +${xpGained} XP (Aim: ${aimScoreVal} pts + ${Math.round(aimAcc)}% accuracy 🔥)!`;
+                } else if (aimAcc >= 75) {
+                    xpGained += 15;
+                    message = `🎯 +${xpGained} XP (Aim: ${aimScoreVal} pts + accuracy bonus)!`;
                 } else {
-                    message = `💥 +${xpGained} XP for ${aimScoreVal} points!`;
+                    message = `🎯 +${xpGained} XP (Aim: ${aimScoreVal} pts, ${Math.round(aimAcc)}% accuracy)`;
                 }
+                if (performance.isHighScore) xpGained += 20;
                 break;
             }
 
@@ -6277,19 +6291,33 @@
                 const brkScore = performance.score || 0;
                 const brkLevel = performance.level || 1;
                 if (brkScore >= 1500) {
-                    xpGained = 90;
+                    xpGained = 120;
                 } else if (brkScore >= 800) {
-                    xpGained = 60;
+                    xpGained = 85;
                 } else if (brkScore >= 400) {
-                    xpGained = 40;
+                    xpGained = 55;
+                } else if (brkScore >= 200) {
+                    xpGained = 35;
                 } else if (brkScore >= 100) {
-                    xpGained = 20;
+                    xpGained = 25;
                 } else {
-                    xpGained = 8;
+                    xpGained = 12;
                 }
-                xpGained += Math.min(brkLevel * 5, 30); // level bonus
-                if (performance.isHighScore) xpGained += 20;
+                xpGained += Math.min(brkLevel * 8, 50); // level bonus
+                if (performance.isHighScore) xpGained += 30;
                 message = `🧱 +${xpGained} XP (Breakout: ${brkScore} pts, Lvl ${brkLevel}${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
+                break;
+            }
+
+            case 'pool': {
+                // Decent reward for winning against CPU
+                if (performance.won) {
+                    xpGained = 80;
+                    message = `🎱 +${xpGained} XP (Pool: Victory against CPU! 🏆)`;
+                } else {
+                    xpGained = 15;
+                    message = `🎱 +${xpGained} XP (Pool: Good game)`;
+                }
                 break;
             }
         }

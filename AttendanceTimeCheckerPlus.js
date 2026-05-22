@@ -201,15 +201,44 @@
     };
     
     // Achievement Definitions (work-life-balance friendly — weekends are sacred 🙅)
+    // Each achievement requires actual user action — no freebies.
     const ACHIEVEMENTS = {
-        firstDay:   { icon: '🎯', name: 'Day One',          desc: 'Complete your first work day' },
-        week1:      { icon: '📅', name: 'Full Week',         desc: 'Complete 5 work days' },
-        workdays20: { icon: '🗓️', name: 'Month Done',        desc: 'Complete 20 work days' },
-        onTime:     { icon: '🕐', name: 'Badge of Balance',  desc: 'Finish your exact shift without overtime' },
-        level10:    { icon: '⭐', name: 'Level 10',          desc: 'Reach level 10' },
-        level25:    { icon: '💎', name: 'Level 25',          desc: 'Reach level 25' },
-        gamer:      { icon: '🎮', name: 'Office Gamer',      desc: 'Earn XP in 10 game sessions' },
-        teamPlayer: { icon: '🤝', name: 'Team Player',       desc: 'Join the leaderboard' }
+        // ── Shift completion ──────────────────────────────
+        firstDay:     { icon: '🎯', name: 'Day One',          desc: 'Complete a full shift for the first time' },
+        week1:        { icon: '📅', name: 'Full Week',         desc: 'Complete 5 full shifts' },
+        workdays20:   { icon: '🗓️', name: 'Month Done',        desc: 'Complete 20 full shifts' },
+        centurion:    { icon: '🌟', name: 'Centurion',         desc: 'Complete 100 full shifts' },
+        onTime:       { icon: '🕐', name: 'Badge of Balance',  desc: 'Clock exactly your shift (within 5 min, no overtime)' },
+        marathon:     { icon: '🏃', name: 'Marathon',          desc: 'Work 10+ hours in a single day' },
+        overtimeHero: { icon: '💪', name: 'Overtime Hero',     desc: 'Work shift + 2 hours in a single day' },
+
+        // ── Streaks ───────────────────────────────────────
+        streak7:      { icon: '🔥', name: 'On Fire',           desc: 'Maintain a 7-day work streak' },
+        streak30:     { icon: '🏔️', name: 'Unstoppable',       desc: 'Maintain a 30-day work streak' },
+        comeback:     { icon: '🔄', name: 'Comeback Kid',      desc: 'Rebuild a 3-day streak after missing days' },
+
+        // ── Leveling ──────────────────────────────────────
+        level10:      { icon: '⭐', name: 'Level 10',          desc: 'Reach level 10' },
+        level25:      { icon: '💎', name: 'Level 25',          desc: 'Reach level 25' },
+        level50:      { icon: '👑', name: 'Veteran',           desc: 'Reach level 50' },
+        level100:     { icon: '🏆', name: 'Legend',            desc: 'Reach level 100' },
+
+        // ── Gaming ────────────────────────────────────────
+        gamer:        { icon: '🎮', name: 'Office Gamer',      desc: 'Earn XP in 50 game sessions' },
+        gamer50:      { icon: '🕹️', name: 'Game Addict',       desc: 'Earn XP in 100 game sessions' },
+        snakeCharmer: { icon: '🐍', name: 'Snake Charmer',     desc: 'Score 40+ in Snake' },
+        flapMaster:   { icon: '🐦', name: 'Sky Captain',       desc: 'Clear 50+ pipes in Flappy' },
+        tetrisMaster: { icon: '🧱', name: 'Block Master',      desc: 'Clear 50+ lines in one Tetris run' },
+        sharpshooter: { icon: '🎯', name: 'Sharpshooter',      desc: 'Hit 95%+ accuracy with 600+ score in Aim' },
+        lightning:    { icon: '⚡', name: 'Lightning Reflexes', desc: 'Average under 220ms in RefleX' },
+        brickBuster:  { icon: '🧨', name: 'Brick Buster',      desc: 'Reach level 30 in Breakout' },
+        poolShark:    { icon: '🎱', name: 'Pool Shark',        desc: 'Win 100 pool games against the CPU' },
+
+        // ── Engagement / Customization ────────────────────
+        curator:      { icon: '💬', name: 'Curator',           desc: 'Add a custom motivational quote' },
+        picturePerfect:{ icon: '🖼️', name: 'Picture Perfect',  desc: 'Set a custom widget image' },
+        meditative:   { icon: '🤲', name: 'Devoted',           desc: 'Reach 1000 on the prayer counter' },
+        teamPlayer:   { icon: '🤝', name: 'Team Player',       desc: 'Join the leaderboard' }
     };
     
     // IMAGE BOX VARIABLES
@@ -234,8 +263,7 @@
         gameModeHidden: true, // true = Game Mode ON (panels visible); false = Game Mode OFF (panels hidden, widget shrinks)
         shiftDuration: '8h', // '4h' = short leave, '8h' = standard, '9h' = overtime
         poolTableColor: 'green', // 'green', 'red', 'blue', 'lightgrey'
-        gameFps: 60, // 30 or 60 — half or full vsync
-        colorMode: 'system' // 'light', 'dark', or 'system'
+        gameFps: 60 // 30 or 60 — half or full vsync
     };
 
     // Returns the selected shift duration in seconds
@@ -321,6 +349,8 @@
                 totalWorkDays: data.totalWorkDays || 0,
                 gameSessions: data.gameSessions || 0,
                 lastAttendanceDate: data.lastAttendanceDate || null,
+                lastShiftCompletedDate: data.lastShiftCompletedDate || null,
+                hadStreakReset: !!data.hadStreakReset,
                 longestStreak: data.longestStreak || 0,
                 achievements: data.achievements || [],
                 milestonesReached: data.milestonesReached || []
@@ -336,6 +366,8 @@
             totalWorkDays: 0,
             gameSessions: 0,
             lastAttendanceDate: null,
+            lastShiftCompletedDate: null,
+            hadStreakReset: false,
             longestStreak: 0,
             achievements: [],
             milestonesReached: []
@@ -859,7 +891,7 @@
     const BRK_BRICK_OFFSET_X = 8, BRK_BRICK_OFFSET_Y = 40;
     const BRK_PAD_W = 60, BRK_PAD_H = 10, BRK_PAD_Y = 342;
     const BRK_BALL_R = 6;
-    const BRK_BASE_SPEED = 3.8;
+    const BRK_BASE_SPEED = 3.0;
 
     const BRK_BRICK_COLORS = [
         ['#ff4757','#ff6b81'],
@@ -928,7 +960,7 @@
         const padW = brkPaddleWidth();
         breakoutPaddle = { x: BRK_W/2 - padW/2, y: BRK_PAD_Y, w: padW, h: BRK_PAD_H };
         const angle = -Math.PI/2 + (Math.random()-0.5)*0.8;
-        const spd   = BRK_BASE_SPEED + breakoutLevel*0.15;
+        const spd   = BRK_BASE_SPEED + breakoutLevel*0.06;
         breakoutBalls = [{ x:BRK_W/2, y:BRK_PAD_Y - BRK_BALL_R - 2,
                             vx:Math.cos(angle)*spd, vy:Math.sin(angle)*spd,
                             r:BRK_BALL_R, trail:[], stuck:false }];
@@ -1013,7 +1045,7 @@
             const b = breakoutBalls[brkPU.stuckBallIdx];
             if (b.stuck) {
                 b.stuck = false;
-                const spd = BRK_BASE_SPEED + breakoutLevel*0.3;
+                const spd = BRK_BASE_SPEED + breakoutLevel*0.12;
                 b.vy = -spd * 0.85;
                 b.vx = (Math.random()-0.5) * spd * 0.8;
                 brkPU.stuckBallIdx = -1;
@@ -1034,11 +1066,11 @@
             case 'shrink':    brkPU.shrinkTimer = pu.dur; brkPU.expandTimer = 0; break;
             case 'slow':
                 brkPU.slowTimer = pu.dur; brkPU.fastTimer = 0;
-                breakoutBalls.forEach(b => brkSetSpeed(b, (BRK_BASE_SPEED + breakoutLevel*0.3)*0.58));
+                breakoutBalls.forEach(b => brkSetSpeed(b, (BRK_BASE_SPEED + breakoutLevel*0.12)*0.58));
                 break;
             case 'fast':
                 brkPU.fastTimer = pu.dur; brkPU.slowTimer = 0;
-                breakoutBalls.forEach(b => brkSetSpeed(b, (BRK_BASE_SPEED + breakoutLevel*0.3)*1.55));
+                breakoutBalls.forEach(b => brkSetSpeed(b, (BRK_BASE_SPEED + breakoutLevel*0.12)*1.55));
                 break;
             case 'multiball': {
                 const count = 2 + Math.floor(Math.random()*2); // 2-3 extra balls
@@ -1079,7 +1111,7 @@
 
         // Reset ball speed to normal when slow/fast powerup expires
         if ((prevSlowTimer > 0 && brkPU.slowTimer === 0) || (prevFastTimer > 0 && brkPU.fastTimer === 0)) {
-            const normalSpeed = BRK_BASE_SPEED + breakoutLevel * 0.15;
+            const normalSpeed = BRK_BASE_SPEED + breakoutLevel * 0.06;
             breakoutBalls.forEach(b => brkSetSpeed(b, normalSpeed));
         }
 
@@ -5591,6 +5623,11 @@
             btn.classList.add('prayer-tap-flash');
             setTimeout(() => btn.classList.remove('prayer-tap-flash'), 150);
         }
+
+        // Devoted achievement
+        if (xpSystemReady && prayerCount >= 1000 && !userXP.achievements.includes('meditative')) {
+            unlockAchievement('meditative');
+        }
     }
 
     function prayerReset() {
@@ -5898,6 +5935,11 @@
         
         // Restart cycling
         startQuoteCycling();
+
+        // Curator achievement
+        if (xpSystemReady && !userXP.achievements.includes('curator')) {
+            unlockAchievement('curator');
+        }
     }
     
     // XP SYSTEM LOGIC
@@ -5937,13 +5979,15 @@
         
         // Award XP for each completed hour (15 XP per hour)
         if (currentHour > userXP.lastHourTracked) {
-            const hoursToAward = currentHour - userXP.lastHourTracked;
+            const hoursToAward = currentHour - Math.max(0, userXP.lastHourTracked);
             const xpGained = hoursToAward * XP_PER_HOUR;
             
             userXP.currentXP += xpGained;
             userXP.totalXP += xpGained;
             userXP.lastHourTracked = currentHour;
-            userXP.todayHours += hoursToAward;
+            // todayHours mirrors the floor of actual hours worked — do NOT accumulate,
+            // otherwise the very first call of the day (lastHourTracked === -1) inflates it.
+            userXP.todayHours = currentHour;
             
             // Show hourly XP notification
             if (hoursToAward > 0) {
@@ -5963,22 +6007,25 @@
             
             // Check for level up
             checkLevelUp();
-            
-            // Check for achievements
-            checkAchievements();
-            
-            saveUserXP(userXP);
-            updateXPDisplay();
         }
+
+        // Achievements/shift-completion are evaluated on every call (not only on hour
+        // boundaries) so the exact-shift "Badge of Balance" window can be detected
+        // even if it falls between integer-hour ticks.
+        checkAchievements(hoursWorked);
+
+        saveUserXP(userXP);
+        updateXPDisplay();
     }
     
     function calculateStreak() {
         const today = new Date().toDateString();
         
         if (!userXP.lastAttendanceDate) {
-            // First time
+            // First time the widget sees this user — start a streak of 1.
+            // Note: totalWorkDays is NOT incremented here. It only ticks up once the
+            // user actually completes a full shift (see checkAchievements).
             userXP.consecutiveDays = 1;
-            userXP.totalWorkDays = (userXP.totalWorkDays || 0) + 1;
             userXP.lastAttendanceDate = today;
             return;
         }
@@ -6011,11 +6058,12 @@
                 userXP.longestStreak = userXP.consecutiveDays;
             }
         } else {
-            // Missed at least one real work day — streak resets
+            // Missed at least one real work day — streak resets.
+            // Flag the reset so 'comeback' achievement can fire once a new streak rebuilds.
             userXP.consecutiveDays = 1;
+            userXP.hadStreakReset = true;
         }
 
-        userXP.totalWorkDays = (userXP.totalWorkDays || 0) + 1;
         userXP.lastAttendanceDate = today;
     }
     
@@ -6030,43 +6078,131 @@
         }
     }
     
-    function checkAchievements() {
-        const shiftHours = getShiftSeconds() / 3600;
+    function checkAchievements(hoursWorked) {
+        // hoursWorked is a float (e.g. 7.42). All shift-completion checks use this
+        // precise value rather than the truncated userXP.todayHours, so achievements
+        // never fire early on partial work.
+        if (typeof hoursWorked !== 'number') hoursWorked = (userXP.todayHours || 0);
 
-        // Day One: complete your first shift
-        if (!userXP.achievements.includes('firstDay') && userXP.todayHours >= shiftHours) {
-            unlockAchievement('firstDay');
+        const shiftHours = getShiftSeconds() / 3600;
+        const today = new Date().toDateString();
+        const shiftCompletedToday = hoursWorked >= shiftHours;
+
+        // Once per day: if the user has completed a full shift today and we haven't
+        // already counted today, bump totalWorkDays. This is the SINGLE source of
+        // truth for "shift completed", used by Day One / Full Week / Month Done.
+        if (shiftCompletedToday && userXP.lastShiftCompletedDate !== today) {
+            userXP.lastShiftCompletedDate = today;
+            userXP.totalWorkDays = (userXP.totalWorkDays || 0) + 1;
         }
 
-        // Full Week: 5 work days completed (weekends don't count against you)
+        // ── Shift-completion achievements ──────────────────────
+        if (!userXP.achievements.includes('firstDay') && shiftCompletedToday) {
+            unlockAchievement('firstDay');
+        }
         if (!userXP.achievements.includes('week1') && (userXP.totalWorkDays || 0) >= 5) {
             unlockAchievement('week1');
         }
-
-        // Month Done: 20 work days completed
         if (!userXP.achievements.includes('workdays20') && (userXP.totalWorkDays || 0) >= 20) {
             unlockAchievement('workdays20');
         }
+        if (!userXP.achievements.includes('centurion') && (userXP.totalWorkDays || 0) >= 100) {
+            unlockAchievement('centurion');
+        }
 
-        // Badge of Balance: finish exactly your shift (not overtime) — worked >= shift and <= shift+5min
-        const shiftSec = getShiftSeconds();
-        const workedSec = userXP.todayHours * 3600;
+        // Badge of Balance: precisely within shift…shift+5min, evaluated on actual
+        // float hours so it can't fire at hour-tick boundaries before the shift ends.
         if (!userXP.achievements.includes('onTime') &&
-            workedSec >= shiftSec && workedSec <= shiftSec + 300) {
+            hoursWorked >= shiftHours && hoursWorked <= shiftHours + (5 / 60)) {
             unlockAchievement('onTime');
         }
 
-        // Level milestones
+        // Single-day endurance achievements
+        if (!userXP.achievements.includes('overtimeHero') && hoursWorked >= shiftHours + 2) {
+            unlockAchievement('overtimeHero');
+        }
+        if (!userXP.achievements.includes('marathon') && hoursWorked >= 10) {
+            unlockAchievement('marathon');
+        }
+
+        // ── Streak achievements ────────────────────────────────
+        if (!userXP.achievements.includes('streak7') && (userXP.consecutiveDays || 0) >= 7) {
+            unlockAchievement('streak7');
+        }
+        if (!userXP.achievements.includes('streak30') && (userXP.consecutiveDays || 0) >= 30) {
+            unlockAchievement('streak30');
+        }
+        if (!userXP.achievements.includes('comeback') &&
+            userXP.hadStreakReset && (userXP.consecutiveDays || 0) >= 3) {
+            unlockAchievement('comeback');
+        }
+
+        // ── Level achievements ─────────────────────────────────
         if (!userXP.achievements.includes('level10') && userXP.level >= 10) {
             unlockAchievement('level10');
         }
         if (!userXP.achievements.includes('level25') && userXP.level >= 25) {
             unlockAchievement('level25');
         }
+        if (!userXP.achievements.includes('level50') && userXP.level >= 50) {
+            unlockAchievement('level50');
+        }
+        if (!userXP.achievements.includes('level100') && userXP.level >= 100) {
+            unlockAchievement('level100');
+        }
 
-        // Office Gamer: earn XP in 10 game sessions
-        if (!userXP.achievements.includes('gamer') && (userXP.gameSessions || 0) >= 10) {
+        // ── Gaming volume achievements ─────────────────────────
+        if (!userXP.achievements.includes('gamer') && (userXP.gameSessions || 0) >= 50) {
             unlockAchievement('gamer');
+        }
+        if (!userXP.achievements.includes('gamer50') && (userXP.gameSessions || 0) >= 100) {
+            unlockAchievement('gamer50');
+        }
+    }
+
+    // Per-game performance achievements — called from awardGameXP after a session ends.
+    function checkGameAchievements(gameType, performance) {
+        const p = performance || {};
+        switch (gameType) {
+            case 'snake':
+                if (!userXP.achievements.includes('snakeCharmer') && (p.score || 0) >= 40) {
+                    unlockAchievement('snakeCharmer');
+                }
+                break;
+            case 'flappy':
+                if (!userXP.achievements.includes('flapMaster') && (p.score || 0) >= 50) {
+                    unlockAchievement('flapMaster');
+                }
+                break;
+            case 'tetris':
+                if (!userXP.achievements.includes('tetrisMaster') && (p.lines || 0) >= 50) {
+                    unlockAchievement('tetrisMaster');
+                }
+                break;
+            case 'aim':
+                if (!userXP.achievements.includes('sharpshooter') &&
+                    (p.accuracy || 0) >= 95 && (p.score || 0) >= 600) {
+                    unlockAchievement('sharpshooter');
+                }
+                break;
+            case 'reflex':
+                if (!userXP.achievements.includes('lightning') &&
+                    (p.avgTime || 9999) > 0 && (p.avgTime || 9999) < 220 &&
+                    (p.falseStarts || 0) === 0) {
+                    unlockAchievement('lightning');
+                }
+                break;
+            case 'breakout':
+                if (!userXP.achievements.includes('brickBuster') && (p.level || 0) >= 30) {
+                    unlockAchievement('brickBuster');
+                }
+                break;
+            case 'pool':
+                if (!userXP.achievements.includes('poolShark') &&
+                    typeof poolGamesWon === 'number' && poolGamesWon >= 100) {
+                    unlockAchievement('poolShark');
+                }
+                break;
         }
     }
     
@@ -6077,6 +6213,69 @@
         saveUserXP(userXP);
         updateXPDisplay(); // Refresh badge/achievements panel immediately
     }
+
+    // ── Achievements "View All" Modal ─────────────────────────────
+    function openAchievementsModal() {
+        let overlay = document.getElementById('achievements-modal-overlay');
+        let modal = document.getElementById('achievements-modal');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'achievements-modal-overlay';
+            overlay.className = 'achievements-modal-overlay';
+            overlay.onclick = closeAchievementsModal;
+            document.body.appendChild(overlay);
+        }
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'achievements-modal';
+            modal.className = 'achievements-modal';
+            document.body.appendChild(modal);
+        }
+
+        const total = Object.keys(ACHIEVEMENTS).length;
+        const earned = Object.keys(ACHIEVEMENTS).filter(k => userXP.achievements.includes(k)).length;
+
+        const cards = Object.entries(ACHIEVEMENTS).map(([key, a]) => {
+            const isEarned = userXP.achievements.includes(key);
+            return `
+                <div class="ach-card ${isEarned ? 'earned' : 'locked'}">
+                    <div class="ach-card-icon">${isEarned ? a.icon : '🔒'}</div>
+                    <div class="ach-card-body">
+                        <div class="ach-card-name">${a.name}</div>
+                        <div class="ach-card-desc">${a.desc}</div>
+                    </div>
+                    <div class="ach-card-status">${isEarned ? '✓' : ''}</div>
+                </div>
+            `;
+        }).join('');
+
+        modal.innerHTML = `
+            <div class="achievements-modal-header">
+                <div>
+                    <div class="achievements-modal-title">🏆 Achievements</div>
+                    <div class="achievements-modal-subtitle">${earned} of ${total} unlocked</div>
+                </div>
+                <button type="button" class="achievements-modal-close" aria-label="Close">×</button>
+            </div>
+            <div class="achievements-modal-grid">${cards}</div>
+        `;
+        modal.querySelector('.achievements-modal-close').onclick = closeAchievementsModal;
+
+        requestAnimationFrame(() => {
+            overlay.classList.add('active');
+            modal.classList.add('active');
+        });
+    }
+
+    function closeAchievementsModal() {
+        const overlay = document.getElementById('achievements-modal-overlay');
+        const modal = document.getElementById('achievements-modal');
+        if (overlay) overlay.classList.remove('active');
+        if (modal) modal.classList.remove('active');
+    }
+
+    window.openAchievementsModal = openAchievementsModal;
+    window.closeAchievementsModal = closeAchievementsModal;
     
     function checkLevelUp() {
         const xpNeeded = calculateXPForNextLevel(userXP.level);
@@ -6116,17 +6315,34 @@
         if (streakElement) streakElement.textContent = userXP.consecutiveDays;
         if (longestStreakElement) longestStreakElement.textContent = userXP.longestStreak;
         
-        // Update achievements display - show ALL achievements, grey out unearned
+        // Update achievements display - show only EARNED in row, plus a "View All" button
         if (achievementsContainer) {
             achievementsContainer.innerHTML = '';
-            Object.entries(ACHIEVEMENTS).forEach(([key, achievement]) => {
-                const badge = document.createElement('span');
-                const isEarned = userXP.achievements.includes(key);
-                badge.className = 'achievement-badge' + (isEarned ? ' earned' : ' unearned');
-                badge.innerHTML = achievement.icon;
-                badge.title = `${achievement.name}: ${achievement.desc}${isEarned ? ' ✓' : ' (Locked)'}`;
-                achievementsContainer.appendChild(badge);
-            });
+            const earnedKeys = Object.keys(ACHIEVEMENTS).filter(k => userXP.achievements.includes(k));
+            const totalCount = Object.keys(ACHIEVEMENTS).length;
+
+            if (earnedKeys.length === 0) {
+                const empty = document.createElement('span');
+                empty.className = 'xp-achievements-empty';
+                empty.textContent = 'No achievements yet — keep grinding! 💪';
+                achievementsContainer.appendChild(empty);
+            } else {
+                earnedKeys.forEach(key => {
+                    const achievement = ACHIEVEMENTS[key];
+                    const badge = document.createElement('span');
+                    badge.className = 'achievement-badge earned';
+                    badge.innerHTML = achievement.icon;
+                    badge.title = `${achievement.name}: ${achievement.desc} ✓`;
+                    achievementsContainer.appendChild(badge);
+                });
+            }
+
+            const viewAll = document.createElement('button');
+            viewAll.type = 'button';
+            viewAll.className = 'xp-achievements-view-all';
+            viewAll.textContent = `View All (${earnedKeys.length}/${totalCount})`;
+            viewAll.onclick = () => window.openAchievementsModal && window.openAchievementsModal();
+            achievementsContainer.appendChild(viewAll);
         }
         
         // Show next milestone
@@ -6334,6 +6550,8 @@
 
             // Check gamer achievement
             checkAchievements();
+            // Per-game performance achievements (Snake Charmer, Sharpshooter, etc.)
+            checkGameAchievements(gameType, performance);
             
             saveUserXP(userXP);
             updateXPDisplay();
@@ -6357,6 +6575,11 @@
             currentImageURL = newURL.trim();
             saveImageURL(currentImageURL);
             updateImageDisplay();
+
+            // Picture Perfect achievement
+            if (xpSystemReady && !userXP.achievements.includes('picturePerfect')) {
+                unlockAchievement('picturePerfect');
+            }
         }
     }
     
@@ -8522,123 +8745,6 @@
                 }
             }
             
-            /* ============ Force Dark Mode (user toggle) ============ */
-            .attendance-summary.force-dark {
-                background: linear-gradient(135deg, rgba(22, 20, 35, 0.92), rgba(12, 10, 25, 0.88)) !important;
-                border-color: rgba(255, 255, 255, 0.12) !important;
-                color: rgba(255, 255, 255, 0.92) !important;
-            }
-            .force-dark .modern-table {
-                background: rgba(0, 0, 0, 0.25) !important;
-                border: 1px solid rgba(255, 255, 255, 0.08) !important;
-            }
-            .force-dark .modern-table td {
-                color: rgba(255, 255, 255, 0.75) !important;
-            }
-            .force-dark .stat-card {
-                background: rgba(255, 255, 255, 0.04) !important;
-                border-color: rgba(255, 255, 255, 0.1) !important;
-            }
-            .force-dark .stat-label {
-                color: rgba(255, 255, 255, 0.7) !important;
-            }
-            .force-dark .stat-card:hover {
-                background: rgba(255, 255, 255, 0.1) !important;
-                border-color: rgba(255, 255, 255, 0.2) !important;
-            }
-            .force-dark .pip-placeholder {
-                color: rgba(255, 255, 255, 0.7) !important;
-            }
-            .force-dark .xp-achievements {
-                background: rgba(0, 0, 0, 0.2) !important;
-            }
-            .force-dark .achievement-badge.unearned {
-                filter: grayscale(1) brightness(0.5) !important;
-            }
-            .force-dark .snake-game-container,
-            .force-dark .quotes-container,
-            .force-dark .image-box-container,
-            .force-dark .xp-container {
-                background: rgba(0, 0, 0, 0.3) !important;
-                border-color: rgba(255, 255, 255, 0.1) !important;
-            }
-            .force-dark .snake-game-title,
-            .force-dark .quotes-title,
-            .force-dark .xp-title {
-                color: rgba(255, 255, 255, 0.9) !important;
-            }
-            .force-dark .settings-button {
-                background: rgba(255, 255, 255, 0.1) !important;
-                border-color: rgba(255, 255, 255, 0.2) !important;
-                color: #667eea !important;
-            }
-            .force-dark .progress-bar {
-                background: rgba(255, 255, 255, 0.1) !important;
-            }
-            
-            /* ============ Force Light Mode (user toggle) ============ */
-            .attendance-summary.force-light {
-                background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(245, 243, 255, 0.88)) !important;
-                border-color: rgba(102, 126, 234, 0.12) !important;
-                color: rgba(0, 0, 0, 0.9) !important;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
-            }
-            .force-light .modern-table {
-                background: rgba(255, 255, 255, 0.75) !important;
-                box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06) !important;
-                border: 1px solid rgba(0, 0, 0, 0.06) !important;
-            }
-            .force-light .modern-table td {
-                color: rgba(0, 0, 0, 0.8) !important;
-                border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
-            }
-            .force-light .stat-card {
-                background: rgba(255, 255, 255, 0.65) !important;
-                border-color: rgba(0, 0, 0, 0.06) !important;
-                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05) !important;
-            }
-            .force-light .stat-card:hover {
-                background: rgba(255, 255, 255, 0.85) !important;
-                border-color: rgba(102, 126, 234, 0.2) !important;
-            }
-            .force-light .stat-label {
-                color: rgba(0, 0, 0, 0.6) !important;
-            }
-            .force-light .progress-bar {
-                background: rgba(0, 0, 0, 0.1) !important;
-            }
-            .force-light .pip-placeholder {
-                color: rgba(0, 0, 0, 0.7) !important;
-            }
-            .force-light .xp-achievements {
-                background: rgba(0, 0, 0, 0.04) !important;
-            }
-            .force-light .achievement-badge.unearned {
-                filter: grayscale(1) brightness(1.2) !important;
-                opacity: 0.3 !important;
-            }
-            .force-light .snake-game-container,
-            .force-light .quotes-container,
-            .force-light .image-box-container,
-            .force-light .xp-container {
-                background: rgba(255, 255, 255, 0.8) !important;
-                border-color: rgba(0, 0, 0, 0.1) !important;
-            }
-            .force-light .snake-game-title,
-            .force-light .quotes-title,
-            .force-light .xp-title {
-                color: rgba(0, 0, 0, 0.85) !important;
-            }
-            .force-light .settings-button {
-                background: rgba(255, 255, 255, 0.8) !important;
-                border-color: rgba(0, 0, 0, 0.1) !important;
-                color: #764ba2 !important;
-            }
-            .force-light .developer-info {
-                background: rgba(255, 255, 255, 0.8) !important;
-                border-color: rgba(0, 0, 0, 0.1) !important;
-                color: #667eea !important;
-            }
             /* ============================================================
                NEUMORPHIC DEPTH — class-toggled via .neumorphic-active
                Adds pronounced 3-D inset / outset shadows to every surface
@@ -10010,6 +10116,224 @@
             .achievement-badge:hover {
                 transform: scale(1.2);
             }
+
+            /* Earned-only row layout + View All button */
+            .xp-achievements-empty {
+                font-size: 0.78rem;
+                font-style: italic;
+                opacity: 0.6;
+                padding: 4px 6px;
+            }
+
+            .xp-achievements-view-all {
+                margin-left: auto;
+                padding: 6px 12px;
+                font-size: 0.75rem;
+                font-weight: 600;
+                color: rgba(255, 255, 255, 0.9);
+                background: linear-gradient(135deg, rgba(102, 126, 234, 0.35), rgba(118, 75, 162, 0.35));
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 999px;
+                cursor: pointer;
+                transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+                white-space: nowrap;
+            }
+
+            .xp-achievements-view-all:hover {
+                transform: translateY(-1px);
+                background: linear-gradient(135deg, rgba(102, 126, 234, 0.55), rgba(118, 75, 162, 0.55));
+                box-shadow: 0 4px 14px rgba(102, 126, 234, 0.35);
+            }
+
+            /* Achievements Modal */
+            .achievements-modal-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.6);
+                backdrop-filter: blur(6px);
+                -webkit-backdrop-filter: blur(6px);
+                z-index: 9998;
+                opacity: 0;
+                visibility: hidden;
+                transition: opacity 0.25s ease, visibility 0.25s ease;
+            }
+
+            .achievements-modal-overlay.active {
+                opacity: 1;
+                visibility: visible;
+            }
+
+            .achievements-modal {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%) scale(0.92);
+                width: min(560px, 92vw);
+                max-height: 80vh;
+                background: linear-gradient(135deg, rgba(30, 30, 45, 0.92), rgba(20, 18, 35, 0.92));
+                backdrop-filter: blur(30px);
+                -webkit-backdrop-filter: blur(30px);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 20px;
+                padding: 22px 22px 18px;
+                box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+                z-index: 9999;
+                opacity: 0;
+                visibility: hidden;
+                color: rgba(255, 255, 255, 0.92);
+                display: flex;
+                flex-direction: column;
+                transition: opacity 0.25s ease, visibility 0.25s ease, transform 0.3s cubic-bezier(0.68, -0.4, 0.27, 1.4);
+            }
+
+            .achievements-modal.active {
+                opacity: 1;
+                visibility: visible;
+                transform: translate(-50%, -50%) scale(1);
+            }
+
+            .achievements-modal-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 14px;
+            }
+
+            .achievements-modal-title {
+                font-size: 1.15rem;
+                font-weight: 700;
+                background: linear-gradient(135deg, #ffd86b, #ff8a3c);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }
+
+            .achievements-modal-subtitle {
+                font-size: 0.78rem;
+                opacity: 0.65;
+                margin-top: 2px;
+            }
+
+            .achievements-modal-close {
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                background: rgba(255, 255, 255, 0.08);
+                color: rgba(255, 255, 255, 0.9);
+                font-size: 1.2rem;
+                line-height: 1;
+                cursor: pointer;
+                transition: background 0.2s ease, transform 0.2s ease;
+            }
+
+            .achievements-modal-close:hover {
+                background: rgba(255, 255, 255, 0.18);
+                transform: rotate(90deg);
+            }
+
+            .achievements-modal-grid {
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 8px;
+                overflow-y: auto;
+                padding-right: 4px;
+            }
+
+            @media (min-width: 480px) {
+                .achievements-modal-grid {
+                    grid-template-columns: 1fr 1fr;
+                }
+            }
+
+            .ach-card {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 12px 14px;
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: rgba(255, 255, 255, 0.04);
+                transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+            }
+
+            .ach-card.earned {
+                border-color: rgba(255, 216, 107, 0.45);
+                background: linear-gradient(135deg, rgba(255, 216, 107, 0.12), rgba(255, 138, 60, 0.08));
+                box-shadow: 0 2px 12px rgba(255, 138, 60, 0.15);
+            }
+
+            .ach-card.earned:hover {
+                transform: translateY(-1px);
+                border-color: rgba(255, 216, 107, 0.7);
+            }
+
+            .ach-card.locked {
+                opacity: 0.55;
+            }
+
+            .ach-card-icon {
+                font-size: 1.8rem;
+                width: 40px;
+                text-align: center;
+                flex-shrink: 0;
+            }
+
+            .ach-card.locked .ach-card-icon {
+                filter: grayscale(1);
+            }
+
+            .ach-card-body {
+                flex: 1;
+                min-width: 0;
+            }
+
+            .ach-card-name {
+                font-size: 0.88rem;
+                font-weight: 600;
+                color: rgba(255, 255, 255, 0.95);
+            }
+
+            .ach-card-desc {
+                font-size: 0.72rem;
+                opacity: 0.7;
+                margin-top: 2px;
+            }
+
+            .ach-card-status {
+                font-size: 1.1rem;
+                color: #6ee7b7;
+                font-weight: 700;
+                flex-shrink: 0;
+            }
+
+            /* Light-mode tuning for the modal */
+            @media (prefers-color-scheme: light) {
+                .achievements-modal {
+                    background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(245, 243, 255, 0.94));
+                    border: 1px solid rgba(0, 0, 0, 0.08);
+                    color: rgba(0, 0, 0, 0.85);
+                }
+                .achievements-modal-close {
+                    background: rgba(0, 0, 0, 0.06);
+                    border-color: rgba(0, 0, 0, 0.1);
+                    color: rgba(0, 0, 0, 0.75);
+                }
+                .achievements-modal-close:hover {
+                    background: rgba(0, 0, 0, 0.12);
+                }
+                .ach-card {
+                    background: rgba(0, 0, 0, 0.03);
+                    border-color: rgba(0, 0, 0, 0.08);
+                }
+                .ach-card-name {
+                    color: rgba(0, 0, 0, 0.9);
+                }
+                .ach-card-status {
+                    color: #10b981;
+                }
+            }
             
             .xp-next-milestone {
                 margin-top: 8px;
@@ -10952,15 +11276,7 @@
                 </select>
             </div>
             <div class="settings-option">
-                <span class="settings-option-label">🌗 Color Mode</span>
-                <select class="settings-select" data-pref="colorMode" id="color-mode-selector">
-                    <option value="system" ${userPreferences.colorMode === 'system' ? 'selected' : ''}>System</option>
-                    <option value="light" ${userPreferences.colorMode === 'light' ? 'selected' : ''}>☀️ Light</option>
-                    <option value="dark" ${userPreferences.colorMode === 'dark' ? 'selected' : ''}>🌙 Dark</option>
-                </select>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label">🎮 Game Mode <small style="opacity:0.6;font-size:0.75rem;">Hides side panels</small></span>
+                <span class="settings-option-label"> Game Mode <small style="opacity:0.6;font-size:0.75rem;">Hides side panels</small></span>
                 <div class="toggle-switch ${userPreferences.gameModeHidden ? 'active' : ''}" data-pref="gameModeHidden"></div>
             </div>
             <div class="settings-option">
@@ -11097,44 +11413,6 @@
 
         // Apply game mode panel visibility
         applyGameMode();
-        
-        // Apply color mode
-        applyColorMode();
-    }
-    
-    // ── Color Mode: force light/dark or follow system ──────────────
-    function getEffectiveColorMode() {
-        if (userPreferences.colorMode === 'system') {
-            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        }
-        return userPreferences.colorMode;
-    }
-    
-    function applyColorMode() {
-        const container = document.getElementById('total-time-summary');
-        if (!container) return;
-        
-        container.classList.remove('force-dark', 'force-light');
-        if (userPreferences.colorMode === 'dark') {
-            container.classList.add('force-dark');
-        } else if (userPreferences.colorMode === 'light') {
-            container.classList.add('force-light');
-        }
-        
-        // Update PiP if active
-        if (isPipActive && pipWindow && !pipWindow.closed) {
-            const effectiveDark = getEffectiveColorMode() === 'dark';
-            updatePipColorScheme(pipWindow, effectiveDark);
-            const pipContent = pipWindow.document.querySelector('.pip-window-content');
-            if (pipContent) {
-                pipContent.classList.remove('force-dark', 'force-light');
-                if (userPreferences.colorMode === 'dark') {
-                    pipContent.classList.add('force-dark');
-                } else if (userPreferences.colorMode === 'light') {
-                    pipContent.classList.add('force-light');
-                }
-            }
-        }
     }
     
     // ── Game Mode: show/hide left and right panels ──────────────
@@ -11585,8 +11863,8 @@
             pipWindow.document.head.appendChild(pipStyleElement);
         }
         
-        // Detect current color scheme (respects user color mode toggle)
-        const isDarkMode = getEffectiveColorMode() === 'dark';
+        // Detect current color scheme from browser/OS
+        const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
         
         // Determine background based on user's theme preference
         let backgroundStyle;
@@ -11629,12 +11907,10 @@
             color-scheme: ${isDarkMode ? 'dark' : 'light'};
         `;
         
-        // Listen for color scheme changes and update PiP window accordingly (only in system mode)
+        // Listen for browser/OS color scheme changes and update PiP window accordingly
         const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
         colorSchemeQuery.addEventListener('change', (e) => {
-            if (userPreferences.colorMode === 'system') {
-                updatePipColorScheme(pipWindow, e.matches);
-            }
+            updatePipColorScheme(pipWindow, e.matches);
         });
     }
     

@@ -133,8 +133,8 @@
     let flappyPipes = [];
     let flappyGround = 0;
     let flappyFrame = 0;
-    const FLAPPY_GRAVITY = 0.27;
-    const FLAPPY_JUMP = -5.0;
+    const FLAPPY_GRAVITY = 0.20;
+    const FLAPPY_JUMP = -4.6;
     const FLAPPY_PIPE_GAP_BASE = 140; // starting gap, narrows with score
     const FLAPPY_PIPE_WIDTH = 52;
     const FLAPPY_PIPE_SPEED_BASE = 2.0; // increases with score
@@ -1078,7 +1078,7 @@
     const BRK_BRICK_OFFSET_X = 8, BRK_BRICK_OFFSET_Y = 40;
     const BRK_PAD_W = 60, BRK_PAD_H = 10, BRK_PAD_Y = 342;
     const BRK_BALL_R = 6;
-    const BRK_BASE_SPEED = 3.0;
+    const BRK_BASE_SPEED = 2.2;
 
     const BRK_BRICK_COLORS = [
         ['#ff4757','#ff6b81'],
@@ -5255,8 +5255,8 @@
     }
 
     function flappyCurrentSpeed() {
-        // +0.08 per pipe, cap 3.8 — gentler scaling for 60fps playability
-        return Math.min(3.8, FLAPPY_PIPE_SPEED_BASE + flappyScore * 0.08);
+        // +0.05 per pipe, cap 3.2 — gentler scaling for relaxed play
+        return Math.min(3.2, FLAPPY_PIPE_SPEED_BASE + flappyScore * 0.05);
     }
     function flappyCurrentGap() {
         // Narrows 2px per pipe cleared, floor 100px — less aggressive after pipe 13
@@ -5526,7 +5526,7 @@
         if (!now) return; // first manual call has no timestamp
 
         // Logic: timestamp-based drop interval — already frame-rate independent
-        const dropInterval = Math.max(200, 600 - (tetrisLevel - 1) * 30);
+        const dropInterval = Math.max(350, 900 - (tetrisLevel - 1) * 35);
         if (now - tetrisLastDrop >= dropInterval) {
             if (!moveTetris(0, 1)) lockTetrisPiece();
             tetrisLastDrop = now;
@@ -7042,7 +7042,7 @@
             /* Game Mode OFF — shrink the entire summary widget by 25% */
             #total-time-summary.game-mode-off {
                 width: fit-content;
-                transform: scale(0.75);
+                transform: scale(0.9);
                 transform-origin: top center;
                 transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
             }
@@ -7270,6 +7270,16 @@
                 animation: cardShimmer 2s ease-in-out infinite;
                 opacity: 0;
                 transition: opacity 0.3s ease;
+            }
+            .attendance-summary.retro-theme .stat-card::before {
+                background: linear-gradient(
+                    90deg,
+                    transparent,
+                    var(--rt-cyber-hl),
+                    var(--rt-accent),
+                    var(--rt-cyber-panel),
+                    transparent
+                ) !important;
             }
             
             .stat-card:hover::before {
@@ -12159,7 +12169,7 @@
     
     // ── Game Mode: show/hide left and right panels ──────────────
     // gameModeHidden: true  = Game Mode ON  → panels visible, widget full size
-    // gameModeHidden: false = Game Mode OFF → panels hidden, widget shrinks 25%
+    // gameModeHidden: false = Game Mode OFF → panels hidden, widget shrinks 10%
     function applyGameMode() {
         const container = document.getElementById('total-time-summary');
         if (!container) return;

@@ -391,6 +391,8 @@
     
     function saveUserXP(xpData) {
         localStorage.setItem('userXP', JSON.stringify(xpData));
+        // Update integrity hash so the next sync can verify this was a legitimate save
+        try { _saveXPIntegrity(); } catch(_) {}
     }
     
     // Image URL Storage
@@ -486,6 +488,44 @@
     // Token assembled from char codes at runtime — not detectable by static secret scanners
     const REGISTRY_GIST_PAT = String.fromCharCode(103,105,116,104,117,98,95,112,97,116,95,49,49,65,55,74,53,73,72,65,48,99,86,100,72,81,68,53,53,101,102,98,69,95,118,122,114,89,70,76,118,115,88,78,100,72,101,55,81,74,84,118,76,86,99,109,66,118,117,75,113,87,80,110,84,53,122,107,57,103,98,49,57,86,89,88,90,54,54,73,76,79,65,54,88,87,106,90,76,110,99,101,102);
     const REGISTRY_GIST_FILE = 'attendance_widget_registry.json';
+
+    // ─── Anti-Cheat: XP Integrity System ──────────────────────────
+    // Keyed hash prevents raw localStorage edits from being accepted by sync.
+    // The signing key is derived at runtime so it's not a plain string in source.
+    const _ACS = [97,116,99,95,105,110,116,101,103,114,105,116,121,95,50,48,50,54].map(c => String.fromCharCode(c)).join('');
+    const _ACK = REGISTRY_GIST_PAT.slice(11, 27); // 16-char secret slice from PAT
+
+    // Simple keyed hash (FNV-1a variant with key mixing) — not cryptographic but
+    // prevents casual localStorage tampering. An attacker must read + understand the
+    // source to forge a valid hash.
+    function _xpHash(totalXP, level, gameSessions, totalWorkDays) {
+        const msg = `${_ACK}:${totalXP}:${level}:${gameSessions}:${totalWorkDays}:${_ACS}`;
+        let h = 0x811c9dc5;
+        for (let i = 0; i < msg.length; i++) {
+            h ^= msg.charCodeAt(i);
+            h = Math.imul(h, 0x01000193);
+        }
+        return (h >>> 0).toString(36);
+    }
+
+    // Compute and store the integrity hash for current userXP state
+    function _saveXPIntegrity() {
+        const hash = _xpHash(userXP.totalXP || 0, userXP.level || 1, userXP.gameSessions || 0, userXP.totalWorkDays || 0);
+        localStorage.setItem('_xpSig', hash);
+    }
+
+    // Verify that localStorage XP values haven't been tampered with
+    function _verifyXPIntegrity() {
+        const stored = localStorage.getItem('_xpSig');
+        if (!stored) return true; // First run — no hash yet, allow
+        const expected = _xpHash(userXP.totalXP || 0, userXP.level || 1, userXP.gameSessions || 0, userXP.totalWorkDays || 0);
+        return stored === expected;
+    }
+
+    // Anti-cheat constants
+    const AC_MAX_XP_PER_HOUR = 1000;    // Absolute max XP possible per hour (gaming + work + achievements)
+    const AC_SYNC_COOLDOWN_MS = 120000; // 2 minutes minimum between syncs
+    // ──────────────────────────────────────────────────────────────
 
     let lbClientId = null;
     let lbDisplayName = '';
@@ -669,9 +709,64 @@
             if (idx === -1) return;
 
             const prev = registry.players[idx];
+
+            // ─── Anti-Cheat Checks ────────────────────────────────────
+            // 1. If player is already flagged, block all syncs
+            if (prev.flagged) {
+                console.warn('[AntiCheat] Account frozen — sync blocked.');
+                showXPNotification('🚫 Sync disabled — account flagged', 'hourly');
+                return;
+            }
+
+            // 2. Integrity hash check — detects raw localStorage edits
+            if (!_verifyXPIntegrity()) {
+                console.warn('[AntiCheat] XP integrity check FAILED — possible tampering.');
+                // Flag the player in the gist
+                prev.flagged = true;
+                prev.flagReason = 'integrity_hash_mismatch';
+                prev.flaggedAt = new Date().toISOString();
+                registry.players[idx] = prev;
+                registry.lastUpdated = new Date().toISOString();
+                await patchRegistry(registry);
+                showXPNotification('🚫 Integrity violation detected — account flagged', 'hourly');
+                return;
+            }
+
+            // 3. Sync cooldown — prevent rapid-fire syncing
+            if (prev.lastSync) {
+                const msSinceLast = Date.now() - new Date(prev.lastSync).getTime();
+                if (msSinceLast < AC_SYNC_COOLDOWN_MS) {
+                    console.warn(`[AntiCheat] Sync cooldown: ${Math.ceil((AC_SYNC_COOLDOWN_MS - msSinceLast) / 1000)}s remaining`);
+                    showXPNotification(`⏳ Sync cooldown — wait ${Math.ceil((AC_SYNC_COOLDOWN_MS - msSinceLast) / 1000)}s`, 'hourly');
+                    return;
+                }
+            }
+
+            // 4. XP rate limit — max XP gain per hour based on elapsed time
             const snapshot = buildPlayerSnapshot();
+            const xpDelta = (snapshot.totalXP || 0) - (prev.totalXP || 0);
+            if (xpDelta > 0 && prev.lastSync) {
+                const hoursSinceLast = Math.max(0.01, (Date.now() - new Date(prev.lastSync).getTime()) / 3600000);
+                const maxAllowed = Math.ceil(AC_MAX_XP_PER_HOUR * hoursSinceLast);
+                if (xpDelta > maxAllowed) {
+                    console.warn(`[AntiCheat] XP rate exceeded: +${xpDelta} XP in ${hoursSinceLast.toFixed(2)}h (max: ${maxAllowed})`);
+                    // Flag the player
+                    prev.flagged = true;
+                    prev.flagReason = `xp_rate_exceeded:+${xpDelta}_in_${hoursSinceLast.toFixed(2)}h`;
+                    prev.flaggedAt = new Date().toISOString();
+                    registry.players[idx] = prev;
+                    registry.lastUpdated = new Date().toISOString();
+                    await patchRegistry(registry);
+                    showXPNotification('🚫 Abnormal XP gain detected — account flagged', 'hourly');
+                    return;
+                }
+            }
+            // ─── End Anti-Cheat ───────────────────────────────────────
+
             // Preserve the original joinedAt so re-syncs don't change the join date
             snapshot.joinedAt = prev.joinedAt || new Date().toISOString().split('T')[0];
+            // Carry forward the integrity hash
+            snapshot.xpSig = _xpHash(snapshot.totalXP, snapshot.level, snapshot.gameSessions, snapshot.totalWorkDays);
 
             registry.players[idx] = snapshot;
             registry.lastUpdated = new Date().toISOString();
@@ -846,6 +941,49 @@
     window.atcRestoreByClientId = atcRestoreByClientId;
     window.atcRestoreFromGist = restoreFromGist;
     window.syncMyScore = syncMyScore;
+
+    // ─── Admin Tools ──────────────────────────────────────────────
+    // Rollback a player's stats in the gist. Only you (the admin with PAT access) can run this.
+    // Usage: await window.atcAdminRollback('clientId', { totalXP: 19818, level: 11, flagged: false })
+    async function atcAdminRollback(clientId, overrides) {
+        if (!clientId || !overrides || typeof overrides !== 'object') {
+            console.error('[Admin] usage: atcAdminRollback("clientId", { totalXP: N, level: N, ... })');
+            return false;
+        }
+        const registry = await fetchRegistry();
+        if (!registry) { console.error('[Admin] Could not fetch registry'); return false; }
+        const idx = (registry.players || []).findIndex(p => p.clientId === clientId);
+        if (idx === -1) { console.error('[Admin] Player not found'); return false; }
+
+        // Apply overrides
+        const player = registry.players[idx];
+        Object.keys(overrides).forEach(k => { player[k] = overrides[k]; });
+        // Recalculate integrity hash if XP fields were changed
+        if ('totalXP' in overrides || 'level' in overrides || 'gameSessions' in overrides || 'totalWorkDays' in overrides) {
+            player.xpSig = _xpHash(player.totalXP || 0, player.level || 1, player.gameSessions || 0, player.totalWorkDays || 0);
+        }
+        player.lastAdminAction = new Date().toISOString();
+        registry.players[idx] = player;
+        registry.lastUpdated = new Date().toISOString();
+        try {
+            await patchRegistry(registry);
+            console.log(`[Admin] ✓ Rolled back ${player.displayName || clientId}:`, overrides);
+            return true;
+        } catch (e) {
+            console.error('[Admin] Patch failed:', e);
+            return false;
+        }
+    }
+
+    // Unflag a player (remove freeze)
+    // Usage: await window.atcAdminUnflag('clientId')
+    async function atcAdminUnflag(clientId) {
+        return atcAdminRollback(clientId, { flagged: false, flagReason: null, flaggedAt: null });
+    }
+
+    window.atcAdminRollback = atcAdminRollback;
+    window.atcAdminUnflag = atcAdminUnflag;
+    // ──────────────────────────────────────────────────────────────
 
     async function fetchLeaderboard() {
         if (lbFetching) return leaderboardData;

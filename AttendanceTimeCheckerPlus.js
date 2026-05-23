@@ -263,8 +263,23 @@
         gameModeHidden: true, // true = Game Mode ON (panels visible); false = Game Mode OFF (panels hidden, widget shrinks)
         shiftDuration: '8h', // '4h' = short leave, '8h' = standard, '9h' = overtime
         poolTableColor: 'green', // 'green', 'red', 'blue', 'lightgrey'
-        gameFps: 60 // 30 or 60 — half or full vsync
+        gameFps: 60, // 30 or 60 — half or full vsync
+        // Cyberpunk HUD customizable colors (only applied when displayTheme === 'retro-futuristic')
+        cyberBgPrimary: '#07091a',
+        cyberBgSecondary: '#11142b',
+        cyberAccent: '#fff200',
+        cyberHighlight: '#00e5ff',
+        cyberPanelTint: '#00e5ff',  // tint for inner glass panels (table, side containers)
+        cyberBgImage: '',       // URL for custom background image
+        cyberBgOpacity: 0.15    // 0–1 opacity for background image overlay
     };
+
+    // Convert "#rrggbb" → "r, g, b" (for use inside rgba(var(--x-rgb), a))
+    function hexToRgbStr(hex) {
+        const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+        if (!m) return '0, 0, 0';
+        return `${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}`;
+    }
 
     // Returns the selected shift duration in seconds
     function getShiftSeconds() {
@@ -605,7 +620,8 @@
             prayerCount: parseInt(localStorage.getItem('prayerCount') || '0', 10),
             customImageURL: localStorage.getItem('customImageURL') || '',
             customImageAspectRatio: localStorage.getItem('customImageAspectRatio') || '16:9',
-            userPreferences: (() => { try { return JSON.parse(localStorage.getItem('userPreferences') || 'null'); } catch(_){return null;} })(),
+            customQuotes: (() => { try { return JSON.parse(localStorage.getItem('customQuotes') || 'null'); } catch(_){return null;} })(),
+            userPreferences: (() => { try { return JSON.parse(localStorage.getItem('attendancePrefs') || 'null'); } catch(_){return null;} })(),
             lastSync: new Date().toISOString()
         };
     }
@@ -754,8 +770,33 @@
         if (rec.customImageAspectRatio && !localStorage.getItem('customImageAspectRatio')) {
             localStorage.setItem('customImageAspectRatio', rec.customImageAspectRatio);
         }
-        if (rec.userPreferences && typeof rec.userPreferences === 'object' && !localStorage.getItem('userPreferences')) {
-            localStorage.setItem('userPreferences', JSON.stringify(rec.userPreferences));
+        // Custom quotes — restore if local has no custom quotes (only default)
+        if (Array.isArray(rec.customQuotes) && rec.customQuotes.length > 0) {
+            const localQuotes = localStorage.getItem('customQuotes');
+            if (!localQuotes || localQuotes === 'null') {
+                localStorage.setItem('customQuotes', JSON.stringify(rec.customQuotes));
+            } else {
+                // Merge: add any cloud quotes not already present locally (by text match)
+                try {
+                    const local = JSON.parse(localQuotes) || [];
+                    const localTexts = new Set(local.map(q => q.text));
+                    const merged = [...local];
+                    for (const q of rec.customQuotes) {
+                        if (q.text && !localTexts.has(q.text)) merged.push(q);
+                    }
+                    if (merged.length > local.length) {
+                        localStorage.setItem('customQuotes', JSON.stringify(merged));
+                    }
+                } catch (_) {}
+            }
+        }
+        if (rec.userPreferences && typeof rec.userPreferences === 'object') {
+            // Merge cloud prefs into local (cloud values fill in missing keys; local takes precedence if already set)
+            let localPrefs = {};
+            try { localPrefs = JSON.parse(localStorage.getItem('attendancePrefs') || '{}') || {}; } catch (_) {}
+            const merged = { ...rec.userPreferences, ...localPrefs };
+            localStorage.setItem('attendancePrefs', JSON.stringify(merged));
+            try { userPreferences = { ...userPreferences, ...merged }; } catch (_) {}
         }
 
         return true;
@@ -7854,13 +7895,13 @@
                 background: linear-gradient(
                     90deg,
                     transparent,
-                    var(--rt-cyan),
+                    var(--rt-cyber-hl),
                     var(--rt-accent),
-                    var(--rt-magenta),
+                    var(--rt-cyber-panel),
                     transparent
                 ) !important;
-                background-size: 200% 100% !important;
-                animation: rgbFlowBacklight 5s ease-in-out infinite !important;
+                background-size: 300% 100% !important;
+                animation: rgbFlowBacklight 4s linear infinite !important;
                 pointer-events: none !important;
                 z-index: 2 !important;
                 opacity: 0.95 !important;
@@ -8631,7 +8672,7 @@
             
                 /* Light mode enhancements */
             @media (prefers-color-scheme: light) {
-                .attendance-summary {
+                .attendance-summary:not(.retro-theme) {
                     background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(245, 243, 255, 0.88));
                     backdrop-filter: blur(28px) saturate(150%);
                     -webkit-backdrop-filter: blur(28px) saturate(150%);
@@ -8643,7 +8684,7 @@
                         inset 0 1px 0 rgba(255, 255, 255, 0.9);
                 }
                 
-                .attendance-summary::before {
+                .attendance-summary:not(.retro-theme)::before {
                     background: linear-gradient(
                         90deg, 
                         transparent, 
@@ -8657,7 +8698,7 @@
                     opacity: 0.7;
                 }
                 
-                .modern-table {
+                .attendance-summary:not(.retro-theme) .modern-table {
                     background: rgba(255, 255, 255, 0.75);
                     backdrop-filter: blur(8px);
                     -webkit-backdrop-filter: blur(8px);
@@ -8665,12 +8706,12 @@
                     border: 1px solid rgba(0, 0, 0, 0.06);
                 }
                 
-                .modern-table td {
+                .attendance-summary:not(.retro-theme) .modern-table td {
                     color: rgba(0, 0, 0, 0.8);
                     border-bottom: 1px solid rgba(0, 0, 0, 0.06);
                 }
                 
-                .stat-card {
+                .attendance-summary:not(.retro-theme) .stat-card {
                     background: rgba(255, 255, 255, 0.65);
                     backdrop-filter: blur(8px);
                     -webkit-backdrop-filter: blur(8px);
@@ -8678,336 +8719,336 @@
                     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
                 }
                 
-                .stat-card.worked-time-card {
+                .attendance-summary:not(.retro-theme) .stat-card.worked-time-card {
                     background: linear-gradient(135deg, rgba(0, 184, 148, 0.15), rgba(0, 184, 148, 0.05));
                     border-color: rgba(0, 184, 148, 0.3);
                 }
                 
-                .stat-card.remaining-time-card {
+                .attendance-summary:not(.retro-theme) .stat-card.remaining-time-card {
                     background: linear-gradient(135deg, rgba(225, 112, 85, 0.15), rgba(225, 112, 85, 0.05));
                     border-color: rgba(225, 112, 85, 0.3);
                 }
                 
-                .stat-card.completion-time-card {
+                .attendance-summary:not(.retro-theme) .stat-card.completion-time-card {
                     background: linear-gradient(135deg, rgba(108, 92, 231, 0.15), rgba(108, 92, 231, 0.05));
                     border-color: rgba(108, 92, 231, 0.3);
                 }
                 
-                .stat-label {
+                .attendance-summary:not(.retro-theme) .stat-label {
                     color: rgba(0, 0, 0, 0.6);
                 }
                 
-                .developer-info {
+                .attendance-summary:not(.retro-theme) .developer-info {
                     background: rgba(255, 255, 255, 0.8);
                     border-color: rgba(0, 0, 0, 0.1);
                     color: #667eea;
                 }
                 
-                .developer-info:hover {
+                .attendance-summary:not(.retro-theme) .developer-info:hover {
                     background: rgba(255, 255, 255, 0.9);
                     border-color: rgba(0, 0, 0, 0.2);
                     z-index: 1000;
                 }
                 
-                .progress-bar {
+                .attendance-summary:not(.retro-theme) .progress-bar {
                     background: rgba(0, 0, 0, 0.1);
                 }
                 
-                .gap-warning {
+                .attendance-summary:not(.retro-theme) .gap-warning {
                     background: linear-gradient(135deg, #ffeaa7, #fab1a0) !important;
                     color: #2d3436 !important;
                 }
                 
-                .stat-card:hover {
+                .attendance-summary:not(.retro-theme) .stat-card:hover {
                     background: rgba(255, 255, 255, 0.85);
                     border-color: rgba(102, 126, 234, 0.2);
                     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
                 }
                 
-                .attendance-summary:hover {
+                .attendance-summary:not(.retro-theme):hover {
                     box-shadow: 
                         0 12px 40px rgba(0, 0, 0, 0.1),
                         0 4px 12px rgba(0, 0, 0, 0.06),
                         inset 0 1px 0 rgba(255, 255, 255, 0.9);
                 }
                 
-                .pip-placeholder {
+                .attendance-summary:not(.retro-theme) .pip-placeholder {
                     color: rgba(0, 0, 0, 0.7);
                 }
                 
-                .pip-button {
+                .attendance-summary:not(.retro-theme) .pip-button {
                     background: linear-gradient(135deg, #667eea, #764ba2);
                     border-color: rgba(255, 255, 255, 0.2);
                     color: white;
                 }
                 
-                .pip-button:hover {
+                .attendance-summary:not(.retro-theme) .pip-button:hover {
                     box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
                 }
                 
-                .pip-button.active {
+                .attendance-summary:not(.retro-theme) .pip-button.active {
                     background: linear-gradient(135deg, #e17055, #fab1a0);
                     box-shadow: 0 6px 20px rgba(225, 112, 85, 0.4);
                     color: white;
                 }
                 
                 /* Fix glassmorphic containers for light mode */
-                .snake-game-container,
-                .quotes-container,
-                .image-box-container {
+                .attendance-summary:not(.retro-theme) .snake-game-container,
+                .attendance-summary:not(.retro-theme) .quotes-container,
+                .attendance-summary:not(.retro-theme) .image-box-container {
                     background: rgba(255, 255, 255, 0.8);
                     border-color: rgba(0, 0, 0, 0.1);
                     backdrop-filter: blur(20px);
                     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
                 }
                 
-                .xp-container {
+                .attendance-summary:not(.retro-theme) .xp-container {
                     background: linear-gradient(135deg, rgba(108, 92, 231, 0.12), rgba(102, 126, 234, 0.08));
                     border-color: rgba(108, 92, 231, 0.25);
                     backdrop-filter: blur(20px);
                     box-shadow: 0 4px 16px rgba(108, 92, 231, 0.15);
                 }
                 
-                .snake-game-title,
-                .quotes-title,
-                .xp-title {
+                .attendance-summary:not(.retro-theme) .snake-game-title,
+                .attendance-summary:not(.retro-theme) .quotes-title,
+                .attendance-summary:not(.retro-theme) .xp-title {
                     color: rgba(0, 0, 0, 0.85);
                 }
                 
-                .snake-score,
-                .quote-text,
-                .xp-stat-label {
+                .attendance-summary:not(.retro-theme) .snake-score,
+                .attendance-summary:not(.retro-theme) .quote-text,
+                .attendance-summary:not(.retro-theme) .xp-stat-label {
                     color: rgba(0, 0, 0, 0.65);
                 }
                 
-                .snake-canvas {
+                .attendance-summary:not(.retro-theme) .snake-canvas {
                     background: rgba(0, 0, 0, 0.05);
                 }
                 
-                .quote-add-btn,
-                .image-change-btn {
+                .attendance-summary:not(.retro-theme) .quote-add-btn,
+                .attendance-summary:not(.retro-theme) .image-change-btn {
                     background: rgba(0, 0, 0, 0.08);
                     border-color: rgba(0, 0, 0, 0.15);
                     color: rgba(0, 0, 0, 0.8);
                 }
                 
-                .quote-add-btn:hover,
-                .image-change-btn:hover {
+                .attendance-summary:not(.retro-theme) .quote-add-btn:hover,
+                .attendance-summary:not(.retro-theme) .image-change-btn:hover {
                     background: rgba(0, 0, 0, 0.12);
                 }
                 
-                .aspect-ratio-btn {
+                .attendance-summary:not(.retro-theme) .aspect-ratio-btn {
                     background: rgba(0, 0, 0, 0.08);
                     border-color: rgba(0, 0, 0, 0.15);
                     color: rgba(0, 0, 0, 0.8);
                 }
                 
-                .aspect-ratio-btn:hover {
+                .attendance-summary:not(.retro-theme) .aspect-ratio-btn:hover {
                     background: rgba(0, 0, 0, 0.12);
                 }
                 
-                .aspect-ratio-btn.active {
+                .attendance-summary:not(.retro-theme) .aspect-ratio-btn.active {
                     background: linear-gradient(135deg, #667eea, #764ba2);
                     border-color: #667eea;
                     color: white;
                 }
                 
-                .xp-stat-item {
+                .attendance-summary:not(.retro-theme) .xp-stat-item {
                     background: rgba(0, 0, 0, 0.05);
                 }
                 
-                .xp-progress-bar {
+                .attendance-summary:not(.retro-theme) .xp-progress-bar {
                     background: rgba(0, 0, 0, 0.1);
                 }
                 
-                .settings-button {
+                .attendance-summary:not(.retro-theme) .settings-button {
                     background: rgba(255, 255, 255, 0.8);
                     border-color: rgba(0, 0, 0, 0.1);
                     color: #764ba2;
                 }
                 
-                .settings-button:hover {
+                .attendance-summary:not(.retro-theme) .settings-button:hover {
                     background: rgba(255, 255, 255, 0.9);
                     border-color: rgba(0, 0, 0, 0.2);
                 }
                 
-                .image-placeholder {
+                .attendance-summary:not(.retro-theme) .image-placeholder {
                     color: rgba(0, 0, 0, 0.4);
                 }
 
                 /* ---- Game Switcher ---- */
-                .game-switcher {
+                .attendance-summary:not(.retro-theme) .game-switcher {
                     background: rgba(0, 0, 0, 0.06);
                     scrollbar-color: rgba(0,0,0,0.15) transparent;
                 }
-                .game-switch-btn {
+                .attendance-summary:not(.retro-theme) .game-switch-btn {
                     background: rgba(0, 0, 0, 0.06);
                     border-color: rgba(0, 0, 0, 0.12);
                     color: rgba(0, 0, 0, 0.65);
                 }
-                .game-switch-btn:hover {
+                .attendance-summary:not(.retro-theme) .game-switch-btn:hover {
                     background: rgba(0, 0, 0, 0.1);
                     border-color: rgba(0, 0, 0, 0.2);
                 }
-                .game-switch-btn.active {
+                .attendance-summary:not(.retro-theme) .game-switch-btn.active {
                     background: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
                     border-color: var(--aurora-1);
                     color: white;
                 }
 
                 /* ---- Multi-Game Area ---- */
-                .multi-game-area {
+                .attendance-summary:not(.retro-theme) .multi-game-area {
                     background: rgba(0, 0, 0, 0.06);
                 }
 
                 /* ---- Snake Game Overlay ---- */
-                .snake-game-over {
+                .attendance-summary:not(.retro-theme) .snake-game-over {
                     background: rgba(255, 255, 255, 0.92);
                     box-shadow: 0 8px 32px rgba(0,0,0,0.18);
                 }
-                .snake-game-over h3 {
+                .attendance-summary:not(.retro-theme) .snake-game-over h3 {
                     color: #d63031;
                 }
-                .snake-game-over p {
+                .attendance-summary:not(.retro-theme) .snake-game-over p {
                     color: rgba(0, 0, 0, 0.7);
                 }
-                .snake-game-header {
+                .attendance-summary:not(.retro-theme) .snake-game-header {
                     color: rgba(0, 0, 0, 0.85);
                 }
 
                 /* ---- Prayer Counter ---- */
-                .prayer-panel {
+                .attendance-summary:not(.retro-theme) .prayer-panel {
                     background: linear-gradient(160deg, #f0f2f5 0%, #e8edf4 50%, #f0f2f5 100%);
                 }
-                .prayer-panel::before {
+                .attendance-summary:not(.retro-theme) .prayer-panel::before {
                     background: radial-gradient(ellipse at 50% 30%, rgba(102,126,234,0.10) 0%, transparent 65%);
                 }
-                .prayer-screen {
+                .attendance-summary:not(.retro-theme) .prayer-screen {
                     background: rgba(255, 255, 255, 0.75);
                     border-color: rgba(102,126,234,0.22);
                     box-shadow: 0 0 18px rgba(102,126,234,0.10), inset 0 0 8px rgba(0,0,0,0.04);
                 }
-                .prayer-label {
+                .attendance-summary:not(.retro-theme) .prayer-label {
                     color: rgba(102,126,234,0.8);
                 }
-                .prayer-digital {
+                .attendance-summary:not(.retro-theme) .prayer-digital {
                     color: #059669;
                     text-shadow: 0 0 8px rgba(5,150,105,0.25);
                 }
-                .prayer-sublabel {
+                .attendance-summary:not(.retro-theme) .prayer-sublabel {
                     color: rgba(0,0,0,0.38);
                 }
-                .prayer-plus-btn {
+                .attendance-summary:not(.retro-theme) .prayer-plus-btn {
                     box-shadow: 0 4px 14px rgba(102,126,234,0.3), 0 2px 6px rgba(0,0,0,0.12);
                 }
-                .prayer-reset-btn {
+                .attendance-summary:not(.retro-theme) .prayer-reset-btn {
                     border-color: rgba(0,0,0,0.12);
                     background: rgba(0,0,0,0.05);
                     color: rgba(0,0,0,0.5);
                 }
-                .prayer-reset-btn:hover {
+                .attendance-summary:not(.retro-theme) .prayer-reset-btn:hover {
                     background: rgba(239,68,68,0.12);
                     color: #dc2626;
                     border-color: rgba(239,68,68,0.3);
                 }
 
                 /* ---- Settings Modal ---- */
-                .settings-modal {
+                .attendance-summary:not(.retro-theme) .settings-modal {
                     background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(245,245,250,0.95));
                     border-color: rgba(0,0,0,0.12);
                     box-shadow: 0 20px 60px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.9);
                 }
-                .settings-option {
+                .attendance-summary:not(.retro-theme) .settings-option {
                     background: rgba(0,0,0,0.03);
                     border-color: rgba(0,0,0,0.08);
                 }
-                .settings-option:hover {
+                .attendance-summary:not(.retro-theme) .settings-option:hover {
                     background: rgba(0,0,0,0.06);
                 }
-                .settings-option-label {
+                .attendance-summary:not(.retro-theme) .settings-option-label {
                     color: rgba(0,0,0,0.85);
                 }
-                .toggle-switch {
+                .attendance-summary:not(.retro-theme) .toggle-switch {
                     background: rgba(0,0,0,0.15);
                 }
-                .settings-select {
+                .attendance-summary:not(.retro-theme) .settings-select {
                     background: rgba(255,255,255,0.85);
                     border-color: rgba(0,0,0,0.15);
                     color: rgba(0,0,0,0.85);
                 }
-                .settings-select:hover {
+                .attendance-summary:not(.retro-theme) .settings-select:hover {
                     background: rgba(255,255,255,0.95);
                     border-color: rgba(0,0,0,0.25);
                 }
-                .settings-select option {
+                .attendance-summary:not(.retro-theme) .settings-select option {
                     background: #fff;
                     color: #222;
                 }
-                .settings-modal-overlay {
+                .attendance-summary:not(.retro-theme) .settings-modal-overlay {
                     background: rgba(0,0,0,0.35);
                 }
 
                 /* ---- Pool Maximize Modal ---- */
-                .pool-modal-panel {
+                .attendance-summary:not(.retro-theme) .pool-modal-panel {
                     background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(245,245,250,0.95));
                     border-color: rgba(0,0,0,0.12);
                     box-shadow: 0 24px 80px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.9);
                 }
-                .pool-modal-title {
+                .attendance-summary:not(.retro-theme) .pool-modal-title {
                     color: rgba(0,0,0,0.85);
                 }
-                .pool-modal-close {
+                .attendance-summary:not(.retro-theme) .pool-modal-close {
                     background: rgba(0,0,0,0.06);
                     border-color: rgba(0,0,0,0.12);
                     color: rgba(0,0,0,0.7);
                 }
-                .pool-modal-close:hover {
+                .attendance-summary:not(.retro-theme) .pool-modal-close:hover {
                     background: rgba(255,80,80,0.15);
                     color: #dc2626;
                 }
 
                 /* ---- XP Details ---- */
-                .xp-info {
+                .attendance-summary:not(.retro-theme) .xp-info {
                     color: rgba(0,0,0,0.55);
                 }
-                .xp-stat-value {
+                .attendance-summary:not(.retro-theme) .xp-stat-value {
                     color: #6c5ce7;
                 }
-                .xp-streak {
+                .attendance-summary:not(.retro-theme) .xp-streak {
                     background: rgba(255,107,53,0.08);
                     border-color: rgba(255,107,53,0.22);
                     color: rgba(0,0,0,0.8);
                 }
-                .xp-achievements {
+                .attendance-summary:not(.retro-theme) .xp-achievements {
                     background: rgba(0,0,0,0.04);
                 }
-                .xp-achievements:empty::before {
+                .attendance-summary:not(.retro-theme) .xp-achievements:empty::before {
                     color: rgba(0,0,0,0.35);
                 }
-                .xp-next-milestone {
+                .attendance-summary:not(.retro-theme) .xp-next-milestone {
                     background: rgba(255,193,7,0.1);
                     border-color: rgba(255,193,7,0.25);
                     color: #b8860b;
                 }
-                .level-badge {
+                .attendance-summary:not(.retro-theme) .level-badge {
                     color: white;
                 }
 
                 /* ---- Quote Author ---- */
-                .quote-author {
+                .attendance-summary:not(.retro-theme) .quote-author {
                     color: rgba(0,0,0,0.5);
                 }
 
                 /* ---- Progress Bar Text ---- */
-                .progress-text {
+                .attendance-summary:not(.retro-theme) .progress-text {
                     color: rgba(0,0,0,0.6);
                 }
-                .progress-fill {
+                .attendance-summary:not(.retro-theme) .progress-fill {
                     box-shadow: none;
                 }
 
                 /* ---- Image Box Header ---- */
-                .image-box-title {
+                .attendance-summary:not(.retro-theme) .image-box-title {
                     color: rgba(0,0,0,0.85);
                 }
             }
@@ -9237,56 +9278,32 @@
 
             /* ============================================================
                CYBERPUNK HUD THEME (rebrand of "Sci-Fi Retro Futuristic")
-               — Adapts to light & dark mode via CSS custom properties
+               — Always uses neon-on-dark tokens since BG is user-controlled
+                 and defaults to dark (#07091a). OS light/dark irrelevant.
                — Inspired by Cyberpunk 2077 menu / HUD bracket interfaces
                ============================================================ */
 
-            /* Default tokens = LIGHT mode (readable on light backgrounds) */
+            /* Neon-on-dark tokens (always active — cyberpunk BG is always dark) */
             .retro-theme {
-                --rt-bg-1: #f4f6fb;
-                --rt-bg-2: #e6ebf3;
-                --rt-panel: rgba(255, 255, 255, 0.78);
-                --rt-panel-strong: rgba(255, 255, 255, 0.92);
-                --rt-text: #0f172a;
-                --rt-text-dim: rgba(15, 23, 42, 0.62);
-                --rt-accent: #d97706;          /* gold/amber — primary HUD signal */
-                --rt-accent-rgb: 217, 119, 6;
-                --rt-cyan: #0e7490;
-                --rt-cyan-rgb: 14, 116, 144;
-                --rt-magenta: #be185d;
-                --rt-magenta-rgb: 190, 24, 93;
-                --rt-lime: #15803d;
-                --rt-lime-rgb: 21, 128, 61;
-                --rt-border: rgba(15, 23, 42, 0.18);
-                --rt-border-strong: rgba(15, 23, 42, 0.45);
-                --rt-grid: rgba(15, 23, 42, 0.045);
-                --rt-glow: 0 0 0 transparent;  /* glow muted in light mode for clarity */
-                --rt-scanline: rgba(15, 23, 42, 0.025);
-            }
-
-            /* DARK mode tokens — true cyberpunk neon */
-            @media (prefers-color-scheme: dark) {
-                .retro-theme {
-                    --rt-bg-1: #07091a;
-                    --rt-bg-2: #11142b;
-                    --rt-panel: rgba(8, 10, 26, 0.78);
-                    --rt-panel-strong: rgba(8, 10, 26, 0.92);
-                    --rt-text: #fff200;            /* signature cyberpunk yellow */
-                    --rt-text-dim: rgba(255, 242, 0, 0.72);
-                    --rt-accent: #fff200;
-                    --rt-accent-rgb: 255, 242, 0;
-                    --rt-cyan: #00e5ff;
-                    --rt-cyan-rgb: 0, 229, 255;
-                    --rt-magenta: #ff2a6d;
-                    --rt-magenta-rgb: 255, 42, 109;
-                    --rt-lime: #05ffa1;
-                    --rt-lime-rgb: 5, 255, 161;
-                    --rt-border: rgba(255, 242, 0, 0.32);
-                    --rt-border-strong: rgba(255, 242, 0, 0.7);
-                    --rt-grid: rgba(255, 242, 0, 0.06);
-                    --rt-glow: 0 0 18px rgba(255, 242, 0, 0.35);
-                    --rt-scanline: rgba(0, 229, 255, 0.04);
-                }
+                --rt-bg-1: #07091a;
+                --rt-bg-2: #11142b;
+                --rt-panel: rgba(8, 10, 26, 0.78);
+                --rt-panel-strong: rgba(8, 10, 26, 0.92);
+                --rt-text: #fff200;            /* signature cyberpunk yellow */
+                --rt-text-dim: rgba(255, 242, 0, 0.72);
+                --rt-accent: #fff200;
+                --rt-accent-rgb: 255, 242, 0;
+                --rt-cyan: #00e5ff;
+                --rt-cyan-rgb: 0, 229, 255;
+                --rt-magenta: #ff2a6d;
+                --rt-magenta-rgb: 255, 42, 109;
+                --rt-lime: #05ffa1;
+                --rt-lime-rgb: 5, 255, 161;
+                --rt-border: rgba(255, 242, 0, 0.32);
+                --rt-border-strong: rgba(255, 242, 0, 0.7);
+                --rt-grid: rgba(255, 242, 0, 0.06);
+                --rt-glow: 0 0 18px rgba(255, 242, 0, 0.35);
+                --rt-scanline: rgba(0, 229, 255, 0.04);
             }
 
             /* Shared HUD clip-path with notched corners (top-left + bottom-right) */
@@ -9321,26 +9338,25 @@
                 background: linear-gradient(
                     90deg,
                     transparent 0%,
-                    var(--rt-accent) 20%,
-                    var(--rt-magenta) 50%,
-                    var(--rt-cyan) 80%,
+                    var(--rt-cyber-hl) 15%,
+                    var(--rt-accent) 40%,
+                    var(--rt-cyber-panel) 65%,
+                    var(--rt-cyber-hl) 85%,
                     transparent 100%
                 ) !important;
-                background-size: 200% 100% !important;
+                background-size: 300% 100% !important;
                 height: 3px !important;
-                animation: rgbFlowBacklight 5s ease-in-out infinite !important;
+                animation: rgbFlowBacklight 4s linear infinite !important;
                 z-index: 2;
-                opacity: 0.95;
+                opacity: 1;
             }
 
-            /* Background grid + scanlines overlay */
+            /* Background scanlines overlay (subtle CRT feel — no grid tiles) */
             .attendance-summary.retro-theme::after {
                 content: '';
                 position: absolute;
                 inset: 0;
                 background:
-                    linear-gradient(var(--rt-grid) 1px, transparent 1px) 0 0 / 32px 32px,
-                    linear-gradient(90deg, var(--rt-grid) 1px, transparent 1px) 0 0 / 32px 32px,
                     repeating-linear-gradient(
                         0deg,
                         var(--rt-scanline) 0px,
@@ -9351,7 +9367,19 @@
                 animation: scanlines 10s linear infinite;
                 pointer-events: none;
                 z-index: 0;
-                opacity: 0.9;
+                opacity: 0.55;
+            }
+
+            /* User background image overlay (set via JS inline style on a pseudo-like div) */
+            .attendance-summary.retro-theme .cyber-bg-image {
+                position: absolute;
+                inset: 0;
+                z-index: 0;
+                background-size: cover;
+                background-position: center;
+                background-repeat: no-repeat;
+                pointer-events: none;
+                border-radius: inherit;
             }
 
             .attendance-summary.retro-theme .summary-header,
@@ -9421,7 +9449,7 @@
                 background: linear-gradient(
                     90deg,
                     rgba(var(--rt-accent-rgb), 0.18),
-                    rgba(var(--rt-magenta-rgb), 0.14)
+                    rgba(var(--rt-cyber-hl-rgb), 0.14)
                 ) !important;
                 border-bottom: 1px solid var(--rt-border-strong) !important;
             }
@@ -9442,19 +9470,30 @@
                 border-bottom: 1px solid var(--rt-border) !important;
             }
 
-            /* ---- Stat cards — HUD bracket panels ---- */
+            /* ---- Stat cards — Glassmorphic 3D HUD panels ---- */
             .attendance-summary.retro-theme .stat-card {
-                background: var(--rt-panel-strong) !important;
-                border: 1px solid var(--rt-border-strong) !important;
-                border-radius: 2px !important;
-                clip-path: var(--rt-clip);
+                background: rgba(var(--rt-accent-rgb), 0.04) !important;
+                border: 1px solid rgba(var(--rt-accent-rgb), 0.22) !important;
+                border-radius: 8px !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.12),
-                    0 4px 14px rgba(0, 0, 0, 0.10) !important;
+                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.08),
+                    0 8px 32px rgba(0, 0, 0, 0.18),
+                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
+                backdrop-filter: blur(14px) saturate(130%);
+                -webkit-backdrop-filter: blur(14px) saturate(130%);
                 animation: neonPulse 5s ease-in-out infinite !important;
                 position: relative !important;
-                backdrop-filter: blur(6px);
-                -webkit-backdrop-filter: blur(6px);
+                transform: perspective(600px) rotateX(1deg);
+                transition: transform 0.3s ease, box-shadow 0.3s ease;
+            }
+            .attendance-summary.retro-theme .stat-card:hover {
+                transform: perspective(600px) rotateX(0deg) translateY(-2px);
+                box-shadow:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.14),
+                    0 12px 40px rgba(0, 0, 0, 0.25),
+                    0 4px 12px rgba(0, 0, 0, 0.15) !important;
             }
 
             /* Corner HUD bracket marker */
@@ -9472,97 +9511,137 @@
             }
 
             .attendance-summary.retro-theme .stat-card.worked-time-card {
-                --card-accent: var(--rt-cyan);
-                border-color: rgba(var(--rt-cyan-rgb), 0.55) !important;
+                --card-accent: var(--rt-cyber-hl);
+                --card-accent-rgb: var(--rt-cyber-hl-rgb);
+                background: rgba(var(--rt-cyber-hl-rgb), 0.06) !important;
+                border-color: rgba(var(--rt-cyber-hl-rgb), 0.35) !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-cyan-rgb), 0.18),
-                    0 4px 14px rgba(0, 0, 0, 0.10) !important;
+                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+                    inset 0 0 0 1px rgba(var(--rt-cyber-hl-rgb), 0.12),
+                    0 8px 32px rgba(var(--rt-cyber-hl-rgb), 0.10),
+                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
             }
 
             .attendance-summary.retro-theme .stat-card.remaining-time-card {
-                --card-accent: var(--rt-magenta);
-                border-color: rgba(var(--rt-magenta-rgb), 0.55) !important;
+                --card-accent: var(--rt-accent);
+                --card-accent-rgb: var(--rt-accent-rgb);
+                background: rgba(var(--rt-accent-rgb), 0.06) !important;
+                border-color: rgba(var(--rt-accent-rgb), 0.35) !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-magenta-rgb), 0.18),
-                    0 4px 14px rgba(0, 0, 0, 0.10) !important;
+                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.12),
+                    0 8px 32px rgba(var(--rt-accent-rgb), 0.10),
+                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
             }
 
             .attendance-summary.retro-theme .stat-card.completion-time-card {
-                --card-accent: var(--rt-lime);
-                border-color: rgba(var(--rt-lime-rgb), 0.55) !important;
+                --card-accent: var(--rt-cyber-panel);
+                --card-accent-rgb: var(--rt-cyber-panel-rgb);
+                background: rgba(var(--rt-cyber-panel-rgb), 0.06) !important;
+                border-color: rgba(var(--rt-cyber-panel-rgb), 0.35) !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-lime-rgb), 0.18),
-                    0 4px 14px rgba(0, 0, 0, 0.10) !important;
+                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
+                    0 8px 32px rgba(var(--rt-cyber-panel-rgb), 0.10),
+                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
             }
 
             .attendance-summary.retro-theme .stat-label {
-                color: var(--rt-text-dim) !important;
+                color: var(--card-accent, var(--rt-cyber-hl)) !important;
+                opacity: 0.85;
                 font-family: 'Orbitron', sans-serif !important;
-                font-weight: 600 !important;
+                font-weight: 700 !important;
                 letter-spacing: 0.18em !important;
                 text-transform: uppercase !important;
                 text-shadow: none !important;
             }
 
             .attendance-summary.retro-theme .stat-value {
+                color: var(--card-accent, var(--rt-accent)) !important;
                 font-family: 'Share Tech Mono', monospace !important;
                 font-weight: 700 !important;
                 letter-spacing: 0.04em !important;
                 text-shadow:
                     0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 12px rgba(var(--rt-accent-rgb), 0.25) !important;
+                    0 0 12px rgba(var(--rt-accent-rgb), 0.35) !important;
             }
 
             .attendance-summary.retro-theme .worked-time {
-                color: var(--rt-cyan) !important;
+                color: var(--rt-cyber-hl) !important;
                 text-shadow:
                     0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 14px rgba(var(--rt-cyan-rgb), 0.45) !important;
+                    0 0 14px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
             }
 
             .attendance-summary.retro-theme .remaining-time {
-                color: var(--rt-magenta) !important;
+                color: var(--rt-accent) !important;
                 text-shadow:
                     0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 14px rgba(var(--rt-magenta-rgb), 0.45) !important;
+                    0 0 14px rgba(var(--rt-accent-rgb), 0.45) !important;
             }
 
             .attendance-summary.retro-theme .completion-time {
-                color: var(--rt-lime) !important;
+                color: var(--rt-cyber-panel) !important;
                 text-shadow:
                     0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 14px rgba(var(--rt-lime-rgb), 0.45) !important;
+                    0 0 14px rgba(var(--rt-cyber-panel-rgb), 0.45) !important;
             }
 
             /* ---- Progress bar ---- */
             .attendance-summary.retro-theme .progress-bar {
-                background: var(--rt-panel) !important;
-                border: 1px solid var(--rt-border) !important;
-                border-radius: 1px !important;
-                box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15) !important;
+                background: linear-gradient(135deg,
+                    rgba(var(--rt-cyber-panel-rgb), 0.10),
+                    rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
+                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
+                border-radius: 6px !important;
+                backdrop-filter: blur(8px) saturate(130%) !important;
+                -webkit-backdrop-filter: blur(8px) saturate(130%) !important;
+                box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.12) !important;
             }
 
             .attendance-summary.retro-theme .progress-fill {
                 background: linear-gradient(
                     90deg,
-                    var(--rt-cyan),
+                    var(--rt-cyber-hl),
                     var(--rt-accent),
-                    var(--rt-magenta),
-                    var(--rt-lime)
+                    var(--rt-cyber-panel),
+                    var(--rt-cyber-hl)
                 ) !important;
-                background-size: 200% 100% !important;
-                animation: rgbFlowBacklight 4s linear infinite !important;
+                background-size: 300% 100% !important;
+                animation: rgbFlowBacklight 3s linear infinite !important;
                 box-shadow:
                     0 0 10px rgba(var(--rt-accent-rgb), 0.5),
                     inset 0 0 6px rgba(255, 255, 255, 0.25) !important;
+                position: relative;
+                overflow: hidden;
+            }
+
+            .attendance-summary.retro-theme .progress-fill::after {
+                content: '' !important;
+                position: absolute !important;
+                top: 0 !important;
+                left: -100% !important;
+                width: 60% !important;
+                height: 100% !important;
+                background: linear-gradient(
+                    90deg,
+                    transparent,
+                    rgba(255, 255, 255, 0.4),
+                    transparent
+                ) !important;
+                animation: progressShimmer 2s ease-in-out infinite !important;
             }
 
             /* ---- Buttons / chips ---- */
             .attendance-summary.retro-theme .developer-info,
             .attendance-summary.retro-theme .settings-button {
-                background: var(--rt-panel-strong) !important;
-                border: 1px solid var(--rt-border-strong) !important;
+                background: linear-gradient(135deg,
+                    rgba(var(--rt-cyber-panel-rgb), 0.14),
+                    rgba(var(--rt-cyber-panel-rgb), 0.06)) !important;
+                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.32) !important;
                 color: var(--rt-accent) !important;
+                backdrop-filter: blur(10px) saturate(130%) !important;
+                -webkit-backdrop-filter: blur(10px) saturate(130%) !important;
                 box-shadow:
                     inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.15),
                     0 2px 6px rgba(0, 0, 0, 0.1) !important;
@@ -9581,15 +9660,17 @@
             .attendance-summary.retro-theme .pip-button {
                 background: linear-gradient(
                     135deg,
-                    rgba(var(--rt-cyan-rgb), 0.18),
-                    rgba(var(--rt-magenta-rgb), 0.18)
+                    rgba(var(--rt-cyber-hl-rgb), 0.18),
+                    rgba(var(--rt-accent-rgb), 0.18)
                 ) !important;
-                border: 1px solid var(--rt-border-strong) !important;
+                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.32) !important;
                 color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 font-weight: 700 !important;
                 letter-spacing: 0.1em !important;
                 text-transform: uppercase !important;
+                backdrop-filter: blur(10px) saturate(130%) !important;
+                -webkit-backdrop-filter: blur(10px) saturate(130%) !important;
                 box-shadow:
                     inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.2),
                     0 2px 8px rgba(0, 0, 0, 0.12) !important;
@@ -9598,8 +9679,8 @@
             .attendance-summary.retro-theme .pip-button:hover {
                 background: linear-gradient(
                     135deg,
-                    rgba(var(--rt-cyan-rgb), 0.35),
-                    rgba(var(--rt-magenta-rgb), 0.35)
+                    rgba(var(--rt-cyber-hl-rgb), 0.35),
+                    rgba(var(--rt-accent-rgb), 0.35)
                 ) !important;
                 box-shadow:
                     inset 0 0 0 1px var(--rt-accent),
@@ -9610,22 +9691,22 @@
             .attendance-summary.retro-theme .completion-message {
                 background: linear-gradient(
                     135deg,
-                    rgba(var(--rt-lime-rgb), 0.18),
-                    rgba(var(--rt-cyan-rgb), 0.18)
+                    rgba(var(--rt-cyber-panel-rgb), 0.18),
+                    rgba(var(--rt-cyber-hl-rgb), 0.18)
                 ) !important;
-                border: 1px solid var(--rt-lime) !important;
+                border: 1px solid var(--rt-cyber-panel) !important;
                 border-radius: 2px !important;
                 clip-path: var(--rt-clip);
-                color: var(--rt-lime) !important;
+                color: var(--rt-cyber-panel) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 font-weight: 700 !important;
                 letter-spacing: 0.06em !important;
                 text-shadow:
                     0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 12px rgba(var(--rt-lime-rgb), 0.5) !important;
+                    0 0 12px rgba(var(--rt-cyber-panel-rgb), 0.5) !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-lime-rgb), 0.2),
-                    0 4px 14px rgba(var(--rt-lime-rgb), 0.18) !important;
+                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.2),
+                    0 4px 14px rgba(var(--rt-cyber-panel-rgb), 0.18) !important;
             }
 
             /* ---- Side panels (snake/quotes/xp/image) inherit HUD tokens ---- */
@@ -9633,10 +9714,6 @@
             .attendance-summary.retro-theme .quotes-container,
             .attendance-summary.retro-theme .xp-container,
             .attendance-summary.retro-theme .image-box-container {
-                background: var(--rt-panel) !important;
-                border: 1px solid var(--rt-border) !important;
-                border-radius: 2px !important;
-                clip-path: var(--rt-clip);
                 color: var(--rt-text);
                 position: relative;
                 z-index: 1;
@@ -9650,6 +9727,169 @@
                 font-family: 'Orbitron', sans-serif !important;
                 letter-spacing: 0.12em !important;
                 text-transform: uppercase !important;
+            }
+
+            /* Ensure all secondary text inside retro-theme panels stays visible */
+            .attendance-summary.retro-theme .snake-score {
+                color: var(--rt-text-dim) !important;
+            }
+            .attendance-summary.retro-theme .snake-canvas {
+                background: rgba(var(--rt-cyber-panel-rgb), 0.05) !important;
+            }
+
+            /* ---- User-customizable HUD color overrides ----
+               Fallback chain ensures legacy styling if --rt-cyber-hl isn't set yet. */
+            .attendance-summary.retro-theme {
+                --rt-cyber-hl: var(--rt-cyan, #00e5ff);
+                --rt-cyber-hl-rgb: var(--rt-cyan-rgb, 0, 229, 255);
+                --rt-cyber-panel: var(--rt-cyan, #00e5ff);
+                --rt-cyber-panel-rgb: var(--rt-cyan-rgb, 0, 229, 255);
+            }
+
+            /* Modern table — glassmorphic with user panel tint */
+            .attendance-summary.retro-theme .modern-table {
+                background: linear-gradient(135deg,
+                    rgba(var(--rt-cyber-panel-rgb), 0.10),
+                    rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
+                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
+                border-radius: 10px !important;
+                clip-path: none !important;
+                backdrop-filter: blur(14px) saturate(140%) !important;
+                -webkit-backdrop-filter: blur(14px) saturate(140%) !important;
+                box-shadow:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
+                    0 8px 32px rgba(0, 0, 0, 0.18),
+                    0 2px 6px rgba(0, 0, 0, 0.10) !important;
+            }
+
+            /* Side panels — glassmorphic with user panel tint */
+            .attendance-summary.retro-theme .snake-game-container,
+            .attendance-summary.retro-theme .quotes-container,
+            .attendance-summary.retro-theme .xp-container,
+            .attendance-summary.retro-theme .image-box-container {
+                background: linear-gradient(135deg,
+                    rgba(var(--rt-cyber-panel-rgb), 0.10),
+                    rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
+                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
+                border-radius: 10px !important;
+                clip-path: none !important;
+                backdrop-filter: blur(14px) saturate(140%);
+                -webkit-backdrop-filter: blur(14px) saturate(140%);
+                box-shadow:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
+                    0 8px 32px rgba(0, 0, 0, 0.18),
+                    0 2px 6px rgba(0, 0, 0, 0.10) !important;
+            }
+
+            /* XP progress fill (was hardcoded purple) */
+            .attendance-summary.retro-theme .xp-progress-fill {
+                background: linear-gradient(90deg,
+                    var(--rt-cyber-hl) 0%,
+                    var(--rt-accent) 50%,
+                    var(--rt-cyber-hl) 100%) !important;
+                box-shadow: 0 0 12px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
+            }
+
+            /* XP stat values (was hardcoded #6c5ce7 / #a29bfe purple) */
+            .attendance-summary.retro-theme .xp-stat-value {
+                color: var(--rt-cyber-hl) !important;
+            }
+            .attendance-summary.retro-theme .xp-stat-label {
+                color: var(--rt-accent) !important;
+                opacity: 0.9;
+            }
+            .attendance-summary.retro-theme .xp-info {
+                color: var(--rt-text-dim) !important;
+            }
+
+            /* Quotes text — dynamic cyber colors */
+            .attendance-summary.retro-theme .quote-text {
+                color: var(--rt-text) !important;
+            }
+            .attendance-summary.retro-theme .quote-author {
+                color: var(--rt-cyber-hl) !important;
+                opacity: 0.8;
+            }
+            .attendance-summary.retro-theme .quote-add-btn {
+                background: rgba(var(--rt-cyber-panel-rgb), 0.12) !important;
+                border-color: rgba(var(--rt-cyber-panel-rgb), 0.3) !important;
+                color: var(--rt-accent) !important;
+            }
+
+            /* Level badge (was hardcoded purple) */
+            .attendance-summary.retro-theme .level-badge {
+                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
+                color: var(--rt-bg-1) !important;
+                box-shadow: 0 0 14px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
+            }
+
+            /* View-all achievements button (was glassmorphic purple rgba) */
+            .attendance-summary.retro-theme .xp-achievements-view-all {
+                background: linear-gradient(135deg,
+                    rgba(var(--rt-cyber-hl-rgb), 0.22),
+                    rgba(var(--rt-accent-rgb), 0.22)) !important;
+                border: 1px solid var(--rt-cyber-hl) !important;
+                color: var(--rt-text) !important;
+            }
+            .attendance-summary.retro-theme .xp-achievements-view-all:hover {
+                background: linear-gradient(135deg,
+                    rgba(var(--rt-cyber-hl-rgb), 0.45),
+                    rgba(var(--rt-accent-rgb), 0.45)) !important;
+                box-shadow: 0 4px 14px rgba(var(--rt-cyber-hl-rgb), 0.4) !important;
+            }
+
+            /* Aspect-ratio buttons (used aurora gradient) */
+            .attendance-summary.retro-theme .aspect-ratio-btn {
+                background: var(--rt-panel) !important;
+                border: 1px solid var(--rt-border) !important;
+                color: var(--rt-text) !important;
+            }
+            .attendance-summary.retro-theme .aspect-ratio-btn.active {
+                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
+                border-color: var(--rt-cyber-hl) !important;
+                color: var(--rt-bg-1) !important;
+                box-shadow: 0 4px 12px rgba(var(--rt-cyber-hl-rgb), 0.4) !important;
+            }
+
+            /* Game switch tabs (aurora gradient on active) */
+            .attendance-summary.retro-theme .game-switch-btn {
+                background: rgba(var(--rt-cyber-panel-rgb), 0.10) !important;
+                border-color: rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
+                color: var(--rt-text-dim) !important;
+            }
+            .attendance-summary.retro-theme .game-switch-btn:hover {
+                background: rgba(var(--rt-cyber-hl-rgb), 0.18) !important;
+                border-color: var(--rt-cyber-hl) !important;
+                color: var(--rt-text) !important;
+            }
+            .attendance-summary.retro-theme .game-switch-btn.active {
+                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
+                border-color: var(--rt-cyber-hl) !important;
+                color: var(--rt-bg-1) !important;
+            }
+
+            /* Snake / generic game-control buttons (Play / Reset / PvCPU / Max) */
+            .attendance-summary.retro-theme .snake-btn {
+                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
+                color: var(--rt-bg-1) !important;
+                border: 1px solid var(--rt-cyber-hl) !important;
+            }
+            .attendance-summary.retro-theme .snake-btn:hover {
+                box-shadow: 0 4px 14px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
+                filter: brightness(1.1);
+            }
+
+            /* Settings modal elements follow cyberpunk colors */
+            body:has(.retro-theme) .close-modal-button {
+                background: linear-gradient(135deg, var(--rt-cyber-hl, #00e5ff), var(--rt-accent, #fff200)) !important;
+                color: var(--rt-bg-1, #07091a) !important;
+            }
+            body:has(.retro-theme) .settings-title {
+                background: linear-gradient(135deg, var(--rt-cyber-hl, #00e5ff), var(--rt-accent, #fff200)) !important;
+                -webkit-background-clip: text !important;
+                -webkit-text-fill-color: transparent !important;
             }
             
             /* Borderless PiP Window - Hide Browser Chrome */
@@ -10827,6 +11067,85 @@
                 transform: scale(1.1);
             }
 
+            /* Cyberpunk HUD color pickers */
+            .cyber-color-pickers {
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                flex-wrap: wrap;
+            }
+            .cyber-color-pickers label {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 4px;
+                font-size: 0.65rem;
+                color: rgba(255, 255, 255, 0.85);
+                cursor: pointer;
+                user-select: none;
+            }
+            .cyber-color-pickers input[type="color"] {
+                width: 34px;
+                height: 34px;
+                padding: 0;
+                border: 2px solid rgba(255, 255, 255, 0.25);
+                border-radius: 8px;
+                background: transparent;
+                cursor: pointer;
+                transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+            }
+            .cyber-color-pickers input[type="color"]:hover {
+                transform: scale(1.1);
+                border-color: rgba(255, 255, 255, 0.6);
+                box-shadow: 0 0 8px rgba(255, 255, 255, 0.25);
+            }
+            .cyber-color-pickers input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+            .cyber-color-pickers input[type="color"]::-webkit-color-swatch { border: none; border-radius: 5px; }
+
+            /* Cyberpunk background image controls */
+            .cyber-bg-controls {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+                flex-wrap: wrap;
+            }
+            .cyber-bg-btn {
+                padding: 6px 14px;
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.22);
+                border-radius: 8px;
+                color: rgba(255, 255, 255, 0.9);
+                font-size: 0.72rem;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+            .cyber-bg-btn:hover {
+                background: rgba(255, 255, 255, 0.16);
+                border-color: rgba(255, 255, 255, 0.4);
+            }
+            .cyber-bg-btn.cyber-bg-clear {
+                padding: 6px 10px;
+                color: #ff6b6b;
+                border-color: rgba(255, 107, 107, 0.3);
+            }
+            .cyber-bg-btn.cyber-bg-clear:hover {
+                background: rgba(255, 107, 107, 0.15);
+            }
+            .cyber-bg-opacity-label {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 0.65rem;
+                color: rgba(255, 255, 255, 0.7);
+            }
+            .cyber-bg-opacity-label input[type="range"] {
+                width: 70px;
+                height: 4px;
+                accent-color: var(--aurora-1, #00e5ff);
+                cursor: pointer;
+            }
+
             .tetris-wrapper {
                 display: flex;
                 justify-content: center;
@@ -11007,229 +11326,229 @@
                 }
 
                 /* --- Quotes --- */
-                .quotes-title {
+                .attendance-summary:not(.retro-theme) .quotes-title {
                     color: rgba(0, 0, 0, 0.88);
                 }
-                .quote-add-btn {
+                .attendance-summary:not(.retro-theme) .quote-add-btn {
                     background: rgba(0, 0, 0, 0.06);
                     border-color: rgba(0, 0, 0, 0.12);
                     color: rgba(0, 0, 0, 0.75);
                 }
-                .quote-add-btn:hover {
+                .attendance-summary:not(.retro-theme) .quote-add-btn:hover {
                     background: rgba(0, 0, 0, 0.10);
                 }
-                .quote-text {
+                .attendance-summary:not(.retro-theme) .quote-text {
                     color: rgba(0, 0, 0, 0.80);
                 }
-                .quote-author {
+                .attendance-summary:not(.retro-theme) .quote-author {
                     color: rgba(0, 0, 0, 0.50);
                 }
 
                 /* --- XP System --- */
-                .xp-title {
+                .attendance-summary:not(.retro-theme) .xp-title {
                     color: rgba(0, 0, 0, 0.88);
                 }
-                .xp-info {
+                .attendance-summary:not(.retro-theme) .xp-info {
                     color: rgba(0, 0, 0, 0.55);
                 }
-                .xp-stat-item {
+                .attendance-summary:not(.retro-theme) .xp-stat-item {
                     background: rgba(0, 0, 0, 0.04);
                 }
-                .xp-stat-label {
+                .attendance-summary:not(.retro-theme) .xp-stat-label {
                     color: rgba(0, 0, 0, 0.60);
                 }
-                .xp-stat-value {
+                .attendance-summary:not(.retro-theme) .xp-stat-value {
                     color: #6c5ce7;
                 }
-                .xp-progress-bar {
+                .attendance-summary:not(.retro-theme) .xp-progress-bar {
                     background: rgba(0, 0, 0, 0.08);
                 }
-                .xp-streak {
+                .attendance-summary:not(.retro-theme) .xp-streak {
                     background: rgba(255, 107, 53, 0.07);
                     border-color: rgba(255, 107, 53, 0.18);
                     color: rgba(0, 0, 0, 0.78);
                 }
-                .xp-achievements {
+                .attendance-summary:not(.retro-theme) .xp-achievements {
                     background: rgba(0, 0, 0, 0.03);
                 }
-                .xp-achievements:empty::before {
+                .attendance-summary:not(.retro-theme) .xp-achievements:empty::before {
                     color: rgba(0, 0, 0, 0.35);
                 }
-                .xp-next-milestone {
+                .attendance-summary:not(.retro-theme) .xp-next-milestone {
                     background: rgba(255, 193, 7, 0.10);
                     border-color: rgba(255, 193, 7, 0.22);
                     color: #b8860b;
                 }
-                .level-badge {
+                .attendance-summary:not(.retro-theme) .level-badge {
                     color: #fff;
                 }
 
                 /* --- Image Box --- */
-                .image-box-title {
+                .attendance-summary:not(.retro-theme) .image-box-title {
                     color: rgba(0, 0, 0, 0.85);
                 }
-                .image-change-btn {
+                .attendance-summary:not(.retro-theme) .image-change-btn {
                     background: rgba(0, 0, 0, 0.06);
                     border-color: rgba(0, 0, 0, 0.12);
                     color: rgba(0, 0, 0, 0.75);
                 }
-                .image-change-btn:hover {
+                .attendance-summary:not(.retro-theme) .image-change-btn:hover {
                     background: rgba(0, 0, 0, 0.10);
                 }
-                .aspect-ratio-btn {
+                .attendance-summary:not(.retro-theme) .aspect-ratio-btn {
                     background: rgba(0, 0, 0, 0.06);
                     border-color: rgba(0, 0, 0, 0.12);
                     color: rgba(0, 0, 0, 0.72);
                 }
-                .aspect-ratio-btn:hover {
+                .attendance-summary:not(.retro-theme) .aspect-ratio-btn:hover {
                     background: rgba(0, 0, 0, 0.10);
                 }
-                .aspect-ratio-btn.active {
+                .attendance-summary:not(.retro-theme) .aspect-ratio-btn.active {
                     background: linear-gradient(135deg, #667eea, #764ba2);
                     border-color: #667eea;
                     color: #fff;
                 }
-                .image-placeholder {
+                .attendance-summary:not(.retro-theme) .image-placeholder {
                     color: rgba(0, 0, 0, 0.38);
                 }
 
                 /* --- Pool Color Swatches --- */
-                .pool-color-swatch {
+                .attendance-summary:not(.retro-theme) .pool-color-swatch {
                     border-color: rgba(0, 0, 0, 0.15);
                 }
-                .pool-color-swatch:hover {
+                .attendance-summary:not(.retro-theme) .pool-color-swatch:hover {
                     border-color: rgba(0, 0, 0, 0.35);
                 }
-                .pool-color-swatch.active {
+                .attendance-summary:not(.retro-theme) .pool-color-swatch.active {
                     border-color: #333;
                     box-shadow: 0 0 8px rgba(0, 0, 0, 0.25);
                 }
 
                 /* --- Settings Modal --- */
-                .settings-modal {
+                .attendance-summary:not(.retro-theme) .settings-modal {
                     background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(248,248,252,0.96));
                     border-color: rgba(0, 0, 0, 0.10);
                     box-shadow: 0 20px 60px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.95);
                 }
-                .settings-title {
+                .attendance-summary:not(.retro-theme) .settings-title {
                     -webkit-text-fill-color: transparent;
                 }
-                .settings-option {
+                .attendance-summary:not(.retro-theme) .settings-option {
                     background: rgba(0, 0, 0, 0.03);
                     border-color: rgba(0, 0, 0, 0.06);
                 }
-                .settings-option:hover {
+                .attendance-summary:not(.retro-theme) .settings-option:hover {
                     background: rgba(0, 0, 0, 0.06);
                 }
-                .settings-option-label {
+                .attendance-summary:not(.retro-theme) .settings-option-label {
                     color: rgba(0, 0, 0, 0.85);
                 }
-                .toggle-switch {
+                .attendance-summary:not(.retro-theme) .toggle-switch {
                     background: rgba(0, 0, 0, 0.14);
                 }
-                .settings-select {
+                .attendance-summary:not(.retro-theme) .settings-select {
                     background: rgba(255, 255, 255, 0.88);
                     border-color: rgba(0, 0, 0, 0.14);
                     color: rgba(0, 0, 0, 0.85);
                 }
-                .settings-select:hover {
+                .attendance-summary:not(.retro-theme) .settings-select:hover {
                     background: rgba(255, 255, 255, 0.96);
                     border-color: rgba(0, 0, 0, 0.22);
                 }
-                .settings-select option {
+                .attendance-summary:not(.retro-theme) .settings-select option {
                     background: #fff;
                     color: #222;
                 }
-                .settings-modal-overlay {
+                .attendance-summary:not(.retro-theme) .settings-modal-overlay {
                     background: rgba(0, 0, 0, 0.30);
                 }
 
                 /* --- Pool Maximize Modal --- */
-                .pool-modal-panel {
+                .attendance-summary:not(.retro-theme) .pool-modal-panel {
                     background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(248,248,252,0.96));
                     border-color: rgba(0, 0, 0, 0.10);
                     box-shadow: 0 24px 80px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.95);
                 }
-                .pool-modal-title {
+                .attendance-summary:not(.retro-theme) .pool-modal-title {
                     color: rgba(0, 0, 0, 0.85);
                 }
-                .pool-modal-close {
+                .attendance-summary:not(.retro-theme) .pool-modal-close {
                     background: rgba(0, 0, 0, 0.05);
                     border-color: rgba(0, 0, 0, 0.10);
                     color: rgba(0, 0, 0, 0.65);
                 }
-                .pool-modal-close:hover {
+                .attendance-summary:not(.retro-theme) .pool-modal-close:hover {
                     background: rgba(255, 80, 80, 0.12);
                     color: #dc2626;
                 }
 
                 /* --- Attendance core (re-assert after retro theme) --- */
-                .attendance-summary {
+                .attendance-summary:not(.retro-theme) {
                     background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(240,240,240,0.90));
                     border-color: rgba(0, 0, 0, 0.10);
                     color: rgba(0, 0, 0, 0.88);
                 }
-                .modern-table td {
+                .attendance-summary:not(.retro-theme) .modern-table td {
                     color: rgba(0, 0, 0, 0.78);
                     border-bottom-color: rgba(0, 0, 0, 0.08);
                 }
-                .stat-label {
+                .attendance-summary:not(.retro-theme) .stat-label {
                     color: rgba(0, 0, 0, 0.58);
                 }
-                .remaining-desc {
+                .attendance-summary:not(.retro-theme) .remaining-desc {
                     color: rgba(0, 0, 0, 0.55);
                 }
-                .progress-bar {
+                .attendance-summary:not(.retro-theme) .progress-bar {
                     background: rgba(0, 0, 0, 0.08);
                 }
-                .progress-fill {
+                .attendance-summary:not(.retro-theme) .progress-fill {
                     box-shadow: none;
                 }
-                .developer-info {
+                .attendance-summary:not(.retro-theme) .developer-info {
                     background: rgba(255, 255, 255, 0.82);
                     border-color: rgba(0, 0, 0, 0.08);
                 }
-                .developer-info:hover {
+                .attendance-summary:not(.retro-theme) .developer-info:hover {
                     background: rgba(255, 255, 255, 0.92);
                     border-color: rgba(0, 0, 0, 0.16);
                     z-index: 1000;
                 }
-                .developer-tooltip {
+                .attendance-summary:not(.retro-theme) .developer-tooltip {
                     background: linear-gradient(145deg, rgba(15, 15, 30, 0.96), rgba(25, 20, 50, 0.96));
                     backdrop-filter: blur(50px);
                     min-width: 340px;
                 }
-                .settings-button {
+                .attendance-summary:not(.retro-theme) .settings-button {
                     background: rgba(255, 255, 255, 0.82);
                     border-color: rgba(0, 0, 0, 0.08);
                 }
-                .settings-button:hover {
+                .attendance-summary:not(.retro-theme) .settings-button:hover {
                     background: rgba(255, 255, 255, 0.92);
                     border-color: rgba(0, 0, 0, 0.16);
                 }
-                .stat-card {
+                .attendance-summary:not(.retro-theme) .stat-card {
                     background: rgba(255, 255, 255, 0.72);
                     border-color: rgba(0, 0, 0, 0.08);
                     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
                 }
-                .stat-card:hover {
+                .attendance-summary:not(.retro-theme) .stat-card:hover {
                     background: rgba(255, 255, 255, 0.90);
                     border-color: rgba(0, 0, 0, 0.14);
                     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.10);
                 }
-                .stat-card.worked-time-card {
+                .attendance-summary:not(.retro-theme) .stat-card.worked-time-card {
                     background: linear-gradient(135deg, rgba(0,184,148,0.12), rgba(0,184,148,0.04));
                     border-color: rgba(0,184,148,0.25);
                 }
-                .stat-card.remaining-time-card {
+                .attendance-summary:not(.retro-theme) .stat-card.remaining-time-card {
                     background: linear-gradient(135deg, rgba(225,112,85,0.12), rgba(225,112,85,0.04));
                     border-color: rgba(225,112,85,0.25);
                 }
-                .stat-card.completion-time-card {
+                .attendance-summary:not(.retro-theme) .stat-card.completion-time-card {
                     background: linear-gradient(135deg, rgba(108,92,231,0.12), rgba(108,92,231,0.04));
                     border-color: rgba(108,92,231,0.25);
                 }
-                .gap-warning {
+                .attendance-summary:not(.retro-theme) .gap-warning {
                     background: linear-gradient(135deg, #ffeaa7, #fab1a0) !important;
                     color: #2d3436 !important;
                 }
@@ -11542,6 +11861,42 @@
                     <option value="retro-futuristic" ${userPreferences.displayTheme === 'retro-futuristic' ? 'selected' : ''}>Cyberpunk HUD</option>
                 </select>
             </div>
+            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                <span class="settings-option-label">🌈 Cyberpunk Colors</span>
+                <div class="cyber-color-pickers">
+                    <label title="Background primary">
+                        <input type="color" data-pref="cyberBgPrimary" value="${userPreferences.cyberBgPrimary || '#07091a'}">
+                        <span>BG 1</span>
+                    </label>
+                    <label title="Background secondary">
+                        <input type="color" data-pref="cyberBgSecondary" value="${userPreferences.cyberBgSecondary || '#11142b'}">
+                        <span>BG 2</span>
+                    </label>
+                    <label title="Accent (text glow, titles)">
+                        <input type="color" data-pref="cyberAccent" value="${userPreferences.cyberAccent || '#fff200'}">
+                        <span>Accent</span>
+                    </label>
+                    <label title="Highlight (buttons, progress)">
+                        <input type="color" data-pref="cyberHighlight" value="${userPreferences.cyberHighlight || '#00e5ff'}">
+                        <span>Highlight</span>
+                    </label>
+                    <label title="Inner panel glass tint (table, side containers)">
+                        <input type="color" data-pref="cyberPanelTint" value="${userPreferences.cyberPanelTint || '#00e5ff'}">
+                        <span>Panel</span>
+                    </label>
+                </div>
+            </div>
+            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                <span class="settings-option-label">🖼️ Background Image</span>
+                <div class="cyber-bg-controls">
+                    <button class="cyber-bg-btn" id="cyber-bg-change-btn" title="Set background image URL">Change BG</button>
+                    <button class="cyber-bg-btn cyber-bg-clear" id="cyber-bg-clear-btn" title="Remove background image" ${userPreferences.cyberBgImage ? '' : 'style="display:none;"'}>✕</button>
+                    <label class="cyber-bg-opacity-label" ${userPreferences.cyberBgImage ? '' : 'style="display:none;"'}>
+                        <input type="range" min="0" max="100" value="${Math.round((userPreferences.cyberBgOpacity ?? 0.15) * 100)}" id="cyber-bg-opacity-slider">
+                        <span>${Math.round((userPreferences.cyberBgOpacity ?? 0.15) * 100)}%</span>
+                    </label>
+                </div>
+            </div>
             <div class="settings-option">
                 <span class="settings-option-label"> Game Mode <small style="opacity:0.6;font-size:0.75rem;">Hides side panels</small></span>
                 <div class="toggle-switch ${userPreferences.gameModeHidden ? 'active' : ''}" data-pref="gameModeHidden"></div>
@@ -11613,6 +11968,71 @@
                     if (toggle) toggle.classList.add('disabled');
                 }
             });
+
+            // Show/hide retro-futuristic-only options (e.g. Cyberpunk color pickers)
+            modal.querySelectorAll('[data-theme-dependent="retro-futuristic"]').forEach(option => {
+                option.style.display = (theme === 'retro-futuristic') ? '' : 'none';
+            });
+        }
+
+        // Color picker listeners (Cyberpunk HUD customizable colors)
+        modal.querySelectorAll('input[type="color"][data-pref]').forEach(picker => {
+            picker.addEventListener('input', function() {
+                const pref = this.getAttribute('data-pref');
+                userPreferences[pref] = this.value;
+                applyPreferences(); // live preview while sliding
+            });
+            picker.addEventListener('change', function() {
+                const pref = this.getAttribute('data-pref');
+                userPreferences[pref] = this.value;
+                savePreferences();
+                applyPreferences();
+                // Sync to gist so colors persist across devices
+                try { if (typeof syncMyScore === 'function') syncMyScore(); } catch (_) {}
+            });
+        });
+
+        // Background image controls
+        const bgChangeBtn = modal.querySelector('#cyber-bg-change-btn');
+        const bgClearBtn = modal.querySelector('#cyber-bg-clear-btn');
+        const bgOpacitySlider = modal.querySelector('#cyber-bg-opacity-slider');
+        const bgOpacityLabel = bgOpacitySlider ? bgOpacitySlider.parentElement : null;
+
+        if (bgChangeBtn) {
+            bgChangeBtn.addEventListener('click', () => {
+                const url = prompt('Enter background image URL:', userPreferences.cyberBgImage || '');
+                if (url !== null) {
+                    userPreferences.cyberBgImage = url.trim();
+                    savePreferences();
+                    applyPreferences();
+                    if (bgClearBtn) bgClearBtn.style.display = url.trim() ? '' : 'none';
+                    if (bgOpacityLabel) bgOpacityLabel.style.display = url.trim() ? '' : 'none';
+                    try { if (typeof syncMyScore === 'function') syncMyScore(); } catch (_) {}
+                }
+            });
+        }
+        if (bgClearBtn) {
+            bgClearBtn.addEventListener('click', () => {
+                userPreferences.cyberBgImage = '';
+                savePreferences();
+                applyPreferences();
+                bgClearBtn.style.display = 'none';
+                if (bgOpacityLabel) bgOpacityLabel.style.display = 'none';
+                try { if (typeof syncMyScore === 'function') syncMyScore(); } catch (_) {}
+            });
+        }
+        if (bgOpacitySlider) {
+            bgOpacitySlider.addEventListener('input', function() {
+                const val = parseInt(this.value) / 100;
+                userPreferences.cyberBgOpacity = val;
+                applyPreferences();
+                const spanEl = this.parentElement.querySelector('span');
+                if (spanEl) spanEl.textContent = this.value + '%';
+            });
+            bgOpacitySlider.addEventListener('change', function() {
+                savePreferences();
+                try { if (typeof syncMyScore === 'function') syncMyScore(); } catch (_) {}
+            });
         }
         
         // Add close button listener
@@ -11638,8 +12058,63 @@
         // Apply display theme
         if (userPreferences.displayTheme === 'retro-futuristic') {
             container.classList.add('retro-theme');
+            // Apply user-customizable Cyberpunk HUD colors via CSS custom properties
+            const bg1 = userPreferences.cyberBgPrimary   || '#07091a';
+            const bg2 = userPreferences.cyberBgSecondary || '#11142b';
+            const acc = userPreferences.cyberAccent      || '#fff200';
+            const hl  = userPreferences.cyberHighlight   || '#00e5ff';
+            const pnl = userPreferences.cyberPanelTint   || '#00e5ff';
+            container.style.setProperty('--rt-bg-1', bg1);
+            container.style.setProperty('--rt-bg-2', bg2);
+            container.style.setProperty('--rt-accent', acc);
+            container.style.setProperty('--rt-accent-rgb', hexToRgbStr(acc));
+            container.style.setProperty('--rt-cyber-hl', hl);
+            container.style.setProperty('--rt-cyber-hl-rgb', hexToRgbStr(hl));
+            container.style.setProperty('--rt-cyber-panel', pnl);
+            container.style.setProperty('--rt-cyber-panel-rgb', hexToRgbStr(pnl));
+            // Also expose vars at document root so body-level modals can use them
+            document.documentElement.style.setProperty('--rt-cyber-hl', hl);
+            document.documentElement.style.setProperty('--rt-accent', acc);
+            document.documentElement.style.setProperty('--rt-bg-1', bg1);
+
+            // Mirror custom CSS vars onto PiP window so color pickers apply live
+            if (isPipActive && pipWindow && !pipWindow.closed) {
+                const pipEl = pipWindow.document.querySelector('.pip-window-content.retro-theme');
+                if (pipEl) {
+                    pipEl.style.setProperty('--rt-bg-1', bg1);
+                    pipEl.style.setProperty('--rt-bg-2', bg2);
+                    pipEl.style.setProperty('--rt-accent', acc);
+                    pipEl.style.setProperty('--rt-accent-rgb', hexToRgbStr(acc));
+                    pipEl.style.setProperty('--rt-cyber-hl', hl);
+                    pipEl.style.setProperty('--rt-cyber-hl-rgb', hexToRgbStr(hl));
+                    pipEl.style.setProperty('--rt-cyber-panel', pnl);
+                    pipEl.style.setProperty('--rt-cyber-panel-rgb', hexToRgbStr(pnl));
+                }
+                // Also update PiP body gradient
+                pipWindow.document.body.style.background = `linear-gradient(135deg, ${bg1} 0%, ${bg2} 100%)`;
+            }
+
+            // Background image overlay
+            let bgEl = container.querySelector('.cyber-bg-image');
+            if (userPreferences.cyberBgImage) {
+                if (!bgEl) {
+                    bgEl = document.createElement('div');
+                    bgEl.className = 'cyber-bg-image';
+                    container.insertBefore(bgEl, container.firstChild);
+                }
+                bgEl.style.backgroundImage = `url("${userPreferences.cyberBgImage.replace(/"/g, '')}")`;
+                bgEl.style.opacity = userPreferences.cyberBgOpacity ?? 0.15;
+            } else if (bgEl) {
+                bgEl.remove();
+            }
         } else {
             container.classList.remove('retro-theme');
+            // Clear inline overrides so glassmorphic theme isn't affected
+            ['--rt-bg-1','--rt-bg-2','--rt-accent','--rt-accent-rgb','--rt-cyber-hl','--rt-cyber-hl-rgb','--rt-cyber-panel','--rt-cyber-panel-rgb']
+                .forEach(p => { container.style.removeProperty(p); document.documentElement.style.removeProperty(p); });
+            // Remove background image overlay if switching away
+            const bgEl = container.querySelector('.cyber-bg-image');
+            if (bgEl) bgEl.remove();
         }
         
         // Apply neumorphic depth (only for glassmorphic theme)
@@ -12136,9 +12611,11 @@
         // Determine background based on user's theme preference
         let backgroundStyle;
         if (userPreferences.displayTheme === 'retro-futuristic') {
-            // Cyberpunk HUD theme — light & dark adaptive
+            // Cyberpunk HUD theme — uses user-customizable colors
+            const bg1 = userPreferences.cyberBgPrimary   || '#07091a';
+            const bg2 = userPreferences.cyberBgSecondary || '#11142b';
             backgroundStyle = isDarkMode ? `
-                background: linear-gradient(135deg, #07091a 0%, #11142b 100%);
+                background: linear-gradient(135deg, ${bg1} 0%, ${bg2} 100%);
             ` : `
                 background: linear-gradient(135deg, #f4f6fb 0%, #e6ebf3 100%);
             `;
@@ -12187,9 +12664,10 @@
         
         let newBg;
         if (userPreferences.displayTheme === 'retro-futuristic') {
-            // Cyberpunk HUD — adapts to system color scheme
+            const bg1 = userPreferences.cyberBgPrimary   || '#07091a';
+            const bg2 = userPreferences.cyberBgSecondary || '#11142b';
             newBg = isDark
-                ? 'linear-gradient(135deg, #07091a 0%, #11142b 100%)'
+                ? `linear-gradient(135deg, ${bg1} 0%, ${bg2} 100%)`
                 : 'linear-gradient(135deg, #f4f6fb 0%, #e6ebf3 100%)';
         } else {
             newBg = isDark

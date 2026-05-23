@@ -562,6 +562,54 @@
         return data;
     }
 
+    // Collect local game-best high scores from localStorage into one object
+    function collectGameBests() {
+        const reflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
+        const reflexBest = reflexData?.screen?.best;
+        return {
+            snake:    parseInt(localStorage.getItem('snakeHighScore') || '0', 10),
+            flappy:   parseInt(localStorage.getItem('flappyHighScore') || '0', 10),
+            tetris:   parseInt(localStorage.getItem('tetrisHighScore') || '0', 10),
+            breakout: parseInt(localStorage.getItem('breakoutHighScore') || '0', 10),
+            pool:     parseInt(localStorage.getItem('poolGamesWon') || '0', 10),
+            aim:      parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
+            reflex:   (reflexBest && reflexBest !== Infinity && reflexBest > 0) ? reflexBest : 0
+        };
+    }
+
+    // Build a complete restorable snapshot. A wiped client can fully rehydrate from this single record.
+    function buildPlayerSnapshot() {
+        return {
+            clientId: lbClientId,
+            displayName: lbDisplayName,
+            level: userXP.level || 1,
+            currentXP: userXP.currentXP || 0,
+            totalXP: userXP.totalXP || 0,
+            totalWorkDays: userXP.totalWorkDays || 0,
+            consecutiveDays: userXP.consecutiveDays || 0,
+            longestStreak: userXP.longestStreak || 0,
+            todayHours: userXP.todayHours || 0,
+            lastHourTracked: (typeof userXP.lastHourTracked === 'number') ? userXP.lastHourTracked : -1,
+            lastAttendanceDate: userXP.lastAttendanceDate || null,
+            lastShiftCompletedDate: userXP.lastShiftCompletedDate || null,
+            hadStreakReset: !!userXP.hadStreakReset,
+            gameSessions: userXP.gameSessions || 0,
+            achievements: Array.isArray(userXP.achievements) ? userXP.achievements.slice() : [],
+            milestonesReached: Array.isArray(userXP.milestonesReached) ? userXP.milestonesReached.slice() : [],
+            gameBests: collectGameBests(),
+            // Pool extended record (W/L/win-rate)
+            poolRecord: JSON.parse(localStorage.getItem('poolRecord') || 'null') || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 },
+            // Reflex full blob (screen + target modes)
+            reflexHighScores: JSON.parse(localStorage.getItem('reflexHighScores') || 'null') || null,
+            // Personalisation
+            prayerCount: parseInt(localStorage.getItem('prayerCount') || '0', 10),
+            customImageURL: localStorage.getItem('customImageURL') || '',
+            customImageAspectRatio: localStorage.getItem('customImageAspectRatio') || '16:9',
+            userPreferences: (() => { try { return JSON.parse(localStorage.getItem('userPreferences') || 'null'); } catch(_){return null;} })(),
+            lastSync: new Date().toISOString()
+        };
+    }
+
     async function registerPlayer(displayName) {
         const registry = await fetchRegistry();
         if (!registry) { showXPNotification('❌ Could not reach leaderboard server', 'hourly'); return false; }
@@ -574,30 +622,10 @@
             return true;
         }
 
-        // Collect game bests from localStorage on registration
-        const regReflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
-        const regReflexBest = regReflexData?.screen?.best;
-        const regGameBests = {
-            snake: parseInt(localStorage.getItem('snakeHighScore') || '0', 10),
-            flappy: parseInt(localStorage.getItem('flappyHighScore') || '0', 10),
-            tetris: parseInt(localStorage.getItem('tetrisHighScore') || '0', 10),
-            breakout: parseInt(localStorage.getItem('breakoutHighScore') || '0', 10),
-            pool: parseInt(localStorage.getItem('poolGamesWon') || '0', 10),
-            aim: parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
-            reflex: (regReflexBest && regReflexBest !== Infinity && regReflexBest > 0) ? regReflexBest : 0
-        };
-        registry.players.push({
-            clientId: lbClientId,
-            displayName: displayName,
-            level: userXP.level || 1,
-            totalXP: userXP.totalXP || 0,
-            totalWorkDays: userXP.totalWorkDays || 0,
-            consecutiveDays: userXP.consecutiveDays || 0,
-            longestStreak: userXP.longestStreak || 0,
-            gameBests: regGameBests,
-            joinedAt: new Date().toISOString().split('T')[0],
-            lastSync: new Date().toISOString()
-        });
+        lbDisplayName = displayName;
+        const snapshot = buildPlayerSnapshot();
+        snapshot.joinedAt = new Date().toISOString().split('T')[0];
+        registry.players.push(snapshot);
         registry.lastUpdated = new Date().toISOString();
 
         try {
@@ -624,33 +652,12 @@
             const idx = registry.players.findIndex(p => p.clientId === lbClientId);
             if (idx === -1) return;
 
-            const me = registry.players[idx];
-            me.level = userXP.level || 1;
-            me.totalXP = userXP.totalXP || 0;
-            me.totalWorkDays = userXP.totalWorkDays || 0;
-            me.consecutiveDays = userXP.consecutiveDays || 0;
-            me.longestStreak = userXP.longestStreak || 0;
-            me.displayName = lbDisplayName;
-            me.lastSync = new Date().toISOString();
+            const prev = registry.players[idx];
+            const snapshot = buildPlayerSnapshot();
+            // Preserve the original joinedAt so re-syncs don't change the join date
+            snapshot.joinedAt = prev.joinedAt || new Date().toISOString().split('T')[0];
 
-            // Collect game bests from localStorage
-            const snakeHigh = parseInt(localStorage.getItem('snakeHighScore') || '0', 10);
-            const flappyHigh = parseInt(localStorage.getItem('flappyHighScore') || '0', 10);
-            const tetrisHigh = parseInt(localStorage.getItem('tetrisHighScore') || '0', 10);
-            const breakoutHigh = parseInt(localStorage.getItem('breakoutHighScore') || '0', 10);
-            const reflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
-            const reflexBest = reflexData?.screen?.best;
-            me.gameBests = {
-                snake: snakeHigh,
-                flappy: flappyHigh,
-                tetris: tetrisHigh,
-                breakout: breakoutHigh,
-                pool: parseInt(localStorage.getItem('poolGamesWon') || '0', 10),
-                aim: parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
-                reflex: (reflexBest && reflexBest !== Infinity && reflexBest > 0) ? reflexBest : 0
-            };
-
-            registry.players[idx] = me;
+            registry.players[idx] = snapshot;
             registry.lastUpdated = new Date().toISOString();
             await patchRegistry(registry);
         } catch (e) {
@@ -659,6 +666,145 @@
             lbFetching = false;
         }
     }
+
+    // Overlay a registry player record onto local storage (XP + game bests).
+    // Returns true on success. Designed to be safe: only writes when source values look valid.
+    function applyPlayerRecordToLocal(rec) {
+        if (!rec || typeof rec !== 'object') return false;
+
+        // Rehydrate XP
+        userXP.level             = (typeof rec.level === 'number' && rec.level > 0) ? rec.level : (userXP.level || 1);
+        userXP.totalXP           = (typeof rec.totalXP === 'number') ? rec.totalXP : (userXP.totalXP || 0);
+        userXP.currentXP         = (typeof rec.currentXP === 'number') ? rec.currentXP : 0;
+        userXP.totalWorkDays     = (typeof rec.totalWorkDays === 'number') ? rec.totalWorkDays : (userXP.totalWorkDays || 0);
+        userXP.consecutiveDays   = (typeof rec.consecutiveDays === 'number') ? rec.consecutiveDays : (userXP.consecutiveDays || 0);
+        userXP.longestStreak     = (typeof rec.longestStreak === 'number') ? rec.longestStreak : (userXP.longestStreak || 0);
+        userXP.gameSessions      = (typeof rec.gameSessions === 'number') ? rec.gameSessions : (userXP.gameSessions || 0);
+        if (typeof rec.todayHours === 'number')           userXP.todayHours = rec.todayHours;
+        if (typeof rec.lastHourTracked === 'number')      userXP.lastHourTracked = rec.lastHourTracked;
+        if (rec.lastAttendanceDate)                        userXP.lastAttendanceDate = rec.lastAttendanceDate;
+        if (rec.lastShiftCompletedDate)                    userXP.lastShiftCompletedDate = rec.lastShiftCompletedDate;
+        if (typeof rec.hadStreakReset === 'boolean')      userXP.hadStreakReset = rec.hadStreakReset;
+        if (Array.isArray(rec.achievements))               userXP.achievements = rec.achievements.slice();
+        if (Array.isArray(rec.milestonesReached))          userXP.milestonesReached = rec.milestonesReached.slice();
+        saveUserXP(userXP);
+
+        // Rehydrate game bests (only raise, never lower — keeps any new local PRs)
+        const gb = rec.gameBests || {};
+        const raise = (key, val) => {
+            const cur = parseInt(localStorage.getItem(key) || '0', 10);
+            const v = parseInt(val || 0, 10);
+            if (v > cur) localStorage.setItem(key, String(v));
+        };
+        raise('snakeHighScore',     gb.snake);
+        raise('flappyHighScore',    gb.flappy);
+        raise('tetrisHighScore',    gb.tetris);
+        raise('breakoutHighScore',  gb.breakout);
+        raise('poolGamesWon',       gb.pool);
+        raise('aimChaosHighScore',  gb.aim);
+
+        // Reflex — merge from gameBests.reflex (legacy) AND rec.reflexHighScores (new full blob)
+        if (typeof gb.reflex === 'number' && gb.reflex > 0 && isFinite(gb.reflex)) {
+            const reflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
+            if (!reflexData.screen || typeof reflexData.screen.best !== 'number' || gb.reflex < reflexData.screen.best) {
+                reflexData.screen = reflexData.screen || { best: Infinity, avg: Infinity };
+                reflexData.screen.best = gb.reflex;
+                localStorage.setItem('reflexHighScores', JSON.stringify(reflexData));
+            }
+        }
+        // Full reflex blob (screen + target) — overwrites if source is better
+        if (rec.reflexHighScores && typeof rec.reflexHighScores === 'object') {
+            const localReflex = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
+            ['screen', 'target'].forEach(mode => {
+                const src = rec.reflexHighScores[mode];
+                if (!src) return;
+                if (!localReflex[mode]) localReflex[mode] = { best: Infinity, avg: Infinity };
+                if (typeof src.best === 'number' && src.best > 0 && src.best < (localReflex[mode].best || Infinity)) {
+                    localReflex[mode].best = src.best;
+                }
+                if (typeof src.avg === 'number' && src.avg > 0 && src.avg < (localReflex[mode].avg || Infinity)) {
+                    localReflex[mode].avg = src.avg;
+                }
+            });
+            localStorage.setItem('reflexHighScores', JSON.stringify(localReflex));
+        }
+
+        // Prayer counter (only raise)
+        if (typeof rec.prayerCount === 'number' && rec.prayerCount > 0) {
+            const cur = parseInt(localStorage.getItem('prayerCount') || '0', 10);
+            if (rec.prayerCount > cur) localStorage.setItem('prayerCount', String(rec.prayerCount));
+        }
+
+        // Pool extended record (W/L) — merge each field, only raise
+        if (rec.poolRecord && typeof rec.poolRecord === 'object') {
+            const localRec = JSON.parse(localStorage.getItem('poolRecord') || '{}');
+            const merged = {
+                p1Wins:   Math.max(localRec.p1Wins   || 0, rec.poolRecord.p1Wins   || 0),
+                p1Losses: Math.max(localRec.p1Losses || 0, rec.poolRecord.p1Losses || 0),
+                p2Wins:   Math.max(localRec.p2Wins   || 0, rec.poolRecord.p2Wins   || 0),
+                p2Losses: Math.max(localRec.p2Losses || 0, rec.poolRecord.p2Losses || 0)
+            };
+            localStorage.setItem('poolRecord', JSON.stringify(merged));
+        }
+
+        // Personalisation — restore only if local is empty/default
+        if (rec.customImageURL && !localStorage.getItem('customImageURL')) {
+            localStorage.setItem('customImageURL', rec.customImageURL);
+        }
+        if (rec.customImageAspectRatio && !localStorage.getItem('customImageAspectRatio')) {
+            localStorage.setItem('customImageAspectRatio', rec.customImageAspectRatio);
+        }
+        if (rec.userPreferences && typeof rec.userPreferences === 'object' && !localStorage.getItem('userPreferences')) {
+            localStorage.setItem('userPreferences', JSON.stringify(rec.userPreferences));
+        }
+
+        return true;
+    }
+
+    // Restore the current client's progress from the gist.
+    // Returns true if a matching record was found and applied.
+    async function restoreFromGist() {
+        if (!lbClientId) return false;
+        const registry = await fetchRegistry();
+        if (!registry || !Array.isArray(registry.players)) return false;
+        const rec = registry.players.find(p => p.clientId === lbClientId);
+        if (!rec) return false;
+        const ok = applyPlayerRecordToLocal(rec);
+        if (ok) {
+            try { if (typeof updateXPDisplay === 'function') updateXPDisplay(); } catch (_) {}
+            try { if (typeof updatePrayerDisplay === 'function') updatePrayerDisplay(); } catch (_) {}
+        }
+        return ok;
+    }
+
+    // Manual recovery: paste in console with the original clientId from the gist to re-claim a wiped account.
+    //   await window.atcRestoreByClientId('fc847975-8ca3-49fc-a5d2-6ccaea28fd6b');
+    // Optionally pass a displayName as the second arg to overwrite locally.
+    async function atcRestoreByClientId(clientId, displayName) {
+        if (!clientId || typeof clientId !== 'string') {
+            console.error('[Restore] usage: atcRestoreByClientId("<your-gist-clientId>")');
+            return false;
+        }
+        const registry = await fetchRegistry();
+        if (!registry) { console.error('[Restore] Could not reach gist'); return false; }
+        const rec = (registry.players || []).find(p => p.clientId === clientId);
+        if (!rec) { console.error('[Restore] No record with that clientId on the gist'); return false; }
+
+        lbClientId = clientId;
+        lbDisplayName = displayName || rec.displayName || lbDisplayName || '';
+        lbRegistered = true;
+        saveLeaderboardProfile();
+        const ok = applyPlayerRecordToLocal(rec);
+        if (ok) {
+            console.log(`[Restore] ✓ Restored ${lbDisplayName || 'account'} — Level ${userXP.level}, ${userXP.totalXP} XP`);
+            try { showXPNotification(`🛟 Progress restored — Level ${userXP.level}`, 'achievement'); } catch (_) {}
+            try { if (typeof updateXPDisplay === 'function') updateXPDisplay(); } catch (_) {}
+        }
+        return ok;
+    }
+    window.atcRestoreByClientId = atcRestoreByClientId;
+    window.atcRestoreFromGist = restoreFromGist;
+    window.syncMyScore = syncMyScore;
 
     async function fetchLeaderboard() {
         if (lbFetching) return leaderboardData;
@@ -3631,6 +3777,12 @@
 
     function startPoolGame() {
         if (poolGameRunning) return;
+        // If the previous game ended, force a full reset before starting a new one.
+        // This prevents the XP farm exploit where clicking Play without Reset
+        // would immediately re-trigger endPoolGame with the same winner.
+        if (poolGameOver) {
+            resetPoolGame();
+        }
         poolGameRunning = true;
         poolGameOver = false;
         poolLastLogicMs = 0;
@@ -5948,6 +6100,28 @@
         userXP = loadUserXP();
         xpSystemReady = true; // Must be set AFTER loadUserXP() so awardXP never runs on default values
         updateXPDisplay();
+
+        // Auto-recovery: if a registered client comes back with a fully wiped local state
+        // (Level 1 with 0 XP), pull the authoritative copy from the gist. This only fires
+        // on true wipes — not on legitimate Level 1 accounts that simply haven't earned XP.
+        // If the clientId itself was lost, the user must run
+        // window.atcRestoreByClientId('<their-original-id>') once to re-bind.
+        try { loadLeaderboardProfile(); } catch (_) {}
+        if (lbRegistered && lbClientId && (userXP.level || 1) <= 1 && (userXP.totalXP || 0) === 0) {
+            restoreFromGist().then(ok => {
+                if (ok) {
+                    showXPNotification(`🛟 Restored Level ${userXP.level} from cloud`, 'achievement');
+                }
+                // Revalidate after restore completes (or if restore skipped)
+                try { revalidateAchievements(); } catch (_) {}
+            }).catch(err => {
+                console.warn('[Restore] auto-restore failed:', err);
+                try { revalidateAchievements(); } catch (_) {}
+            });
+        } else {
+            // No restore needed — still revalidate to catch any missing achievements
+            try { revalidateAchievements(); } catch (_) {}
+        }
     }
     
     function calculateXPForNextLevel(level) {
@@ -6160,6 +6334,69 @@
         }
     }
 
+    // Re-check ALL data-verifiable achievements against current stats.
+    // Called on load and after restore so that achievements lost during a wipe
+    // are automatically re-awarded when the underlying data supports them.
+    function revalidateAchievements() {
+        const a = userXP.achievements || [];
+        const has = id => a.includes(id);
+        // Silent=true: revalidation only restores badges, does NOT award XP.
+        // XP was already earned when the achievement was first unlocked during gameplay.
+        const S = true;
+
+        // Shift / work-day based
+        if (!has('firstDay')    && (userXP.totalWorkDays || 0) >= 1)   unlockAchievement('firstDay', S);
+        if (!has('week1')       && (userXP.totalWorkDays || 0) >= 5)   unlockAchievement('week1', S);
+        if (!has('workdays20')  && (userXP.totalWorkDays || 0) >= 20)  unlockAchievement('workdays20', S);
+        if (!has('centurion')   && (userXP.totalWorkDays || 0) >= 100) unlockAchievement('centurion', S);
+
+        // Streak based
+        const bestStreak = Math.max(userXP.consecutiveDays || 0, userXP.longestStreak || 0);
+        if (!has('streak7')     && bestStreak >= 7)  unlockAchievement('streak7', S);
+        if (!has('streak30')    && bestStreak >= 30) unlockAchievement('streak30', S);
+
+        // Level based
+        if (!has('level10')     && (userXP.level || 1) >= 10)  unlockAchievement('level10', S);
+        if (!has('level25')     && (userXP.level || 1) >= 25)  unlockAchievement('level25', S);
+        if (!has('level50')     && (userXP.level || 1) >= 50)  unlockAchievement('level50', S);
+        if (!has('level100')    && (userXP.level || 1) >= 100) unlockAchievement('level100', S);
+
+        // Gaming volume
+        if (!has('gamer')       && (userXP.gameSessions || 0) >= 50)  unlockAchievement('gamer', S);
+        if (!has('gamer50')     && (userXP.gameSessions || 0) >= 100) unlockAchievement('gamer50', S);
+
+        // Game high-score achievements (check localStorage bests)
+        const snakeHS    = parseInt(localStorage.getItem('snakeHighScore')    || '0', 10);
+        const flappyHS   = parseInt(localStorage.getItem('flappyHighScore')   || '0', 10);
+        const tetrisHS   = parseInt(localStorage.getItem('tetrisHighScore')   || '0', 10);
+        const breakoutHS = parseInt(localStorage.getItem('breakoutHighScore') || '0', 10);
+        const poolWon    = parseInt(localStorage.getItem('poolGamesWon')      || '0', 10);
+        const aimHS      = parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10);
+        const reflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
+        const reflexBest = (reflexData.screen && typeof reflexData.screen.best === 'number') ? reflexData.screen.best : Infinity;
+
+        if (!has('snakeCharmer') && snakeHS >= 40)     unlockAchievement('snakeCharmer', S);
+        if (!has('flapMaster')   && flappyHS >= 50)    unlockAchievement('flapMaster', S);
+        if (!has('poolShark')    && poolWon >= 100)    unlockAchievement('poolShark', S);
+        // tetrisMaster, sharpshooter, brickBuster, lightning require session-specific
+        // metrics (lines, accuracy, level, avgTime) that aren't in localStorage high-scores,
+        // so they can only be granted during live gameplay via checkGameAchievements().
+        if (!has('sharpshooter') && aimHS >= 600)      unlockAchievement('sharpshooter', S);
+        if (!has('lightning')    && reflexBest <= 200 && reflexBest > 0) unlockAchievement('lightning', S);
+
+        // Team/social
+        if (!has('teamPlayer') && lbRegistered) unlockAchievement('teamPlayer', S);
+
+        // Custom image
+        if (!has('picturePerfect') && localStorage.getItem('customImageURL')) unlockAchievement('picturePerfect', S);
+
+        // Prayer / meditation
+        const prayerCount = parseInt(localStorage.getItem('prayerCount') || '0', 10);
+        if (!has('meditative') && prayerCount >= 1000) unlockAchievement('meditative', S);
+
+        saveUserXP(userXP);
+    }
+
     // Per-game performance achievements — called from awardGameXP after a session ends.
     function checkGameAchievements(gameType, performance) {
         const p = performance || {};
@@ -6206,12 +6443,42 @@
         }
     }
     
-    function unlockAchievement(achievementKey) {
+    // XP rewards per achievement tier
+    const ACHIEVEMENT_XP = {
+        // Shift completion
+        firstDay: 50, week1: 100, workdays20: 200, centurion: 500,
+        onTime: 75, marathon: 150, overtimeHero: 120,
+        // Streaks
+        streak7: 100, streak30: 300, comeback: 80,
+        // Leveling (smaller — you already gained XP to reach the level)
+        level10: 50, level25: 100, level50: 200, level100: 500,
+        // Gaming
+        gamer: 100, gamer50: 200,
+        snakeCharmer: 80, flapMaster: 100, tetrisMaster: 120,
+        sharpshooter: 100, lightning: 120, brickBuster: 100, poolShark: 150,
+        // Engagement
+        curator: 40, picturePerfect: 40, meditative: 200, teamPlayer: 60
+    };
+
+    function unlockAchievement(achievementKey, silent) {
+        if (userXP.achievements.includes(achievementKey)) return; // already unlocked
         userXP.achievements.push(achievementKey);
         const achievement = ACHIEVEMENTS[achievementKey];
-        showXPNotification(`${achievement.icon} Achievement Unlocked: ${achievement.name}!`, 'achievement');
+
+        // Award XP for the achievement (skip if silent — e.g. during revalidation of old data)
+        const xpReward = ACHIEVEMENT_XP[achievementKey] || 50;
+        if (!silent) {
+            userXP.currentXP += xpReward;
+            userXP.totalXP += xpReward;
+            checkLevelUp();
+            showXPNotification(`${achievement.icon} Achievement Unlocked: ${achievement.name}! +${xpReward} XP`, 'achievement');
+        } else {
+            // Silent mode: still show notification but no XP (already-earned achievements restored)
+            showXPNotification(`${achievement.icon} Achievement Restored: ${achievement.name}`, 'achievement');
+        }
+
         saveUserXP(userXP);
-        updateXPDisplay(); // Refresh badge/achievements panel immediately
+        updateXPDisplay();
     }
 
     // ── Achievements "View All" Modal ─────────────────────────────

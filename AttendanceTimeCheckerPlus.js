@@ -534,8 +534,12 @@
         return stored === expected;
     }
 
-    // Anti-cheat constants
-    const AC_MAX_XP_PER_HOUR = 1000;    // Absolute max XP possible per hour (gaming + work + achievements)
+    // Anti-cheat constants (client-side gates only — server is the source of truth)
+    // The client NEVER writes flags to the gist; it only refuses to sync. This
+    // prevents false positives from permanently locking out legit users, since
+    // the workflow has a sticky-flag rule the client can't clear.
+    const AC_MAX_XP_PER_HOUR = 3000;    // Sustained rate ceiling (matches server's 50/min)
+    const AC_XP_BURST_ALLOWANCE = 500;  // Flat headroom so short sync windows tolerate normal gaming bursts
     const AC_SYNC_COOLDOWN_MS = 120000; // 2 minutes minimum between syncs
 
     // Client-side blocklist — defense in depth. Even if the Action somehow
@@ -750,17 +754,13 @@
                 return;
             }
 
-            // 2. Integrity hash check — detects raw localStorage edits
+            // 2. Integrity hash check — detects raw localStorage edits.
+            // Refuse-to-sync only. We do NOT flag the gist from the client because
+            // a stale/missing local hash (e.g. after restore or first run on a new
+            // browser) is a false positive that would otherwise brick the account.
             if (!_verifyXPIntegrity()) {
-                console.warn('[AntiCheat] XP integrity check FAILED — possible tampering.');
-                // Flag the player in the gist
-                prev.flagged = true;
-                prev.flagReason = 'integrity_hash_mismatch';
-                prev.flaggedAt = new Date().toISOString();
-                registry.players[idx] = prev;
-                registry.lastUpdated = new Date().toISOString();
-                await patchRegistry(registry);
-                showXPNotification('🚫 Integrity violation detected — account flagged', 'hourly');
+                console.warn('[AntiCheat] XP integrity check FAILED — sync blocked locally (not flagging gist).');
+                showXPNotification('⚠️ Local integrity check failed — sync blocked', 'hourly');
                 return;
             }
 
@@ -774,22 +774,18 @@
                 }
             }
 
-            // 4. XP rate limit — max XP gain per hour based on elapsed time
+            // 4. XP rate sanity gate — refuse-to-sync only. The server workflow
+            // is the authoritative rate limiter (50 XP/min). This local check is
+            // looser than the server (3000/h + 500 burst) so we never self-flag
+            // before the server has a chance to validate.
             const snapshot = buildPlayerSnapshot();
             const xpDelta = (snapshot.totalXP || 0) - (prev.totalXP || 0);
             if (xpDelta > 0 && prev.lastSync) {
                 const hoursSinceLast = Math.max(0.01, (Date.now() - new Date(prev.lastSync).getTime()) / 3600000);
-                const maxAllowed = Math.ceil(AC_MAX_XP_PER_HOUR * hoursSinceLast);
+                const maxAllowed = AC_XP_BURST_ALLOWANCE + Math.ceil(AC_MAX_XP_PER_HOUR * hoursSinceLast);
                 if (xpDelta > maxAllowed) {
-                    console.warn(`[AntiCheat] XP rate exceeded: +${xpDelta} XP in ${hoursSinceLast.toFixed(2)}h (max: ${maxAllowed})`);
-                    // Flag the player
-                    prev.flagged = true;
-                    prev.flagReason = `xp_rate_exceeded:+${xpDelta}_in_${hoursSinceLast.toFixed(2)}h`;
-                    prev.flaggedAt = new Date().toISOString();
-                    registry.players[idx] = prev;
-                    registry.lastUpdated = new Date().toISOString();
-                    await patchRegistry(registry);
-                    showXPNotification('🚫 Abnormal XP gain detected — account flagged', 'hourly');
+                    console.warn(`[AntiCheat] XP rate too high: +${xpDelta} XP in ${hoursSinceLast.toFixed(2)}h (local cap: ${maxAllowed}). Sync blocked — try again after a longer interval so the gain is spread out.`);
+                    showXPNotification(`⚠️ Sync paused — XP gain too fast (${xpDelta} in ${hoursSinceLast.toFixed(1)}h)`, 'hourly');
                     return;
                 }
             }

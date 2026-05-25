@@ -551,6 +551,7 @@
     let lbRegistered = false;
     let leaderboardData = [];
     let lbFetching = false;
+    let lbLastLocalSyncMs = 0; // Local cooldown — prevents rapid-fire syncs regardless of gist propagation delay
 
     // Leaderboard localStorage helpers
     function loadLeaderboardProfile() {
@@ -725,7 +726,14 @@
             console.warn('[Leaderboard] Sync denied — clientId is on the blocklist.');
             return;
         }
+        // Local cooldown — prevents multiple dispatches before gist propagates
+        const msSinceLocalSync = Date.now() - lbLastLocalSyncMs;
+        if (msSinceLocalSync < AC_SYNC_COOLDOWN_MS) {
+            console.warn(`[Sync] Local cooldown: ${Math.ceil((AC_SYNC_COOLDOWN_MS - msSinceLocalSync) / 1000)}s remaining`);
+            return;
+        }
         lbFetching = true;
+        lbLastLocalSyncMs = Date.now();
         try {
             const registry = await fetchRegistry();
             if (!registry) return;
@@ -12039,8 +12047,14 @@
             overlay = document.getElementById('settings-modal-overlay');
         }
         
+        const wasOpen = modal.classList.contains('active');
         modal.classList.toggle('active');
         overlay.classList.toggle('active');
+        
+        // Sync once on close (not on every individual setting change)
+        if (wasOpen && lbRegistered) {
+            try { syncMyScore(); } catch (_) {}
+        }
     }
     
     // Create settings modal
@@ -12217,8 +12231,6 @@
                 userPreferences[pref] = this.value;
                 savePreferences();
                 applyPreferences();
-                // Sync to gist so colors persist across devices
-                try { if (typeof syncMyScore === 'function') syncMyScore(); } catch (_) {}
             });
         });
 
@@ -12237,7 +12249,6 @@
                     applyPreferences();
                     if (bgClearBtn) bgClearBtn.style.display = url.trim() ? '' : 'none';
                     if (bgOpacityLabel) bgOpacityLabel.style.display = url.trim() ? '' : 'none';
-                    try { if (typeof syncMyScore === 'function') syncMyScore(); } catch (_) {}
                 }
             });
         }
@@ -12248,7 +12259,6 @@
                 applyPreferences();
                 bgClearBtn.style.display = 'none';
                 if (bgOpacityLabel) bgOpacityLabel.style.display = 'none';
-                try { if (typeof syncMyScore === 'function') syncMyScore(); } catch (_) {}
             });
         }
         if (bgOpacitySlider) {
@@ -12261,7 +12271,6 @@
             });
             bgOpacitySlider.addEventListener('change', function() {
                 savePreferences();
-                try { if (typeof syncMyScore === 'function') syncMyScore(); } catch (_) {}
             });
         }
         

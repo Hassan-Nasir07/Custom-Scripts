@@ -498,7 +498,7 @@
     const REGISTRY_GIST_ID = 'b97357da4f32cfea822c9db36cd48088';
     const REGISTRY_GIST_FILE = 'attendance_widget_registry.json';
     const GH_BOT_REPO = 'Hassan-Nasir07/github-actions-bot';
-    const GH_DISPATCHER_PAT = String.fromCharCode(103,105,116,104,117,98,95,112,97,116,95,49,49,65,55,74,53,73,72,65,48,99,49,84,68,78,98,71,101,77,85,101,104,95,106,83,109,49,68,119,83,115,86,86,52,101,109,55,50,119,121,73,70,104,54,114,118,98,70,76,68,73,110,120,69,122,120,48,56,50,114,120,100,79,80,105,50,74,80,81,50,51,52,70,67,53,50,102,49,85,105,100,73);
+    const GH_DISPATCHER_PAT = String.fromCharCode(103,105,116,104,117,98,95,112,97,116,95,49,49,65,55,74,53,73,72,65,48,109,52,73,68,109,106,82,113,104,72,75,122,95,88,119,51,112,83,106,120,71,110,49,106,48,70,115,122,56,49,118,104,82,81,83,111,103,75,104,68,118,55,68,113,100,76,52,69,68,98,76,109,120,116,68,103,69,89,90,88,73,79,68,84,89,114,120,74,49,71,54,119);
     const SYNC_PROPAGATION_MS = 25000; // Action takes ~15-30s; we surface this in the UI.
 
     // ─── Anti-Cheat: XP Integrity System ──────────────────────────
@@ -537,6 +537,13 @@
     // Anti-cheat constants
     const AC_MAX_XP_PER_HOUR = 1000;    // Absolute max XP possible per hour (gaming + work + achievements)
     const AC_SYNC_COOLDOWN_MS = 120000; // 2 minutes minimum between syncs
+
+    // Client-side blocklist — defense in depth. Even if the Action somehow
+    // fails to strip a banned player, the local UI will never show them.
+    const AC_BLOCKLIST = new Set([
+        'a74c2f27-8824-42e3-8c59-4427ea5c8ad1' // abbassii
+    ]);
+    function isBlocked(clientId) { return AC_BLOCKLIST.has(clientId); }
     // ──────────────────────────────────────────────────────────────
 
     let lbClientId = null;

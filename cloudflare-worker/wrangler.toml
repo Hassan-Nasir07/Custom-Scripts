@@ -1,0 +1,20 @@
+name = "attendance-leaderboard"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+
+[vars]
+GIST_ID = "b97357da4f32cfea822c9db36cd48088"
+GIST_FILE = "attendance_widget_registry.json"
+
+# Secrets (set with `wrangler secret put NAME`, do NOT put values here):
+#   GIST_PAT     — GitHub fine-grained PAT, gist:write only
+#   CLIENT_KEY   — random string the script sends in x-client-key
+#   ADMIN_KEY    — your personal admin key, never in the client script
+
+# Optional KV namespace for dynamic blocklist. Create with:
+#   wrangler kv:namespace create BLOCKLIST
+# then paste the returned id below and uncomment.
+# [[kv_namespaces]]
+# binding = "BLOCKLIST"
+# id = "REPLACE_WITH_KV_ID"

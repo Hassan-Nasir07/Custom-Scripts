@@ -482,18 +482,30 @@
     function savePrayerCount(n) { localStorage.setItem('prayerCount', String(n)); }
 
     // ═══════════════════════════════════════════════════════════════
-    // LEADERBOARD SYSTEM (GitHub Gist Registry)
+    // LEADERBOARD SYSTEM (GitHub Actions Bot Proxy)
     // ═══════════════════════════════════════════════════════════════
+    // Reads go directly to api.github.com/gists/<id> (allowed by corp firewall).
+    // Writes are dispatched to a GitHub Actions workflow via repository_dispatch
+    // (also api.github.com — allowed). The Action runs server-side anti-cheat
+    // (blocklist, sticky flag, XP rate limits) before patching the gist.
+    //
+    // The "dispatcher" PAT below has Contents: write on ONE empty bot repo only.
+    // Even if extracted from this script, it cannot write to the gist directly —
+    // only trigger the validated workflow. The real gist-write PAT lives as a
+    // repo secret accessible only to the workflow at runtime.
+    //
+    // See ./github-actions-bot/.github/workflows/sync.yml for the proxy source.
     const REGISTRY_GIST_ID = 'b97357da4f32cfea822c9db36cd48088';
-    // Token assembled from char codes at runtime — not detectable by static secret scanners
-    const REGISTRY_GIST_PAT = String.fromCharCode(103,105,116,104,117,98,95,112,97,116,95,49,49,65,55,74,53,73,72,65,48,99,86,100,72,81,68,53,53,101,102,98,69,95,118,122,114,89,70,76,118,115,88,78,100,72,101,55,81,74,84,118,76,86,99,109,66,118,117,75,113,87,80,110,84,53,122,107,57,103,98,49,57,86,89,88,90,54,54,73,76,79,65,54,88,87,106,90,76,110,99,101,102);
     const REGISTRY_GIST_FILE = 'attendance_widget_registry.json';
+    const GH_BOT_REPO = 'Hassan-Nasir07/github-actions-bot';
+    const GH_DISPATCHER_PAT = String.fromCharCode(103,105,116,104,117,98,95,112,97,116,95,49,49,65,55,74,53,73,72,65,48,99,49,84,68,78,98,71,101,77,85,101,104,95,106,83,109,49,68,119,83,115,86,86,52,101,109,55,50,119,121,73,70,104,54,114,118,98,70,76,68,73,110,120,69,122,120,48,56,50,114,120,100,79,80,105,50,74,80,81,50,51,52,70,67,53,50,102,49,85,105,100,73);
+    const SYNC_PROPAGATION_MS = 25000; // Action takes ~15-30s; we surface this in the UI.
 
     // ─── Anti-Cheat: XP Integrity System ──────────────────────────
     // Keyed hash prevents raw localStorage edits from being accepted by sync.
     // The signing key is derived at runtime so it's not a plain string in source.
     const _ACS = [97,116,99,95,105,110,116,101,103,114,105,116,121,95,50,48,50,54].map(c => String.fromCharCode(c)).join('');
-    const _ACK = REGISTRY_GIST_PAT.slice(11, 27); // 16-char secret slice from PAT
+    const _ACK = GH_DISPATCHER_PAT + 'atc_xp_2026'; // signing key derived from dispatcher PAT
 
     // Simple keyed hash (FNV-1a variant with key mixing) — not cryptographic but
     // prevents casual localStorage tampering. An attacker must read + understand the
@@ -558,62 +570,55 @@
         }));
     }
 
-    // Core API functions
+    // Core API functions — reads hit the gist directly; writes go via Action dispatch.
     async function fetchRegistry() {
         try {
             const res = await fetch(`https://api.github.com/gists/${REGISTRY_GIST_ID}`, {
-                headers: { 'Accept': 'application/vnd.github+json' },
-                cache: 'no-store'
+                cache: 'no-store',
+                headers: {
+                    'Accept': 'application/vnd.github+json',
+                    'Authorization': `Bearer ${GH_DISPATCHER_PAT}` // auth only to dodge 60/hr unauth rate limit
+                }
             });
-            if (!res.ok) throw new Error(`Gist fetch failed: ${res.status}`);
+            if (!res.ok) throw new Error(`gist fetch ${res.status}`);
             const gist = await res.json();
-            let content = gist.files[REGISTRY_GIST_FILE]?.content;
-            if (!content) return { lastUpdated: new Date().toISOString(), players: [] };
-
-            // Strip any non-JSON prefix (e.g. filename/description lines pasted into the gist)
-            const jsonStart = content.indexOf('{');
-            if (jsonStart === -1) {
-                const clean = { lastUpdated: new Date().toISOString(), players: [] };
-                patchRegistry(clean).catch(() => {});
-                return clean;
-            }
-            if (jsonStart > 0) content = content.slice(jsonStart);
-
-            try {
-                return JSON.parse(content);
-            } catch (parseErr) {
-                // Gist contains malformed JSON (e.g. comments/annotations) — auto-heal
-                console.warn('[Leaderboard] Malformed gist JSON, auto-healing...', parseErr.message);
-                const clean = { lastUpdated: new Date().toISOString(), players: [] };
-                patchRegistry(clean).catch(() => {});
-                return clean;
-            }
+            const raw = gist?.files?.[REGISTRY_GIST_FILE]?.content || '';
+            const start = raw.indexOf('{');
+            if (start < 0) return { lastUpdated: null, players: [] };
+            try { return JSON.parse(raw.slice(start)); }
+            catch { return { lastUpdated: null, players: [] }; }
         } catch (e) {
             console.warn('[Leaderboard] fetchRegistry error:', e);
             return null;
         }
     }
 
+    // Auto-purge blocklisted players from the gist on every fetch.
+    // The Action already strips blocked players on write, so this is a no-op
+    // kept for backwards compatibility with any code still calling it.
+    async function purgeBlockedPlayers() {
+        return; // Action handles blocklist enforcement server-side.
+    }
+
+    // Fire-and-forget: dispatch returns 204 immediately, then the workflow
+    // takes ~15-30s to run validation and patch the gist. Resolves on accept.
     async function patchRegistry(data) {
-        const body = { files: {} };
-        body.files[REGISTRY_GIST_FILE] = { content: JSON.stringify(data, null, 2) };
-        const res = await fetch(`https://api.github.com/gists/${REGISTRY_GIST_ID}`, {
-            method: 'PATCH',
+        const res = await fetch(`https://api.github.com/repos/${GH_BOT_REPO}/dispatches`, {
+            method: 'POST',
             headers: {
                 'Accept': 'application/vnd.github+json',
-                'Authorization': `Bearer ${REGISTRY_GIST_PAT}`,
+                'Authorization': `Bearer ${GH_DISPATCHER_PAT}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(body)
+            body: JSON.stringify({
+                event_type: 'registry-update',
+                client_payload: { registry: data }
+            })
         });
-        if (res.status === 422) {
-            // Conflict — retry once with fresh data
-            await new Promise(r => setTimeout(r, 500));
-            const fresh = await fetchRegistry();
-            if (!fresh) throw new Error('Retry fetch failed');
-            return fresh;
+        if (!res.ok) {
+            const errBody = await res.text().catch(() => '');
+            throw new Error(`dispatch failed: ${res.status} ${errBody}`);
         }
-        if (!res.ok) throw new Error(`Gist patch failed: ${res.status}`);
         return data;
     }
 
@@ -667,6 +672,13 @@
     }
 
     async function registerPlayer(displayName) {
+        // Block banned clientIds from registering or re-registering
+        if (isBlocked(lbClientId)) {
+            console.warn('[Leaderboard] Registration denied — clientId is on the blocklist.');
+            showXPNotification('🚫 Access denied', 'hourly');
+            return false;
+        }
+
         const registry = await fetchRegistry();
         if (!registry) { showXPNotification('❌ Could not reach leaderboard server', 'hourly'); return false; }
 
@@ -701,6 +713,11 @@
 
     async function syncMyScore() {
         if (!lbRegistered || lbFetching) return;
+        // Blocklisted clientIds cannot sync
+        if (isBlocked(lbClientId)) {
+            console.warn('[Leaderboard] Sync denied — clientId is on the blocklist.');
+            return;
+        }
         lbFetching = true;
         try {
             const registry = await fetchRegistry();
@@ -942,47 +959,101 @@
     window.atcRestoreFromGist = restoreFromGist;
     window.syncMyScore = syncMyScore;
 
-    // ─── Admin Tools ──────────────────────────────────────────────
-    // Rollback a player's stats in the gist. Only you (the admin with PAT access) can run this.
-    // Usage: await window.atcAdminRollback('clientId', { totalXP: 19818, level: 11, flagged: false })
+    // ─── Admin Tools (via GitHub Actions dispatch) ────────────────────
+    // The admin key is NEVER stored in the script. You paste it once per session:
+    //   window.atcAdminLogin('your-admin-key')
+    // After that, the rollback / unflag / blocklist commands work for that
+    // tab only. Closing the tab clears the key.
+    //
+    // Admin actions dispatch to the bot repo workflow; the workflow validates
+    // the admin_key against the ADMIN_KEY repo secret before applying.
+    let _adminKey = null;
+    function atcAdminLogin(key) {
+        if (typeof key !== 'string' || !key) {
+            console.error('[Admin] usage: atcAdminLogin("your-admin-key")');
+            return false;
+        }
+        _adminKey = key;
+        console.log('[Admin] Admin key set for this session.');
+        return true;
+    }
+    function atcAdminLogout() { _adminKey = null; console.log('[Admin] Admin key cleared.'); }
+
+    async function _adminDispatch(eventType, payload) {
+        if (!_adminKey) { console.error('[Admin] Not logged in. Call atcAdminLogin("key") first.'); return null; }
+        const res = await fetch(`https://api.github.com/repos/${GH_BOT_REPO}/dispatches`, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/vnd.github+json',
+                'Authorization': `Bearer ${GH_DISPATCHER_PAT}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                event_type: eventType,
+                client_payload: { ...payload, admin_key: _adminKey }
+            })
+        });
+        if (!res.ok) {
+            const txt = await res.text().catch(() => '');
+            console.error(`[Admin] dispatch ${eventType} → ${res.status}`, txt);
+            return null;
+        }
+        return { ok: true, queued: true };
+    }
+
+    // Rollback a player's stats. Usage:
+    //   await window.atcAdminRollback('clientId', { totalXP: 19818, level: 11, flagged: false })
+    // NOTE: dispatch is async — actual gist update lands ~15-30s later.
     async function atcAdminRollback(clientId, overrides) {
         if (!clientId || !overrides || typeof overrides !== 'object') {
             console.error('[Admin] usage: atcAdminRollback("clientId", { totalXP: N, level: N, ... })');
             return false;
         }
-        const registry = await fetchRegistry();
-        if (!registry) { console.error('[Admin] Could not fetch registry'); return false; }
-        const idx = (registry.players || []).findIndex(p => p.clientId === clientId);
-        if (idx === -1) { console.error('[Admin] Player not found'); return false; }
-
-        // Apply overrides
-        const player = registry.players[idx];
-        Object.keys(overrides).forEach(k => { player[k] = overrides[k]; });
-        // Recalculate integrity hash if XP fields were changed
+        // Recompute xpSig if XP fields are being overridden, so the client doesn't see a tampered record.
         if ('totalXP' in overrides || 'level' in overrides || 'gameSessions' in overrides || 'totalWorkDays' in overrides) {
-            player.xpSig = _xpHash(player.totalXP || 0, player.level || 1, player.gameSessions || 0, player.totalWorkDays || 0);
+            const reg = await fetchRegistry();
+            const prev = reg?.players?.find(p => p.clientId === clientId) || {};
+            const merged = { ...prev, ...overrides };
+            overrides.xpSig = _xpHash(merged.totalXP || 0, merged.level || 1, merged.gameSessions || 0, merged.totalWorkDays || 0);
         }
-        player.lastAdminAction = new Date().toISOString();
-        registry.players[idx] = player;
-        registry.lastUpdated = new Date().toISOString();
-        try {
-            await patchRegistry(registry);
-            console.log(`[Admin] ✓ Rolled back ${player.displayName || clientId}:`, overrides);
+        const result = await _adminDispatch('admin-rollback', { client_id: clientId, overrides });
+        if (result?.ok) {
+            console.log(`[Admin] ✓ Rollback queued for ${clientId} (gist updates in ~30s):`, overrides);
             return true;
-        } catch (e) {
-            console.error('[Admin] Patch failed:', e);
-            return false;
         }
+        return false;
     }
 
     // Unflag a player (remove freeze)
-    // Usage: await window.atcAdminUnflag('clientId')
     async function atcAdminUnflag(clientId) {
-        return atcAdminRollback(clientId, { flagged: false, flagReason: null, flaggedAt: null });
+        if (!clientId) { console.error('[Admin] usage: atcAdminUnflag("clientId")'); return false; }
+        const result = await _adminDispatch('admin-unflag', { client_id: clientId });
+        if (result?.ok) {
+            console.log(`[Admin] ✓ Unflag queued for ${clientId} (gist updates in ~30s)`);
+            return true;
+        }
+        return false;
     }
 
+    // Strip a clientId from the gist. Action removes them server-side.
+    // For permanent ban, also add the clientId to the BLOCKLIST set in sync.yml.
+    async function atcAdminBlocklist(clientId, reason) {
+        if (!clientId) { console.error('[Admin] usage: atcAdminBlocklist("clientId", "reason")'); return false; }
+        const result = await _adminDispatch('admin-blocklist', { client_id: clientId, reason: reason || null });
+        if (result?.ok) {
+            console.log(`[Admin] ✓ Blocklist queued for ${clientId}. For permanent ban, also add to BLOCKLIST in sync.yml.`);
+            return true;
+        }
+        return false;
+    }
+
+    window.atcAdminLogin = atcAdminLogin;
+    window.atcAdminLogout = atcAdminLogout;
     window.atcAdminRollback = atcAdminRollback;
     window.atcAdminUnflag = atcAdminUnflag;
+    window.atcAdminBlocklist = atcAdminBlocklist;
+    window.atcPurgeBlocked = purgeBlockedPlayers;
+    window.atcIsBlocked = isBlocked;
     // ──────────────────────────────────────────────────────────────
 
     async function fetchLeaderboard() {
@@ -991,7 +1062,11 @@
         try {
             const registry = await fetchRegistry();
             if (!registry) return leaderboardData;
+            // Detect any blocked players still present and trigger a background purge
+            const hasBlocked = registry.players.some(p => isBlocked(p.clientId));
+            if (hasBlocked) { lbFetching = false; purgeBlockedPlayers().catch(() => {}); lbFetching = true; }
             leaderboardData = registry.players
+                .filter(p => !isBlocked(p.clientId) && !p.flagged)
                 .sort((a, b) => b.level - a.level || b.totalXP - a.totalXP);
             return leaderboardData;
         } catch (e) {

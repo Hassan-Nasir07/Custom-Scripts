@@ -65,6 +65,12 @@
     let reflexCurrentRound = 0;
     let reflexFalseStarts = 0;
     let reflexMode = 'screen'; // 'screen' | 'target'
+    let reflexLastClickMs = 0;     // anti-rapid-click debounce
+    let reflexGoReadyMs = 0;       // timestamp when GO state became live; used to floor reaction time
+
+    // Anti-cheat tunables for RefleX
+    const REFLEX_CLICK_DEBOUNCE_MS = 80; // ignore back-to-back clicks within this window (spam clicker)
+    const REFLEX_FALSE_START_LIMIT = 3;  // hard fail the game after this many false starts
     
     // RefleX target state
     let reflexShowTarget = false;
@@ -414,6 +420,16 @@
     }
     
     // RefleX Game Storage
+    // One-time migration: wipe RefleX high scores invalidated by the anti-cheat
+    // hardening patch (v2026-05-25). Runs once per browser, then sets a flag.
+    (function _reflexScoreReset() {
+        const FLAG = 'reflexScoresReset_20260525';
+        if (!localStorage.getItem(FLAG)) {
+            localStorage.removeItem('reflexHighScores');
+            localStorage.setItem(FLAG, '1');
+        }
+    })();
+
     function loadReflexHighScores() {
         const saved = localStorage.getItem('reflexHighScores');
         return saved ? JSON.parse(saved) : {
@@ -4685,6 +4701,7 @@
         
         reflexTimeoutRef = setTimeout(() => {
             reflexStartTime = Date.now();
+            reflexGoReadyMs = reflexStartTime;
             reflexCanClick = true;
             reflexIsWaiting = false;
             
@@ -4697,58 +4714,83 @@
             updateReflexDisplay();
         }, delay);
     }
-    
-    function handleReflexClick(event) {
-        if (!reflexGameStarted || reflexGameFinished) return;
-        
-        // FALSE START detection
-        if (reflexIsWaiting) {
-            reflexFalseStarts++;
-            if (reflexTimeoutRef) clearTimeout(reflexTimeoutRef);
-            updateReflexDisplay();
-            setTimeout(() => startReflexRound(reflexCurrentRound), 500);
+
+    // Centralised false-start handler. Cancels any pending GO timer, increments
+    // the counter, and either ends the game (if over the limit) or re-arms the
+    // wait phase with a longer cool-off so a click-spam burst can't carry over.
+    function reflexHandleFalseStart() {
+        reflexFalseStarts++;
+        reflexCanClick = false;
+        reflexShowTarget = false;
+        if (reflexTimeoutRef) {
+            clearTimeout(reflexTimeoutRef);
+            reflexTimeoutRef = null;
+        }
+        if (reflexFalseStarts >= REFLEX_FALSE_START_LIMIT) {
+            // Hard fail — record a penalty time for any remaining rounds so the
+            // average can't be gamed by ending early on a single fast click.
+            const config = reflexGameModes[reflexMode];
+            const penalty = config.maxDelay; // worst-case reaction
+            while (reflexReactionTimes.length < config.rounds) {
+                reflexReactionTimes.push(penalty);
+            }
+            finishReflexGame();
             return;
         }
-        
+        updateReflexDisplay();
+        // Longer cool-off than the original 500ms so a rapid-click stream
+        // doesn't immediately re-arm and exploit the next GO.
+        setTimeout(() => startReflexRound(reflexCurrentRound), 1200);
+    }
+
+    function handleReflexClick(event) {
+        if (!reflexGameStarted || reflexGameFinished) return;
+
+        // 1. Click-spam debounce — ignore back-to-back clicks. Returning before
+        //    any state mutation means a spam stream can't false-start, can't
+        //    score, and can't traverse states.
+        const now = Date.now();
+        if (now - reflexLastClickMs < REFLEX_CLICK_DEBOUNCE_MS) {
+            return;
+        }
+        reflexLastClickMs = now;
+
+        // 2. FALSE START — clicked during the wait phase.
+        if (reflexIsWaiting) {
+            reflexHandleFalseStart();
+            return;
+        }
+
         if (!reflexCanClick) return;
-        
-        // Calculate reaction time
-        const reactionTime = Date.now() - reflexStartTime;
-        
-        // TARGET MODE: Check if clicked on target
+
+        // Reaction time. Lucky prefires that land just after GO (even sub-100ms)
+        // are legitimate — the wait-phase false-start gate + click debounce
+        // already block the spam-click exploit, so no floor is needed here.
+        const reactionTime = now - reflexStartTime;
+
+        // 4. TARGET MODE — require the click to land on the target.
         if (reflexGameModes[reflexMode].targets && reflexShowTarget) {
             const rect = gameAreaElement.getBoundingClientRect();
             const clickX = event.clientX - rect.left;
             const clickY = event.clientY - rect.top;
-            
-            // Distance formula
             const distance = Math.sqrt(
                 Math.pow(clickX - reflexTargetPosition.x, 2) +
                 Math.pow(clickY - reflexTargetPosition.y, 2)
             );
-            
-            // Target radius is 30px
             if (distance > 30) {
-                // Missed target, restart round
-                reflexCanClick = false;
-                reflexShowTarget = false;
-                updateReflexDisplay();
-                setTimeout(() => startReflexRound(reflexCurrentRound), 500);
+                // Missed — treat as a false start so spam-clicking the canvas
+                // can't farm rounds by waiting for the GO + auto-restart loop.
+                reflexHandleFalseStart();
                 return;
             }
         }
-        
-        // SUCCESSFUL REACTION
+
+        // 5. SUCCESSFUL REACTION
         reflexReactionTimes.push(reactionTime);
         reflexCanClick = false;
         reflexShowTarget = false;
-        
         updateReflexDisplay();
-        
-        // Start next round after brief delay
-        setTimeout(() => {
-            startReflexRound();
-        }, 300);
+        setTimeout(() => { startReflexRound(); }, 300);
     }
     
     function finishReflexGame() {
@@ -4803,6 +4845,8 @@
         reflexCurrentRound = 0;
         reflexFalseStarts = 0;
         reflexShowTarget = false;
+        reflexLastClickMs = 0;
+        reflexGoReadyMs = 0;
         
         if (reflexTimeoutRef) {
             clearTimeout(reflexTimeoutRef);

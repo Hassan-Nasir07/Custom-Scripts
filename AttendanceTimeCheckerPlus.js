@@ -421,12 +421,25 @@
     
     // RefleX Game Storage
     // One-time migration: wipe RefleX high scores invalidated by the anti-cheat
-    // hardening patch (v2026-05-25). Runs once per browser, then sets a flag.
+    // hardening patch (v2026-05-25, re-run 05-26 to clear gist→localStorage re-infection).
+    // While this flag is set, applyPlayerRecordToLocal() will refuse to restore reflex
+    // scores from the gist, breaking the contamination loop.
+    const REFLEX_RESET_FLAG = 'reflexScoresReset_20260526';
     (function _reflexScoreReset() {
-        const FLAG = 'reflexScoresReset_20260525';
-        if (!localStorage.getItem(FLAG)) {
+        if (!localStorage.getItem(REFLEX_RESET_FLAG)) {
             localStorage.removeItem('reflexHighScores');
-            localStorage.setItem(FLAG, '1');
+            // Also strip 'lightning' achievement earned via the exploit
+            try {
+                const xp = JSON.parse(localStorage.getItem('userXP') || '{}');
+                if (Array.isArray(xp.achievements)) {
+                    const idx = xp.achievements.indexOf('lightning');
+                    if (idx !== -1) {
+                        xp.achievements.splice(idx, 1);
+                        localStorage.setItem('userXP', JSON.stringify(xp));
+                    }
+                }
+            } catch(_) {}
+            localStorage.setItem(REFLEX_RESET_FLAG, '1');
         }
     })();
 
@@ -859,16 +872,20 @@
         raise('aimChaosHighScore',  gb.aim);
 
         // Reflex — merge from gameBests.reflex (legacy) AND rec.reflexHighScores (new full blob)
-        if (typeof gb.reflex === 'number' && gb.reflex > 0 && isFinite(gb.reflex)) {
+        // GUARD: If the reset flag is set, skip reflex restoration entirely to prevent
+        // the gist from re-infecting localStorage with pre-patch exploited scores.
+        const _reflexResetActive = !!localStorage.getItem(REFLEX_RESET_FLAG);
+        if (!_reflexResetActive) {
+          if (typeof gb.reflex === 'number' && gb.reflex > 0 && isFinite(gb.reflex)) {
             const reflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
             if (!reflexData.screen || typeof reflexData.screen.best !== 'number' || gb.reflex < reflexData.screen.best) {
                 reflexData.screen = reflexData.screen || { best: Infinity, avg: Infinity };
                 reflexData.screen.best = gb.reflex;
                 localStorage.setItem('reflexHighScores', JSON.stringify(reflexData));
             }
-        }
-        // Full reflex blob (screen + target) — overwrites if source is better
-        if (rec.reflexHighScores && typeof rec.reflexHighScores === 'object') {
+          }
+          // Full reflex blob (screen + target) — overwrites if source is better
+          if (rec.reflexHighScores && typeof rec.reflexHighScores === 'object') {
             const localReflex = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
             ['screen', 'target'].forEach(mode => {
                 const src = rec.reflexHighScores[mode];
@@ -882,6 +899,7 @@
                 }
             });
             localStorage.setItem('reflexHighScores', JSON.stringify(localReflex));
+          }
         }
 
         // Prayer counter (only raise)

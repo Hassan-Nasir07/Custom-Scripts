@@ -152,6 +152,7 @@
     let tetrisBoard = [];
     let tetrisCurrentPiece = null;
     let tetrisNextPiece = null;
+    let tetrisBag = []; // 7-bag randomizer queue (Fisher-Yates shuffled indices)
     let tetrisScore = 0;
     let tetrisHighScore = 0;
     let tetrisLines = 0;
@@ -5781,6 +5782,7 @@
         tetrisGameOver = false;
         tetrisCurrentPiece = null;
         tetrisNextPiece = null;
+        tetrisBag = []; // reset the 7-bag so each new game starts fresh
         if (tetrisAnimFrame) { cancelAnimationFrame(tetrisAnimFrame); tetrisAnimFrame = null; }
         updateTetrisScoreDisplay();
         if (tetrisCtx) drawTetrisFrame();
@@ -5796,8 +5798,19 @@
         tetrisLoop();
     }
 
+    // 7-bag randomizer (modern Tetris standard): every 7 pieces contains exactly
+    // one of each shape, eliminating long S/Z or I-piece droughts. This makes the
+    // game fair — the previous Math.random() approach could (and did) deal 8+ S/Z
+    // pieces in a row with no possible opening, which is purely a luck loss.
     function spawnTetrisPiece() {
-        const p = TETRIS_PIECES[Math.floor(Math.random() * TETRIS_PIECES.length)];
+        if (tetrisBag.length === 0) {
+            tetrisBag = [0, 1, 2, 3, 4, 5, 6];
+            for (let i = tetrisBag.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [tetrisBag[i], tetrisBag[j]] = [tetrisBag[j], tetrisBag[i]];
+            }
+        }
+        const p = TETRIS_PIECES[tetrisBag.pop()];
         return {
             shape: p.shape.map(r => [...r]),
             color: p.color,
@@ -5812,7 +5825,8 @@
         if (!now) return; // first manual call has no timestamp
 
         // Logic: timestamp-based drop interval — already frame-rate independent
-        const dropInterval = Math.max(350, 900 - (tetrisLevel - 1) * 35);
+        // Softer curve: 30ms per level (was 35), floor 300ms (was 350). Level 21+ caps.
+        const dropInterval = Math.max(300, 900 - (tetrisLevel - 1) * 20);
         if (now - tetrisLastDrop >= dropInterval) {
             if (!moveTetris(0, 1)) lockTetrisPiece();
             tetrisLastDrop = now;
@@ -6018,6 +6032,56 @@
                 for (let c = 0; c < shape[r].length; c++) {
                     if (!shape[r][c]) continue;
                     drawTetrisCell(ctx, offX, offY, x + c, y + r, color);
+                }
+            }
+        }
+
+        // --- Next-piece preview (right gutter) ---
+        if (tetrisNextPiece && tetrisGameRunning) {
+            const gutterX = offX + boardW;        // 274
+            const gutterW = cw - gutterX;          // 94
+            const previewCell = 14;                // smaller than board cell (18)
+            const previewW = 4 * previewCell;      // 56 (fits 4-wide I piece)
+            const previewH = 4 * previewCell;      // 56
+            const boxPad = 8;
+            const boxX = gutterX + Math.floor((gutterW - previewW - boxPad * 2) / 2);
+            const boxY = offY + 20;
+
+            // Label
+            ctx.fillStyle = 'rgba(167,139,250,0.85)';
+            ctx.font = 'bold 10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('NEXT', boxX + (previewW + boxPad * 2) / 2, boxY - 6);
+
+            // Box background + border
+            ctx.fillStyle = 'rgba(20,15,40,0.7)';
+            ctx.fillRect(boxX, boxY, previewW + boxPad * 2, previewH + boxPad * 2);
+            ctx.save();
+            ctx.shadowColor = '#7c3aed';
+            ctx.shadowBlur = 8;
+            ctx.strokeStyle = 'rgba(167,139,250,0.5)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(boxX, boxY, previewW + boxPad * 2, previewH + boxPad * 2);
+            ctx.restore();
+
+            // Center the piece inside the preview box
+            const { shape, color } = tetrisNextPiece;
+            const pieceW = shape[0].length * previewCell;
+            const pieceH = shape.length * previewCell;
+            const pieceOffX = boxX + boxPad + Math.floor((previewW - pieceW) / 2);
+            const pieceOffY = boxY + boxPad + Math.floor((previewH - pieceH) / 2);
+            for (let r = 0; r < shape.length; r++) {
+                for (let c = 0; c < shape[r].length; c++) {
+                    if (!shape[r][c]) continue;
+                    const px = pieceOffX + c * previewCell;
+                    const py = pieceOffY + r * previewCell;
+                    const grad = ctx.createLinearGradient(px, py, px + previewCell, py + previewCell);
+                    grad.addColorStop(0, color);
+                    grad.addColorStop(1, shadeColor(color, -40));
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(px + 1, py + 1, previewCell - 2, previewCell - 2);
+                    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                    ctx.fillRect(px + 2, py + 2, previewCell - 8, 2);
                 }
             }
         }

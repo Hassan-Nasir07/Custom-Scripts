@@ -2,6 +2,21 @@
     'use strict';
     
     // ENHANCED ATTENDANCE TIME CHECKER 2026
+    // ─── Build Identity ───────────────────────────────────────────
+    // BUILD_SEED is a per-release nonce. The actual sync-acceptance token is
+    // derived at runtime by combining the seed with the dispatcher PAT and a
+    // salt; the GitHub Actions workflow holds the matching token as a repo
+    // secret. Editing the seed locally will produce a bad token and the server
+    // will silently reject the dispatch.
+    //
+    // To cut a new release:
+    //   1. Replace BUILD_SEED below with a fresh random hex string.
+    //   2. Bump BUILD_LABEL (cosmetic only — shown in the update banner).
+    //   3. Compute the new token (see comment in sync.yml) and rotate the
+    //      BUILD_TOKEN_CURRENT / BUILD_TOKEN_PREVIOUS repo secrets.
+    const BUILD_SEED  = 'a3f17b8e4c2d619058fa7b3e2c4d8e91';
+    const BUILD_LABEL = 'v1';
+    // ──────────────────────────────────────────────────────────────
     
     const currentUrl = window.location.href;
     const targetUrl = "https://globalportal.mtbc.com/#/time-absence/attendence-record";
@@ -564,6 +579,31 @@
         return stored === expected;
     }
 
+    // ─── Build Token Derivation ───────────────────────────────────
+    // Derives the per-build sync-acceptance token from BUILD_SEED + dispatcher
+    // PAT + a fixed salt. The matching token is stored as a repo secret
+    // (BUILD_TOKEN_CURRENT) in the bot repo; the workflow rejects any dispatch
+    // whose token doesn't match. The salt and derivation steps below MUST be
+    // mirrored by the helper used to produce the secret (see sync.yml).
+    const _BLD_SALT = [98,108,100,95,116,107,110,95,50,48,50,54,95,118,49].map(c => String.fromCharCode(c)).join('');
+    function _buildToken() {
+        const msg = `${BUILD_SEED}|${GH_DISPATCHER_PAT}|${_BLD_SALT}`;
+        // Double FNV-1a with bit-rotation between rounds — small variation on the
+        // same primitive used for XP integrity, just enough that an attacker can't
+        // reuse the XP hash to forge a build token.
+        let h1 = 0x811c9dc5, h2 = 0xcbf29ce4;
+        for (let i = 0; i < msg.length; i++) {
+            const c = msg.charCodeAt(i);
+            h1 ^= c;                h1 = Math.imul(h1, 0x01000193);
+            h2 ^= (c ^ (h1 & 0xff)); h2 = Math.imul(h2, 0x100000001b3 & 0xffffffff);
+        }
+        h1 = ((h1 >>> 13) | (h1 << 19)) >>> 0;
+        h2 = ((h2 >>> 17) | (h2 << 15)) >>> 0;
+        return h1.toString(36) + '-' + h2.toString(36);
+    }
+    const BUILD_TOKEN = _buildToken();
+    // ──────────────────────────────────────────────────────────────
+
     // Anti-cheat constants (client-side gates only — server is the source of truth)
     // The client NEVER writes flags to the gist; it only refuses to sync. This
     // prevents false positives from permanently locking out legit users, since
@@ -654,7 +694,7 @@
             },
             body: JSON.stringify({
                 event_type: 'registry-update',
-                client_payload: { registry: data }
+                client_payload: { registry: data, build_token: BUILD_TOKEN, build_label: BUILD_LABEL }
             })
         });
         if (!res.ok) {
@@ -709,6 +749,7 @@
             customImageAspectRatio: localStorage.getItem('customImageAspectRatio') || '16:9',
             customQuotes: (() => { try { return JSON.parse(localStorage.getItem('customQuotes') || 'null'); } catch(_){return null;} })(),
             userPreferences: (() => { try { return JSON.parse(localStorage.getItem('attendancePrefs') || 'null'); } catch(_){return null;} })(),
+            buildLabel: BUILD_LABEL,
             lastSync: new Date().toISOString()
         };
     }
@@ -771,6 +812,18 @@
         try {
             const registry = await fetchRegistry();
             if (!registry) return;
+
+            // ─── Build Version Gate (informational only) ──────────────
+            // The authoritative gate lives in sync.yml: dispatches carrying a
+            // stale BUILD_TOKEN are rejected server-side. This client check just
+            // surfaces a refresh banner before the user wastes a dispatch.
+            if (registry.latestBuild && registry.latestBuild !== BUILD_LABEL) {
+                console.warn(`[Sync] Outdated build (local: ${BUILD_LABEL}, latest: ${registry.latestBuild}). Sync will be rejected by server.`);
+                showXPNotification(`🔄 Script outdated (${BUILD_LABEL} → ${registry.latestBuild}). Refresh your tab!`, 'hourly');
+                showBuildUpdateBanner(registry.latestBuild);
+                return;
+            }
+            // ──────────────────────────────────────────────────────────
             const idx = registry.players.findIndex(p => p.clientId === lbClientId);
             if (idx === -1) return;
 
@@ -828,6 +881,8 @@
 
             registry.players[idx] = snapshot;
             registry.lastUpdated = new Date().toISOString();
+            // latestBuild is set server-side by the workflow on successful writes;
+            // never written from the client.
             await patchRegistry(registry);
         } catch (e) {
             console.warn('[Leaderboard] sync error:', e);
@@ -1036,7 +1091,7 @@
             },
             body: JSON.stringify({
                 event_type: eventType,
-                client_payload: { ...payload, admin_key: _adminKey }
+                client_payload: { ...payload, admin_key: _adminKey, build_token: BUILD_TOKEN, build_label: BUILD_LABEL }
             })
         });
         if (!res.ok) {
@@ -1196,11 +1251,58 @@
     function initLeaderboard() {
         loadLeaderboardProfile();
         if (lbRegistered) {
-            fetchLeaderboard().then(() => renderLeaderboardPanel());
+            fetchLeaderboard().then(() => {
+                renderLeaderboardPanel();
+                checkBuildVersion();
+            });
         } else {
             renderLeaderboardPanel();
         }
     }
+
+    // ─── Build Version Checker (UX only) ──────────────────────────
+    // Compares local BUILD_LABEL against the gist's latestBuild label (set by
+    // the workflow on every successful write). Server-side BUILD_TOKEN check
+    // is the real enforcement; this just shows the refresh banner.
+    async function checkBuildVersion() {
+        try {
+            const registry = await fetchRegistry();
+            if (!registry || !registry.latestBuild) return;
+            if (registry.latestBuild !== BUILD_LABEL) {
+                showBuildUpdateBanner(registry.latestBuild);
+            }
+        } catch (_) {}
+    }
+
+    function showBuildUpdateBanner(latestBuild) {
+        if (document.getElementById('atc-update-banner')) return; // already shown
+        const banner = document.createElement('div');
+        banner.id = 'atc-update-banner';
+        banner.style.cssText = `
+            position: fixed; top: 0; left: 0; right: 0; z-index: 2147483647;
+            background: linear-gradient(135deg, #ff6b35, #f72585);
+            color: #fff; padding: 10px 20px; text-align: center;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 14px; font-weight: 600;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+            display: flex; align-items: center; justify-content: center; gap: 12px;
+        `;
+        banner.innerHTML = `
+            <span>⚠️ Script outdated (${BUILD_LABEL} → ${latestBuild}). Sync is disabled.</span>
+            <button id="atc-update-refresh-btn" style="
+                background: #fff; color: #f72585; border: none; border-radius: 6px;
+                padding: 6px 14px; font-weight: 700; cursor: pointer; font-size: 13px;
+            ">🔄 Refresh Now</button>
+            <button id="atc-update-dismiss-btn" style="
+                background: transparent; color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.4);
+                border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px;
+            ">✕</button>
+        `;
+        document.body.appendChild(banner);
+        document.getElementById('atc-update-refresh-btn').addEventListener('click', () => location.reload());
+        document.getElementById('atc-update-dismiss-btn').addEventListener('click', () => banner.remove());
+    }
+    // ──────────────────────────────────────────────────────────────
 
     // 8-BALL POOL GAME VARIABLES
     let poolCanvas, poolCtx;

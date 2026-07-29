@@ -17,7 +17,29 @@
     const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
     const BUILD_LABEL = 'v2';
     // ──────────────────────────────────────────────────────────────
-    
+
+    // Ordinal parse of a 'v<N>' label. Returns null for anything that doesn't fit
+    // the convention, which callers below treat conservatively (assume behind).
+    function _buildOrdinal(label) {
+        const m = /^v(\d+)$/i.exec(String(label || '').trim());
+        return m ? parseInt(m[1], 10) : null;
+    }
+
+    // True only when `local` is POSITIVELY a lower build number than `remote`.
+    // The two call sites below used to treat ANY label mismatch as "this client is
+    // outdated" — but a mismatch also happens right after every version bump,
+    // before this client's own sync has had a chance to advance the gist's stamp.
+    // Since a build-labelled sync is what writes registry.latestBuild in the first
+    // place, blocking on mere inequality created a deadlock: a brand-new client
+    // refuses to sync because the gist still shows the previous label, and the
+    // gist can never advance to the new label because the client that would write
+    // it keeps refusing to sync. Only a client confirmed OLDER should be blocked.
+    function _clientIsBehindBuild(local, remote) {
+        const l = _buildOrdinal(local), r = _buildOrdinal(remote);
+        if (l === null || r === null) return true; // unrecognised format — fail safe
+        return l < r;
+    }
+
     const currentUrl = window.location.href;
     const targetUrl = "https://globalportal.mtbc.com/#/time-absence/attendence-record";
 
@@ -730,7 +752,7 @@
             const errBody = await res.text().catch(() => '');
             throw new Error(`dispatch failed: ${res.status} ${errBody}`);
         }
-        return data;
+        return player;
     }
 
     // Collect local game-best high scores from localStorage into one object
@@ -846,12 +868,14 @@
             // The authoritative gate lives in sync.yml: dispatches carrying a
             // stale BUILD_TOKEN are rejected server-side. This client check just
             // surfaces a refresh banner before the user wastes a dispatch.
-            if (registry.latestBuild && registry.latestBuild !== BUILD_LABEL) {
+            if (registry.latestBuild && registry.latestBuild !== BUILD_LABEL && _clientIsBehindBuild(BUILD_LABEL, registry.latestBuild)) {
                 console.warn(`[Sync] Outdated build (local: ${BUILD_LABEL}, latest: ${registry.latestBuild}). Sync will be rejected by server.`);
                 showXPNotification(`🔄 Script outdated (${BUILD_LABEL} → ${registry.latestBuild}). Refresh your tab!`, 'hourly');
                 showBuildUpdateBanner(registry.latestBuild);
                 return;
             }
+            // Mismatch with local ahead-or-equal falls through here deliberately:
+            // this sync is what will advance the gist's stamp to BUILD_LABEL.
             // ──────────────────────────────────────────────────────────
             const idx = registry.players.findIndex(p => p.clientId === lbClientId);
             if (idx === -1) return;
@@ -1332,7 +1356,9 @@
         try {
             const registry = await fetchRegistry();
             if (!registry || !registry.latestBuild) return;
-            if (registry.latestBuild !== BUILD_LABEL) {
+            // Only warn when genuinely behind — see _clientIsBehindBuild for why an
+            // equal-or-newer client hitting a stale gist stamp isn't "outdated".
+            if (registry.latestBuild !== BUILD_LABEL && _clientIsBehindBuild(BUILD_LABEL, registry.latestBuild)) {
                 showBuildUpdateBanner(registry.latestBuild);
             }
         } catch (_) {}

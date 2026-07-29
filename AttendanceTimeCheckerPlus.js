@@ -14,8 +14,8 @@
     //   2. Bump BUILD_LABEL (cosmetic only — shown in the update banner).
     //   3. Compute the new token (see comment in sync.yml) and rotate the
     //      BUILD_TOKEN_CURRENT / BUILD_TOKEN_PREVIOUS repo secrets.
-    const BUILD_SEED  = 'a3f17b8e4c2d619058fa7b3e2c4d8e91';
-    const BUILD_LABEL = 'v1';
+    const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
+    const BUILD_LABEL = 'v2';
     // ──────────────────────────────────────────────────────────────
     
     const currentUrl = window.location.href;
@@ -207,14 +207,27 @@
         totalWorkDays: 0,
         gameSessions: 0,
         lastAttendanceDate: null,
+        lastStreakBonusDate: null,
         longestStreak: 0,
         achievements: [],
         milestonesReached: []
     };
-    
+
     // XP System Constants (Research-proven values)
     const XP_PER_HOUR = 15;           // Base hourly reward (increased from 10)
-    const STREAK_BONUS = 20;          // Daily streak bonus
+    const STREAK_BONUS = 20;          // Daily streak bonus (per streak day, capped below)
+    // Streak economics. The bonus is STREAK_BONUS * min(streak, STREAK_BONUS_MAX_DAYS),
+    // paid once per work day. Uncapped it grew linearly forever: at a 23-day streak a
+    // single day paid 460 XP, more than three full 8h shifts of hourly XP, which made
+    // streak length the dominant term on the leaderboard and dwarfed every other
+    // activity. Capping at 7 keeps the habit incentive without letting it snowball.
+    const STREAK_BONUS_MAX_DAYS = 7;
+    // A day only counts toward the streak once this many hours are logged. Previously
+    // any new calendar day with the portal open counted, including zero-hour days.
+    const STREAK_MIN_HOURS = 1;
+    // Iteration ceiling for the level-curve loops — a runaway backstop, not a limit
+    // anyone can reach in practice (level 10000 needs ~1.2e11 XP).
+    const LEVEL_LOOP_GUARD = 10000;
     const MILESTONE_BONUSES = {
         2: { xp: 10, label: '2-Hour Checkpoint' },
         4: { xp: 25, label: '4-Hour Halfway' },
@@ -387,23 +400,27 @@
                 gameSessions: data.gameSessions || 0,
                 lastAttendanceDate: data.lastAttendanceDate || null,
                 lastShiftCompletedDate: data.lastShiftCompletedDate || null,
+                // Absent on records written before the streak-bonus fix. Leaving it
+                // null just means today's bonus is still claimable, which is correct.
+                lastStreakBonusDate: data.lastStreakBonusDate || null,
                 hadStreakReset: !!data.hadStreakReset,
                 longestStreak: data.longestStreak || 0,
                 achievements: data.achievements || [],
                 milestonesReached: data.milestonesReached || []
             };
         }
-        return { 
-            level: 1, 
-            currentXP: 0, 
-            totalXP: 0, 
-            lastHourTracked: -1, 
+        return {
+            level: 1,
+            currentXP: 0,
+            totalXP: 0,
+            lastHourTracked: -1,
             todayHours: 0,
             consecutiveDays: 0,
             totalWorkDays: 0,
             gameSessions: 0,
             lastAttendanceDate: null,
             lastShiftCompletedDate: null,
+            lastStreakBonusDate: null,
             hadStreakReset: false,
             longestStreak: 0,
             achievements: [],
@@ -608,9 +625,16 @@
     // The client NEVER writes flags to the gist; it only refuses to sync. This
     // prevents false positives from permanently locking out legit users, since
     // the workflow has a sticky-flag rule the client can't clear.
-    const AC_MAX_XP_PER_HOUR = 3000;    // Sustained rate ceiling (matches server's 50/min)
-    const AC_XP_BURST_ALLOWANCE = 500;  // Flat headroom so short sync windows tolerate normal gaming bursts
     const AC_SYNC_COOLDOWN_MS = 120000; // 2 minutes minimum between syncs
+    // XP budget mirror of the server's model (see sync.yml). Every XP source is tied
+    // to a counter that ships in the snapshot, so a legitimate gain is always bounded
+    // by elapsed days + games played + achievements unlocked. Set ~20% looser than the
+    // server so the server, not the client, is the thing that actually flags — a
+    // client-side false positive only pauses syncing, which is recoverable.
+    const AC_MAX_XP_PER_DAY = 720;
+    const AC_MAX_XP_PER_GAME = 300;
+    const AC_MAX_XP_PER_ACHIEVEMENT = 600;
+    const AC_XP_BURST_ALLOWANCE = 500;
 
     // Client-side blocklist — defense in depth. Even if the Action somehow
     // fails to strip a banned player, the local UI will never show them.
@@ -684,7 +708,12 @@
 
     // Fire-and-forget: dispatch returns 204 immediately, then the workflow
     // takes ~15-30s to run validation and patch the gist. Resolves on accept.
-    async function patchRegistry(data) {
+    // Push a single player record. The dispatch used to carry the ENTIRE registry,
+    // which meant any player could rewrite or delete every other player's entry —
+    // the workflow merged whatever array it was handed. Sending only our own record
+    // makes that impossible from the client side; the server merges it into the
+    // stored registry itself.
+    async function patchPlayer(player) {
         const res = await fetch(`https://api.github.com/repos/${GH_BOT_REPO}/dispatches`, {
             method: 'POST',
             headers: {
@@ -694,7 +723,7 @@
             },
             body: JSON.stringify({
                 event_type: 'registry-update',
-                client_payload: { registry: data, build_token: BUILD_TOKEN, build_label: BUILD_LABEL }
+                client_payload: { player, build_token: BUILD_TOKEN, build_label: BUILD_LABEL }
             })
         });
         if (!res.ok) {
@@ -734,6 +763,7 @@
             lastHourTracked: (typeof userXP.lastHourTracked === 'number') ? userXP.lastHourTracked : -1,
             lastAttendanceDate: userXP.lastAttendanceDate || null,
             lastShiftCompletedDate: userXP.lastShiftCompletedDate || null,
+            lastStreakBonusDate: userXP.lastStreakBonusDate || null,
             hadStreakReset: !!userXP.hadStreakReset,
             gameSessions: userXP.gameSessions || 0,
             achievements: Array.isArray(userXP.achievements) ? userXP.achievements.slice() : [],
@@ -776,11 +806,10 @@
         lbDisplayName = displayName;
         const snapshot = buildPlayerSnapshot();
         snapshot.joinedAt = new Date().toISOString().split('T')[0];
-        registry.players.push(snapshot);
-        registry.lastUpdated = new Date().toISOString();
+        snapshot.xpSig = _xpHash(snapshot.totalXP, snapshot.level, snapshot.gameSessions, snapshot.totalWorkDays);
 
         try {
-            await patchRegistry(registry);
+            await patchPlayer(snapshot);
             lbDisplayName = displayName;
             lbRegistered = true;
             saveLeaderboardProfile();
@@ -847,9 +876,12 @@
                 return;
             }
 
-            // 3. Sync cooldown — prevent rapid-fire syncing
-            if (prev.lastSync) {
-                const msSinceLast = Date.now() - new Date(prev.lastSync).getTime();
+            // 3. Sync cooldown — prevent rapid-fire syncing.
+            // Anchored on serverSync (workflow-stamped) rather than lastSync (client-
+            // supplied), so backdating a snapshot can't shorten the cooldown.
+            const prevSyncAt = prev.serverSync || prev.lastSync;
+            if (prevSyncAt) {
+                const msSinceLast = Date.now() - new Date(prevSyncAt).getTime();
                 if (msSinceLast < AC_SYNC_COOLDOWN_MS) {
                     console.warn(`[AntiCheat] Sync cooldown: ${Math.ceil((AC_SYNC_COOLDOWN_MS - msSinceLast) / 1000)}s remaining`);
                     showXPNotification(`⏳ Sync cooldown — wait ${Math.ceil((AC_SYNC_COOLDOWN_MS - msSinceLast) / 1000)}s`, 'hourly');
@@ -857,18 +889,27 @@
                 }
             }
 
-            // 4. XP rate sanity gate — refuse-to-sync only. The server workflow
-            // is the authoritative rate limiter (50 XP/min). This local check is
-            // looser than the server (3000/h + 500 burst) so we never self-flag
-            // before the server has a chance to validate.
+            // 4. XP budget sanity gate — refuse-to-sync only, never self-flags.
+            // Mirrors the server's activity budget: elapsed days bound the per-day
+            // sources (hourly, milestones, capped streak bonus) while the game-session
+            // and achievement counters bound the rest. The previous version scaled
+            // purely with elapsed time, so a long gap authorised an effectively
+            // unlimited gain.
             const snapshot = buildPlayerSnapshot();
             const xpDelta = (snapshot.totalXP || 0) - (prev.totalXP || 0);
-            if (xpDelta > 0 && prev.lastSync) {
-                const hoursSinceLast = Math.max(0.01, (Date.now() - new Date(prev.lastSync).getTime()) / 3600000);
-                const maxAllowed = AC_XP_BURST_ALLOWANCE + Math.ceil(AC_MAX_XP_PER_HOUR * hoursSinceLast);
+            if (xpDelta > 0 && prevSyncAt) {
+                const elapsedMs = Math.max(0, Date.now() - new Date(prevSyncAt).getTime());
+                const elapsedDays = Math.max(1, Math.ceil(elapsedMs / 86400000));
+                const newGames = Math.max(0, (snapshot.gameSessions || 0) - (prev.gameSessions || 0));
+                const prevAch = Array.isArray(prev.achievements) ? prev.achievements.length : 0;
+                const newAch = Math.max(0, (snapshot.achievements || []).length - prevAch);
+                const maxAllowed = AC_XP_BURST_ALLOWANCE
+                    + elapsedDays * AC_MAX_XP_PER_DAY
+                    + newGames * AC_MAX_XP_PER_GAME
+                    + newAch * AC_MAX_XP_PER_ACHIEVEMENT;
                 if (xpDelta > maxAllowed) {
-                    console.warn(`[AntiCheat] XP rate too high: +${xpDelta} XP in ${hoursSinceLast.toFixed(2)}h (local cap: ${maxAllowed}). Sync blocked — try again after a longer interval so the gain is spread out.`);
-                    showXPNotification(`⚠️ Sync paused — XP gain too fast (${xpDelta} in ${hoursSinceLast.toFixed(1)}h)`, 'hourly');
+                    console.warn(`[AntiCheat] XP gain exceeds activity budget: +${xpDelta} XP vs max ${maxAllowed} (${elapsedDays}d, ${newGames} games, ${newAch} achievements). Sync blocked.`);
+                    showXPNotification(`⚠️ Sync paused — XP gain (${xpDelta}) exceeds what ${elapsedDays}d of activity allows`, 'hourly');
                     return;
                 }
             }
@@ -879,11 +920,10 @@
             // Carry forward the integrity hash
             snapshot.xpSig = _xpHash(snapshot.totalXP, snapshot.level, snapshot.gameSessions, snapshot.totalWorkDays);
 
-            registry.players[idx] = snapshot;
-            registry.lastUpdated = new Date().toISOString();
             // latestBuild is set server-side by the workflow on successful writes;
-            // never written from the client.
-            await patchRegistry(registry);
+            // never written from the client. Only our own record goes over the wire —
+            // the server merges it into the stored registry.
+            await patchPlayer(snapshot);
         } catch (e) {
             console.warn('[Leaderboard] sync error:', e);
         } finally {
@@ -908,9 +948,18 @@
         if (typeof rec.lastHourTracked === 'number')      userXP.lastHourTracked = rec.lastHourTracked;
         if (rec.lastAttendanceDate)                        userXP.lastAttendanceDate = rec.lastAttendanceDate;
         if (rec.lastShiftCompletedDate)                    userXP.lastShiftCompletedDate = rec.lastShiftCompletedDate;
+        if (rec.lastStreakBonusDate)                       userXP.lastStreakBonusDate = rec.lastStreakBonusDate;
         if (typeof rec.hadStreakReset === 'boolean')      userXP.hadStreakReset = rec.hadStreakReset;
         if (Array.isArray(rec.achievements))               userXP.achievements = rec.achievements.slice();
         if (Array.isArray(rec.milestonesReached))          userXP.milestonesReached = rec.milestonesReached.slice();
+
+        // The three XP fields above were copied independently, so a record whose
+        // level was already inconsistent with its totalXP (from an earlier restore,
+        // an admin rollback, or the old multi-level bug in checkLevelUp) would carry
+        // that inconsistency straight into localStorage and stay wrong forever.
+        // Re-derive level/currentXP from totalXP so every restore self-heals.
+        reconcileLevelState('cloud restore');
+
         saveUserXP(userXP);
 
         // Rehydrate game bests (only raise, never lower — keeps any new local PRs)
@@ -1115,6 +1164,21 @@
             const reg = await fetchRegistry();
             const prev = reg?.players?.find(p => p.clientId === clientId) || {};
             const merged = { ...prev, ...overrides };
+
+            // Never let a rollback write a level that disagrees with totalXP —
+            // hand-setting { totalXP, level } as a pair is precisely how records end
+            // up permanently inconsistent. totalXP is the input; level and currentXP
+            // are derived from it.
+            if ('totalXP' in overrides) {
+                const derived = deriveLevelFromTotalXP(merged.totalXP);
+                if ('level' in overrides && overrides.level !== derived.level) {
+                    console.warn(`[Admin] level ${overrides.level} does not match totalXP ${merged.totalXP}; using derived level ${derived.level}.`);
+                }
+                overrides.level = derived.level;
+                overrides.currentXP = derived.currentXP;
+                merged.level = derived.level;
+            }
+
             overrides.xpSig = _xpHash(merged.totalXP || 0, merged.level || 1, merged.gameSessions || 0, merged.totalWorkDays || 0);
         }
         const result = await _adminDispatch('admin-rollback', { client_id: clientId, overrides });
@@ -6592,6 +6656,12 @@
     function initXPSystem() {
         userXP = loadUserXP();
         xpSystemReady = true; // Must be set AFTER loadUserXP() so awardXP never runs on default values
+
+        // Repair any pre-existing level/totalXP mismatch before the first render, so
+        // accounts already damaged by a restore or by the old checkLevelUp bug are
+        // corrected on next page load without the user having to do anything.
+        if (reconcileLevelState('startup check')) saveUserXP(userXP);
+
         updateXPDisplay();
 
         // Auto-recovery: if a registered client comes back with a fully wiped local state
@@ -6621,7 +6691,55 @@
         // Exponential growth (Lee Sheldon method): XP needed = level^1.5 * 120
         return Math.floor(Math.pow(level, 1.5) * 120);
     }
-    
+
+    // ─── Level state is DERIVED, never independently stored ───────
+    // totalXP is the only authoritative number. level and currentXP are a
+    // projection of it onto the level curve, so they can always be recomputed:
+    //
+    //     totalXP === sum(calculateXPForNextLevel(l) for l in 1..level-1) + currentXP
+    //
+    // Several paths write all three fields independently — cloud restore
+    // (applyPlayerRecordToLocal), admin-rollback overrides, and restoring under a
+    // different clientId. Any of them can land a record where the stored level
+    // disagrees with totalXP, which is why a restored account shows the wrong
+    // level and a progress bar that never fills. Recomputing on load and after
+    // every restore makes those paths self-healing.
+    function deriveLevelFromTotalXP(totalXP) {
+        let level = 1;
+        let remaining = Math.max(0, Math.floor(Number(totalXP) || 0));
+        let need = calculateXPForNextLevel(level);
+        let guard = 0;
+
+        while (remaining >= need && guard++ < LEVEL_LOOP_GUARD) {
+            remaining -= need;
+            level++;
+            need = calculateXPForNextLevel(level);
+        }
+        return { level, currentXP: remaining };
+    }
+
+    // Repair userXP.level / userXP.currentXP if they disagree with totalXP.
+    // Returns true when a repair was applied. Never touches totalXP, so no XP is
+    // ever created or destroyed — this only re-slices what the user already has.
+    function reconcileLevelState(reason) {
+        const derived = deriveLevelFromTotalXP(userXP.totalXP);
+        const storedLevel = userXP.level || 1;
+        const storedCurrent = (typeof userXP.currentXP === 'number') ? userXP.currentXP : 0;
+
+        if (derived.level === storedLevel && derived.currentXP === storedCurrent) return false;
+
+        console.info(`[XP] Level state repaired: L${storedLevel}/${storedCurrent} → L${derived.level}/${derived.currentXP} (totalXP ${userXP.totalXP}${reason ? `, ${reason}` : ''})`);
+        userXP.level = derived.level;
+        userXP.currentXP = derived.currentXP;
+
+        // Only surface a toast when the visible level actually moved — a
+        // currentXP-only correction isn't worth interrupting anyone for.
+        if (derived.level !== storedLevel) {
+            showXPNotification(`🔧 Level corrected to ${derived.level} (${userXP.totalXP.toLocaleString()} total XP)`, 'achievement');
+        }
+        return true;
+    }
+
     function awardXP(hoursWorked) {
         // Guard: do NOT run before initXPSystem() has loaded data from localStorage.
         // Without this, the default userXP values get saved to localStorage on every
@@ -6629,9 +6747,10 @@
         if (!xpSystemReady) return;
         
         const currentHour = Math.floor(hoursWorked);
-        
-        // Calculate and update streak
-        calculateStreak();
+
+        // Calculate and update streak. hoursWorked is passed through so a day with
+        // no real hours logged can't advance the streak.
+        calculateStreak(hoursWorked);
         
         // Reset daily tracking if it's a new day
         const today = new Date().toDateString();
@@ -6664,12 +6783,27 @@
             // Check for milestone bonuses
             checkMilestones(currentHour);
             
-            // Award streak bonus (daily)
-            if (userXP.consecutiveDays > 1 && lastDay !== today) {
-                const streakBonus = STREAK_BONUS * userXP.consecutiveDays;
+            // Award streak bonus (once per day, and only for a day with real hours).
+            //
+            // Two problems used to live here. The multiplier was uncapped, and the
+            // payout was gated on `lastDay !== today` while sitting inside the
+            // `currentHour > lastHourTracked` block — on a new day lastHourTracked is
+            // reset to -1, so `0 > -1` passed and the bonus paid out at zero hours
+            // worked. Opening the portal on a weekend was worth 20 x streak for
+            // nothing, and each freebie raised the next day's payout.
+            //
+            // Tracking the award date explicitly (rather than piggybacking on
+            // xpLastDay, which line ~6644 has already advanced by this point) means
+            // the bonus can wait for the first real hour of the day and still fire
+            // exactly once.
+            if (userXP.consecutiveDays > 1 && hoursToAward > 0 && userXP.lastStreakBonusDate !== today) {
+                userXP.lastStreakBonusDate = today;
+                const streakMultiplier = Math.min(userXP.consecutiveDays, STREAK_BONUS_MAX_DAYS);
+                const streakBonus = STREAK_BONUS * streakMultiplier;
                 userXP.currentXP += streakBonus;
                 userXP.totalXP += streakBonus;
-                showXPNotification(`🔥 ${userXP.consecutiveDays}-Day Streak! +${streakBonus} Bonus XP!`, 'streak');
+                const capNote = userXP.consecutiveDays > STREAK_BONUS_MAX_DAYS ? ` (max ${STREAK_BONUS_MAX_DAYS}-day rate)` : '';
+                showXPNotification(`🔥 ${userXP.consecutiveDays}-Day Streak! +${streakBonus} Bonus XP!${capNote}`, 'streak');
             }
             
             // Check for level up
@@ -6685,9 +6819,23 @@
         updateXPDisplay();
     }
     
-    function calculateStreak() {
-        const today = new Date().toDateString();
-        
+    function calculateStreak(hoursWorked) {
+        const now = new Date();
+        const today = now.toDateString();
+        const dayOfWeek = now.getDay();
+
+        // Weekends are inert: they neither advance nor reset a streak.
+        // Previously ANY new calendar day advanced it, because the skipped-work-day
+        // scan below looks *strictly between* the two dates and so returns 0 for
+        // Fri→Sat, Sat→Sun and Sun→Mon alike. A tab left open over a weekend banked
+        // three free streak days and three streak bonuses.
+        if (dayOfWeek === 0 || dayOfWeek === 6) return;
+
+        // A day only counts once real hours are on the clock. Without this, merely
+        // loading the portal was enough to claim the day.
+        const hours = (typeof hoursWorked === 'number' && isFinite(hoursWorked)) ? hoursWorked : (userXP.todayHours || 0);
+        if (hours < STREAK_MIN_HOURS) return;
+
         if (!userXP.lastAttendanceDate) {
             // First time the widget sees this user — start a streak of 1.
             // Note: totalWorkDays is NOT incremented here. It only ticks up once the
@@ -7038,16 +7186,21 @@
     window.closeAchievementsModal = closeAchievementsModal;
     
     function checkLevelUp() {
-        const xpNeeded = calculateXPForNextLevel(userXP.level);
-        
-        while (userXP.currentXP >= xpNeeded) {
+        // xpNeeded MUST be recomputed on every iteration — the requirement grows
+        // with level. It used to be a const captured before the loop (the
+        // recomputed value was assigned to an unused local), so one large award
+        // could grant several levels at the cheapest level's price, desyncing
+        // level/currentXP from totalXP.
+        let xpNeeded = calculateXPForNextLevel(userXP.level);
+        let guard = 0;
+
+        while (userXP.currentXP >= xpNeeded && guard++ < LEVEL_LOOP_GUARD) {
             userXP.currentXP -= xpNeeded;
             userXP.level++;
-            
+
             showXPNotification(`🎊 Level Up! You're now Level ${userXP.level}!`, 'levelup');
-            
-            // Recalculate for next level
-            const nextXPNeeded = calculateXPForNextLevel(userXP.level);
+
+            xpNeeded = calculateXPForNextLevel(userXP.level);
         }
     }
     

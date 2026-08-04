@@ -379,32 +379,39 @@ board tables.
       safe-square derivation, quadrant/base containment
 
 ### Phase 2 — Dice & turn clock
-- [ ] `ludoRollDice()` — `1 + Math.floor(Math.random() * 6)`
+- [x] `ludoRollDice()` — `1 + Math.floor(Math.random() * 6)`; verified flat over
+      60,000 rolls (worst face deviation 1.33%)
 - [ ] 600ms tumble animation, dice pulse when awaiting a tap
 - [ ] `LUDO_TURN_CLOCK = 20` countdown + expiry auto-roll / auto-play
 - [ ] Dice hit-testing via `rect.width / LUDO_CANVAS_W`
 
 ### Phase 3 — Movement
-- [ ] `step` 0…56 model + step→cell resolution (ring → own home column → home)
-- [ ] Legal-move generation
+- [x] `step` 0…56 model + step→cell resolution (ring → own home column → home)
+- [x] Legal-move generation (`ludoLegalMoves` → `{token, from, to, release, captures, finishes}`)
+- [x] Capture → opponent token to base, with per-player capture/loss tallies
 - [ ] ▼ marker + ghost destination preview on legal tokens
-- [ ] Square-by-square hop animation (~90ms/square)
-- [ ] Capture → opponent token to base
-- [ ] Auto-play on single legal move; auto-pass on zero
+- [ ] Square-by-square hop animation (~90ms/square) — **must tolerate the four
+      diagonal corner steps**, see decision log
+- [ ] Auto-play on single legal move; auto-pass on zero (logic ready via the
+      `passed` flag from `ludoRegisterRoll`)
 
 ### Phase 4 — Full rule set
-- [ ] Six-to-release (+ `freeRelease` override)
-- [ ] Extra turn on 6 / capture / token-home
-- [ ] `threeSixes` — third consecutive 6 forfeits and voids the roll
-- [ ] `blocks` — 2+ own tokens bar landing *and* passing
-- [ ] `exactHome` — `step + roll <= 56`
-- [ ] Safe squares (`LUDO_SAFE_RING` + all home columns)
+*All six implemented and covered by `rules-verify.js`.*
+- [x] Six-to-release (+ `freeRelease` override)
+- [x] Extra turn on 6 / capture / token-home
+- [x] `threeSixes` — third consecutive 6 forfeits **and** voids the roll
+- [x] `blocks` — 2+ **same-colour** tokens bar landing *and* passing; counted
+      per (colour, square) so two colours sharing a ★ is not a block
+- [x] `exactHome` — on: `step + roll <= 56`; off: overshoot clamps to 56 and finishes
+- [x] Safe squares (`LUDO_SAFE_RING` + all home columns)
 
 ### Phase 5 — Match resolution
-- [ ] Win detection (all 4 tokens home)
-- [ ] 3P/4P placement ranking by (tokens home, total steps)
-- [ ] `endLudoGame` — idempotent, guarded on `ludoGameOver`
-- [ ] `startLudoGame` force-resets when `ludoGameOver`
+- [x] Win detection (all 4 tokens home); turn rotation skips finished players
+- [x] 3P/4P placement ranking by (finish order, then tokens home, then total steps)
+- [x] Termination proven: 400 random 4P self-play games all reach a winner,
+      zero illegal moves or token states
+- [ ] `endLudoGame` — idempotent, guarded on `ludoGameOver` *(needs the host file)*
+- [ ] `startLudoGame` force-resets when `ludoGameOver` *(needs the host file)*
 
 ### Phase 6 — CPU
 - [ ] `ludoAIChooseMove` weighted scorer

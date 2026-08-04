@@ -112,13 +112,218 @@
     let ludoMode      = 'cpu2';   // cpu2 | pvp2 | pvp3 | pvp4
     let ludoDebugRing = false;    // harness-only: overlay ring indices
 
+    let ludoRoll       = 0;       // 0 = not rolled yet this turn
+    let ludoSixStreak  = 0;       // consecutive 6s by the player to move
+    let ludoGameOver   = false;
+    let ludoPlacements = [];      // colour indices, in finishing order
+    let ludoStats      = {};      // ci -> { captures, lost }
+
     function ludoResetTokens() {
         ludoTokens = [];
+        ludoStats  = {};
         ludoActive.forEach(ci => {
+            ludoStats[ci] = { captures: 0, lost: 0 };
             for (let i = 0; i < 4; i++) {
                 ludoTokens.push({ ci, i, step: -1, inBase: true, home: false });
             }
         });
+        ludoRoll       = 0;
+        ludoSixStreak  = 0;
+        ludoGameOver   = false;
+        ludoPlacements = [];
+    }
+
+    // ── Rules ──────────────────────────────────────────────────────────
+    // Read straight off userPreferences so the ⚙️ toggles take effect mid-match.
+    // Defaults match Ludo Star: blocks / three-sixes / exact-home on, free
+    // release off. `typeof` guard keeps the headless tests independent of the host.
+    function ludoRules() {
+        const P = (typeof userPreferences === 'object' && userPreferences) ? userPreferences : {};
+        return {
+            blocks:      P.ludoBlocks      !== false,
+            threeSixes:  P.ludoThreeSixes  !== false,
+            exactHome:   P.ludoExactHome   !== false,
+            freeRelease: P.ludoFreeRelease === true,
+        };
+    }
+
+    function ludoRollDice() {
+        return 1 + Math.floor(Math.random() * 6);
+    }
+
+    // Ring squares carrying 2+ tokens of one colour other than `forCi`.
+    // Counted per (colour, square) because two different colours may legitimately
+    // share a safe square — that pair is not a block.
+    function ludoBlockRings(forCi) {
+        const per = {};
+        ludoTokens.forEach(t => {
+            if (t.inBase || t.home || t.ci === forCi) return;
+            const ri = ludoStepToRing(t.ci, t.step);
+            if (ri < 0) return;
+            const k = t.ci + ':' + ri;
+            per[k] = (per[k] || 0) + 1;
+        });
+        const blocked = new Set();
+        Object.keys(per).forEach(k => {
+            if (per[k] >= 2) blocked.add(parseInt(k.split(':')[1], 10));
+        });
+        return blocked;
+    }
+
+    // Opponent tokens sitting on the square `ci` is about to land on. Empty on a
+    // ★/start square and anywhere off the shared ring — home columns are private.
+    function ludoCaptures(ci, to) {
+        if (to > 50) return [];
+        const ri = ludoStepToRing(ci, to);
+        if (LUDO_SAFE_RING.has(ri)) return [];
+        return ludoTokens.filter(t =>
+            t.ci !== ci && !t.inBase && !t.home && ludoStepToRing(t.ci, t.step) === ri);
+    }
+
+    // Every move `ci` may legally make with `roll`.
+    // { token, from, to, release, captures, finishes }
+    function ludoLegalMoves(ci, roll) {
+        if (!roll) return [];
+        const R = ludoRules();
+        const blocked = R.blocks ? ludoBlockRings(ci) : new Set();
+        const moves = [];
+
+        ludoTokens.forEach(t => {
+            if (t.ci !== ci || t.home) return;
+
+            let to;
+            if (t.inBase) {
+                if (roll !== 6 && !R.freeRelease) return;
+                to = 0;
+            } else {
+                to = t.step + roll;
+                if (to > LUDO_HOME_STEP) {
+                    if (R.exactHome) return;    // must land exactly on 56
+                    to = LUDO_HOME_STEP;        // otherwise an overshoot still finishes
+                }
+                // A block bars passage as well as landing. Only ring squares
+                // strictly after the current one and up to the destination count;
+                // home-column squares (>50) can never be blocked.
+                for (let s = t.step + 1; s <= Math.min(to, 50); s++) {
+                    if (blocked.has(ludoStepToRing(ci, s))) return;
+                }
+            }
+            if (to <= 50 && blocked.has(ludoStepToRing(ci, to))) return;
+
+            moves.push({
+                token: t, from: t.inBase ? -1 : t.step, to,
+                release:  !!t.inBase,
+                captures: to === LUDO_HOME_STEP ? [] : ludoCaptures(ci, to),
+                finishes: to === LUDO_HOME_STEP,
+            });
+        });
+        return moves;
+    }
+
+    // Commits a move and returns what it earned. Does not advance the turn.
+    function ludoApplyMove(move) {
+        const t  = move.token;
+        const ci = t.ci;
+
+        t.inBase = false;
+        t.step   = move.to;
+        t.home   = move.to === LUDO_HOME_STEP;
+
+        const caps = move.captures || [];
+        caps.forEach(o => {
+            o.inBase = true; o.step = -1; o.home = false;
+            if (ludoStats[o.ci]) ludoStats[o.ci].lost++;
+        });
+        if (ludoStats[ci]) ludoStats[ci].captures += caps.length;
+
+        // Record finishing order the first time a colour gets all four home.
+        if (t.home && ludoTokensHome(ci) === 4 && ludoPlacements.indexOf(ci) === -1) {
+            ludoPlacements.push(ci);
+        }
+        return { captured: caps.length, finished: t.home };
+    }
+
+    const ludoTokensHome = ci => ludoTokens.filter(t => t.ci === ci && t.home).length;
+
+    // A 6, a capture and getting a token home each grant another roll.
+    function ludoGrantsExtraTurn(roll, result) {
+        return roll === 6 || result.captured > 0 || result.finished;
+    }
+
+    function ludoAdvanceTurn() {
+        ludoSixStreak = 0;
+        ludoRoll = 0;
+        if (ludoActive.length === 0) return;
+        let guard = 0;
+        do {
+            ludoTurn = (ludoTurn + 1) % ludoActive.length;
+        } while (ludoTokensHome(ludoActive[ludoTurn]) === 4 && ++guard < ludoActive.length);
+    }
+
+    // The match is over as soon as only one player still has tokens to bring home
+    // (or, in 2P, as soon as the first player finishes).
+    function ludoCheckGameOver() {
+        const unfinished = ludoActive.filter(ci => ludoTokensHome(ci) < 4);
+        if (ludoPlacements.length === 0) return false;
+        return unfinished.length <= 1;
+    }
+
+    // ── Turn flow ──────────────────────────────────────────────────────
+    // Split out from the animation layer so it can be exercised headlessly.
+    // Call ludoRegisterRoll when the dice settles, then ludoFinishMove once the
+    // hop animation for the chosen move has completed.
+
+    function ludoRegisterRoll(ci, roll) {
+        const R = ludoRules();
+        ludoRoll      = roll;
+        ludoSixStreak = roll === 6 ? ludoSixStreak + 1 : 0;
+
+        // Third consecutive 6 forfeits the turn AND voids the roll — the player
+        // does not get to move on it.
+        if (R.threeSixes && ludoSixStreak >= 3) {
+            ludoRoll = 0;
+            ludoAdvanceTurn();
+            return { voided: true, moves: [] };
+        }
+
+        const moves = ludoLegalMoves(ci, roll);
+        if (moves.length === 0) {
+            // No legal move ends the turn even on a 6.
+            ludoRoll = 0;
+            ludoAdvanceTurn();
+            return { voided: false, passed: true, moves: [] };
+        }
+        return { voided: false, passed: false, moves };
+    }
+
+    function ludoFinishMove(roll, result) {
+        if (ludoCheckGameOver()) {
+            ludoGameOver = true;
+            ludoRoll = 0;
+            return { gameOver: true, extraTurn: false };
+        }
+        if (ludoGrantsExtraTurn(roll, result)) {
+            ludoRoll = 0;            // roll again; six streak deliberately preserved
+            return { gameOver: false, extraTurn: true };
+        }
+        ludoAdvanceTurn();
+        return { gameOver: false, extraTurn: false };
+    }
+
+    // Final standings: finishers in the order they finished, then everyone else
+    // ranked by tokens home, then by total distance travelled.
+    function ludoStandings() {
+        const rest = ludoActive
+            .filter(ci => ludoPlacements.indexOf(ci) === -1)
+            .map(ci => ({
+                ci,
+                home:  ludoTokensHome(ci),
+                steps: ludoTokens.filter(t => t.ci === ci)
+                                 .reduce((n, t) => n + Math.max(0, t.step), 0),
+            }))
+            .sort((a, b) => b.home - a.home || b.steps - a.steps)
+            .map(x => x.ci);
+        return ludoPlacements.concat(rest);
     }
 
     // ── Geometry helpers ───────────────────────────────────────────────

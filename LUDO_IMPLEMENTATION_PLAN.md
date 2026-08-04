@@ -414,15 +414,22 @@ board tables.
 - [ ] `startLudoGame` force-resets when `ludoGameOver` *(needs the host file)*
 
 ### Phase 6 — CPU
-- [ ] `ludoAIChooseMove` weighted scorer
-- [ ] Adaptive tier from `ludoRecord` win-rate (+ `games < 5` sample guard)
-- [ ] Tier locked at match start into `ludoCpuTier`, shown in HUD
-- [ ] easy / normal / hard degradations
+- [x] `ludoAIChooseMove` weighted scorer
+- [x] Adaptive tier from `ludoRecord` win-rate (+ `games < 5` sample guard);
+      boundaries asserted at 0.39/0.40 and 0.65/0.66
+- [x] easy / normal / hard degradations — `hard` alone applies the −60
+      enemy-range term (asserted as an exact 60-point delta on the same move)
+- [x] **Strength ordering measured, not assumed** — 600-game head-to-head:
+      hard beats easy 84.5%, normal beats easy 79.8%, hard edges normal 57.8%
+- [ ] Tier locked at match start into `ludoCpuTier`, shown in HUD *(needs the host file)*
 
 ### Phase 7 — Modes
-- [ ] `cycleLudoMode` — PvCPU-2P → PvP-2P → PvP-3P → PvP-4P
-- [ ] Active-colour sets per mode; inactive quadrants dimmed
-- [ ] Turn order = clockwise, skipping inactive colours
+- [x] `cycleLudoMode` — PvCPU-2P → PvP-2P → PvP-3P → PvP-4P, wrapping
+- [x] Active-colour sets per mode (`LUDO_MODE_COLORS`); 2P uses the diagonal
+      pair so both starts are 26 squares apart
+- [x] Turn order = clockwise, skipping inactive colours and finished players
+- [x] Switching mode fully resets tokens, placements, roll, streak and stats
+- [ ] Inactive quadrants dimmed *(renderer already does this — needs in-app confirmation)*
 
 ### Phase 8 — Panel wiring
 > Anchors below shift once the Ludo block lands — re-find by symbol name.

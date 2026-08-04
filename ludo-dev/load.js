@@ -20,6 +20,15 @@ module.exports = function load(prefs) {
             ludoTokensHome, ludoGrantsExtraTurn, ludoAdvanceTurn,
             ludoCheckGameOver, ludoStandings, ludoResetTokens,
             ludoRegisterRoll, ludoFinishMove,
+            ludoDifficultyTier, ludoUnderThreat, ludoScoreMove, ludoAIChooseMove,
+            LUDO_MODES, LUDO_MODE_COLORS, LUDO_MODE_LABEL, LUDO_HUMAN_CI,
+            ludoSetMode, cycleLudoMode, ludoIsCPUSeat,
+            get mode() { return ludoMode; },
+
+            ludoRender, ludoDrawBoard, ludoDrawTokens, ludoDrawHud, ludoTokenXY,
+            set debugRing(v) { ludoDebugRing = v; },
+            set message(v)   { ludoMessage = v; },
+            set cpuTier(v)   { ludoCpuTier = v; },
 
             get tokens()     { return ludoTokens; },
             get active()     { return ludoActive; },

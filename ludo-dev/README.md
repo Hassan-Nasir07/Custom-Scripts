@@ -7,11 +7,20 @@ Working area for the Ludo feature described in
 is slow. The engine is built and tested here first, then inserted into that file as one
 reviewed diff.
 
+```
+node ludo-dev/verify-all.js     # every suite — 237 assertions
+```
+
 | File | Purpose |
 |---|---|
 | `ludo-core.js` | The `// ═══ LUDO GAME ═══` block itself, written at the userscript's 4-space IIFE indent so it drops in verbatim. **This is the source of truth while building.** |
-| `ludo-verify.js` | `node ludo-dev/ludo-verify.js` — headless assertions over the board tables and rules. Exits non-zero on failure. |
-| `render-smoke.js` | `node ludo-dev/render-smoke.js` — drives `ludoRender()` against a recording 2D-context stub; catches typos and undefined refs without a browser. |
+| `load.js` | Evaluates `ludo-core.js` in a `Function` wrapper and exposes its internals plus test helpers (`place`, `tok`). The core has no exports of its own — this is what makes the same source both drop-in-able and testable. |
+| `verify-all.js` | Runs every suite below and prints one summary. Non-zero exit if any suite fails. |
+| `ludo-verify.js` | Board geometry — ring closure, corner turns, home columns, safe squares, quadrants. **78 assertions.** |
+| `rules-verify.js` | Dice fairness, legal moves, every rule toggle, capture/safe behaviour, turn flow, match resolution, plus 400 random self-play games. **75 assertions.** |
+| `ai-verify.js` | Difficulty tiers, scorer priorities, threat awareness, and a 600-game head-to-head proving the tiers are ordered by strength. **36 assertions.** |
+| `modes-verify.js` | Mode cycling, active colour sets, turn order, CPU seats, reset-on-switch. **38 assertions.** |
+| `render-smoke.js` | Drives `ludoRender()` against a recording 2D-context stub; catches typos and undefined refs without a browser. **10 assertions.** |
 | `ludo-harness.html` | Open directly in a browser. 368×368 canvas, mode buttons, ring-index overlay, and a step 0→56 token walk with a live cell/ring/safe-square trace. |
 
 ## Board geometry, in one paragraph

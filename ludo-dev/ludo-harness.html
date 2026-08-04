@@ -72,15 +72,9 @@ let userPreferences = {
 </script>
 <script src="ludo-core.js"></script>
 <script>
-const MODES = {
-    cpu2: [0, 2], pvp2: [0, 2], pvp3: [0, 1, 2], pvp4: [0, 1, 2, 3],
-};
-
+// Mode tables come from the core so the harness cannot drift from the game.
 function setMode(m) {
-    ludoMode   = m;
-    ludoActive = MODES[m].slice();
-    ludoTurn   = 0;
-    ludoResetTokens();
+    ludoSetMode(m);
     document.querySelectorAll('[data-mode]').forEach(b =>
         b.classList.toggle('on', b.dataset.mode === m));
     ludoRender();

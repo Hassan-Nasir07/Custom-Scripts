@@ -310,6 +310,103 @@
         return { gameOver: false, extraTurn: false };
     }
 
+    // ── Modes ──────────────────────────────────────────────────────────
+    // PvCPU is 2P only — the scorer is written against a single opponent.
+    // 2P uses the diagonal pair so neither side starts closer to the other.
+    const LUDO_MODES = ['cpu2', 'pvp2', 'pvp3', 'pvp4'];
+    const LUDO_MODE_COLORS = {
+        cpu2: [0, 2],
+        pvp2: [0, 2],
+        pvp3: [0, 1, 2],
+        pvp4: [0, 1, 2, 3],
+    };
+    const LUDO_MODE_LABEL = {
+        cpu2: 'PvCPU', pvp2: 'PvP 2P', pvp3: 'PvP 3P', pvp4: 'PvP 4P',
+    };
+
+    // In PvCPU the human is Blue and the CPU is Green.
+    const LUDO_HUMAN_CI = 0;
+    const ludoIsCPUSeat = ci => ludoMode === 'cpu2' && ci !== LUDO_HUMAN_CI;
+
+    function ludoSetMode(m) {
+        if (LUDO_MODE_COLORS[m] === undefined) return;
+        ludoMode   = m;
+        ludoActive = LUDO_MODE_COLORS[m].slice();
+        ludoTurn   = 0;
+        ludoResetTokens();
+    }
+
+    function cycleLudoMode() {
+        ludoSetMode(LUDO_MODES[(LUDO_MODES.indexOf(ludoMode) + 1) % LUDO_MODES.length]);
+        return ludoMode;
+    }
+
+    // ── CPU ────────────────────────────────────────────────────────────
+    // Difficulty adapts to the player's recorded win rate against the CPU, so a
+    // struggling player is eased off and a dominant one is pushed. Locked in at
+    // match start (ludoCpuTier) so it cannot shift mid-game.
+    function ludoDifficultyTier(rec) {
+        const wins = (rec && rec.wins) || 0, losses = (rec && rec.losses) || 0;
+        const games = wins + losses;
+        if (games < 5) return 'normal';        // too small a sample to judge
+        const rate = wins / games;
+        if (rate < 0.40) return 'easy';
+        if (rate <= 0.65) return 'normal';
+        return 'hard';
+    }
+
+    // Would landing on ring square `ri` put us within a single roll of an
+    // opponent sitting behind us? Only counts opponents that could actually
+    // reach it — one already past its gate turns inward instead.
+    function ludoUnderThreat(ci, ri) {
+        return ludoTokens.some(t => {
+            if (t.ci === ci || t.inBase || t.home) return false;
+            const ori = ludoStepToRing(t.ci, t.step);
+            if (ori < 0) return false;
+            const gap = (ri - ori + 52) % 52;
+            if (gap < 1 || gap > 6) return false;
+            return t.step + gap <= 50;
+        });
+    }
+
+    function ludoScoreMove(ci, move, tier) {
+        let s = 0;
+        if (move.captures.length) s += 120 * move.captures.length;
+        if (move.finishes)        s += 100;
+        if (move.release)         s += 30;
+        s += 0.4 * move.to;                       // general forward progress
+
+        if (move.to <= 50) {
+            const ri = ludoStepToRing(ci, move.to);
+            if (LUDO_SAFE_RING.has(ri)) s += 45;
+            const pairsUp = ludoTokens.some(t =>
+                t.ci === ci && t !== move.token && !t.inBase && !t.home &&
+                ludoStepToRing(t.ci, t.step) === ri);
+            if (pairsUp) s += 35;                 // forms a block
+
+            // Only 'hard' looks at what the move exposes; 'normal' plays the
+            // same priorities but blind to danger.
+            if (tier === 'hard' && !LUDO_SAFE_RING.has(ri) && ludoUnderThreat(ci, ri)) {
+                s -= 60;
+            }
+        }
+        return s;
+    }
+
+    function ludoAIChooseMove(ci, moves, tier) {
+        if (!moves || moves.length === 0) return null;
+        if (moves.length === 1) return moves[0];
+        if (tier === 'easy' && Math.random() < 0.70) {
+            return moves[Math.floor(Math.random() * moves.length)];
+        }
+        let best = moves[0], bestScore = -Infinity;
+        moves.forEach(m => {
+            const s = ludoScoreMove(ci, m, tier);
+            if (s > bestScore) { bestScore = s; best = m; }
+        });
+        return best;
+    }
+
     // Final standings: finishers in the order they finished, then everyone else
     // ranked by tokens home, then by total distance travelled.
     function ludoStandings() {

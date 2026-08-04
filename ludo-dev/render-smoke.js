@@ -1,50 +1,79 @@
 // Drives ludoRender() against a recording 2D-context stub so typos and
-// undefined references in the drawing code surface without a browser.
-const fs = require('fs');
+// undefined references in the drawing code surface without opening a browser.
 const calls = {};
 const rec = new Proxy({}, {
-  get: (_, k) => {
-    if (k === 'canvas') return { width: 368, height: 368 };
-    return (...a) => { calls[k] = (calls[k] || 0) + 1; };
-  },
-  set: (_, k, v) => { calls['set:' + k] = (calls['set:' + k] || 0) + 1; return true; },
+    get: (_, k) => {
+        if (k === 'canvas') return { width: 368, height: 368 };
+        return () => { calls[k] = (calls[k] || 0) + 1; };
+    },
+    set: (_, k) => { calls['set:' + k] = (calls['set:' + k] || 0) + 1; return true; },
 });
-global.document = { getElementById: id => id === 'ludo-canvas' ? { getContext: () => rec } : null };
-
-const src = fs.readFileSync('ludo-core.js', 'utf8');
-const api = new Function(src + `
-  return { ludoRender, ludoResetTokens, LUDO_COLORS, LUDO_HOME_STEP,
-           set active(v) { ludoActive = v; }, set turn(v) { ludoTurn = v; },
-           set debug(v) { ludoDebugRing = v; },
-           tokens: () => ludoTokens, place: (k, s, h) => {
-             const t = ludoTokens[k]; t.inBase = false; t.step = s; t.home = !!h; } };
-`)();
-
-let fails = 0;
-const t = (name, fn) => {
-  try { fn(); console.log('  \u2713 ' + name); }
-  catch (e) { fails++; console.log('  \u2717 ' + name + ' \u2014 ' + e.message); }
+// Must exist before ludoRender runs — it looks the canvas up by id.
+global.document = {
+    getElementById: id => (id === 'ludo-canvas' ? { getContext: () => rec } : null),
 };
 
-console.log('\n-- render smoke ------------------------------');
-[[0,2],[0,1,2],[0,1,2,3]].forEach(a => {
-  t(`renders with ${a.length} active players`, () => {
-    api.active = a; api.turn = 0; api.ludoResetTokens(); api.ludoRender();
-  });
+const load = require('./load');
+
+let pass = 0, fail = 0;
+const t = (name, fn) => {
+    try { fn(); pass++; console.log('  ✓ ' + name); }
+    catch (e) { fail++; console.log('  ✗ ' + name + ' — ' + e.message); }
+};
+
+console.log('\n── Render smoke ──────────────────────────────────');
+
+const L = load();
+
+['cpu2', 'pvp2', 'pvp3', 'pvp4'].forEach(m => {
+    t(`renders in ${m}`, () => { L.ludoSetMode(m); L.ludoRender(); });
 });
-t('renders with ring-index overlay on', () => { api.debug = true; api.ludoRender(); api.debug = false; });
-t('renders tokens on ring, home column and centre', () => {
-  api.active = [0,1,2,3]; api.ludoResetTokens();
-  api.place(0, 0); api.place(1, 50); api.place(2, 53); api.place(3, api.LUDO_HOME_STEP, true);
-  api.ludoRender();
+
+t('renders with the ring-index overlay on', () => {
+    L.debugRing = true; L.ludoRender(); L.debugRing = false;
 });
+
+t('renders a message banner and CPU tier', () => {
+    L.ludoSetMode('cpu2');
+    L.message = 'Three sixes — turn forfeited';
+    L.cpuTier = 'hard';
+    L.ludoRender();
+    L.message = '';
+});
+
+t('renders tokens in base, on the ring, in a home column and home', () => {
+    L.ludoSetMode('pvp4');
+    L.place(0, 0, 0); L.place(1, 0, 50); L.place(2, 0, 53); L.place(3, 0, 56);
+    L.ludoRender();
+});
+
 t('renders every step 0..56 for all four colours', () => {
-  api.active = [0,1,2,3];
-  for (let ci = 0; ci < 4; ci++) {
-    api.ludoResetTokens();
-    for (let s = 0; s <= 56; s++) { api.place(ci * 4, s, s === 56); api.ludoRender(); }
-  }
+    L.ludoSetMode('pvp4');
+    for (let ci = 0; ci < 4; ci++) {
+        L.ludoResetTokens();
+        for (let s = 0; s <= 56; s++) { L.place(ci, 0, s); L.ludoRender(); }
+    }
 });
-console.log(`\n  fill=${calls.fill} stroke=${calls.stroke} fillRect=${calls.fillRect} fillText=${calls.fillText} arc=${calls.arc}`);
-console.log(`  ${fails ? fails + ' FAILED' : 'all render paths clean'}\n`);
-process.exit(fails ? 1 : 0);
+
+t('every token position resolves to finite coordinates', () => {
+    L.ludoSetMode('pvp4');
+    for (let ci = 0; ci < 4; ci++) {
+        for (let s = -1; s <= 56; s++) {
+            const tk = L.place(ci, 0, s);
+            const p = L.ludoTokenXY(tk);
+            if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+                throw new Error(`ci=${ci} step=${s} → ${p.x},${p.y}`);
+            }
+        }
+    }
+});
+
+t('highlighting each seat in turn renders', () => {
+    L.ludoSetMode('pvp4');
+    for (let i = 0; i < 4; i++) { L.turn = i; L.ludoRender(); }
+});
+
+console.log(`\n  fill=${calls.fill} stroke=${calls.stroke} fillRect=${calls.fillRect} ` +
+            `fillText=${calls.fillText} arc=${calls.arc}`);
+console.log(`\n  ${pass} passed, ${fail} failed\n`);
+process.exit(fail ? 1 : 0);

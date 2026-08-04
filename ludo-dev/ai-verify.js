@@ -182,11 +182,26 @@ head('Tier strength ordering (head-to-head)');
             L.turn = g % 2;                  // alternate who starts
             let guard = 0;
             while (!L.gameOver && guard++ < 6000) {
-                const ci = L.active[L.turn];
-                const r  = L.ludoRegisterRoll(ci, L.ludoRollDice());
+                const ci   = L.active[L.turn];
+                const tier = ci === BLUE ? a : b;
+
+                // Accumulate the sequence: a 6 buys another die.
+                let r = L.ludoRegisterRoll(ci, L.ludoRollDice());
+                let rolls = 1;
+                while (r.rollAgain && rolls++ < L.LUDO_MAX_DICE + 1) {
+                    r = L.ludoRegisterRoll(ci, L.ludoRollDice());
+                }
                 if (r.voided || r.passed) continue;
-                const m = L.ludoAIChooseMove(ci, r.moves, ci === BLUE ? a : b);
-                L.ludoFinishMove(L.roll, L.ludoApplyMove(m));
+
+                // Then spend it, greediest move first.
+                let moves = r.moves, spends = 0;
+                while (moves.length && spends++ < 6) {
+                    const m = L.ludoAIChooseMove(ci, moves, tier);
+                    if (!m) break;
+                    const after = L.ludoFinishMove(L.ludoApplyMove(m));
+                    if (after.gameOver) break;
+                    moves = after.continueTurn ? after.moves : [];
+                }
             }
             if (L.ludoStandings()[0] === BLUE) blueWins++;
         }

@@ -7,7 +7,7 @@
 > Target file: [`AttendanceTimeCheckerPlus.js`](AttendanceTimeCheckerPlus.js) · 13,671 lines
 > Branch: `feat/ludo-game` (off `main` @ `efbf33d`)
 > Status: **Phases 0–7 complete** — the game is finished and playable standalone in
-> [`ludo-dev/`](ludo-dev/) (309 assertions green). `AttendanceTimeCheckerPlus.js` is
+> [`ludo-dev/`](ludo-dev/) (391 assertions green). `AttendanceTimeCheckerPlus.js` is
 > still untouched; Phases 8–11 are the integration.
 > Last updated: 2026-08-04
 
@@ -45,7 +45,7 @@ gate around [916](AttendanceTimeCheckerPlus.js#L916)).
 | CPU | **Adaptive difficulty** driven by recorded win-rate |
 | XP | **Performance-scaled** (placement + tokens home + captures) × difficulty × board-size |
 | Leaderboard 🎲 column | **CPU wins** (`ludoGamesWon`), mirroring Pool |
-| Turn UX | **Tap dice → tap token**, auto-play when only one legal move |
+| Turn UX | **Roll until a non-6 (dice accumulate) → tap a token → pick which banked die to spend**; auto-play when only one option |
 | Dice | **True random both sides** (`1 + floor(random*6)`), no bias, no pity timer |
 | Achievements | **3 new**: 🎲 Ludo Champion (100 CPU wins), 🛡️ Flawless (win, zero tokens lost), 🔥 Hunter (5 captures in a match) |
 
@@ -192,9 +192,12 @@ Implemented in full; the first three are toggleable in ⚙️ settings.
 
 - **Six to release** — token leaves base only on a 6 (`freeRelease` toggle, default
   off, allows any roll)
-- **Extra turn** on a 6, on a capture, and on landing a token home
+- **Dice accumulate** — a 6 buys another **roll**, not another turn. Nothing moves
+  until the sequence closes on a non-6, so a turn can hand you up to three values
+  (`6,6,5`) to spend across any tokens, in any order. `LUDO_MAX_DICE = 3` caps it.
+- **Another sequence** on a capture or on landing a token home
 - **`threeSixes`** (default on) — three consecutive 6s forfeits the turn and voids
-  the third roll
+  **the whole banked sequence**, which is the risk that balances accumulating
 - **`blocks`** (default on) — 2+ own tokens on one ring cell: opponents can neither
   land on nor pass through it
 - **`exactHome`** (default on) — exact roll required to reach step 56; otherwise
@@ -209,15 +212,26 @@ Implemented in full; the first three are toggleable in ⚙️ settings.
 
 ## Turn flow
 
-1. Turn starts → dice pulses; `LUDO_TURN_CLOCK = 20` begins counting down
-2. Tap dice → 600ms tumble animation (random faces) → settles on
-   `ludoRollDice() = 1 + Math.floor(Math.random() * 6)`
-3. Legal tokens get a bouncing ▼ marker + ghost preview of the destination
-4. Tap a token → it hops square-by-square (~90ms/square), then resolves
-   capture / home / extra-turn
-5. **0 legal moves** → "No moves" banner, auto-pass after 800ms.
-   **Exactly 1 legal move** → auto-plays after 400ms
-6. Clock expiry → auto-roll if unrolled, else auto-play the CPU-scorer's best move
+**Roll phase — bank the dice.**
+
+1. Turn starts → dice breathes; `LUDO_TURN_CLOCK = 20` begins counting down
+2. Tap dice → 620ms tumble → settles on `1 + Math.floor(Math.random() * 6)`
+3. **A 6 hands the dice straight back** and banks the value. Repeat until a non-6
+   or three dice. Three consecutive 6s forfeit the lot.
+4. The banked pool renders as bright dice between the player's chip and the dice
+
+**Spend phase — distribute the pool.**
+
+5. Every token that can use *any* banked value gets a gold glow + bouncing ▼
+6. Tap a token:
+   - **one** playable value → it moves immediately
+   - **several** → a popover opens on the token showing just those values; tap one
+7. The token hops square-by-square (95ms/square); that value leaves the pool
+8. Repeat until the pool is empty or nothing left is playable
+9. A capture or a token reaching home earns a **whole new sequence** — back to step 2
+10. **0 legal moves** → banner naming the roll (`Rolled 4 — need a 6`), pass after 850ms.
+    **Exactly 1** → auto-plays after 420ms
+11. Clock expiry → auto-roll if unrolled, else auto-play the CPU-scorer's best move
 
 Pointer input via a single `handleLudoPointerDown` (+ touch variant) that converts client
 coords using `rect.width / LUDO_CANVAS_W`, exactly as `handlePoolMouseDown` does (4079).
@@ -496,16 +510,16 @@ The script self-guards to one URL (43–48), so iterating in-place is slow.
 own [README](ludo-dev/README.md). One command:
 
 ```
-node ludo-dev/verify-all.js     # 309 assertions across 6 suites, non-zero exit on failure
+node ludo-dev/verify-all.js     # 391 assertions across 6 suites, non-zero exit on failure
 ```
 
 | Suite | Covers | Assertions |
 |---|---|---|
 | `ludo-verify.js` | Board geometry | 78 |
-| `rules-verify.js` | Dice, legal moves, rule toggles, turn flow, 400 self-play games | 75 |
+| `rules-verify.js` | Dice, legal moves, rule toggles, dice accumulation, pool spending, 400 self-play games | 103 |
 | `ai-verify.js` | Tiers, scorer, 600-game strength ordering | 36 |
 | `modes-verify.js` | Mode cycling, seats, turn order | 38 |
-| `ui-verify.js` | State machine, animation, clock, pointer input, anti-farm, XP | 72 |
+| `ui-verify.js` | State machine, animation, clock, pointer input, die-choice popover, recap, anti-farm, XP | 126 |
 | `render-smoke.js` | `ludoRender()` across all modes and steps | 10 |
 
 Plus `node ludo-dev/preview.js out.png <scenario>` to render the board to a PNG, and
@@ -572,4 +586,8 @@ doesn't re-derive it from the code.
 | **2026-08-04** | **Dice breathes instead of showing a "TAP" label** | The label did not fit in the strip without colliding with the board frame, and a pulsing scale is a clearer affordance anyway. |
 | **2026-08-04** | **Roll recap: last turn's faces as dimmed mini-dice beside their owner's chip** | *Reported by the user.* Rolling anything but a 6 with every token still in base passed the turn instantly, so the player never saw what they rolled. `ludoTurnRolls` accumulates faces and `ludoAdvanceTurn` snapshots them into `ludoRecap` — extra turns never reach `ludoAdvanceTurn`, so a 6-then-3 turn correctly recaps as both. The voided third six is recorded *before* the three-sixes check, so it still shows. Cleared in `ludoDoRoll`. The banner also names the number now. |
 | **2026-08-04** | **Player chip narrowed 122 → 88, CPU tier split to an 8px trailing label** | The recap needs to sit between the chip and the dice ring (centre ± 19) in 3P/4P where two players share a strip. 88px leaves a 6px gap either side. `CPU · normal` as one 11px string overflowed the chip and clipped. |
+| **2026-08-04** | **Dice ACCUMULATE: a 6 buys another roll, not another turn** | *Reported by the user.* Being forced to play a 6 the instant it was rolled removed all the tactics — you could not save it to release a second token. Now `ludoRegisterRoll` returns `rollAgain` on a 6 and banks the value in `ludoPool`; nothing moves until the sequence closes. Max `6,6,5`. `LUDO_MAX_DICE = 3` is what terminates the sequence when `threeSixes` is off. Three 6s forfeit the **whole banked pool**, which is the risk that pays for the extra flexibility. |
+| **2026-08-04** | **Extra turns now come only from a capture or a token reaching home** | Otherwise a 6 would pay twice — once as an extra die and again as an extra turn. `ludoGrantsExtraTurn(roll, result)` became `ludoEarnsAnotherRoll(result)`; `ludoFinishMove` lost its `roll` argument and returns `{ continueTurn, extraRoll }`. |
+| **2026-08-04** | **Tap a token → popover of that token's playable values** | With up to three distinct values banked, a tap is ambiguous. `ludoValuesForToken` filters the pool to what that token can legally spend: one value moves immediately, several open a popover anchored to the token. `ludoPopoverLayout()` is shared by the renderer and the hit-test so they cannot drift. |
+| **2026-08-04** | **Ghost previews suppressed while several distinct values are banked** | Three values × four tokens is up to a dozen ghost destinations. Ghosts now show only when one distinct value remains, or when a popover has narrowed it to one token; otherwise the glow and chevron carry it. |
 | **2026-08-04** | **`preview.js` — a from-scratch software rasterizer** | No `canvas`/`playwright`/`puppeteer` available and Node is 10.24, so the board could not otherwise be *seen*. It implements enough Canvas2D (transforms, arc/arcTo/ellipse paths, nonzero fill, strokes, gradients, a 3×5 bitmap font) to render real `ludoRender()` output to a PNG. Caught the turn-ring/frame collision and the muddy dim colours, neither of which any assertion would have found. |

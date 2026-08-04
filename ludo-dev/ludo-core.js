@@ -1,9 +1,9 @@
-﻿    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // ═══════════════════════════════════════════════════════════════════
     // LUDO GAME
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // 15Ã—15 grid, 20px cells â†’ a 300Ã—300 board centred in a 368Ã—368 canvas,
-    // leaving 34px HUD strips top and bottom. Everything is canvas-drawn so the
-    // â›¶ Max modal (which relocates only the <canvas>) keeps the whole UI.
+    // ═══════════════════════════════════════════════════════════════════
+    // 15×15 grid, 20px cells → a 300×300 board inside a 344×416 canvas,
+    // leaving 58px HUD strips top and bottom. Everything is canvas-drawn so the
+    // ⛶ Max modal (which relocates only the <canvas>) keeps the whole UI.
 
     const LUDO_GRID       = 15;
     const LUDO_CELL       = 20;
@@ -30,12 +30,12 @@
     // Built from segments rather than a 52-entry literal so the walk is legible
     // and each turn of the cross is checkable by eye.
     //
-    // NOTE: four consecutive pairs are DIAGONAL neighbours, not orthogonal â€”
-    // 4â†’5, 17â†’18, 30â†’31 and 43â†’44. That is correct: the track wraps around the
-    // outer corner of each 6Ã—6 base (e.g. (6,5)â†’(5,6) rounds Blue's corner at
+    // NOTE: four consecutive pairs are DIAGONAL neighbours, not orthogonal —
+    // 4→5, 17→18, 30→31 and 43→44. That is correct: the track wraps around the
+    // outer corner of each 6×6 base (e.g. (6,5)→(5,6) rounds Blue's corner at
     // (5,5)), which is how a physical Ludo board is laid out. Anything that
-    // walks the ring cell-by-cell â€” the hop animation especially â€” must tolerate
-    // a diagonal step and must not assume |Î”r|+|Î”c| === 1.
+    // walks the ring cell-by-cell — the hop animation especially — must tolerate
+    // a diagonal step and must not assume |Δr|+|Δc| === 1.
     const LUDO_RING = (() => {
         const seg = (r0, c0, r1, c1) => {
             const dr = Math.sign(r1 - r0), dc = Math.sign(c1 - c0);
@@ -45,26 +45,26 @@
             return out;
         };
         return [
-            ...seg( 6,  1,  6,  5),   //  0â€“4   Blue start, right along the left arm
-            ...seg( 5,  6,  0,  6),   //  5â€“10  up the top arm's left column
+            ...seg( 6,  1,  6,  5),   //  0–4   Blue start, right along the left arm
+            ...seg( 5,  6,  0,  6),   //  5–10  up the top arm's left column
             ...seg( 0,  7,  0,  7),   //  11    Red's gate
-            ...seg( 0,  8,  5,  8),   //  12â€“17 down the top arm's right column
-            ...seg( 6,  9,  6, 14),   //  18â€“23 right along the right arm's top row
+            ...seg( 0,  8,  5,  8),   //  12–17 down the top arm's right column
+            ...seg( 6,  9,  6, 14),   //  18–23 right along the right arm's top row
             ...seg( 7, 14,  7, 14),   //  24    Green's gate
-            ...seg( 8, 14,  8,  9),   //  25â€“30 left along the right arm's bottom row
-            ...seg( 9,  8, 14,  8),   //  31â€“36 down the bottom arm's right column
+            ...seg( 8, 14,  8,  9),   //  25–30 left along the right arm's bottom row
+            ...seg( 9,  8, 14,  8),   //  31–36 down the bottom arm's right column
             ...seg(14,  7, 14,  7),   //  37    Yellow's gate
-            ...seg(14,  6,  9,  6),   //  38â€“43 up the bottom arm's left column
-            ...seg( 8,  5,  8,  0),   //  44â€“49 left along the left arm's bottom row
+            ...seg(14,  6,  9,  6),   //  38–43 up the bottom arm's left column
+            ...seg( 8,  5,  8,  0),   //  44–49 left along the left arm's bottom row
             ...seg( 7,  0,  7,  0),   //  50    Blue's gate
             ...seg( 6,  0,  6,  0),   //  51    last square before Blue's start
         ];
     })();
 
-    // Turn order is clockwise: Blue(TL) â†’ Red(TR) â†’ Green(BR) â†’ Yellow(BL).
+    // Turn order is clockwise: Blue(TL) → Red(TR) → Green(BR) → Yellow(BL).
     // startIndex values are 13 apart, so every colour walks 51 shared squares
-    // (steps 0â€“50) and arrives at its own gate exactly one step before its home
-    // column â€” verified: (start + 50) % 52 is the gate cell for all four.
+    // (steps 0–50) and arrives at its own gate exactly one step before its home
+    // column — verified: (start + 50) % 52 is the gate cell for all four.
     const LUDO_COLORS = [
         {
             key: 'blue',  label: 'Blue',  hex: '#2196f3', deep: '#1565c0',
@@ -104,19 +104,26 @@
         },
     ];
 
-    // 4 start squares + 4 â˜… squares, each 8 past a start. No capture here.
+    // 4 start squares + 4 ★ squares, each 8 past a start. No capture here.
     const LUDO_SAFE_RING = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
 
-    // ringIndex â†’ colour index, for the four coloured start squares.
+    // ringIndex → colour index, for the four coloured start squares.
     const LUDO_START_OWNER = (() => {
         const m = {};
         LUDO_COLORS.forEach((col, ci) => { m[col.startIndex] = ci; });
         return m;
     })();
 
-    const LUDO_HOME_STEP = 56;   // 51 ring squares (0â€“50) + 5 home column (51â€“55) + centre
+    const LUDO_HOME_STEP = 56;   // 51 ring squares (0–50) + 5 home column (51–55) + centre
 
-    // â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Dice ACCUMULATE before anything moves: a 6 buys another roll, not another
+    // turn. A sequence therefore hands the player up to three values to spend
+    // however they choose — 6,6,5 can release two tokens and advance a third.
+    // Capped at 3: with threeSixes on the third 6 forfeits anyway, and with it
+    // off this cap is the only thing stopping the sequence running forever.
+    const LUDO_MAX_DICE = 3;
+
+    // ── State ──────────────────────────────────────────────────────────
     let ludoActive    = [0, 2];   // colour indices in play; default 2P diagonal
     let ludoTokens    = [];       // [{ ci, i, step, inBase, home }]
     let ludoTurn      = 0;        // index into ludoActive
@@ -138,6 +145,11 @@
     let ludoTurnRolls  = [];      // faces rolled so far this turn
     let ludoRecap      = null;    // { ci, faces } from the last completed turn
 
+    // Values rolled this sequence and not yet spent, and whether anything this
+    // turn (a capture or a token reaching home) has earned a fresh sequence.
+    let ludoPool       = [];
+    let ludoTurnEarned = false;
+
     function ludoResetTokens() {
         ludoTokens = [];
         ludoStats  = {};
@@ -153,10 +165,12 @@
         ludoPlacements = [];
         ludoTurnRolls  = [];
         ludoRecap      = null;
+        ludoPool       = [];
+        ludoTurnEarned = false;
     }
 
-    // â”€â”€ Rules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // Read straight off userPreferences so the âš™ï¸ toggles take effect mid-match.
+    // ── Rules ──────────────────────────────────────────────────────────
+    // Read straight off userPreferences so the ⚙️ toggles take effect mid-match.
     // Defaults match Ludo Star: blocks / three-sixes / exact-home on, free
     // release off. `typeof` guard keeps the headless tests independent of the host.
     function ludoRules() {
@@ -175,7 +189,7 @@
 
     // Ring squares carrying 2+ tokens of one colour other than `forCi`.
     // Counted per (colour, square) because two different colours may legitimately
-    // share a safe square â€” that pair is not a block.
+    // share a safe square — that pair is not a block.
     function ludoBlockRings(forCi) {
         const per = {};
         ludoTokens.forEach(t => {
@@ -193,7 +207,7 @@
     }
 
     // Opponent tokens sitting on the square `ci` is about to land on. Empty on a
-    // â˜…/start square and anywhere off the shared ring â€” home columns are private.
+    // ★/start square and anywhere off the shared ring — home columns are private.
     function ludoCaptures(ci, to) {
         if (to > 50) return [];
         const ri = ludoStepToRing(ci, to);
@@ -262,23 +276,57 @@
         if (t.home && ludoTokensHome(ci) === 4 && ludoPlacements.indexOf(ci) === -1) {
             ludoPlacements.push(ci);
         }
+        // Spend the die this move used. Moves built by ludoLegalMoves alone
+        // carry no value, so direct callers (tests) are unaffected.
+        if (move.value) ludoConsumeValue(move.value);
         return { captured: caps.length, finished: t.home };
     }
 
     const ludoTokensHome = ci => ludoTokens.filter(t => t.ci === ci && t.home).length;
 
-    // A 6, a capture and getting a token home each grant another roll.
-    function ludoGrantsExtraTurn(roll, result) {
-        return roll === 6 || result.captured > 0 || result.finished;
+    // ── Dice pool ──────────────────────────────────────────────────────
+    // Every legal (token, value) pair across the distinct values still unspent.
+    // Each move carries the value it would consume.
+    function ludoPoolMoves(ci) {
+        const seen = {}, out = [];
+        ludoPool.forEach(v => {
+            if (seen[v]) return;
+            seen[v] = true;
+            ludoLegalMoves(ci, v).forEach(m => { m.value = v; out.push(m); });
+        });
+        return out;
+    }
+
+    // Which unspent values this particular token could legally use. Drives the
+    // tap-a-token popover.
+    function ludoValuesForToken(ci, token) {
+        const out = [];
+        ludoPoolMoves(ci).forEach(m => {
+            if (m.token === token && out.indexOf(m.value) === -1) out.push(m.value);
+        });
+        return out.sort((a, b) => a - b);
+    }
+
+    function ludoConsumeValue(v) {
+        const i = ludoPool.indexOf(v);
+        if (i !== -1) ludoPool.splice(i, 1);
+    }
+
+    // A 6 no longer grants an extra turn — it granted an extra die back in the
+    // roll phase. Only a capture or a token reaching home buys a fresh sequence.
+    function ludoEarnsAnotherRoll(result) {
+        return !!(result && (result.captured > 0 || result.finished));
     }
 
     function ludoAdvanceTurn() {
         // The turn is handing over, so freeze what this player rolled. Extra
-        // turns never reach here, which is why a 6-then-3 turn recaps as both.
+        // sequences never reach here, which is why a 6,6,5 turn recaps as all three.
         if (ludoActive.length && ludoTurnRolls.length) {
             ludoRecap = { ci: ludoActive[ludoTurn], faces: ludoTurnRolls.slice() };
         }
-        ludoTurnRolls = [];
+        ludoTurnRolls  = [];
+        ludoPool       = [];
+        ludoTurnEarned = false;
 
         ludoSixStreak = 0;
         ludoRoll = 0;
@@ -297,53 +345,84 @@
         return unfinished.length <= 1;
     }
 
-    // â”€â”€ Turn flow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Turn flow ──────────────────────────────────────────────────────
     // Split out from the animation layer so it can be exercised headlessly.
     // Call ludoRegisterRoll when the dice settles, then ludoFinishMove once the
     // hop animation for the chosen move has completed.
 
+    // Banks the settled face. Returns one of:
+    //   { rollAgain } — it was a 6, so roll once more before moving anything
+    //   { voided }    — three sixes; the whole sequence is forfeited
+    //   { passed }    — nothing in the pool can be played, turn handed over
+    //   { moves }     — the pool is final, here is everything playable
     function ludoRegisterRoll(ci, roll) {
         const R = ludoRules();
-        ludoRoll      = roll;
+        const done = (extra) => Object.assign(
+            { voided: false, rollAgain: false, passed: false, moves: [] }, extra);
+
+        ludoRoll = roll;
         // Recorded before the three-sixes check so the voided third 6 still
         // shows up in the recap — it was rolled, it just did not count.
         ludoTurnRolls.push(roll);
         ludoSixStreak = roll === 6 ? ludoSixStreak + 1 : 0;
 
-        // Third consecutive 6 forfeits the turn AND voids the roll â€” the player
-        // does not get to move on it.
+        // Three consecutive 6s forfeit the whole sequence, including any values
+        // already banked. That is the risk that balances accumulating.
         if (R.threeSixes && ludoSixStreak >= 3) {
+            ludoPool = [];
             ludoRoll = 0;
             ludoAdvanceTurn();
-            return { voided: true, moves: [] };
+            return done({ voided: true });
         }
 
-        const moves = ludoLegalMoves(ci, roll);
+        ludoPool.push(roll);
+
+        // A 6 buys another die rather than forcing an immediate move.
+        if (roll === 6 && ludoPool.length < LUDO_MAX_DICE) {
+            return done({ rollAgain: true });
+        }
+
+        const moves = ludoPoolMoves(ci);
         if (moves.length === 0) {
-            // No legal move ends the turn even on a 6.
+            ludoPool = [];
             ludoRoll = 0;
             ludoAdvanceTurn();
-            return { voided: false, passed: true, moves: [] };
+            return done({ passed: true });
         }
-        return { voided: false, passed: false, moves };
+        return done({ moves });
     }
 
-    function ludoFinishMove(roll, result) {
+    // Called once a move has been committed. Decides whether the player keeps
+    // spending the pool, earns a fresh sequence, or hands over.
+    function ludoFinishMove(result) {
+        if (ludoEarnsAnotherRoll(result)) ludoTurnEarned = true;
+
         if (ludoCheckGameOver()) {
             ludoGameOver = true;
+            ludoPool = [];
             ludoRoll = 0;
-            return { gameOver: true, extraTurn: false };
+            return { gameOver: true, continueTurn: false, extraRoll: false, moves: [] };
         }
-        if (ludoGrantsExtraTurn(roll, result)) {
-            ludoRoll = 0;            // roll again; six streak deliberately preserved
-            return { gameOver: false, extraTurn: true };
+
+        const moves = ludoPool.length ? ludoPoolMoves(ludoActive[ludoTurn]) : [];
+        if (moves.length) {
+            return { gameOver: false, continueTurn: true, extraRoll: false, moves };
+        }
+
+        // Pool spent, or whatever is left of it is unplayable.
+        ludoPool = [];
+        ludoRoll = 0;
+        if (ludoTurnEarned) {
+            ludoTurnEarned = false;
+            ludoSixStreak  = 0;      // a captured-into sequence starts clean
+            return { gameOver: false, continueTurn: false, extraRoll: true, moves: [] };
         }
         ludoAdvanceTurn();
-        return { gameOver: false, extraTurn: false };
+        return { gameOver: false, continueTurn: false, extraRoll: false, moves: [] };
     }
 
-    // â”€â”€ Modes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // PvCPU is 2P only â€” the scorer is written against a single opponent.
+    // ── Modes ──────────────────────────────────────────────────────────
+    // PvCPU is 2P only — the scorer is written against a single opponent.
     // 2P uses the diagonal pair so neither side starts closer to the other.
     const LUDO_MODES = ['cpu2', 'pvp2', 'pvp3', 'pvp4'];
     const LUDO_MODE_COLORS = {
@@ -373,7 +452,7 @@
         return ludoMode;
     }
 
-    // â”€â”€ CPU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── CPU ────────────────────────────────────────────────────────────
     // Difficulty adapts to the player's recorded win rate against the CPU, so a
     // struggling player is eased off and a dominant one is pushed. Locked in at
     // match start (ludoCpuTier) so it cannot shift mid-game.
@@ -389,7 +468,7 @@
 
     // Would landing on ring square `ri` put us within a single roll of an
     // opponent sitting behind us? Only counts opponents that could actually
-    // reach it â€” one already past its gate turns inward instead.
+    // reach it — one already past its gate turns inward instead.
     function ludoUnderThreat(ci, ri) {
         return ludoTokens.some(t => {
             if (t.ci === ci || t.inBase || t.home) return false;
@@ -455,7 +534,7 @@
         return ludoPlacements.concat(rest);
     }
 
-    // ── Step → board cell ──────────────────────────────────────────────
+    // -- Step ? board cell ----------------------------------------------
     // Pure position logic, kept here because the rules engine depends on it.
     // Everything pixel-based lives in ludo-ui.js.
 
@@ -468,7 +547,7 @@
         return null;                                                   // home
     }
 
-    // step → ring index, or -1 when off the shared ring (base/home column/home).
+    // step ? ring index, or -1 when off the shared ring (base/home column/home).
     function ludoStepToRing(ci, step) {
         if (step < 0 || step > 50) return -1;
         return (LUDO_COLORS[ci].startIndex + step) % 52;

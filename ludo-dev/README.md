@@ -8,7 +8,7 @@ is slow. The engine is built and tested here first, then inserted into that file
 reviewed diff.
 
 ```
-node ludo-dev/verify-all.js              # every suite — 324 assertions
+node ludo-dev/verify-all.js              # every suite — 391 assertions
 node ludo-dev/preview.js out.png fourplayer   # render a PNG of the board
 start ludo-dev/ludo-harness.html         # play it
 ```
@@ -30,7 +30,7 @@ modal relocates only the `<canvas>`, so a DOM HUD would disappear inside it.
 | `load.js` | Evaluates core + UI in a `Function` wrapper and exposes their internals plus test helpers (`place`, `tok`, `forceDice`). Neither source file has exports of its own — this is what makes the same code both drop-in-able and testable. |
 | `canvas-stub.js` | Recording stand-in for `CanvasRenderingContext2D`; returns usable objects from `createLinearGradient` and `measureText` so draw code runs to completion. |
 | `verify-all.js` | Runs every suite and prints one summary. Non-zero exit if any fails. |
-| `preview.js` | Software rasterizer — renders the real `ludoRender()` output to a PNG with no native dependencies, so layout can be inspected without a browser. Scenarios: `fresh`, `midgame`, `fourplayer`, `gameover`, `rolling`, `recap`, `recap4p`. |
+| `preview.js` | Software rasterizer — renders the real `ludoRender()` output to a PNG with no native dependencies, so layout can be inspected without a browser. Scenarios: `fresh`, `midgame`, `fourplayer`, `gameover`, `rolling`, `recap`, `recap4p`, `pool`. |
 | `ludo-harness.html` | The playable harness. Mimics the widget's ~330px game column, with mode/play/reset controls, live rule toggles, a state readout, ring-index overlay, a 0→56 token walk, a dice histogram and CPU-vs-CPU auto-play. |
 
 ### Suites
@@ -38,10 +38,10 @@ modal relocates only the `<canvas>`, so a DOM HUD would disappear inside it.
 | Suite | Covers | Assertions |
 |---|---|---|
 | `ludo-verify.js` | Board geometry — ring closure, corner turns, home columns, safe squares, quadrants | 78 |
-| `rules-verify.js` | Dice fairness, legal moves, every rule toggle, capture/safe behaviour, turn flow, match resolution, 400 random self-play games | 75 |
+| `rules-verify.js` | Dice fairness, legal moves, every rule toggle, capture/safe behaviour, dice accumulation, pool spending, match resolution, 400 random self-play games | 103 |
 | `ai-verify.js` | Difficulty tiers, scorer priorities, threat awareness, 600-game head-to-head strength ordering | 36 |
 | `modes-verify.js` | Mode cycling, active colour sets, turn order, CPU seats, reset-on-switch | 38 |
-| `ui-verify.js` | Turn state machine, dice tumble, hop animation, turn clock, scale-aware pointer input, roll recap, anti-farm guards, XP maths | 87 |
+| `ui-verify.js` | Turn state machine, dice tumble, hop animation, turn clock, scale-aware pointer input, die-choice popover, roll recap, anti-farm guards, XP maths | 126 |
 | `render-smoke.js` | `ludoRender()` across every mode and all 57 steps × 4 colours | 10 |
 
 `ui-verify.js` simulates time by pumping `ludoUpdate(dt)` instead of waiting on real

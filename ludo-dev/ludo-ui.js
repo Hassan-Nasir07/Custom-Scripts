@@ -31,6 +31,7 @@
     let ludoBanner     = null;     // { text, ttl, tone }
     let ludoPending    = null;     // { ms, fn } — loop-driven timer, see ludoAfter
     let ludoRenderPos  = new Map();// token -> drawn position, for hit-testing
+    let ludoPopover    = null;     // { token } — which die to spend on that token
     let ludoAwarded    = false;    // endLudoGame idempotency guard
     let ludoStarted    = false;
     let ludoCanvasEl   = null;
@@ -363,6 +364,72 @@
         ctx.restore();
     }
 
+    // ── Die-choice popover ─────────────────────────────────────────────
+    // With more than one value unspent, tapping a token asks which die to
+    // spend on it. One layout function serves both the draw and the hit-test,
+    // so they cannot drift apart.
+    const LUDO_POP_D   = 22;
+    const LUDO_POP_GAP = 5;
+    const LUDO_POP_PAD = 5;
+
+    function ludoPopoverLayout() {
+        if (!ludoPopover) return null;
+        const values = ludoValuesForToken(ludoPopover.token.ci, ludoPopover.token);
+        if (values.length < 2) return null;
+
+        const n = values.length;
+        const w = n * LUDO_POP_D + (n - 1) * LUDO_POP_GAP + LUDO_POP_PAD * 2;
+        const h = LUDO_POP_D + LUDO_POP_PAD * 2;
+        const p = ludoRenderPos.get(ludoPopover.token) || ludoTokenXY(ludoPopover.token);
+
+        let y = p.y - LUDO_CELL * 0.7 - h;
+        if (y < LUDO_BOARD_Y + 2) y = p.y + LUDO_CELL * 0.7;   // flip below near the top edge
+        const x = Math.max(LUDO_BOARD_X + 2,
+                  Math.min(p.x - w / 2, LUDO_BOARD_X + LUDO_BOARD - w - 2));
+
+        return {
+            x, y, w, h, values,
+            cells: values.map((v, i) => ({
+                value: v,
+                x: x + LUDO_POP_PAD + i * (LUDO_POP_D + LUDO_POP_GAP) + LUDO_POP_D / 2,
+                y: y + LUDO_POP_PAD + LUDO_POP_D / 2,
+            })),
+        };
+    }
+
+    function ludoDrawPopover(ctx) {
+        const L = ludoPopoverLayout();
+        if (!L) return;
+        const anchor = ludoRenderPos.get(ludoPopover.token) || ludoTokenXY(ludoPopover.token);
+
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.55)';
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = 'rgba(14,19,38,0.96)';
+        ludoRoundRect(ctx, L.x, L.y, L.w, L.h, 8);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = LUDO_COLORS[ludoPopover.token.ci].hex;
+        ctx.lineWidth = 1.5;
+        ludoRoundRect(ctx, L.x, L.y, L.w, L.h, 8);
+        ctx.stroke();
+
+        // Little tail pointing at the token it belongs to.
+        const below = L.y > anchor.y;
+        const ty = below ? L.y : L.y + L.h;
+        const tx = Math.max(L.x + 8, Math.min(anchor.x, L.x + L.w - 8));
+        ctx.beginPath();
+        ctx.moveTo(tx - 5, ty);
+        ctx.lineTo(tx + 5, ty);
+        ctx.lineTo(tx, ty + (below ? -5 : 5));
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(14,19,38,0.96)';
+        ctx.fill();
+
+        L.cells.forEach(c => ludoDrawMiniDie(ctx, c.x, c.y, LUDO_POP_D, c.value, true));
+        ctx.restore();
+    }
+
     // Bouncing chevron over a token that can legally move.
     function ludoDrawMarker(ctx, x, y) {
         const bob = Math.sin(ludoPulse * 6) * 2.2;
@@ -383,9 +450,16 @@
     function ludoDrawTokens(ctx) {
         ludoRenderPos = ludoComputeLayout();
 
-        // Ghost preview of where each legal move would land.
+        // Ghost previews. With three unspent dice and four tokens there can be
+        // a dozen destinations, so only show them when the choice is narrow:
+        // one die left, or a token already picked. Otherwise the glow and the
+        // chevron are enough to say which tokens can move at all.
         if (ludoPhase === 'awaitMove') {
-            ludoLegal.forEach(m => {
+            const distinct = ludoPool.filter((v, i) => ludoPool.indexOf(v) === i).length;
+            const ghosts = ludoPopover
+                ? ludoLegal.filter(m => m.token === ludoPopover.token)
+                : (distinct <= 1 ? ludoLegal : []);
+            ghosts.forEach(m => {
                 const p = ludoPosForStep(m.token.ci, m.token.i, m.to);
                 ludoDrawToken(ctx, p.x, p.y, m.token.ci, { ghost: true, scale: 0.9 });
             });
@@ -560,18 +634,24 @@
         }
     }
 
-    // Small greyed-out die used only for the recap, so it never reads as live.
-    // Pips need real contrast at this size — a grey face with near-black pips
+    // Small die used for the unspent pool (bright) and the recap (dimmed).
+    // Pips need real contrast at this size — a pale face with near-black pips
     // stays countable where a low global alpha turned them to mush.
-    function ludoDrawMiniDie(ctx, cx, cy, size, face) {
+    function ludoDrawMiniDie(ctx, cx, cy, size, face, bright) {
         const half = size / 2;
         ctx.save();
-        ctx.globalAlpha = 0.78;
+        ctx.globalAlpha = bright ? 1 : 0.78;
+        if (bright) {
+            ctx.shadowColor = 'rgba(255,206,64,0.55)';
+            ctx.shadowBlur = 5;
+        }
         ludoRoundRect(ctx, cx - half, cy - half, size, size, size * 0.24);
-        ctx.fillStyle = '#c6cde4';
+        ctx.fillStyle = bright ? '#ffffff' : '#c6cde4';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.34)';
-        ctx.lineWidth = 1;
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = bright ? '#ffce40' : 'rgba(255,255,255,0.34)';
+        ctx.lineWidth = bright ? 1.5 : 1;
+        ludoRoundRect(ctx, cx - half, cy - half, size, size, size * 0.24);
         ctx.stroke();
         const pr = Math.max(1.05, half * 0.235), sp = half * 0.50;
         ctx.fillStyle = '#141a2e';
@@ -581,6 +661,27 @@
             ctx.fill();
         });
         ctx.restore();
+    }
+
+    // Unspent dice for the player to move, parked between their chip and the
+    // live dice. Sits on the current player's own side, and the recap sits on
+    // its owner's side — those are always different seats, so they never clash.
+    function ludoDrawPool(ctx, strip) {
+        if (!ludoStarted || ludoPhase === 'over' || !ludoPool.length) return;
+        const cur  = ludoCurrentCi();
+        const seat = LUDO_SEATS[cur];
+        if (seat.strip !== strip) return;
+
+        const D = 15, GAP = 2;
+        const w  = ludoPool.length * D + (ludoPool.length - 1) * GAP;
+        const y0 = strip === 'top' ? 0 : LUDO_CANVAS_H - LUDO_STRIP_H;
+        const cy = y0 + LUDO_STRIP_H / 2;
+        const x0 = seat.side === 'left'
+            ? ludoChipX('left') + LUDO_CHIP_W + LUDO_RECAP_GAP
+            : ludoChipX('right') - LUDO_RECAP_GAP - w;
+
+        ludoPool.forEach((v, k) =>
+            ludoDrawMiniDie(ctx, x0 + k * (D + GAP) + D / 2, cy, D, v, true));
     }
 
     // What the previous player rolled, parked beside their own chip. Cleared
@@ -620,6 +721,7 @@
             });
 
             ludoDrawRecap(ctx, strip);
+            ludoDrawPool(ctx, strip);
 
             if (strip === curStrip) {
                 const cx = LUDO_CANVAS_W / 2, cy = y0 + LUDO_STRIP_H / 2;
@@ -726,6 +828,7 @@
         ctx.clearRect(0, 0, LUDO_CANVAS_W, LUDO_CANVAS_H);
         ludoDrawBoard(ctx);
         ludoDrawTokens(ctx);
+        ludoDrawPopover(ctx);
         ludoDrawHud(ctx);
         ludoDrawIdle(ctx);
         ludoDrawGameOver(ctx);
@@ -737,13 +840,36 @@
         ludoBanner = { text, tone: tone || 'info', ttl: ms || 900 };
     }
 
+    // Also used to start a follow-up sequence (after a 6, or after a capture),
+    // neither of which advances the turn — that is core's job.
     function ludoBeginTurn() {
         if (ludoPhase === 'over') return;
         ludoPhase    = 'awaitRoll';
         ludoTurnLeft = LUDO_TURN_CLOCK;
         ludoLegal    = [];
         ludoHop      = null;
+        ludoPopover  = null;
         if (ludoIsCPUSeat(ludoCurrentCi())) ludoAfter(LUDO_CPU_THINK_MS, ludoDoRoll);
+    }
+
+    // CPU spends the pool greedily; a human with exactly one option gets it
+    // played for them. Otherwise we wait for a tap.
+    function ludoAwaitMove(moves) {
+        ludoLegal   = moves;
+        ludoPhase   = 'awaitMove';
+        ludoPopover = null;
+
+        const ci = ludoCurrentCi();
+        if (ludoIsCPUSeat(ci)) {
+            ludoAfter(LUDO_CPU_THINK_MS, () => {
+                const m = ludoAIChooseMove(ci, ludoLegal, ludoCpuTier);
+                if (m) ludoPlayMove(m);
+            });
+        } else if (ludoLegal.length === 1) {
+            ludoAfter(LUDO_AUTOPLAY_MS, () => {
+                if (ludoPhase === 'awaitMove' && ludoLegal.length === 1) ludoPlayMove(ludoLegal[0]);
+            });
+        }
     }
 
     function ludoDoRoll() {
@@ -763,30 +889,28 @@
             ludoAfter(LUDO_PASS_MS, ludoBeginTurn);
             return;
         }
+        // A 6 banks a die and hands the dice straight back.
+        if (res.rollAgain) {
+            ludoSay('Six — roll again', 'good', 700);
+            ludoBeginTurn();
+            return;
+        }
         if (res.passed) {
-            // Name the number. "No moves" alone left the player guessing what
-            // they had rolled, which is the whole complaint the recap fixes.
+            // Name the numbers. "No moves" alone left the player guessing what
+            // they had rolled, which is the complaint the recap fixes.
             const stuck = ludoTokens.filter(t => t.ci === ci).every(t => t.inBase || t.home);
+            // Read the faces off the recap: the pass path already advanced the
+            // turn, which clears ludoTurnRolls into exactly that snapshot.
+            const faces = (ludoRecap && ludoRecap.ci === ci && ludoRecap.faces.length)
+                ? ludoRecap.faces : [ludoDiceFace];
+            const rolled = faces.slice(-LUDO_MAX_DICE).join(', ');
             ludoSay(stuck && ludoDiceFace !== 6
-                ? `Rolled ${ludoDiceFace} — need a 6`
-                : `Rolled ${ludoDiceFace} — no moves`, 'info', LUDO_PASS_MS);
+                ? `Rolled ${rolled} — need a 6`
+                : `Rolled ${rolled} — no moves`, 'info', LUDO_PASS_MS);
             ludoAfter(LUDO_PASS_MS, ludoBeginTurn);
             return;
         }
-
-        ludoLegal = res.moves;
-        ludoPhase = 'awaitMove';
-
-        if (ludoIsCPUSeat(ci)) {
-            ludoAfter(LUDO_CPU_THINK_MS, () => {
-                const m = ludoAIChooseMove(ci, ludoLegal, ludoCpuTier);
-                if (m) ludoPlayMove(m);
-            });
-        } else if (ludoLegal.length === 1) {
-            ludoAfter(LUDO_AUTOPLAY_MS, () => {
-                if (ludoPhase === 'awaitMove' && ludoLegal.length === 1) ludoPlayMove(ludoLegal[0]);
-            });
-        }
+        ludoAwaitMove(res.moves);
     }
 
     function ludoPlayMove(move) {
@@ -796,27 +920,29 @@
         if (move.release) path.push(0);
         else for (let s = move.from + 1; s <= move.to; s++) path.push(s);
 
-        ludoPhase = 'moving';
-        ludoLegal = [];
-        ludoHop   = { move, path, idx: 0, t: 0 };
+        ludoPhase   = 'moving';
+        ludoLegal   = [];
+        ludoPopover = null;
+        ludoHop     = { move, path, idx: 0, t: 0 };
     }
 
     function ludoCompleteMove() {
         const move = ludoHop.move;
-        const roll = ludoRoll;
         ludoHop = null;
 
-        const result = ludoApplyMove(move);
-        if (result.captured) ludoSay('Captured!', 'good', 800);
-        else if (result.finished) ludoSay('Home!', 'good', 800);
+        const result = ludoApplyMove(move);        // also spends move.value
+        const after  = ludoFinishMove(result);
 
-        const after = ludoFinishMove(roll, result);
         if (after.gameOver) {
             ludoPhase = 'over';
             endLudoGame();
             return;
         }
-        if (after.extraTurn && !result.captured && !result.finished) ludoSay('Roll again', 'info', 700);
+        if (result.captured)      ludoSay(after.extraRoll ? 'Captured — roll again' : 'Captured!', 'good', 850);
+        else if (result.finished) ludoSay(after.extraRoll ? 'Home — roll again' : 'Home!', 'good', 850);
+
+        // Still holding dice: keep spending without re-rolling.
+        if (after.continueTurn) { ludoAwaitMove(after.moves); return; }
         ludoBeginTurn();
     }
 
@@ -914,17 +1040,40 @@
         }
         if (ludoPhase !== 'awaitMove') return;
 
-        // Nearest legal token within a cell's reach wins, so near-misses still register.
+        // An open popover owns the next tap: either it picks a die, or it closes.
+        if (ludoPopover) {
+            const L = ludoPopoverLayout();
+            const r = LUDO_POP_D / 2 + 3;
+            const hit = L && L.cells.filter(c =>
+                Math.abs(p.x - c.x) <= r && Math.abs(p.y - c.y) <= r)[0];
+            const token = ludoPopover.token;
+            ludoPopover = null;
+            if (hit) {
+                const m = ludoLegal.filter(x => x.token === token && x.value === hit.value)[0];
+                if (m) { if (e.preventDefault) e.preventDefault(); ludoPlayMove(m); }
+                return;
+            }
+            // fall through — a tap outside dismisses, and may select another token
+        }
+
+        // Nearest movable token within a cell's reach wins, so near-misses still register.
         let best = null, bestD = 15 * 15;
         ludoLegal.forEach(m => {
             const rp = ludoRenderPos.get(m.token);
             if (!rp) return;
-            const d = (rp.x - p.x) ** 2 + (rp.y - p.y) ** 2;
-            if (d < bestD) { bestD = d; best = m; }
+            const d = (rp.x - p.x) * (rp.x - p.x) + (rp.y - p.y) * (rp.y - p.y);
+            if (d < bestD) { bestD = d; best = m.token; }
         });
-        if (best) {
-            if (e.preventDefault) e.preventDefault();
-            ludoPlayMove(best);
+        if (!best) return;
+        if (e.preventDefault) e.preventDefault();
+
+        // One playable die for this token → just move. More than one → ask.
+        const values = ludoValuesForToken(best.ci, best);
+        if (values.length <= 1) {
+            const m = ludoLegal.filter(x => x.token === best)[0];
+            if (m) ludoPlayMove(m);
+        } else {
+            ludoPopover = { token: best };
         }
     }
 

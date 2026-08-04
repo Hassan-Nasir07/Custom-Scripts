@@ -414,6 +414,20 @@ if (scenario === 'fresh') {
     L.place(0, 0, 12);
     L.recap = { ci: 0, faces: [6, 6, 6] };
     L.turn = 1;
+} else if (scenario === 'pool') {
+    // 6,6,5 banked, one token out, popover open on it.
+    L.ludoSetMode('cpu2');
+    L.startLudoGame();
+    L.place(0, 0, 12);
+    L.place(2, 0, 20);
+    [6, 6, 5].forEach(f => {
+        load.forceDice(f);
+        L.ludoDoRoll();
+        pump(L.LUDO_DICE_MS + 40);
+    });
+    load.restoreDice();
+    L.ludoRender();                       // populate renderPos for the anchor
+    L.popover = { token: L.tok(0, 0) };
 } else if (scenario === 'rolling') {
     L.ludoSetMode('cpu2');
     L.startLudoGame();

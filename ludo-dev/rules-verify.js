@@ -169,29 +169,117 @@ head('Exact home');
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-head('Extra turns');
+head('Dice accumulate before moving');
+{
+    // A 6 buys another die rather than forcing a move, so a sequence can hand
+    // the player up to three values to spend as they like.
+    const L = board();
+    L.place(BLUE, 0, 10);
+    const a = L.ludoRegisterRoll(BLUE, 6);
+    ok('a 6 asks for another roll', a.rollAgain && a.moves.length === 0);
+    ok('and banks the 6', L.pool.join() === '6');
+    ok('nothing is playable yet', L.phase === undefined || a.moves.length === 0);
+
+    const b = L.ludoRegisterRoll(BLUE, 6);
+    ok('a second 6 asks again', b.rollAgain);
+    ok('two dice banked', L.pool.join() === '6,6');
+
+    const c = L.ludoRegisterRoll(BLUE, 5);
+    ok('a non-6 closes the sequence', !c.rollAgain && !c.voided);
+    ok('the pool is 6,6,5', L.pool.join() === '6,6,5');
+    ok('moves are offered for both distinct values',
+       c.moves.some(m => m.value === 6) && c.moves.some(m => m.value === 5));
+    ok('the turn has not passed', L.turn === 0);
+}
 {
     const L = board();
-    ok('a 6 grants another roll',  L.ludoGrantsExtraTurn(6, { captured: 0, finished: false }));
-    ok('a capture grants another', L.ludoGrantsExtraTurn(3, { captured: 1, finished: false }));
-    ok('finishing grants another', L.ludoGrantsExtraTurn(3, { captured: 0, finished: true }));
-    ok('a plain move does not',   !L.ludoGrantsExtraTurn(3, { captured: 0, finished: false }));
+    L.place(BLUE, 0, 10);                    // needs something movable, or it passes
+    L.ludoRegisterRoll(BLUE, 3);
+    ok('a non-6 first roll is a one-die pool', L.pool.join() === '3', L.pool.join());
+}
+{
+    // Three is the ceiling even with threeSixes off, or the sequence never ends.
+    const L = board({ ludoThreeSixes: false });
+    L.place(BLUE, 0, 10);
+    L.ludoRegisterRoll(BLUE, 6);
+    L.ludoRegisterRoll(BLUE, 6);
+    const c = L.ludoRegisterRoll(BLUE, 6);
+    ok('threeSixes OFF: capped at 3 dice', !c.rollAgain && L.pool.join() === '6,6,6');
+    ok('and all three are playable', c.moves.length > 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+head('Spending the pool');
+{
+    const L = board();
+    L.place(BLUE, 0, 10);
+    L.ludoRegisterRoll(BLUE, 6);
+    const r = L.ludoRegisterRoll(BLUE, 2);
+    ok('pool is 6,2', L.pool.join() === '6,2');
+
+    const m = r.moves.find(x => x.token.i === 0 && x.value === 2);
+    const after = L.ludoFinishMove(L.ludoApplyMove(m));
+    ok('spending the 2 leaves the 6', L.pool.join() === '6', L.pool.join());
+    ok('the turn continues rather than passing', after.continueTurn && L.turn === 0);
+    ok('remaining moves are offered', after.moves.length > 0);
+    ok('and they all spend the 6', after.moves.every(x => x.value === 6));
+
+    const m2 = after.moves[0];
+    const after2 = L.ludoFinishMove(L.ludoApplyMove(m2));
+    ok('spending the last die ends the turn', !after2.continueTurn && L.turn === 1);
+    ok('pool is empty', L.pool.length === 0);
+}
+{
+    // Values that cannot be played are simply forfeited.
+    const L = board();
+    L.place(BLUE, 0, 54);                    // only a 2 finishes; 6 overshoots
+    for (let i = 1; i < 4; i++) L.place(BLUE, i, 56);
+    L.ludoRegisterRoll(BLUE, 6);
+    const r = L.ludoRegisterRoll(BLUE, 2);
+    ok('only the playable value is offered',
+       r.moves.length === 1 && r.moves[0].value === 2, JSON.stringify(r.moves.map(m => m.value)));
+    L.ludoFinishMove(L.ludoApplyMove(r.moves[0]));
+    ok('the unplayable 6 is dropped and the turn ends', L.pool.length === 0);
+}
+{
+    const L = board();
+    ok('values for a token list only what it can spend',
+       (L.place(BLUE, 0, 10), L.ludoRegisterRoll(BLUE, 6), L.ludoRegisterRoll(BLUE, 3),
+        L.ludoValuesForToken(BLUE, L.tok(BLUE, 0)).join() === '3,6'));
+    ok('a based token can only spend a 6',
+       L.ludoValuesForToken(BLUE, L.tok(BLUE, 1)).join() === '6');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+head('Another sequence on a capture');
+{
+    const L = board();
+    ok('a capture earns another roll', L.ludoEarnsAnotherRoll({ captured: 1, finished: false }));
+    ok('a token home earns another',   L.ludoEarnsAnotherRoll({ captured: 0, finished: true }));
+    ok('a plain move does not',       !L.ludoEarnsAnotherRoll({ captured: 0, finished: false }));
+    ok('a 6 no longer earns a turn — it earned a die',
+       !L.ludoEarnsAnotherRoll({ captured: 0, finished: false }));
+}
+{
+    const L = board();
+    const gStep = stepOnRing(L.LUDO_COLORS, GREEN, 3);
+    L.place(GREEN, 0, gStep);
+    L.place(BLUE, 0, 2);
+    const r = L.ludoRegisterRoll(BLUE, 1);
+    const cap = r.moves.find(m => m.token.i === 0);
+    ok('the move captures', cap.captures.length === 1);
+    const after = L.ludoFinishMove(L.ludoApplyMove(cap));
+    ok('pool spent but the turn is kept', after.extraRoll && L.turn === 0);
+    ok('the six streak is cleared for the new sequence', L.sixStreak === 0);
+    ok('and a fresh roll accumulates normally',
+       (L.ludoRegisterRoll(BLUE, 6).rollAgain && L.pool.join() === '6'));
 }
 {
     const L = board();
     L.place(BLUE, 0, 10);
-    L.turn = 0;
     const r = L.ludoRegisterRoll(BLUE, 3);
-    L.ludoFinishMove(3, L.ludoApplyMove(r.moves.find(m => m.token.i === 0)));
-    ok('a plain move passes the turn', L.turn === 1, `turn=${L.turn}`);
-}
-{
-    const L = board();
-    L.place(BLUE, 0, 10);
-    const r = L.ludoRegisterRoll(BLUE, 6);
-    const res = L.ludoFinishMove(6, L.ludoApplyMove(r.moves.find(m => m.token.i === 0)));
-    ok('a 6 keeps the turn', res.extraTurn && L.turn === 0);
-    ok('and clears the roll so the player must roll again', L.roll === 0);
+    const after = L.ludoFinishMove(L.ludoApplyMove(r.moves.find(m => m.token.i === 0)));
+    ok('a plain move passes the turn', !after.extraRoll && L.turn === 1, `turn=${L.turn}`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -199,28 +287,21 @@ head('Three sixes');
 {
     const L = board();
     L.place(BLUE, 0, 10);
-    const a = L.ludoRegisterRoll(BLUE, 6); L.ludoApplyMove(a.moves[0]); L.ludoFinishMove(6, { captured: 0, finished: false });
+    L.ludoRegisterRoll(BLUE, 6);
     ok('streak = 1 after one six', L.sixStreak === 1);
-    const b = L.ludoRegisterRoll(BLUE, 6); L.ludoApplyMove(b.moves[0]); L.ludoFinishMove(6, { captured: 0, finished: false });
+    L.ludoRegisterRoll(BLUE, 6);
     ok('streak = 2 after two sixes', L.sixStreak === 2);
     const c = L.ludoRegisterRoll(BLUE, 6);
     ok('third six is voided', c.voided && c.moves.length === 0);
     ok('third six forfeits the turn', L.turn === 1, `turn=${L.turn}`);
+    ok('the two banked dice are forfeited too', L.pool.length === 0);
     ok('the voided roll is discarded', L.roll === 0);
     ok('streak resets after the forfeit', L.sixStreak === 0);
 }
 {
-    const L = board({ ludoThreeSixes: false });
-    L.place(BLUE, 0, 10);
-    L.sixStreak = 2;
-    const c = L.ludoRegisterRoll(BLUE, 6);
-    ok('threeSixes OFF: a third six still plays', !c.voided && c.moves.length > 0);
-}
-{
     const L = board();
     L.place(BLUE, 0, 10);
-    L.ludoRegisterRoll(BLUE, 6); L.ludoApplyMove(L.ludoLegalMoves(BLUE, 6)[0]);
-    L.ludoFinishMove(6, { captured: 0, finished: false });
+    L.ludoRegisterRoll(BLUE, 6);
     L.ludoRegisterRoll(BLUE, 2);
     ok('a non-six breaks the streak', L.sixStreak === 0);
 }
@@ -234,11 +315,16 @@ head('No legal move');
     ok('and hands the turn on', L.turn === 1);
 }
 {
-    // A 6 with nowhere to go must also pass, not loop forever.
+    // A 6 with nowhere to go must still terminate, not loop forever. It banks
+    // dice up to the cap first, then finds nothing playable and passes.
     const L = board();
     for (let i = 0; i < 4; i++) L.place(BLUE, i, 56);
-    const r = L.ludoRegisterRoll(BLUE, 6);
-    ok('a 6 with no legal move still passes', r.passed && L.turn !== 0);
+    let r = L.ludoRegisterRoll(BLUE, 6);
+    let guard = 0;
+    while (r.rollAgain && guard++ < 10) r = L.ludoRegisterRoll(BLUE, 6);
+    ok('sixes with no legal move still pass', r.passed || r.voided, JSON.stringify(r));
+    ok('and the turn moved on', L.turn !== 0);
+    ok('without spinning forever', guard < 10, `guard=${guard}`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -256,7 +342,7 @@ head('Match resolution');
     const res = L.ludoApplyMove(m);
     ok('the fourth token finishes', res.finished && L.ludoTokensHome(BLUE) === 4);
     ok('placement recorded', L.placements[0] === BLUE);
-    const fin = L.ludoFinishMove(2, res);
+    const fin = L.ludoFinishMove(res);
     ok('2P: first to finish ends the match', fin.gameOver && L.gameOver);
     ok('standings put the winner first', L.ludoStandings()[0] === BLUE);
 }
@@ -312,7 +398,7 @@ head('Match resolution');
 // ═══════════════════════════════════════════════════════════════════════
 head('Random self-play (no illegal states)');
 {
-    let stalls = 0, wins = 0, illegal = 0, maxTurns = 0;
+    let stalls = 0, wins = 0, illegal = 0, maxTurns = 0, maxPool = 0;
     for (let game = 0; game < 400; game++) {
         const L = board();
         L.active = [BLUE, RED, GREEN, YELLOW];
@@ -321,15 +407,28 @@ head('Random self-play (no illegal states)');
         while (!L.gameOver && turns < 8000) {
             turns++;
             const ci = L.active[L.turn];
-            const r  = L.ludoRegisterRoll(ci, L.ludoRollDice());
+
+            // Roll until the sequence closes (a 6 buys another die).
+            let r = L.ludoRegisterRoll(ci, L.ludoRollDice());
+            let rolls = 1;
+            while (r.rollAgain && rolls++ < 5) r = L.ludoRegisterRoll(ci, L.ludoRollDice());
+            if (rolls > L.LUDO_MAX_DICE) illegal++;      // cap must hold
             if (r.voided || r.passed) continue;
-            const m = r.moves[Math.floor(Math.random() * r.moves.length)];
+            maxPool = Math.max(maxPool, L.pool.length);
 
-            if (m.to < 0 || m.to > 56) illegal++;
-            if (!m.release && m.from >= 0 && m.to <= m.from) illegal++;
+            // Spend the pool one die at a time.
+            let moves = r.moves, spends = 0;
+            while (moves.length && spends++ < 6) {
+                const m = moves[Math.floor(Math.random() * moves.length)];
+                if (m.to < 0 || m.to > 56) illegal++;
+                if (!m.release && m.from >= 0 && m.to <= m.from) illegal++;
+                if (!m.value) illegal++;                 // pool moves must be tagged
 
-            const res = L.ludoApplyMove(m);
-            L.ludoFinishMove(L.roll || 6, res);
+                const after = L.ludoFinishMove(L.ludoApplyMove(m));
+                if (after.gameOver) break;
+                moves = after.continueTurn ? after.moves : [];
+            }
+            if (L.pool.length && !L.gameOver) illegal++;  // pool must always drain
         }
         maxTurns = Math.max(maxTurns, turns);
         if (L.gameOver) wins++; else stalls++;
@@ -348,6 +447,7 @@ head('Random self-play (no illegal states)');
     ok('400 random 4P games all reach a winner', stalls === 0, `${stalls} stalled`);
     ok('no illegal move or token state observed', illegal === 0, `${illegal} violations`);
     ok(`longest game stayed bounded (${maxTurns} turns)`, maxTurns < 8000);
+    ok(`the pool never exceeded the cap (peak ${maxPool})`, maxPool <= 3);
 }
 
 console.log(`\n${'═'.repeat(50)}`);

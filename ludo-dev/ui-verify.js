@@ -69,6 +69,17 @@ function click(L, bx, by) {
         preventDefault() {},
     });
 }
+// Roll a whole sequence: each face in turn, letting 6s buy another die.
+// Leaves the game in whatever phase the last roll produced.
+function rollSeq(L, faces) {
+    faces.forEach(f => {
+        forceDice(f);
+        L.ludoDoRoll();
+        pump(L, L.LUDO_DICE_MS + 40);
+    });
+    restoreDice();
+}
+
 function diceCenter(L) {
     const seat = L.LUDO_SEATS[L.active[L.turn]];
     return {
@@ -119,14 +130,24 @@ head('Turn state machine');
     ok('rolling starts a tumble', L.phase === 'rolling' && L.diceSpin > 0);
     pump(L, L.LUDO_DICE_MS + 40);
     ok('tumble settles on the rolled face', L.diceFace === 6, `face=${L.diceFace}`);
-    ok('a 6 opens four release moves', L.phase === 'awaitMove' && L.legal.length === 4);
+    // A 6 hands the dice straight back rather than forcing a move.
+    ok('a 6 returns to awaitRoll', L.phase === 'awaitRoll', L.phase);
+    ok('and banks the die', L.pool.join() === '6');
+    restoreDice();
 
-    L.ludoPlayMove(L.legal[0]);
+    rollSeq(L, [2]);
+    ok('the non-6 closes the sequence', L.phase === 'awaitMove');
+    ok('pool is 6,2', L.pool.join() === '6,2');
+    ok('release moves are offered for the 6',
+       L.legal.filter(m => m.release && m.value === 6).length === 4);
+
+    const rel = L.legal.filter(m => m.release && m.value === 6)[0];
+    L.ludoPlayMove(rel);
     ok('choosing a move starts the hop', L.phase === 'moving' && L.hop !== null);
     pump(L, L.LUDO_HOP_MS * 2 + 40);
     ok('hop completes and the token leaves base', !L.tok(0, 0).inBase && L.tok(0, 0).step === 0);
-    ok('a 6 keeps the turn with the same player', L.turn === 0 && L.phase === 'awaitRoll');
-    restoreDice();
+    ok('the 6 is spent, the 2 remains', L.pool.join() === '2', L.pool.join());
+    ok('still the same player, still spending', L.turn === 0 && L.phase === 'awaitMove');
 }
 {
     const L = fresh();
@@ -256,27 +277,30 @@ head('Pointer input (scale-aware)');
     click(L, d.x, d.y);
     ok('tapping the dice rolls, at half canvas scale', L.phase === 'rolling');
     pump(L, L.LUDO_DICE_MS + 40);
-    ok('four release moves offered', L.legal.length === 4);
+    restoreDice();
+    ok('the 6 hands the dice back', L.phase === 'awaitRoll');
+
+    // Close the sequence with a 6 as well, so every token has exactly one
+    // playable value and a tap moves it without asking.
+    rollSeq(L, [6, 3]);
+    ok('four release moves offered', L.legal.filter(m => m.release).length === 4);
 
     L.ludoRender();                                  // populates renderPos
-    const target = L.legal[2].token;
+    const target = L.legal.filter(m => m.release)[2].token;
     const rp = L.renderPos.get(target);
     click(L, rp.x, rp.y);
-    ok('tapping a token plays that exact token',
-       L.phase === 'moving' && L.hop.move.token === target);
-    restoreDice();
+    ok('tapping a based token plays that exact token',
+       L.phase === 'moving' && L.hop.move.token === target,
+       L.phase);
 }
 {
     const L = fresh();
     L.ludoSetMode('pvp2');
     L.startLudoGame();
-    forceDice(6);
-    L.ludoDoRoll();
-    pump(L, L.LUDO_DICE_MS + 40);
+    rollSeq(L, [6, 3]);
     L.ludoRender();
     click(L, 5, L.LUDO_CANVAS_H / 2);                // empty board edge
     ok('a tap far from any token is ignored', L.phase === 'awaitMove');
-    restoreDice();
 }
 {
     const L = fresh();
@@ -293,6 +317,116 @@ head('Pointer input (scale-aware)');
     const L = fresh();
     ok('input before ▶ Play does nothing',
        (click(L, 184, 26), L.phase === 'idle'));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+head('Die-choice popover');
+{
+    // 6,6,5 with one token already out: that token can spend the 6 or the 5,
+    // so tapping it must ask rather than guess.
+    const L = fresh();
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+    L.place(0, 0, 10);
+    rollSeq(L, [6, 6, 5]);
+    ok('the sequence banked three dice', L.pool.join() === '6,6,5', L.pool.join());
+    ok('and closed into awaitMove', L.phase === 'awaitMove');
+
+    const out = L.tok(0, 0);
+    ok('the token on the board can spend either value',
+       L.ludoValuesForToken(0, out).join() === '5,6');
+    ok('a based token can only spend a 6',
+       L.ludoValuesForToken(0, L.tok(0, 1)).join() === '6');
+
+    L.ludoRender();
+    click(L, L.renderPos.get(out).x, L.renderPos.get(out).y);
+    ok('tapping the ambiguous token opens a popover', L.popover !== null);
+    ok('it did not move yet', L.phase === 'awaitMove' && L.tok(0, 0).step === 10);
+
+    const lay = L.ludoPopoverLayout();
+    ok('the popover offers both values', lay && lay.values.join() === '5,6');
+    ok('it stays inside the board', lay.x >= L.LUDO_BOARD_X &&
+       lay.x + lay.w <= L.LUDO_BOARD_X + L.LUDO_BOARD);
+
+    // Pick the 6.
+    const six = lay.cells.filter(c => c.value === 6)[0];
+    click(L, six.x, six.y);
+    ok('tapping a value plays that value', L.phase === 'moving' && L.hop.move.value === 6);
+    pump(L, L.LUDO_HOP_MS * 8 + 60);
+    ok('the token advanced by 6', L.tok(0, 0).step === 16, `step=${L.tok(0, 0).step}`);
+    ok('one 6 was spent', L.pool.join() === '6,5', L.pool.join());
+    ok('the popover closed', L.popover === null);
+}
+{
+    // Tapping a token with only one playable value must not open a popover.
+    const L = fresh();
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+    rollSeq(L, [6, 3]);
+    const based = L.legal.filter(m => m.release)[0].token;
+    L.ludoRender();
+    click(L, L.renderPos.get(based).x, L.renderPos.get(based).y);
+    ok('one playable value moves immediately', L.popover === null && L.phase === 'moving');
+}
+{
+    // Tapping away dismisses without moving anything.
+    const L = fresh();
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+    L.place(0, 0, 10);
+    rollSeq(L, [6, 6, 5]);
+    L.ludoRender();
+    const out = L.tok(0, 0);
+    click(L, L.renderPos.get(out).x, L.renderPos.get(out).y);
+    ok('popover open', L.popover !== null);
+    click(L, L.LUDO_BOARD_X + 4, L.LUDO_BOARD_Y + L.LUDO_BOARD - 4);
+    ok('a tap outside dismisses it', L.popover === null);
+    ok('and nothing moved', L.tok(0, 0).step === 10 && L.pool.length === 3);
+}
+{
+    // The whole 6,6,5 spend: release two tokens, then advance one by 5.
+    const L = fresh();
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+    rollSeq(L, [6, 6, 5]);
+    ok('three dice to spend', L.pool.join() === '6,6,5');
+
+    L.ludoPlayMove(L.legal.filter(m => m.release && m.value === 6)[0]);
+    pump(L, L.LUDO_HOP_MS * 3 + 60);
+    ok('first token released', L.tokens.filter(t => t.ci === 0 && !t.inBase).length === 1);
+
+    L.ludoPlayMove(L.legal.filter(m => m.release && m.value === 6)[0]);
+    pump(L, L.LUDO_HOP_MS * 3 + 60);
+    ok('second token released', L.tokens.filter(t => t.ci === 0 && !t.inBase).length === 2);
+    ok('only the 5 is left', L.pool.join() === '5', L.pool.join());
+    ok('and it is still the same player', L.turn === 0 && L.phase === 'awaitMove');
+
+    L.ludoPlayMove(L.legal[0]);
+    pump(L, L.LUDO_HOP_MS * 8 + 60);
+    ok('spending the last die hands over', L.turn === 1, `turn=${L.turn}`);
+    ok('pool empty', L.pool.length === 0);
+}
+{
+    // A capture mid-spend earns a whole new sequence.
+    const L = fresh();
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+    const gStep = stepOnRing(L.LUDO_COLORS, 2, 3);
+    L.place(2, 0, gStep);        // green sitting on ring 3
+    L.place(0, 0, 2);            // blue one square behind it
+    rollSeq(L, [1]);
+    const cap = L.legal.filter(m => m.token === L.tok(0, 0))[0];
+    ok('the move is a capture', cap && cap.captures.length === 1);
+    L.ludoPlayMove(cap);
+    pump(L, L.LUDO_HOP_MS * 3 + 60);
+    ok('victim sent home', L.tok(2, 0).inBase);
+    ok('capture earns a fresh roll, same player',
+       L.turn === 0 && L.phase === 'awaitRoll', `turn=${L.turn} phase=${L.phase}`);
+    ok('banner says so', L.banner && /roll again/i.test(L.banner.text),
+       L.banner && L.banner.text);
+
+    rollSeq(L, [6, 4]);
+    ok('the new sequence accumulates normally', L.pool.join() === '6,4', L.pool.join());
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -349,27 +483,26 @@ head('Roll recap');
     restoreDice();
 }
 {
-    // An extra turn accumulates rather than snapshotting mid-turn.
+    // Accumulation banks rolls without snapshotting; only handover recaps.
     const L = fresh();
     L.ludoSetMode('pvp2');
     L.startLudoGame();
     L.place(0, 0, 10);
-    forceDice(6);
-    L.ludoDoRoll();
-    pump(L, L.LUDO_DICE_MS + 40);
-    L.ludoPlayMove(L.legal.find(m => !m.release));
-    pump(L, L.LUDO_HOP_MS * 8 + 60);
-    ok('a 6 grants an extra roll without recapping', L.recap === null);
+
+    rollSeq(L, [6]);
+    ok('a 6 banks a die without recapping', L.recap === null);
     ok('the 6 is held in the running tally', L.turnRolls.join() === '6');
 
-    forceDice(3);
-    L.ludoDoRoll();
-    pump(L, L.LUDO_DICE_MS + 40);
+    rollSeq(L, [3]);
+    ok('still no recap while dice remain', L.recap === null);
+
+    // Spend both dice; the turn only hands over once the pool is empty.
     L.ludoPlayMove(L.legal[0]);
-    pump(L, L.LUDO_HOP_MS * 5 + 60);
+    pump(L, L.LUDO_HOP_MS * 8 + 60);
+    L.ludoPlayMove(L.legal[0]);
+    pump(L, L.LUDO_HOP_MS * 8 + 60);
     ok('handover recaps the whole turn, both rolls',
        L.recap && L.recap.faces.join() === '6,3', JSON.stringify(L.recap));
-    restoreDice();
 }
 {
     const L = fresh();
@@ -417,10 +550,31 @@ head('CPU seat plays itself');
     ok('CPU schedules its own roll', L.pending !== null);
     forceDice(6);
     pump(L, L.LUDO_CPU_THINK_MS + L.LUDO_DICE_MS + 80);
-    ok('CPU rolled and has moves', L.legal.length > 0 || L.phase === 'moving');
-    pump(L, L.LUDO_CPU_THINK_MS + L.LUDO_HOP_MS * 3 + 120);
-    ok('CPU committed a move', L.tokens.some(t => t.ci === 2 && !t.inBase));
+    ok('CPU rolled a 6 and asked for another', L.phase === 'awaitRoll' && L.pool.join() === '6');
+
+    // Re-pin the dice between pumps so the CPU's second roll closes the sequence.
+    forceDice(4);
+    pump(L, L.LUDO_CPU_THINK_MS + L.LUDO_DICE_MS + 80);
     restoreDice();
+    ok('CPU banked 6,4', L.pool.join() === '6,4' || L.phase === 'moving', L.pool.join());
+
+    pump(L, (L.LUDO_CPU_THINK_MS + L.LUDO_HOP_MS * 8 + 120) * 2);
+    ok('CPU committed a move', L.tokens.some(t => t.ci === 2 && !t.inBase));
+    ok('CPU spent its whole pool', L.pool.length === 0, L.pool.join());
+}
+{
+    // With one token already out and a plain roll, the CPU should just move.
+    const L = fresh();
+    L.ludoSetMode('cpu2');
+    L.startLudoGame();
+    L.turn = 1;
+    L.place(2, 0, 10);
+    L.ludoBeginTurn();
+    forceDice(4);
+    pump(L, L.LUDO_CPU_THINK_MS * 2 + L.LUDO_DICE_MS + L.LUDO_HOP_MS * 8 + 200);
+    restoreDice();
+    ok('CPU advanced its token', L.tok(2, 0).step === 14, `step=${L.tok(2, 0).step}`);
+    ok('and handed the turn back', L.turn === 0, `turn=${L.turn}`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════

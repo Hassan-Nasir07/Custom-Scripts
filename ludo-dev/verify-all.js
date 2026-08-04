@@ -7,6 +7,7 @@ const SUITES = [
     ['Rules engine',   'rules-verify.js'],
     ['CPU',            'ai-verify.js'],
     ['Modes',          'modes-verify.js'],
+    ['Interaction',    'ui-verify.js'],
     ['Render smoke',   'render-smoke.js'],
 ];
 

@@ -8,28 +8,57 @@ is slow. The engine is built and tested here first, then inserted into that file
 reviewed diff.
 
 ```
-node ludo-dev/verify-all.js     # every suite — 237 assertions
+node ludo-dev/verify-all.js              # every suite — 309 assertions
+node ludo-dev/preview.js out.png fourplayer   # render a PNG of the board
+start ludo-dev/ludo-harness.html         # play it
 ```
+
+### Source — concatenated in this order at insertion time
 
 | File | Purpose |
 |---|---|
-| `ludo-core.js` | The `// ═══ LUDO GAME ═══` block itself, written at the userscript's 4-space IIFE indent so it drops in verbatim. **This is the source of truth while building.** |
-| `load.js` | Evaluates `ludo-core.js` in a `Function` wrapper and exposes its internals plus test helpers (`place`, `tok`). The core has no exports of its own — this is what makes the same source both drop-in-able and testable. |
-| `verify-all.js` | Runs every suite below and prints one summary. Non-zero exit if any suite fails. |
-| `ludo-verify.js` | Board geometry — ring closure, corner turns, home columns, safe squares, quadrants. **78 assertions.** |
-| `rules-verify.js` | Dice fairness, legal moves, every rule toggle, capture/safe behaviour, turn flow, match resolution, plus 400 random self-play games. **75 assertions.** |
-| `ai-verify.js` | Difficulty tiers, scorer priorities, threat awareness, and a 600-game head-to-head proving the tiers are ordered by strength. **36 assertions.** |
-| `modes-verify.js` | Mode cycling, active colour sets, turn order, CPU seats, reset-on-switch. **38 assertions.** |
-| `render-smoke.js` | Drives `ludoRender()` against a recording 2D-context stub; catches typos and undefined refs without a browser. **10 assertions.** |
-| `ludo-harness.html` | Open directly in a browser. 368×368 canvas, mode buttons, ring-index overlay, and a step 0→56 token walk with a live cell/ring/safe-square trace. |
+| `ludo-core.js` | Tables, state, rules, turn flow, modes, CPU. Written at the userscript's 4-space IIFE indent so it drops in verbatim. |
+| `ludo-ui.js` | Pixel geometry, rendering, interaction, lifecycle (`initLudoGame` / `startLudoGame` / `resetLudoGame` / `cleanupLudoGame` / `endLudoGame`). |
+
+Split because the engine outgrew one file. Everything is canvas-drawn — the ⛶ Max
+modal relocates only the `<canvas>`, so a DOM HUD would disappear inside it.
+
+### Tooling
+
+| File | Purpose |
+|---|---|
+| `load.js` | Evaluates core + UI in a `Function` wrapper and exposes their internals plus test helpers (`place`, `tok`, `forceDice`). Neither source file has exports of its own — this is what makes the same code both drop-in-able and testable. |
+| `canvas-stub.js` | Recording stand-in for `CanvasRenderingContext2D`; returns usable objects from `createLinearGradient` and `measureText` so draw code runs to completion. |
+| `verify-all.js` | Runs every suite and prints one summary. Non-zero exit if any fails. |
+| `preview.js` | Software rasterizer — renders the real `ludoRender()` output to a PNG with no native dependencies, so layout can be inspected without a browser. Scenarios: `fresh`, `midgame`, `fourplayer`, `gameover`, `rolling`. |
+| `ludo-harness.html` | The playable harness. Mimics the widget's ~330px game column, with mode/play/reset controls, live rule toggles, a state readout, ring-index overlay, a 0→56 token walk, a dice histogram and CPU-vs-CPU auto-play. |
+
+### Suites
+
+| Suite | Covers | Assertions |
+|---|---|---|
+| `ludo-verify.js` | Board geometry — ring closure, corner turns, home columns, safe squares, quadrants | 78 |
+| `rules-verify.js` | Dice fairness, legal moves, every rule toggle, capture/safe behaviour, turn flow, match resolution, 400 random self-play games | 75 |
+| `ai-verify.js` | Difficulty tiers, scorer priorities, threat awareness, 600-game head-to-head strength ordering | 36 |
+| `modes-verify.js` | Mode cycling, active colour sets, turn order, CPU seats, reset-on-switch | 38 |
+| `ui-verify.js` | Turn state machine, dice tumble, hop animation, turn clock, scale-aware pointer input, anti-farm guards, XP maths | 72 |
+| `render-smoke.js` | `ludoRender()` across every mode and all 57 steps × 4 colours | 10 |
+
+`ui-verify.js` simulates time by pumping `ludoUpdate(dt)` instead of waiting on real
+frames, so a full PvCPU match plays out in milliseconds and is deterministic.
 
 ## Board geometry, in one paragraph
 
-15×15 grid, 20px cells → a 300×300 board centred in a 368×368 canvas, leaving 34px HUD
-strips. A token's position is a single integer `step`: `0–50` walk the 52-square shared
-ring starting at the colour's own `startIndex` (0/13/26/39), `51–55` are its own five-cell
-home column, `56` is the centre. Every colour therefore travels 51 shared squares and
-arrives at its own gate exactly one step before turning inward.
+15×15 grid, 20px cells → a 300×300 board inside a **344×416** canvas: 58px HUD strips top
+and bottom, 22px side margins, and an 8px wooden frame. A token's position is a single
+integer `step`: `0–50` walk the 52-square shared ring starting at the colour's own
+`startIndex` (0/13/26/39), `51–55` are its own five-cell home column, `56` is the centre.
+Every colour therefore travels 51 shared squares and arrives at its own gate exactly one
+step before turning inward.
+
+Seats map to quadrants — Blue top-left, Red top-right, Green bottom-right, Yellow
+bottom-left — and each player's chip sits in the strip on their side of the board. The
+dice renders in whichever strip belongs to the player to move.
 
 **The ring contains four diagonal steps** (pairs 4→5, 17→18, 30→31, 43→44). That is
 correct — the track wraps the outer corner of each 6×6 base, e.g. `(6,5)→(5,6)` rounds

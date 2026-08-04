@@ -5,7 +5,10 @@
 > **Decision log** at the bottom.
 >
 > Target file: [`AttendanceTimeCheckerPlus.js`](AttendanceTimeCheckerPlus.js) · 13,671 lines
-> Branch: `feat/ludo-game` (off `main` @ `efbf33d`) · Status: `IN PROGRESS — Phase 0`
+> Branch: `feat/ludo-game` (off `main` @ `efbf33d`)
+> Status: **Phases 0–7 complete** — the game is finished and playable standalone in
+> [`ludo-dev/`](ludo-dev/) (309 assertions green). `AttendanceTimeCheckerPlus.js` is
+> still untouched; Phases 8–11 are the integration.
 > Last updated: 2026-08-04
 
 ## ⚠️ How to read the line numbers in this document
@@ -151,11 +154,15 @@ diff for a cosmetic gain. Pool's behaviour must be re-verified (see Verification
 
 ## Board model
 
-15×15 grid, **cell = 20px → board 300×300**, centred in a 368×368 canvas
-(`LUDO_BOARD_OFFSET = 34`), leaving 34px HUD strips top and bottom — the same
+15×15 grid, **cell = 20px → board 300×300**, inside a **344×416** canvas: 58px HUD
+strips top and bottom (`LUDO_STRIP_H`), 22px side margins, 8px wooden frame. Same
 "table + HUD margins" split Pool uses via `POOL_TABLE_OFFSET_Y` (1457). Everything
-(player chips, dice, turn clock, messages) is **canvas-drawn**, because the Max modal
-relocates only the `<canvas>`.
+(player chips, dice, turn clock, banners, game-over standings) is **canvas-drawn**,
+because the Max modal relocates only the `<canvas>`.
+
+Seats map to quadrants — Blue TL, Red TR, Green BR, Yellow BL — and each player's chip
+sits in the strip on their own side of the board. The dice renders in whichever strip
+belongs to the player to move, so attention follows the turn.
 
 ```
 LUDO_RING      52 × {r,c}, clockwise         // shared track
@@ -324,8 +331,8 @@ case (6550, pool case 6583) · `updateGameTitle` (14232)
 - switcher button after Pool (13768): `<button id="game-switch-ludo" … onclick="window.switchGame('ludo')" title="Ludo">🎲</button>`
 - `ludo-scoreboard` div after `pool-scoreboard` (13800) — coloured dots + tokens-home
   per active player + turn label
-- `<canvas id="ludo-canvas" width="368" height="368" style="display:none; cursor:pointer;">`
-  after 13819
+- `<canvas id="ludo-canvas" width="344" height="416" style="display:none; cursor:pointer;">`
+  after 13819 — **not** Pool's 368×368; see the decision log
 - `ludo-controls` div after `pool-controls` (13884): `🔄 PvCPU` (cycles PvCPU → PvP 2P →
   PvP 3P → PvP 4P) · `▶ Play` · `🔄 Reset` · `⛶ Max`
 
@@ -381,19 +388,21 @@ board tables.
 ### Phase 2 — Dice & turn clock
 - [x] `ludoRollDice()` — `1 + Math.floor(Math.random() * 6)`; verified flat over
       60,000 rolls (worst face deviation 1.33%)
-- [ ] 600ms tumble animation, dice pulse when awaiting a tap
-- [ ] `LUDO_TURN_CLOCK = 20` countdown + expiry auto-roll / auto-play
-- [ ] Dice hit-testing via `rect.width / LUDO_CANVAS_W`
+- [x] 620ms tumble animation with face flicker; dice breathes when awaiting a tap
+- [x] `LUDO_TURN_CLOCK = 20` as a depleting ring around the dice; expiry auto-rolls,
+      or auto-plays the scorer's pick if already rolled
+- [x] Dice hit-testing via `rect.width / LUDO_CANVAS_W` (tested at half scale)
 
 ### Phase 3 — Movement
 - [x] `step` 0…56 model + step→cell resolution (ring → own home column → home)
 - [x] Legal-move generation (`ludoLegalMoves` → `{token, from, to, release, captures, finishes}`)
 - [x] Capture → opponent token to base, with per-player capture/loss tallies
-- [ ] ▼ marker + ghost destination preview on legal tokens
-- [ ] Square-by-square hop animation (~90ms/square) — **must tolerate the four
-      diagonal corner steps**, see decision log
-- [ ] Auto-play on single legal move; auto-pass on zero (logic ready via the
-      `passed` flag from `ludoRegisterRoll`)
+- [x] Bouncing ▼ marker + gold glow + ghost destination preview on legal tokens
+- [x] Square-by-square hop animation (95ms/square) with a parabolic lift;
+      tolerates the four diagonal corner steps (explicitly tested)
+- [x] Auto-play on single legal move (420ms); auto-pass on zero (850ms banner)
+- [x] Stacked tokens spread apart with a count badge, so a block never reads as
+      one piece
 
 ### Phase 4 — Full rule set
 *All six implemented and covered by `rules-verify.js`.*
@@ -410,8 +419,12 @@ board tables.
 - [x] 3P/4P placement ranking by (finish order, then tokens home, then total steps)
 - [x] Termination proven: 400 random 4P self-play games all reach a winner,
       zero illegal moves or token states
-- [ ] `endLudoGame` — idempotent, guarded on `ludoGameOver` *(needs the host file)*
-- [ ] `startLudoGame` force-resets when `ludoGameOver` *(needs the host file)*
+- [x] `endLudoGame` — idempotent, guarded on `ludoAwarded`; calls the host's
+      `awardGameXP('ludo', …)` once and writes `ludoGamesWon` / `ludoRecord`
+- [x] `startLudoGame` force-resets a finished board before replaying
+- [x] Game-over overlay with final standings
+- [x] Anti-farm proven: replayed `endLudoGame`, ▶ Play on a finished board,
+      mid-match reset and mid-match mode switch all award nothing extra
 
 ### Phase 6 — CPU
 - [x] `ludoAIChooseMove` weighted scorer
@@ -421,7 +434,8 @@ board tables.
       enemy-range term (asserted as an exact 60-point delta on the same move)
 - [x] **Strength ordering measured, not assumed** — 600-game head-to-head:
       hard beats easy 84.5%, normal beats easy 79.8%, hard edges normal 57.8%
-- [ ] Tier locked at match start into `ludoCpuTier`, shown in HUD *(needs the host file)*
+- [x] Tier locked at match start into `ludoCpuTier` from the stored record, and
+      printed on the CPU's HUD chip
 
 ### Phase 7 — Modes
 - [x] `cycleLudoMode` — PvCPU-2P → PvP-2P → PvP-3P → PvP-4P, wrapping
@@ -429,7 +443,9 @@ board tables.
       pair so both starts are 26 squares apart
 - [x] Turn order = clockwise, skipping inactive colours and finished players
 - [x] Switching mode fully resets tokens, placements, roll, streak and stats
-- [ ] Inactive quadrants dimmed *(renderer already does this — needs in-app confirmation)*
+- [x] Inactive quadrants dimmed — desaturate toward the colour's own luminance
+      then lift toward paper (blending straight to grey turned red to mud and
+      yellow to olive)
 
 ### Phase 8 — Panel wiring
 > Anchors below shift once the Ludo block lands — re-find by symbol name.
@@ -473,16 +489,24 @@ board tables.
 
 The script self-guards to one URL (43–48), so iterating in-place is slow.
 
-**Fast loop (Phases 1–7)** — three scratchpad files, no browser needed for the first two:
+**Fast loop (Phases 1–7)** — everything lives in [`ludo-dev/`](ludo-dev/), which has its
+own [README](ludo-dev/README.md). One command:
 
-| File | What it does |
-|---|---|
-| `ludo-core.js` | The Ludo block itself, written at the userscript's 4-space IIFE indent so it drops in verbatim |
-| `ludo-verify.js` | `node ludo-verify.js` — headless assertions over the board tables. **78/78 at Phase 1.** Exit code 1 on any failure |
-| `render-smoke.js` | `node render-smoke.js` — drives `ludoRender()` against a recording 2D-context stub, catching typos and undefined refs in the drawing code across every mode and all 57 steps |
-| `ludo-harness.html` | Visual check — 368×368 canvas, mode buttons, ring-index overlay, a step 0→56 token walk with a live cell/ring/safe trace |
+```
+node ludo-dev/verify-all.js     # 309 assertions across 6 suites, non-zero exit on failure
+```
 
-Verify there:
+| Suite | Covers | Assertions |
+|---|---|---|
+| `ludo-verify.js` | Board geometry | 78 |
+| `rules-verify.js` | Dice, legal moves, rule toggles, turn flow, 400 self-play games | 75 |
+| `ai-verify.js` | Tiers, scorer, 600-game strength ordering | 36 |
+| `modes-verify.js` | Mode cycling, seats, turn order | 38 |
+| `ui-verify.js` | State machine, animation, clock, pointer input, anti-farm, XP | 72 |
+| `render-smoke.js` | `ludoRender()` across all modes and steps | 10 |
+
+Plus `node ludo-dev/preview.js out.png <scenario>` to render the board to a PNG, and
+`ludo-dev/ludo-harness.html` to actually play it. Verify there:
 
 - All 4 quadrants, the cross track, and the centre triangle land on grid lines
 - A token walked step 0 → 56 traces the full ring and turns into its **own** colour column
@@ -538,3 +562,9 @@ doesn't re-derive it from the code.
 | **2026-08-04** | **The ring contains 4 *diagonal* steps — this is correct, not a bug** | At ring pairs 4→5, 17→18, 30→31, 43→44 the track wraps the outer corner of a 6×6 base (e.g. `(6,5)→(5,6)` rounds Blue's corner at `(5,5)`). That is how a physical Ludo board is laid out, and the canonical 52-cell path requires it — inserting corner cells would give 56. **Consequence for Phase 3:** the hop animation must not assume `\|Δr\|+\|Δc\| === 1`. Asserted explicitly in `ludo-verify.js` (exactly 4 turns, each pivoting on a base corner and never through the centre). |
 | **2026-08-04** | **Home columns are 5 cells and stop one square short of the centre** | `step 51–55` are the coloured column, `step 56` moves the token off-grid into the triangle. So the last column cell (e.g. Blue `(7,5)`) touches the centre **3×3 block**, not the single square `(7,7)`. |
 | **2026-08-04** | **Engine is built in the scratchpad first, inserted into the userscript once** | The script self-guards to one URL, so in-place iteration is slow. `ludo-core.js` + a headless verifier gives a sub-second feedback loop; the 13.6k-line file then takes one reviewed diff instead of dozens. |
+| **2026-08-04** | **Source split into `ludo-core.js` (engine) + `ludo-ui.js` (render/interaction)** | One file passed 650 lines. They are concatenated in that order at insertion time, so the userscript still gets one contiguous block. |
+| **2026-08-04** | **Canvas is 344×416, not Pool's 368×368** | Ludo needs a square board *plus* HUD room. 58px strips clear the dice's turn-ring (r=19) from the board frame — at 52px it clipped. Narrowing 368→344 puts the board at 87% of canvas width instead of 81%, which is worth real pixels in a ~300px panel column. Set `aspect-ratio: 344/416` in CSS. |
+| **2026-08-04** | **Timers run off the animation loop, never `setTimeout`** | `cleanupCurrentGame` cancels `ludoAnimFrame`; a stray `setTimeout` would keep firing after the player switched tabs. `ludoAfter(ms, fn)` is drained inside `ludoUpdate`. |
+| **2026-08-04** | **Inactive quadrants desaturate toward their own luminance, then lighten** | Blending straight to grey turned red into mud and yellow into olive — they read as "dirty" rather than "not in play". Verified visually with `preview.js`. |
+| **2026-08-04** | **Dice breathes instead of showing a "TAP" label** | The label did not fit in the strip without colliding with the board frame, and a pulsing scale is a clearer affordance anyway. |
+| **2026-08-04** | **`preview.js` — a from-scratch software rasterizer** | No `canvas`/`playwright`/`puppeteer` available and Node is 10.24, so the board could not otherwise be *seen*. It implements enough Canvas2D (transforms, arc/arcTo/ellipse paths, nonzero fill, strokes, gradients, a 3×5 bitmap font) to render real `ludoRender()` output to a PNG. Caught the turn-ring/frame collision and the muddy dim colours, neither of which any assertion would have found. |

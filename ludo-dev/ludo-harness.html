@@ -2,61 +2,101 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Ludo harness — Phase 1</title>
+<title>Ludo harness</title>
 <style>
-  body { margin: 0; padding: 24px; background: #0b1020; color: #e6ecff;
-         font: 13px/1.5 system-ui, sans-serif; display: flex; gap: 24px;
-         align-items: flex-start; flex-wrap: wrap; }
-  .panel { background: linear-gradient(160deg, #182036, #0e1526); border-radius: 14px;
-           padding: 16px; box-shadow: 0 8px 32px rgba(0,0,0,.45); }
-  canvas { display: block; border-radius: 10px; background: #121a2e; }
-  h1 { font-size: 15px; margin: 0 0 12px; letter-spacing: .04em; text-transform: uppercase;
-       opacity: .75; }
-  button { background: #1e2b4a; color: #e6ecff; border: 1px solid #2f4270; border-radius: 7px;
-           padding: 6px 11px; cursor: pointer; font: inherit; margin: 0 6px 6px 0; }
-  button:hover { background: #27375c; }
-  button.on { background: #3d6be0; border-color: #5b86f0; }
-  .col { min-width: 300px; max-width: 420px; }
-  pre { background: #060a16; border-radius: 8px; padding: 10px; font-size: 11px;
-        max-height: 340px; overflow: auto; margin: 8px 0 0; }
-  .row { margin-bottom: 10px; }
-  label { opacity: .7; display: block; margin-bottom: 4px; font-size: 11px;
-          text-transform: uppercase; letter-spacing: .05em; }
+  :root { --bg:#12122a; --panel:#1c1b38; --panel2:#191832; --line:#2c2b52;
+          --text:#e8ecff; --muted:#9aa0c8; --accent:#7c5cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:22px; background:var(--bg); color:var(--text);
+         font:13px/1.55 system-ui, -apple-system, Segoe UI, sans-serif;
+         display:flex; gap:22px; align-items:flex-start; flex-wrap:wrap; }
+
+  /* Mirrors the widget's left game column so sizing is realistic: the canvas
+     is laid out at width:100%, well under its 368px backing store. */
+  .game-col { width:330px; flex:0 0 330px; }
+  .panel { background:linear-gradient(160deg,var(--panel),var(--panel2));
+           border:1px solid var(--line); border-radius:14px; padding:14px;
+           box-shadow:0 10px 34px rgba(0,0,0,.45); }
+  .panel + .panel { margin-top:14px; }
+  h1 { font-size:11px; margin:0 0 10px; letter-spacing:.10em; text-transform:uppercase;
+       color:var(--muted); font-weight:600; }
+
+  /* width:100% with a fixed aspect ratio — the backing store stays 344×416 and
+     initLudoGame sets it, so hit-testing must scale. Matches how #pool-canvas
+     is laid out in the widget. */
+  #ludo-canvas { display:block; width:100%; height:auto; aspect-ratio:344/416;
+                 border-radius:10px; cursor:pointer; touch-action:manipulation;
+                 background:#1c1b38; }
+
+  .controls { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; margin-top:12px; }
+  button { background:#2a2950; color:var(--text); border:1px solid #3b3a6b;
+           border-radius:8px; padding:8px 4px; cursor:pointer; font:inherit;
+           font-size:12px; transition:.14s; }
+  button:hover { background:#353468; border-color:#514f92; }
+  button.on { background:var(--accent); border-color:#9b83ff; }
+
+  .tools { display:flex; flex-wrap:wrap; gap:6px; }
+  .tools button { padding:6px 10px; font-size:11px; }
+  label.chk { display:flex; align-items:center; gap:6px; font-size:12px;
+              color:var(--muted); cursor:pointer; padding:5px 0; }
+  input[type=checkbox] { accent-color:var(--accent); width:15px; height:15px; }
+  pre { background:#0c0b20; border:1px solid var(--line); border-radius:8px;
+        padding:9px; font-size:11px; max-height:260px; overflow:auto; margin:0;
+        color:#b9c0ea; }
+  .side { width:330px; flex:0 0 330px; }
+  .kv { display:flex; justify-content:space-between; font-size:12px;
+        padding:3px 0; border-bottom:1px dashed var(--line); }
+  .kv:last-child { border-bottom:0; }
+  .kv span:last-child { color:var(--muted); font-variant-numeric:tabular-nums; }
 </style>
 </head>
 <body>
 
-<div class="panel">
-  <h1>Board — 368 × 368</h1>
-  <canvas id="ludo-canvas" width="368" height="368"></canvas>
-</div>
-
-<div class="col">
+<div class="game-col">
   <div class="panel">
-    <h1>Controls</h1>
-    <div class="row">
-      <label>Mode</label>
-      <button data-mode="cpu2">PvCPU 2P</button>
-      <button data-mode="pvp2">PvP 2P</button>
-      <button data-mode="pvp3">PvP 3P</button>
-      <button data-mode="pvp4">PvP 4P</button>
-    </div>
-    <div class="row">
-      <label>Inspect</label>
-      <button id="btn-ring">Ring indices</button>
-      <button id="btn-walk">Walk a token 0 → 56</button>
-      <button id="btn-scatter">Scatter tokens</button>
-      <button id="btn-reset">Reset to base</button>
-    </div>
-    <div class="row">
-      <label>Turn</label>
-      <button id="btn-turn">Next player</button>
+    <h1>Ludo</h1>
+    <canvas id="ludo-canvas" width="344" height="416"></canvas>
+    <div class="controls">
+      <button id="btn-mode">🔄 PvCPU</button>
+      <button id="btn-play">▶ Play</button>
+      <button id="btn-reset">🔄 Reset</button>
+      <button id="btn-max">⛶ Max</button>
     </div>
   </div>
 
-  <div class="panel" style="margin-top:16px">
-    <h1>Walk trace</h1>
-    <pre id="trace">Press “Walk a token 0 → 56”.</pre>
+  <div class="panel">
+    <h1>Rules (⚙️ settings equivalents)</h1>
+    <label class="chk"><input type="checkbox" id="p-blocks" checked> Blocks bar landing &amp; passing</label>
+    <label class="chk"><input type="checkbox" id="p-three" checked> Three sixes forfeits the turn</label>
+    <label class="chk"><input type="checkbox" id="p-exact" checked> Exact roll required to finish</label>
+    <label class="chk"><input type="checkbox" id="p-free"> Release on any roll (no 6 needed)</label>
+  </div>
+</div>
+
+<div class="side">
+  <div class="panel">
+    <h1>State</h1>
+    <div class="kv"><span>phase</span><span id="s-phase">—</span></div>
+    <div class="kv"><span>to move</span><span id="s-turn">—</span></div>
+    <div class="kv"><span>dice</span><span id="s-dice">—</span></div>
+    <div class="kv"><span>legal moves</span><span id="s-legal">—</span></div>
+    <div class="kv"><span>turn clock</span><span id="s-clock">—</span></div>
+    <div class="kv"><span>six streak</span><span id="s-six">—</span></div>
+    <div class="kv"><span>cpu tier</span><span id="s-tier">—</span></div>
+    <div class="kv"><span>ludoGamesWon</span><span id="s-wins">—</span></div>
+  </div>
+
+  <div class="panel">
+    <h1>Inspect</h1>
+    <div class="tools">
+      <button id="btn-ring">Ring indices</button>
+      <button id="btn-walk">Walk 0 → 56</button>
+      <button id="btn-scatter">Scatter</button>
+      <button id="btn-dice">Dice × 6000</button>
+      <button id="btn-auto">Auto-play</button>
+      <button id="btn-clear">Clear record</button>
+    </div>
+    <pre id="log">Press ▶ Play.</pre>
   </div>
 </div>
 
@@ -64,84 +104,127 @@
 // ── Stubs for the host userscript's shared plumbing ──────────────────
 const FIXED_DT = 1000 / 60;
 function getFrameInterval() { return 1000 / 60; }
-function awardGameXP(type, perf) { console.log('[stub] awardGameXP', type, perf); }
-function showXPNotification(n, r) { console.log('[stub] showXPNotification', n, r); }
+function showXPNotification(n, r) { log(`XP notification: +${n} (${r})`); }
+function awardGameXP(type, perf) {
+    log(`awardGameXP('${type}') → ${perf.xp} XP  ` +
+        `[${perf.won ? 'WIN' : 'place ' + perf.placement}, ${perf.tokensHome}/4 home, ` +
+        `${perf.captures} caps, ${perf.tier}${perf.vsCPU ? '' : ', hot-seat'}]`);
+}
 let userPreferences = {
     ludoBlocks: true, ludoThreeSixes: true, ludoExactHome: true, ludoFreeRelease: false,
 };
+const logEl = () => document.getElementById('log');
+function log(msg) {
+    const el = logEl();
+    el.textContent = (el.textContent === 'Press ▶ Play.' ? '' : el.textContent + '\n') + msg;
+    el.scrollTop = 1e6;
+}
 </script>
 <script src="ludo-core.js"></script>
+<script src="ludo-ui.js"></script>
 <script>
-// Mode tables come from the core so the harness cannot drift from the game.
-function setMode(m) {
-    ludoSetMode(m);
-    document.querySelectorAll('[data-mode]').forEach(b =>
-        b.classList.toggle('on', b.dataset.mode === m));
-    ludoRender();
-}
+initLudoGame();
 
-document.querySelectorAll('[data-mode]').forEach(b =>
-    b.onclick = () => setMode(b.dataset.mode));
+const $ = id => document.getElementById(id);
 
-document.getElementById('btn-ring').onclick = function () {
+$('btn-play').onclick  = () => { startLudoGame(); };
+$('btn-reset').onclick = () => { resetLudoGame(); log('reset'); };
+$('btn-mode').onclick  = () => {
+    $('btn-mode').textContent = '🔄 ' + cycleLudoModeAndReset();
+    log('mode → ' + ludoMode);
+};
+$('btn-max').onclick = () => {
+    const c = $('ludo-canvas');
+    if (document.fullscreenElement) document.exitFullscreen();
+    else c.requestFullscreen && c.requestFullscreen();
+};
+
+// Rule toggles write the same flat prefs the ⚙️ settings modal will.
+const bind = (id, key) => {
+    $(id).onchange = e => { userPreferences[key] = e.target.checked; log(`${key} = ${e.target.checked}`); };
+};
+bind('p-blocks', 'ludoBlocks');
+bind('p-three',  'ludoThreeSixes');
+bind('p-exact',  'ludoExactHome');
+bind('p-free',   'ludoFreeRelease');
+
+$('btn-ring').onclick = function () {
     ludoDebugRing = !ludoDebugRing;
     this.classList.toggle('on', ludoDebugRing);
-    ludoRender();
 };
 
-document.getElementById('btn-reset').onclick = () => { ludoResetTokens(); ludoRender(); };
-
-document.getElementById('btn-turn').onclick = () => {
-    ludoTurn = (ludoTurn + 1) % ludoActive.length;
-    ludoRender();
-};
-
-// Spread tokens over the ring so overlaps / safe squares / home columns are visible.
-document.getElementById('btn-scatter').onclick = () => {
-    ludoResetTokens();
+$('btn-scatter').onclick = () => {
+    resetLudoGame();
+    const steps = [0, 8, 13, 26, 39, 47, 50, 51, 53, 55, 4, 19, 31, 44, 22, 35];
     ludoTokens.forEach((t, k) => {
-        t.inBase = false;
-        t.step   = [0, 8, 13, 26, 39, 47, 50, 51, 53, 55, 4, 19, 31, 44, 22, 35][k % 16];
-        t.home   = false;
+        t.inBase = false; t.home = false; t.step = steps[k % steps.length];
     });
-    ludoRender();
+    log('scattered — check stacking badges and home columns');
 };
 
-// Walk token 0 of the player to move from base all the way home, one step per
-// frame, logging the cell it occupies. This is the visual counterpart to
-// ludo-verify.js — the token must trace the ring, turn into its OWN colour
-// column at 51, and vanish into the centre at 56.
-document.getElementById('btn-walk').onclick = () => {
+// Walks token 0 of the player to move from base to home, verifying visually
+// that it traces the ring and turns into its OWN colour column at step 51.
+$('btn-walk').onclick = () => {
+    resetLudoGame();
     const ci = ludoActive[ludoTurn];
-    ludoResetTokens();
     const t = ludoTokens.find(x => x.ci === ci);
-    const out = [];
     let s = 0;
+    log(`walking ${LUDO_COLORS[ci].label} 0 → 56`);
     const tick = () => {
-        t.inBase = false;
-        t.step   = s;
-        t.home   = s >= LUDO_HOME_STEP;
-        const cell = ludoStepToCell(ci, s);
-        const ring = ludoStepToRing(ci, s);
-        out.push(
-            `step ${String(s).padStart(2)}  ` +
-            (cell ? `cell ${String(cell.r).padStart(2)},${String(cell.c).padStart(2)}` : 'centre    ') +
-            (ring >= 0 ? `  ring ${String(ring).padStart(2)}` : '  ——     ') +
-            (LUDO_SAFE_RING.has(ring) ? '  ★safe' : '') +
-            (s >= 51 && s <= 55 ? '  home column' : '') +
-            (s === 56 ? '  HOME' : '')
-        );
-        ludoMessage = `${LUDO_COLORS[ci].label} walking — step ${s}/56`;
-        ludoRender();
-        document.getElementById('trace').textContent = out.join('\n');
-        document.getElementById('trace').scrollTop = 1e6;
-        if (s++ < LUDO_HOME_STEP) setTimeout(tick, 70);
-        else ludoMessage = '';
+        t.inBase = false; t.step = s; t.home = s >= LUDO_HOME_STEP;
+        const cell = ludoStepToCell(ci, s), ring = ludoStepToRing(ci, s);
+        if (s % 8 === 0 || s >= 50) {
+            log(`  step ${String(s).padStart(2)}  ` +
+                (cell ? `cell ${cell.r},${cell.c}` : 'centre') +
+                (ring >= 0 ? `  ring ${ring}` : '') +
+                (LUDO_SAFE_RING.has(ring) ? '  ★' : '') +
+                (s >= 51 && s <= 55 ? '  home column' : '') + (s === 56 ? '  HOME' : ''));
+        }
+        if (s++ < LUDO_HOME_STEP) setTimeout(tick, 55);
     };
     tick();
 };
 
-setMode('cpu2');
+$('btn-dice').onclick = () => {
+    const h = [0, 0, 0, 0, 0, 0, 0];
+    for (let i = 0; i < 6000; i++) h[ludoRollDice()]++;
+    log('dice × 6000 → ' + h.slice(1).map((v, i) => `${i + 1}:${v}`).join('  '));
+};
+
+// CPU-vs-CPU: temporarily treat every seat as a CPU by auto-playing whatever
+// the scorer picks whenever the game is waiting on a human.
+let auto = false;
+$('btn-auto').onclick = function () {
+    auto = !auto;
+    this.classList.toggle('on', auto);
+    log('auto-play ' + (auto ? 'on' : 'off'));
+};
+setInterval(() => {
+    if (!auto || !ludoStarted) return;
+    if (ludoPhase === 'awaitRoll' && !ludoIsCPUSeat(ludoActive[ludoTurn])) ludoDoRoll();
+    else if (ludoPhase === 'awaitMove' && !ludoIsCPUSeat(ludoActive[ludoTurn])) {
+        const m = ludoAIChooseMove(ludoActive[ludoTurn], ludoLegal, 'hard');
+        if (m) ludoPlayMove(m);
+    }
+}, 120);
+
+$('btn-clear').onclick = () => {
+    localStorage.removeItem('ludoGamesWon');
+    localStorage.removeItem('ludoRecord');
+    log('cleared ludoGamesWon / ludoRecord');
+};
+
+setInterval(() => {
+    const ci = ludoActive[ludoTurn];
+    $('s-phase').textContent = ludoPhase;
+    $('s-turn').textContent  = LUDO_COLORS[ci].label + (ludoIsCPUSeat(ci) ? ' (CPU)' : '');
+    $('s-dice').textContent  = ludoRoll || ludoDiceFace;
+    $('s-legal').textContent = ludoLegal.length;
+    $('s-clock').textContent = ludoTurnLeft.toFixed(1) + 's';
+    $('s-six').textContent   = ludoSixStreak;
+    $('s-tier').textContent  = ludoCpuTier;
+    $('s-wins').textContent  = localStorage.getItem('ludoGamesWon') || '0';
+}, 120);
 </script>
 </body>
 </html>

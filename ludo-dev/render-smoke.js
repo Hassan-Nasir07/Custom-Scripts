@@ -1,17 +1,17 @@
 // Drives ludoRender() against a recording 2D-context stub so typos and
 // undefined references in the drawing code surface without opening a browser.
-const calls = {};
-const rec = new Proxy({}, {
-    get: (_, k) => {
-        if (k === 'canvas') return { width: 368, height: 368 };
-        return () => { calls[k] = (calls[k] || 0) + 1; };
-    },
-    set: (_, k) => { calls['set:' + k] = (calls['set:' + k] || 0) + 1; return true; },
-});
+const { ctx: rec, calls } = require('./canvas-stub')(368, 404);
+
 // Must exist before ludoRender runs — it looks the canvas up by id.
-global.document = {
-    getElementById: id => (id === 'ludo-canvas' ? { getContext: () => rec } : null),
+const canvasStub = {
+    width: 0, height: 0,
+    getContext: () => rec,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 368, height: 404 }),
+    addEventListener() {}, removeEventListener() {},
 };
+global.document = { getElementById: id => (id === 'ludo-canvas' ? canvasStub : null) };
+global.requestAnimationFrame = () => 1;
+global.cancelAnimationFrame = () => {};
 
 const load = require('./load');
 

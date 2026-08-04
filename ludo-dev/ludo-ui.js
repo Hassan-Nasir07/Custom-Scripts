@@ -494,10 +494,21 @@
     }
 
     // ── HUD ────────────────────────────────────────────────────────────
-    function ludoDrawChip(ctx, ci, x, y, w, h, isCurrent) {
+    // Strip layout. The chip is 88 wide rather than 122 so the roll recap fits
+    // between it and the live dice (ring spans centre ± 19) even in 3P/4P,
+    // where two players share a strip.
+    const LUDO_CHIP_W    = 88;
+    const LUDO_CHIP_H    = 38;
+    const LUDO_CHIP_PAD  = 6;
+    const LUDO_RECAP_GAP = 6;    // chip → recap; keeps the recap clear of the dice ring
+    const ludoChipX = side =>
+        side === 'left' ? LUDO_CHIP_PAD : LUDO_CANVAS_W - LUDO_CHIP_W - LUDO_CHIP_PAD;
+
+    function ludoDrawChip(ctx, ci, x, y, isCurrent) {
         const col  = LUDO_COLORS[ci];
         const home = ludoTokensHome(ci);
         const isCPU = ludoIsCPUSeat(ci);
+        const w = LUDO_CHIP_W, h = LUDO_CHIP_H;
 
         if (isCurrent) {
             ctx.fillStyle = 'rgba(255,255,255,0.11)';
@@ -511,7 +522,7 @@
 
         const cy = y + h / 2;
         ctx.beginPath();
-        ctx.arc(x + 15, cy, 8.5, 0, Math.PI * 2);
+        ctx.arc(x + 14, cy, 8, 0, Math.PI * 2);
         ctx.fillStyle = col.hex;
         ctx.fill();
         ctx.lineWidth = 1.5;
@@ -519,32 +530,79 @@
         ctx.stroke();
         if (isCurrent) {
             ctx.beginPath();
-            ctx.arc(x + 15, cy, 11.5 + Math.sin(ludoPulse * 4) * 0.9, 0, Math.PI * 2);
+            ctx.arc(x + 14, cy, 11 + Math.sin(ludoPulse * 4) * 0.9, 0, Math.PI * 2);
             ctx.strokeStyle = 'rgba(255,255,255,0.55)';
             ctx.lineWidth = 1.5;
             ctx.stroke();
         }
 
+        // Name at 11px, CPU tier trailing it at 8px. Right-aligning the tier
+        // would collide with the recap, and "CPU · normal" as one 11px string
+        // overflowed the 88px chip.
+        const name = isCPU ? 'CPU' : col.label;
         ctx.font = isCurrent ? 'bold 11px system-ui, sans-serif' : '11px system-ui, sans-serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
         ctx.fillStyle = isCurrent ? '#ffffff' : 'rgba(255,255,255,0.66)';
-        ctx.fillText(isCPU ? 'CPU' : col.label, x + 29, cy - 1);
+        ctx.fillText(name, x + 26, cy - 1);
+        if (isCPU) {
+            const nameW = ctx.measureText(name).width;
+            ctx.font = '8px system-ui, sans-serif';
+            ctx.fillStyle = 'rgba(255,255,255,0.42)';
+            ctx.fillText(ludoCpuTier, x + 26 + nameW + 5, cy - 1);
+        }
 
-        // Four pips showing tokens home.
         for (let k = 0; k < 4; k++) {
-            const px = x + 31 + k * 9;
             ctx.beginPath();
-            ctx.arc(px, cy + 9, 3, 0, Math.PI * 2);
+            ctx.arc(x + 29 + k * 8.5, cy + 9, 3, 0, Math.PI * 2);
             ctx.fillStyle = k < home ? col.hex : 'rgba(255,255,255,0.20)';
             ctx.fill();
         }
-        if (isCPU) {
-            ctx.font = '8px system-ui, sans-serif';
-            ctx.textAlign = 'right';
-            ctx.fillStyle = 'rgba(255,255,255,0.40)';
-            ctx.fillText(ludoCpuTier, x + w - 6, cy - 2);
-        }
+    }
+
+    // Small greyed-out die used only for the recap, so it never reads as live.
+    // Pips need real contrast at this size — a grey face with near-black pips
+    // stays countable where a low global alpha turned them to mush.
+    function ludoDrawMiniDie(ctx, cx, cy, size, face) {
+        const half = size / 2;
+        ctx.save();
+        ctx.globalAlpha = 0.78;
+        ludoRoundRect(ctx, cx - half, cy - half, size, size, size * 0.24);
+        ctx.fillStyle = '#c6cde4';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.34)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        const pr = Math.max(1.05, half * 0.235), sp = half * 0.50;
+        ctx.fillStyle = '#141a2e';
+        (LUDO_PIPS[face] || []).forEach(p => {
+            ctx.beginPath();
+            ctx.arc(cx + p[0] * sp, cy + p[1] * sp, pr, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.restore();
+    }
+
+    // What the previous player rolled, parked beside their own chip. Cleared
+    // the moment the next roll starts (see ludoDoRoll).
+    function ludoDrawRecap(ctx, strip) {
+        if (!ludoRecap || !ludoRecap.faces.length) return;
+        const seat = LUDO_SEATS[ludoRecap.ci];
+        if (seat.strip !== strip || !ludoIsActive(ludoRecap.ci)) return;
+
+        // At most 4, most recent first-to-last. Three sixes is the natural
+        // maximum; longer runs only come from capture chains.
+        const faces = ludoRecap.faces.slice(-4);
+        const D = faces.length <= 3 ? 15 : 11;
+        const GAP = 2;
+        const w = faces.length * D + (faces.length - 1) * GAP;   // <= 50
+        const y0 = strip === 'top' ? 0 : LUDO_CANVAS_H - LUDO_STRIP_H;
+        const cy = y0 + LUDO_STRIP_H / 2;
+        const x0 = seat.side === 'left'
+            ? ludoChipX('left') + LUDO_CHIP_W + LUDO_RECAP_GAP
+            : ludoChipX('right') - LUDO_RECAP_GAP - w;
+
+        faces.forEach((f, k) => ludoDrawMiniDie(ctx, x0 + k * (D + GAP) + D / 2, cy, D, f));
     }
 
     function ludoDrawHud(ctx) {
@@ -556,10 +614,12 @@
             ludoActive.forEach(ci => {
                 const seat = LUDO_SEATS[ci];
                 if (seat.strip !== strip) return;
-                const w = 122, h = 38;
-                const x = seat.side === 'left' ? 7 : LUDO_CANVAS_W - w - 7;
-                ludoDrawChip(ctx, ci, x, y0 + (LUDO_STRIP_H - h) / 2, w, h, ci === cur && ludoPhase !== 'over');
+                ludoDrawChip(ctx, ci, ludoChipX(seat.side),
+                             y0 + (LUDO_STRIP_H - LUDO_CHIP_H) / 2,
+                             ci === cur && ludoPhase !== 'over');
             });
+
+            ludoDrawRecap(ctx, strip);
 
             if (strip === curStrip) {
                 const cx = LUDO_CANVAS_W / 2, cy = y0 + LUDO_STRIP_H / 2;
@@ -688,6 +748,7 @@
 
     function ludoDoRoll() {
         if (ludoPhase !== 'awaitRoll') return;
+        ludoRecap = null;                 // last turn's dice clear as the new roll starts
         ludoPhase = 'rolling';
         ludoDiceSpin = LUDO_DICE_MS;
     }
@@ -703,7 +764,12 @@
             return;
         }
         if (res.passed) {
-            ludoSay('No moves', 'info', LUDO_PASS_MS);
+            // Name the number. "No moves" alone left the player guessing what
+            // they had rolled, which is the whole complaint the recap fixes.
+            const stuck = ludoTokens.filter(t => t.ci === ci).every(t => t.inBase || t.home);
+            ludoSay(stuck && ludoDiceFace !== 6
+                ? `Rolled ${ludoDiceFace} — need a 6`
+                : `Rolled ${ludoDiceFace} — no moves`, 'info', LUDO_PASS_MS);
             ludoAfter(LUDO_PASS_MS, ludoBeginTurn);
             return;
         }

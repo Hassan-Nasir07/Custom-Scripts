@@ -135,7 +135,8 @@ head('Turn state machine');
     forceDice(3);
     L.ludoDoRoll();
     pump(L, L.LUDO_DICE_MS + 40);
-    ok('a dead roll shows a banner', L.banner && /no moves/i.test(L.banner.text));
+    ok('a dead roll shows a banner naming the roll',
+       L.banner && /rolled 3/i.test(L.banner.text), L.banner && L.banner.text);
     pump(L, L.LUDO_PASS_MS + 60);
     ok('and passes to the next player', L.turn === 1 && L.phase === 'awaitRoll');
     restoreDice();
@@ -292,6 +293,117 @@ head('Pointer input (scale-aware)');
     const L = fresh();
     ok('input before ▶ Play does nothing',
        (click(L, 184, 26), L.phase === 'idle'));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+head('Roll recap');
+{
+    // The case that prompted this: everything in base, roll a 4, turn passes.
+    // Previously nothing on screen said what had been rolled.
+    const L = fresh();
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+    ok('no recap before anything is rolled', L.recap === null);
+
+    forceDice(4);
+    L.ludoDoRoll();
+    pump(L, L.LUDO_DICE_MS + 40);
+    ok('the dead roll is recapped', L.recap && L.recap.faces.join() === '4',
+       JSON.stringify(L.recap));
+    ok('recap is attributed to the player who rolled it', L.recap.ci === 0);
+    ok('the banner names the number and the reason',
+       L.banner && /rolled 4/i.test(L.banner.text) && /need a 6/i.test(L.banner.text),
+       L.banner && L.banner.text);
+    restoreDice();
+}
+{
+    const L = fresh();
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+    forceDice(4);
+    L.ludoDoRoll();
+    pump(L, L.LUDO_DICE_MS + L.LUDO_PASS_MS + 80);
+    ok('recap survives into the next player\'s turn', L.recap !== null);
+    L.ludoDoRoll();
+    ok('and clears the moment the next roll starts', L.recap === null);
+    restoreDice();
+}
+{
+    // Three sixes must recap all three, including the voided one.
+    const L = fresh();
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+    L.place(0, 0, 10);
+    forceDice(6);
+    for (let i = 0; i < 2; i++) {
+        L.ludoDoRoll();
+        pump(L, L.LUDO_DICE_MS + 40);
+        L.ludoPlayMove(L.legal.find(m => !m.release) || L.legal[0]);
+        pump(L, L.LUDO_HOP_MS * 8 + 60);
+    }
+    ok('two sixes so far, no handover yet', L.recap === null && L.turnRolls.length === 2);
+    L.ludoDoRoll();
+    pump(L, L.LUDO_DICE_MS + 40);
+    ok('the voided third six is still recapped',
+       L.recap && L.recap.faces.join() === '6,6,6', JSON.stringify(L.recap));
+    restoreDice();
+}
+{
+    // An extra turn accumulates rather than snapshotting mid-turn.
+    const L = fresh();
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+    L.place(0, 0, 10);
+    forceDice(6);
+    L.ludoDoRoll();
+    pump(L, L.LUDO_DICE_MS + 40);
+    L.ludoPlayMove(L.legal.find(m => !m.release));
+    pump(L, L.LUDO_HOP_MS * 8 + 60);
+    ok('a 6 grants an extra roll without recapping', L.recap === null);
+    ok('the 6 is held in the running tally', L.turnRolls.join() === '6');
+
+    forceDice(3);
+    L.ludoDoRoll();
+    pump(L, L.LUDO_DICE_MS + 40);
+    L.ludoPlayMove(L.legal[0]);
+    pump(L, L.LUDO_HOP_MS * 5 + 60);
+    ok('handover recaps the whole turn, both rolls',
+       L.recap && L.recap.faces.join() === '6,3', JSON.stringify(L.recap));
+    restoreDice();
+}
+{
+    const L = fresh();
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+    forceDice(4);
+    L.ludoDoRoll();
+    pump(L, L.LUDO_DICE_MS + 40);
+    L.resetLudoGame();
+    ok('reset clears the recap', L.recap === null && L.turnRolls.length === 0);
+    restoreDice();
+}
+{
+    // Layout: the recap must not collide with the live dice, in any mode.
+    const L = fresh();
+    const CHIP_W = 88, PAD = 6, GAP = 6, RING = 19;
+    const WIDEST = Math.max(3 * 15 + 2 * 2, 4 * 11 + 3 * 2);   // 3 big or 4 small
+    const leftEnd    = PAD + CHIP_W + GAP + WIDEST;
+    const rightStart = L.LUDO_CANVAS_W - CHIP_W - PAD - GAP - WIDEST;
+    ok('recap beside a left chip clears the dice ring',
+       leftEnd <= L.LUDO_CANVAS_W / 2 - RING, `${leftEnd} vs ${L.LUDO_CANVAS_W / 2 - RING}`);
+    ok('recap beside a right chip clears the dice ring',
+       rightStart >= L.LUDO_CANVAS_W / 2 + RING,
+       `${rightStart} vs ${L.LUDO_CANVAS_W / 2 + RING}`);
+
+    // And it renders in every mode with a recap present.
+    ['cpu2', 'pvp2', 'pvp3', 'pvp4'].forEach(m => {
+        L.ludoSetMode(m);
+        L.recap = { ci: L.active[0], faces: [6, 6, 6] };
+        L.ludoRender();
+        L.recap = { ci: L.active[L.active.length - 1], faces: [1, 2, 3, 4, 5] };
+        L.ludoRender();
+    });
+    ok('recap renders in every mode, including >4 rolls', true);
 }
 
 // ═══════════════════════════════════════════════════════════════════════

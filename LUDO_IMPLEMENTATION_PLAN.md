@@ -392,6 +392,9 @@ board tables.
 - [x] `LUDO_TURN_CLOCK = 20` as a depleting ring around the dice; expiry auto-rolls,
       or auto-plays the scorer's pick if already rolled
 - [x] Dice hit-testing via `rect.width / LUDO_CANVAS_W` (tested at half scale)
+- [x] **Roll recap** — the last turn's faces as dimmed mini-dice beside their
+      owner's chip, cleared when the next roll starts. Plus a banner that names
+      the number (`Rolled 4 — need a 6`)
 
 ### Phase 3 — Movement
 - [x] `step` 0…56 model + step→cell resolution (ring → own home column → home)
@@ -567,4 +570,6 @@ doesn't re-derive it from the code.
 | **2026-08-04** | **Timers run off the animation loop, never `setTimeout`** | `cleanupCurrentGame` cancels `ludoAnimFrame`; a stray `setTimeout` would keep firing after the player switched tabs. `ludoAfter(ms, fn)` is drained inside `ludoUpdate`. |
 | **2026-08-04** | **Inactive quadrants desaturate toward their own luminance, then lighten** | Blending straight to grey turned red into mud and yellow into olive — they read as "dirty" rather than "not in play". Verified visually with `preview.js`. |
 | **2026-08-04** | **Dice breathes instead of showing a "TAP" label** | The label did not fit in the strip without colliding with the board frame, and a pulsing scale is a clearer affordance anyway. |
+| **2026-08-04** | **Roll recap: last turn's faces as dimmed mini-dice beside their owner's chip** | *Reported by the user.* Rolling anything but a 6 with every token still in base passed the turn instantly, so the player never saw what they rolled. `ludoTurnRolls` accumulates faces and `ludoAdvanceTurn` snapshots them into `ludoRecap` — extra turns never reach `ludoAdvanceTurn`, so a 6-then-3 turn correctly recaps as both. The voided third six is recorded *before* the three-sixes check, so it still shows. Cleared in `ludoDoRoll`. The banner also names the number now. |
+| **2026-08-04** | **Player chip narrowed 122 → 88, CPU tier split to an 8px trailing label** | The recap needs to sit between the chip and the dice ring (centre ± 19) in 3P/4P where two players share a strip. 88px leaves a 6px gap either side. `CPU · normal` as one 11px string overflowed the chip and clipped. |
 | **2026-08-04** | **`preview.js` — a from-scratch software rasterizer** | No `canvas`/`playwright`/`puppeteer` available and Node is 10.24, so the board could not otherwise be *seen*. It implements enough Canvas2D (transforms, arc/arcTo/ellipse paths, nonzero fill, strokes, gradients, a 3×5 bitmap font) to render real `ludoRender()` output to a PNG. Caught the turn-ring/frame collision and the muddy dim colours, neither of which any assertion would have found. |

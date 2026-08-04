@@ -131,6 +131,13 @@
     let ludoPlacements = [];      // colour indices, in finishing order
     let ludoStats      = {};      // ci -> { captures, lost }
 
+    // Every face rolled by the player currently to move, and a snapshot of the
+    // turn that just ended. Without this a roll that produces no legal move —
+    // the common "needed a 6, got a 4" case — passes the turn with nothing on
+    // screen to say what was rolled. The HUD shows the snapshot as dimmed dice.
+    let ludoTurnRolls  = [];      // faces rolled so far this turn
+    let ludoRecap      = null;    // { ci, faces } from the last completed turn
+
     function ludoResetTokens() {
         ludoTokens = [];
         ludoStats  = {};
@@ -144,6 +151,8 @@
         ludoSixStreak  = 0;
         ludoGameOver   = false;
         ludoPlacements = [];
+        ludoTurnRolls  = [];
+        ludoRecap      = null;
     }
 
     // â”€â”€ Rules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -264,6 +273,13 @@
     }
 
     function ludoAdvanceTurn() {
+        // The turn is handing over, so freeze what this player rolled. Extra
+        // turns never reach here, which is why a 6-then-3 turn recaps as both.
+        if (ludoActive.length && ludoTurnRolls.length) {
+            ludoRecap = { ci: ludoActive[ludoTurn], faces: ludoTurnRolls.slice() };
+        }
+        ludoTurnRolls = [];
+
         ludoSixStreak = 0;
         ludoRoll = 0;
         if (ludoActive.length === 0) return;
@@ -289,6 +305,9 @@
     function ludoRegisterRoll(ci, roll) {
         const R = ludoRules();
         ludoRoll      = roll;
+        // Recorded before the three-sixes check so the voided third 6 still
+        // shows up in the recap — it was rolled, it just did not count.
+        ludoTurnRolls.push(roll);
         ludoSixStreak = roll === 6 ? ludoSixStreak + 1 : 0;
 
         // Third consecutive 6 forfeits the turn AND voids the roll â€” the player

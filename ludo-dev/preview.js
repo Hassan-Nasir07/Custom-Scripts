@@ -398,6 +398,22 @@ if (scenario === 'fresh') {
     L.place(2, 0, 40); L.place(2, 1, 12);
     L.placements.push(0);
     L.phase = 'over';
+} else if (scenario === 'recap') {
+    // The reported case: everything still in base, rolled a 4, turn passed.
+    L.ludoSetMode('cpu2');
+    L.startLudoGame();
+    load.forceDice(4);
+    L.ludoDoRoll();
+    pump(L.LUDO_DICE_MS + 40);
+    load.restoreDice();
+} else if (scenario === 'recap4p') {
+    // Worst case for layout: 3P, where two chips share the top strip with the
+    // live dice, and the recap is three sixes.
+    L.ludoSetMode('pvp3');
+    L.startLudoGame();
+    L.place(0, 0, 12);
+    L.recap = { ci: 0, faces: [6, 6, 6] };
+    L.turn = 1;
 } else if (scenario === 'rolling') {
     L.ludoSetMode('cpu2');
     L.startLudoGame();

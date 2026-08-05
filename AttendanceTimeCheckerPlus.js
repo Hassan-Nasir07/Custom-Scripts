@@ -8192,6 +8192,7 @@
             title: '🎲 Ludo',
             bufferW: LUDO_CANVAS_W,
             bufferH: LUDO_CANVAS_H,
+            onToggle: toggleLudoMaximize,
         });
         ludoRender();
     }

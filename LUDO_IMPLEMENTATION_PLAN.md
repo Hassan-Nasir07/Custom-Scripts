@@ -8,7 +8,7 @@
 > Branch: `feat/ludo-game` (off `main` @ `efbf33d`)
 > Status: **Phases 0–11 complete — Ludo is integrated.** The engine lives in
 > `AttendanceTimeCheckerPlus.js` (now 16,491 lines), byte-identical to the copy in
-> [`ludo-dev/`](ludo-dev/) that the tests exercise. **508 assertions green**, including
+> [`ludo-dev/`](ludo-dev/) that the tests exercise. **584 assertions green**, including
 > a suite that executes the real userscript. The only step left is a pass on the live
 > portal — see Verification.
 > Last updated: 2026-08-05
@@ -166,6 +166,33 @@ because the Max modal relocates only the `<canvas>`.
 Seats map to quadrants — Blue TL, Red TR, Green BR, Yellow BL — and each player's chip
 sits in the strip on their own side of the board. The dice renders in whichever strip
 belongs to the player to move, so attention follows the turn.
+
+### Board rotation
+
+⚙️ **🎲 Ludo Board** turns the board in quarter-turns so a player can put their own
+colour nearest them — `userPreferences.ludoRotation`, 0–3 counter-clockwise turns,
+labelled by where Blue lands (top-left → bottom-left → bottom-right → top-right).
+
+Two rules make this safe, and both are asserted:
+
+1. **Rotate coordinates, not the model.** `ludoStepToCell`, the ring indices and every
+   rule still speak unrotated grid space, so a turn *cannot* change what is legal.
+   Everything funnels through `ludoPointXY`, so the board, tokens, ghosts, the hop
+   animation and hit-testing all follow from one function. `rotation-verify.js` pins
+   this by comparing legal-move sets and step→cell output across all four turns.
+2. **Never rotate the canvas context.** `ctx.rotate` would carry the dice pips, chip
+   labels and stack badges with it and leave them upside down. Only positions move.
+
+Two things that are *not* automatic and had to be handled explicitly:
+
+- `ludoDrawCell` and the quadrant/base rects assumed `(r0,c0)` was the top-left corner.
+  A quarter-turn keeps a rect axis-aligned but moves which corner is which, so
+  `ludoRectXY` derives it from both rotated corners.
+- The HUD is in strip space, not board space. `ludoSeat(ci)` derives a colour's
+  strip/side from its quadrant's *rotated* centre, so chips, the dice and the roll
+  recap follow the board round. A quarter-turn is a bijection on quadrants, so the four
+  seats always land in four distinct slots — asserted, since a collision would stack
+  two chips.
 
 ```
 LUDO_RING      52 × {r,c}, clockwise         // shared track
@@ -529,7 +556,7 @@ The script self-guards to one URL (43–48), so iterating in-place is slow.
 own [README](ludo-dev/README.md). One command:
 
 ```
-node ludo-dev/verify-all.js     # 508 assertions across 8 suites, non-zero exit on failure
+node ludo-dev/verify-all.js     # 584 assertions across 9 suites, non-zero exit on failure
 ```
 
 | Suite | Covers | Assertions |
@@ -539,6 +566,7 @@ node ludo-dev/verify-all.js     # 508 assertions across 8 suites, non-zero exit 
 | `ai-verify.js` | Tiers, scorer, 600-game strength ordering | 36 |
 | `modes-verify.js` | Mode cycling, seats, turn order | 38 |
 | `ui-verify.js` | State machine, animation, clock, pointer input, die-choice popover, recap, anti-farm, XP | 126 |
+| `rotation-verify.js` | Board rotation — that it moves quadrants, chips, dice and hit-testing, and moves nothing else | 76 |
 | `render-smoke.js` | `ludoRender()` across all modes and steps | 10 |
 | `integration-verify.js` | Every wiring point in `AttendanceTimeCheckerPlus.js`, plus engine parity | 51 |
 | `host-smoke.js` | **Executes the real userscript**: full PvCPU match, XP, achievements, cloud round-trip, both Max modals | 55 |
@@ -611,6 +639,10 @@ doesn't re-derive it from the code.
 | **2026-08-04** | **Extra turns now come only from a capture or a token reaching home** | Otherwise a 6 would pay twice — once as an extra die and again as an extra turn. `ludoGrantsExtraTurn(roll, result)` became `ludoEarnsAnotherRoll(result)`; `ludoFinishMove` lost its `roll` argument and returns `{ continueTurn, extraRoll }`. |
 | **2026-08-04** | **Tap a token → popover of that token's playable values** | With up to three distinct values banked, a tap is ambiguous. `ludoValuesForToken` filters the pool to what that token can legally spend: one value moves immediately, several open a popover anchored to the token. `ludoPopoverLayout()` is shared by the renderer and the hit-test so they cannot drift. |
 | **2026-08-04** | **Ghost previews suppressed while several distinct values are banked** | Three values × four tokens is up to a dozen ghost destinations. Ghosts now show only when one distinct value remains, or when a popover has narrowed it to one token; otherwise the glow and chevron carry it. |
+| **2026-08-05** | **Board rotation is a coordinate transform, not a canvas transform** | *Requested by the user — players want their own colour nearest them.* `ctx.rotate` would have been one line, but it turns the dice pips, chip labels and stack badges upside down with the board. Instead `ludoRotateGrid` maps grid-line coordinates and everything funnels through `ludoPointXY`, so glyphs stay upright while positions move. The model is untouched, which is what makes it safe to change mid-match. |
+| **2026-08-05** | **`ludoSeat(ci)` replaced the static `LUDO_SEATS` table** | The HUD lives in strip space, not board space, so it does not rotate for free. Deriving each colour's strip/side from its quadrant's rotated centre means the chips, dice and roll recap follow the board without a second lookup table to keep in sync. |
+| **2026-08-05** | **`ludoRectXY` for anything rectangular** | `fillRect(ludoPointXY(r0,c0), w, h)` assumed `(r0,c0)` stays the top-left corner. Under a quarter-turn it becomes a different corner, which drew quadrants and base panels one cell off. Deriving the rect from both rotated corners is rotation-agnostic. |
+| **2026-08-05** | **Match-completion loops now drive the moves instead of waiting on the turn clock** | `host-smoke.js` and `rotation-verify.js` played a hot-seat match by letting the 20s clock time each turn out. That converges far too slowly to bound with an iteration guard and made the suite intermittently fail. Both now roll and play directly; the suite is stable over repeated runs. |
 | **2026-08-05** | **Ludo's localStorage helpers stayed in the engine block, not beside `savePoolRecord`** | The plan put `load/saveLudoWins` and `load/saveLudoRecord` at ~557. They were already written and covered by the headless XP tests inside `ludo-ui.js`, and moving them would have split the tested source from the integrated source. Parity between the two is now an asserted invariant (`integration-verify.js` compares the bytes), which is worth more than the placement. A pointer comment sits at 557 for anyone looking there. |
 | **2026-08-05** | **The XP formula stayed in `endLudoGame`; `awardGameXP`'s case only clamps and phrases it** | The plan put the arithmetic in `awardGameXP`. It was already implemented and pinned by tests in `endLudoGame`, which is also where the CPU-vs-hot-seat and win/placement facts live. `awardGameXP` re-clamps to `AC_MAX_XP_PER_GAME` because that is the host's contract with the sync anti-cheat and is the last point before the XP lands. |
 | **2026-08-05** | **`toggleGameMaxModal` keys its state by `canvasId` instead of taking a `stateRef`** | The plan suggested passing a state reference. A module-level map keyed by canvas id means neither game can corrupt the other's state, and callers just store the returned boolean — `poolMaximized` and `ludoMaximized` keep working exactly as before. |

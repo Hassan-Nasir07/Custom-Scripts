@@ -163,8 +163,8 @@ const EXPORTS = `
     return {
         initLudoGame, startLudoGame, resetLudoGame, cleanupLudoGame,
         cycleLudoModeAndReset, endLudoGame, updateLudoScoreboard,
-        ludoUpdate, ludoRender, ludoSetMode, ludoRollDice,
-        ludoBlockRings, ludoLegalMoves, ludoStepToRing,
+        ludoUpdate, ludoRender, ludoSetMode, ludoRollDice, ludoDoRoll, ludoPlayMove,
+        ludoBlockRings, ludoLegalMoves, ludoStepToRing, ludoSeat, ludoResetTokens,
         toggleGameMaxModal, awardGameXP, checkGameAchievements,
         revalidateAchievements, collectGameBests, buildPlayerSnapshot,
         applyPlayerRecordToLocal, ACHIEVEMENTS, ACHIEVEMENT_XP,
@@ -172,6 +172,7 @@ const EXPORTS = `
         get userXP() { return userXP; },
         get prefs() { return userPreferences; },
         get phase() { return ludoPhase; },
+        get legal() { return ludoLegal; },
         get pool() { return ludoPool; },
         get tokens() { return ludoTokens; },
         get active() { return ludoActive; },
@@ -226,9 +227,15 @@ ok('mode label populated', elements['ludo-mode-label'].textContent === 'PvCPU');
 H.startLudoGame();
 ok('play starts a turn', H.phase === 'awaitRoll');
 
-// Drive a whole PvCPU match on the simulated clock.
+// Drive a whole PvCPU match on the simulated clock. The human seat is played
+// here rather than left to time out on the 20s turn clock — waiting for the
+// clock converges far too slowly to bound with an iteration guard.
 let guard = 0;
-while (H.phase !== 'over' && guard++ < 400000) H.ludoUpdate(16);
+while (H.phase !== 'over' && guard++ < 200000) {
+    H.ludoUpdate(16);
+    if (H.phase === 'awaitRoll') H.ludoDoRoll();
+    else if (H.phase === 'awaitMove' && H.legal.length) H.ludoPlayMove(H.legal[0]);
+}
 ok('a full PvCPU match completes through the host', H.phase === 'over', 'guard=' + guard);
 ok('someone brought all four home', H.active.some(ci =>
     H.tokens.filter(t => t.ci === ci && t.home).length === 4));
@@ -366,6 +373,48 @@ head('Shared Max modal — Ludo');
     ok('buffer restored to 344x416', c.width === 344 && c.height === 416,
        c.width + 'x' + c.height);
     ok('canvas returned to the panel', c.parentNode === homeParent);
+}
+
+head('Board rotation, through the host');
+{
+    // The setting is labelled by where Blue ends up, so check that against the
+    // host's own pref object and its own seat function.
+    const want = ['top-left', 'bottom-left', 'bottom-right', 'top-right'];
+    H.ludoSetMode('cpu2');
+    [0, 1, 2, 3].forEach(r => {
+        H.prefs.ludoRotation = r;
+        const s = H.ludoSeat(0);
+        ok(`rotation ${r}: Blue sits ${want[r]}`,
+           s.strip + '-' + s.side === want[r], `got ${s.strip}-${s.side}`);
+    });
+
+    // Legality must be identical at every rotation — this is the whole safety
+    // claim, re-checked against the integrated copy rather than only ludo-dev/.
+    H.prefs.ludoRotation = 0;
+    H.ludoResetTokens();
+    H.place(0, 0, 12); H.place(2, 0, 30);
+    const baseline = [1, 2, 3, 4, 5, 6]
+        .map(r => H.ludoLegalMoves(0, r).map(m => m.token.i + '>' + m.to).join(',')).join('|');
+    let same = true;
+    [1, 2, 3].forEach(r => {
+        H.prefs.ludoRotation = r;
+        const got = [1, 2, 3, 4, 5, 6]
+            .map(x => H.ludoLegalMoves(0, x).map(m => m.token.i + '>' + m.to).join(',')).join('|');
+        if (got !== baseline) same = false;
+    });
+    ok('legal moves are identical at every rotation', same);
+
+    let threw = null;
+    [0, 1, 2, 3].forEach(r => {
+        H.prefs.ludoRotation = r;
+        try { H.ludoRender(); } catch (e) { threw = 'rot ' + r + ': ' + e.message; }
+    });
+    ok('the board renders at every rotation', threw === null, threw);
+
+    H.prefs.ludoRotation = 'nonsense';
+    ok('a corrupt rotation pref falls back to 0 rather than throwing',
+       (H.ludoRender(), H.ludoSeat(0).strip + '-' + H.ludoSeat(0).side) === 'top-left');
+    H.prefs.ludoRotation = 0;
 }
 
 head('The reported bug, through the host');

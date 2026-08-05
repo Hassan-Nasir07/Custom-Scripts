@@ -32,7 +32,7 @@ module.exports = function load(prefs) {
     return new Function(source() + `
         return {
             LUDO_RING, LUDO_COLORS, LUDO_SAFE_RING, LUDO_HOME_STEP, LUDO_START_OWNER,
-            LUDO_MODES, LUDO_MODE_COLORS, LUDO_MODE_LABEL, LUDO_HUMAN_CI, LUDO_SEATS,
+            LUDO_MODES, LUDO_MODE_COLORS, LUDO_MODE_LABEL, LUDO_HUMAN_CI,
             LUDO_CANVAS_W, LUDO_CANVAS_H, LUDO_STRIP_H, LUDO_BOARD, LUDO_BOARD_X,
             LUDO_BOARD_Y, LUDO_CELL, LUDO_TURN_CLOCK, LUDO_DICE_MS, LUDO_HOP_MS,
             LUDO_AUTOPLAY_MS, LUDO_PASS_MS, LUDO_CPU_THINK_MS,
@@ -47,6 +47,7 @@ module.exports = function load(prefs) {
             ludoSetMode, cycleLudoMode, ludoIsCPUSeat,
 
             ludoPointXY, ludoCellCenter, ludoPosForStep, ludoTokenXY, ludoComputeLayout,
+            ludoRotation, ludoRotateGrid, ludoSeat, ludoRectXY,
             ludoRender, ludoDrawBoard, ludoDrawTokens, ludoDrawHud, ludoUpdate,
             ludoBeginTurn, ludoDoRoll, ludoSettleRoll, ludoPlayMove, ludoTimeout,
             ludoAwaitMove, ludoPopoverLayout, ludoDrawPopover,

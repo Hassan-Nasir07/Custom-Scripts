@@ -81,7 +81,7 @@ function rollSeq(L, faces) {
 }
 
 function diceCenter(L) {
-    const seat = L.LUDO_SEATS[L.active[L.turn]];
+    const seat = L.ludoSeat(L.active[L.turn]);
     return {
         x: L.LUDO_CANVAS_W / 2,
         y: seat.strip === 'top' ? L.LUDO_STRIP_H / 2 : L.LUDO_CANVAS_H - L.LUDO_STRIP_H / 2,

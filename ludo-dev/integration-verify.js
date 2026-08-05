@@ -95,6 +95,31 @@ ok('settings modal exposes all four',
 ok('storage helpers live in the engine block',
    has('function ludoLoadWins()') && has('function ludoSaveRecord(rec)'));
 
+head('Board rotation');
+ok('ludoRotation default in userPreferences', has('ludoRotation: 0'));
+ok('rotation select in the settings modal', has('data-pref="ludoRotation"'));
+ok('all four orientations offered',
+   (src.match(/<option value="[0-3]"[^>]*>Blue /g) || []).length === 4);
+ok('the select is stored as a number, not a string',
+   /numericPrefs = \['gameFps', 'ludoRotation'\]/.test(src));
+ok('coordinates rotate, not the model',
+   has('function ludoRotateGrid(gr, gc)') && has('function ludoPointXY(r, c)') &&
+   /ludoPointXY[\s\S]{0,120}?ludoRotateGrid\(r, c\)/.test(src));
+ok('rects derive from both rotated corners', has('function ludoRectXY(r0, c0, r1, c1)'));
+ok('HUD seats derived, not tabled',
+   has('function ludoSeat(ci)') && !has('const LUDO_SEATS'));
+// Board rotation must never reach the canvas transform — ctx.rotate would carry
+// dice pips, chip labels and stack badges over and leave them upside down. The
+// ctx.rotate calls that do exist (Pool's rolling stripe, Ludo's start arrow, the
+// dice tumble wobble) each spin one small shape and know nothing about the
+// board's orientation, so assert that rather than counting call sites.
+const rotateDrivenByBoard = src.split('\n')
+    .filter(l => l.indexOf('ctx.rotate(') !== -1 && /ludoRotat/.test(l));
+ok('no ctx.rotate is driven by the board rotation',
+   rotateDrivenByBoard.length === 0, rotateDrivenByBoard.join(' | '));
+ok('ludoRender sets an unrotated scale transform',
+   /setTransform\(s, 0, 0, s, 0, 0\)/.test(src));
+
 head('XP and achievements');
 ok('awardGameXP has a ludo case', /case 'ludo': \{[\s\S]{0,700}?performance\.xp/.test(src));
 ok('award clamped to AC_MAX_XP_PER_GAME',

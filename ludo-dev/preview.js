@@ -145,6 +145,11 @@ class Ctx {
     }
     scaleLen(v) { return v * Math.hypot(this.m[0], this.m[1]); }
 
+    // Dashes are ignored — the preview only needs the stroke's position and
+    // colour, and a solid ring reads the same for layout checking.
+    setLineDash() {}
+    getLineDash() { return []; }
+
     beginPath() { this.subpaths = []; this.cur = null; this._pt = null; }
     moveTo(x, y) { this.cur = [this.tp(x, y)]; this.subpaths.push(this.cur); this._pt = { x, y }; }
     lineTo(x, y) {

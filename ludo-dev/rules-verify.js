@@ -144,6 +144,66 @@ head('Blocks');
     ok('blocks OFF: landing captures both', land && land.captures.length === 2);
 }
 
+// ── A safe square can never become a wall ────────────────────────────
+// Regression: Green's own start (ring 26) is safe AND is refilled every time
+// Green releases. When a pair there still sealed the track, a Blue token at
+// ring 24 had exactly one legal roll (1) and was stranded until captured.
+{
+    const L = board();                                  // blocks ON
+    L.place(GREEN, 0, 0);                               // both on Green's start
+    L.place(GREEN, 1, 0);
+    ok('Green\'s start is ring 26 and is safe',
+       L.ludoStepToRing(GREEN, 0) === 26 && L.LUDO_SAFE_RING.has(26));
+    ok('a pair on a safe square is NOT a block', !L.ludoBlockRings(BLUE).has(26));
+
+    L.place(BLUE, 0, 24);                               // Green's gate
+    const rolls = [1, 2, 3, 4, 5, 6].filter(r =>
+        L.ludoLegalMoves(BLUE, r).some(m => m.token.i === 0));
+    ok('every roll can now get past it', rolls.length === 6, `legal rolls: ${rolls.join()}`);
+
+    const onto = L.ludoLegalMoves(BLUE, 2).find(m => m.token.i === 0);
+    ok('landing on the shared safe square is allowed', !!onto && onto.to === 26);
+    ok('and captures nothing there', onto.captures.length === 0);
+}
+{
+    // Same for a ★ square, and a pair of stars mid-track.
+    const L = board();
+    const g8 = stepOnRing(L.LUDO_COLORS, GREEN, 8);
+    L.place(GREEN, 0, g8);
+    L.place(GREEN, 1, g8);
+    ok('a pair on a ★ square is not a block', !L.ludoBlockRings(BLUE).has(8));
+    L.place(BLUE, 0, 5);
+    ok('and it can be passed', L.ludoLegalMoves(BLUE, 5).some(m => m.token.i === 0));
+}
+{
+    // Ordinary squares must still block — the rule is narrowed, not removed.
+    const L = board();
+    const g6 = stepOnRing(L.LUDO_COLORS, GREEN, 6);
+    ok('ring 6 is not safe', !L.LUDO_SAFE_RING.has(6));
+    L.place(GREEN, 0, g6);
+    L.place(GREEN, 1, g6);
+    L.place(BLUE, 0, 3);
+    ok('a pair on a plain square still blocks', L.ludoBlockRings(BLUE).has(6));
+    ok('and still bars passage', !L.ludoLegalMoves(BLUE, 4).some(m => m.token.i === 0));
+}
+{
+    // No colour can be permanently sealed in: from anywhere on the ring there is
+    // always some roll that works, given only safe-square pairs on the board.
+    const L = board();
+    L.active = [BLUE, GREEN];
+    L.ludoResetTokens();
+    L.place(GREEN, 0, 0);                    // pair on Green's start (safe)
+    L.place(GREEN, 1, 0);
+    let stuck = [];
+    for (let s = 0; s <= 45; s++) {
+        L.place(BLUE, 0, s);
+        const any = [1, 2, 3, 4, 5, 6].some(r =>
+            L.ludoLegalMoves(BLUE, r).some(m => m.token.i === 0));
+        if (!any) stuck.push(s);
+    }
+    ok('no ring position is a dead end', stuck.length === 0, `stuck at steps ${stuck.join()}`);
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 head('Exact home');
 {

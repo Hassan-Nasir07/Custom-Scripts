@@ -190,12 +190,20 @@
     // Ring squares carrying 2+ tokens of one colour other than `forCi`.
     // Counted per (colour, square) because two different colours may legitimately
     // share a safe square — that pair is not a block.
+    //
+    // Safe squares can NEVER block. A ★/start square is shared ground: nothing
+    // can be captured there, so several colours are expected to stand on it. If
+    // a pair there also sealed the track, a colour's own start square — which it
+    // refills every time it releases a token — would become a permanent wall
+    // across the one route every opponent must take. In PvCPU that stranded
+    // Blue's tokens on Green's doorstep until they were picked off: from ring 24,
+    // only a roll of 1 was ever legal.
     function ludoBlockRings(forCi) {
         const per = {};
         ludoTokens.forEach(t => {
             if (t.inBase || t.home || t.ci === forCi) return;
             const ri = ludoStepToRing(t.ci, t.step);
-            if (ri < 0) return;
+            if (ri < 0 || LUDO_SAFE_RING.has(ri)) return;
             const k = t.ci + ':' + ri;
             per[k] = (per[k] || 0) + 1;
         });

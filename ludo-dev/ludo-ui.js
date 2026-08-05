@@ -312,14 +312,35 @@
         const o    = opt || {};
         const col  = LUDO_COLORS[ci];
         const on   = ludoIsActive(ci);
-        const body = o.ghost ? 'rgba(255,255,255,0.30)' : (on ? col.hex : ludoDim(col.hex));
+        const body = on ? col.hex : ludoDim(col.hex);
         const deep = on ? col.deep : ludoDim(col.deep);
         const R    = LUDO_CELL * 0.40 * (o.scale || 1);
 
-        ctx.save();
-        if (o.ghost) ctx.globalAlpha = 0.55;
+        // Destination marker. Drawn as a dashed ring in the mover's own colour
+        // rather than a translucent white disc — most of the track is white, and
+        // a white ghost was simply invisible on it.
+        if (o.ghost) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(x, y, R * 0.86, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,255,255,0.62)';
+            ctx.fill();
+            ctx.setLineDash([3.5, 2.5]);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = deep;
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.arc(x, y, R * 0.30, 0, Math.PI * 2);
+            ctx.fillStyle = body;
+            ctx.fill();
+            ctx.restore();
+            return;
+        }
 
-        if (!o.ghost) {
+        ctx.save();
+
+        {
             ctx.beginPath();
             ctx.ellipse(x, y + R * 0.62, R * 0.82, R * 0.30, 0, 0, Math.PI * 2);
             ctx.fillStyle = 'rgba(0,0,0,0.28)';
@@ -334,17 +355,17 @@
 
         ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI * 2);
         ctx.fillStyle = body; ctx.fill();
-        ctx.lineWidth = 1.4; ctx.strokeStyle = o.ghost ? 'rgba(255,255,255,0.7)' : deep;
+        ctx.lineWidth = 1.4; ctx.strokeStyle = deep;
         ctx.stroke();
 
         ctx.beginPath(); ctx.arc(x, y, R * 0.62, 0, Math.PI * 2);
-        ctx.fillStyle = o.ghost ? 'rgba(255,255,255,0.35)' : '#ffffff';
+        ctx.fillStyle = '#ffffff';
         ctx.fill();
 
         ctx.beginPath(); ctx.arc(x, y, R * 0.34, 0, Math.PI * 2);
         ctx.fillStyle = body; ctx.fill();
 
-        if (!o.ghost) {
+        {
             ctx.beginPath();
             ctx.arc(x - R * 0.30, y - R * 0.34, R * 0.24, 0, Math.PI * 2);
             ctx.fillStyle = 'rgba(255,255,255,0.55)';

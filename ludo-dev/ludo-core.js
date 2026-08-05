@@ -177,6 +177,11 @@
         const P = (typeof userPreferences === 'object' && userPreferences) ? userPreferences : {};
         return {
             blocks:      P.ludoBlocks      !== false,
+            // Whether a block also seals the track. On (the Ludo Star rule) a
+            // pair sitting directly in front of a token leaves it with no legal
+            // roll at all until the pair moves; off, you may hop over a block
+            // but still may not land on it.
+            blockPassing: P.ludoBlockPassing !== false,
             threeSixes:  P.ludoThreeSixes  !== false,
             exactHome:   P.ludoExactHome   !== false,
             freeRelease: P.ludoFreeRelease === true,
@@ -245,11 +250,14 @@
                     if (R.exactHome) return;    // must land exactly on 56
                     to = LUDO_HOME_STEP;        // otherwise an overshoot still finishes
                 }
-                // A block bars passage as well as landing. Only ring squares
-                // strictly after the current one and up to the destination count;
-                // home-column squares (>50) can never be blocked.
-                for (let s = t.step + 1; s <= Math.min(to, 50); s++) {
-                    if (blocked.has(ludoStepToRing(ci, s))) return;
+                // A block bars passage too, unless jumping is allowed. Only ring
+                // squares strictly after the current one and up to the
+                // destination count; home-column squares (>50) are never blocked.
+                // Landing is barred either way, by the check just below.
+                if (R.blockPassing) {
+                    for (let s = t.step + 1; s <= Math.min(to, 50); s++) {
+                        if (blocked.has(ludoStepToRing(ci, s))) return;
+                    }
                 }
             }
             if (to <= 50 && blocked.has(ludoStepToRing(ci, to))) return;

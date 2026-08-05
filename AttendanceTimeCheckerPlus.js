@@ -328,6 +328,10 @@
         // .toggle-switch handler writes userPreferences[data-pref] directly.
         // ludoRules() reads these live, so changes apply mid-match.
         ludoBlocks: true,       // 2+ own tokens bar opponents (never on a safe square)
+        // Whether a block also seals the track. On (the Ludo Star rule) a pair
+        // directly in front of a token leaves it with no legal roll at all;
+        // off, you may hop over a block but still may not land on it.
+        ludoBlockPassing: true,
         ludoThreeSixes: true,   // three 6s forfeit the whole banked sequence
         ludoExactHome: true,    // exact roll needed to finish
         ludoFreeRelease: false, // leave base on any roll, not just a 6
@@ -6604,6 +6608,11 @@
         const P = (typeof userPreferences === 'object' && userPreferences) ? userPreferences : {};
         return {
             blocks:      P.ludoBlocks      !== false,
+            // Whether a block also seals the track. On (the Ludo Star rule) a
+            // pair sitting directly in front of a token leaves it with no legal
+            // roll at all until the pair moves; off, you may hop over a block
+            // but still may not land on it.
+            blockPassing: P.ludoBlockPassing !== false,
             threeSixes:  P.ludoThreeSixes  !== false,
             exactHome:   P.ludoExactHome   !== false,
             freeRelease: P.ludoFreeRelease === true,
@@ -6672,11 +6681,14 @@
                     if (R.exactHome) return;    // must land exactly on 56
                     to = LUDO_HOME_STEP;        // otherwise an overshoot still finishes
                 }
-                // A block bars passage as well as landing. Only ring squares
-                // strictly after the current one and up to the destination count;
-                // home-column squares (>50) can never be blocked.
-                for (let s = t.step + 1; s <= Math.min(to, 50); s++) {
-                    if (blocked.has(ludoStepToRing(ci, s))) return;
+                // A block bars passage too, unless jumping is allowed. Only ring
+                // squares strictly after the current one and up to the
+                // destination count; home-column squares (>50) are never blocked.
+                // Landing is barred either way, by the check just below.
+                if (R.blockPassing) {
+                    for (let s = t.step + 1; s <= Math.min(to, 50); s++) {
+                        if (blocked.has(ludoStepToRing(ci, s))) return;
+                    }
                 }
             }
             if (to <= 50 && blocked.has(ludoStepToRing(ci, to))) return;
@@ -8192,7 +8204,6 @@
             title: '🎲 Ludo',
             bufferW: LUDO_CANVAS_W,
             bufferH: LUDO_CANVAS_H,
-            onToggle: toggleLudoMaximize,
         });
         ludoRender();
     }
@@ -14621,6 +14632,10 @@
                     <div class="ludo-rule-row">
                         <span>Blocks bar opponents <small style="opacity:0.6;">(never on ★ squares)</small></span>
                         <div class="toggle-switch ${userPreferences.ludoBlocks !== false ? 'active' : ''}" data-pref="ludoBlocks"></div>
+                    </div>
+                    <div class="ludo-rule-row">
+                        <span>…and can't be jumped over <small style="opacity:0.6;">(off: hop past, still can't land)</small></span>
+                        <div class="toggle-switch ${userPreferences.ludoBlockPassing !== false ? 'active' : ''}" data-pref="ludoBlockPassing"></div>
                     </div>
                     <div class="ludo-rule-row">
                         <span>Three 6s forfeit the turn</span>

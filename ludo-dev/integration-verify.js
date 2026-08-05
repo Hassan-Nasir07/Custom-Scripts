@@ -86,12 +86,15 @@ ok('switching away closes the Pool modal', has('if (poolMaximized) togglePoolMax
 ok('switching away closes the Ludo modal', has('if (ludoMaximized) toggleLudoMaximize();'));
 
 head('Preferences and storage');
-ok('four flat rule flags in userPreferences',
-   all(['ludoBlocks: true', 'ludoThreeSixes: true',
+ok('five flat rule flags in userPreferences',
+   all(['ludoBlocks: true', 'ludoBlockPassing: true', 'ludoThreeSixes: true',
         'ludoExactHome: true', 'ludoFreeRelease: false']));
-ok('settings modal exposes all four',
-   all(['data-pref="ludoBlocks"', 'data-pref="ludoThreeSixes"',
-        'data-pref="ludoExactHome"', 'data-pref="ludoFreeRelease"']));
+ok('settings modal exposes all five',
+   all(['data-pref="ludoBlocks"', 'data-pref="ludoBlockPassing"',
+        'data-pref="ludoThreeSixes"', 'data-pref="ludoExactHome"',
+        'data-pref="ludoFreeRelease"']));
+ok('barring passage is separable from barring the landing',
+   /if \(R\.blockPassing\) \{[\s\S]{0,220}?blocked\.has\(ludoStepToRing\(ci, s\)\)/.test(src));
 ok('storage helpers live in the engine block',
    has('function ludoLoadWins()') && has('function ludoSaveRecord(rec)'));
 

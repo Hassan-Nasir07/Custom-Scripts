@@ -8,7 +8,7 @@ is slow. The engine is built and tested here first, then inserted into that file
 reviewed diff.
 
 ```
-node ludo-dev/verify-all.js              # every suite — 584 assertions
+node ludo-dev/verify-all.js              # every suite — 612 assertions
 node ludo-dev/preview.js out.png fourplayer   # render a PNG of the board
 start ludo-dev/ludo-harness.html         # play it
 ```
@@ -38,14 +38,14 @@ modal relocates only the `<canvas>`, so a DOM HUD would disappear inside it.
 | Suite | Covers | Assertions |
 |---|---|---|
 | `ludo-verify.js` | Board geometry — ring closure, corner turns, home columns, safe squares, quadrants | 78 |
-| `rules-verify.js` | Dice fairness, legal moves, every rule toggle, capture/safe behaviour, dice accumulation, pool spending, safe-square blocks, match resolution, 400 random self-play games | 114 |
+| `rules-verify.js` | Dice fairness, legal moves, every rule toggle, capture/safe behaviour, dice accumulation, pool spending, safe-square blocks, jumping blocks, match resolution, 400 random self-play games | 121 |
 | `ai-verify.js` | Difficulty tiers, scorer priorities, threat awareness, 600-game head-to-head strength ordering | 36 |
 | `modes-verify.js` | Mode cycling, active colour sets, turn order, CPU seats, reset-on-switch | 38 |
 | `ui-verify.js` | Turn state machine, dice tumble, hop animation, turn clock, scale-aware pointer input, die-choice popover, roll recap, anti-farm guards, XP maths | 126 |
 | `rotation-verify.js` | Board rotation: quadrants land where the setting promises, seats never collide, all 225 cells stay distinct and on-board, legal moves and ring indices are identical at every turn, hit-testing follows | 76 |
 | `render-smoke.js` | `ludoRender()` across every mode and all 57 steps × 4 colours | 10 |
-| `integration-verify.js` | Every wiring point in `AttendanceTimeCheckerPlus.js` — switcher cases, DOM ids, CSS, keyboard, bridges, XP, achievements, leaderboard columns — plus engine parity | 51 |
-| `host-smoke.js` | **Executes the real userscript** under a minimal DOM: boots Ludo, plays a full PvCPU match, checks XP/achievements/cloud round-trip and both Max modals | 55 |
+| `integration-verify.js` | Every wiring point in `AttendanceTimeCheckerPlus.js` — switcher cases, DOM ids, CSS, keyboard, bridges, XP, achievements, leaderboard columns — plus engine parity | 61 |
+| `host-smoke.js` | **Executes the real userscript** under a minimal DOM: boots Ludo, plays a full PvCPU match, checks XP/achievements/cloud round-trip and both Max modals, board rotation | 66 |
 
 `ui-verify.js` simulates time by pumping `ludoUpdate(dt)` instead of waiting on real
 frames, so a full PvCPU match plays out in milliseconds and is deterministic.

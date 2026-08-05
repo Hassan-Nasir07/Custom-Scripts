@@ -417,7 +417,7 @@ head('Board rotation, through the host');
     H.prefs.ludoRotation = 0;
 }
 
-head('The reported bug, through the host');
+head('Reported bug 1 — safe squares walling the track');
 H.ludoSetMode('cpu2');
 H.place(2, 0, 0); H.place(2, 1, 0);        // two CPU tokens on their start (ring 26)
 H.place(0, 0, 24);                          // player token on Green's gate
@@ -425,6 +425,33 @@ ok('safe square is not a block', !H.ludoBlockRings(0).has(26));
 const legal = [1, 2, 3, 4, 5, 6].filter(r =>
     H.ludoLegalMoves(0, r).some(m => m.token.i === 0));
 ok('all six rolls are playable', legal.length === 6, 'legal rolls: ' + legal.join());
+
+head('Reported bug 2 — a block on the very next square');
+{
+    // Blue on ring 30 with a Green pair on ring 31: every roll has to cross it.
+    H.ludoSetMode('cpu2');
+    H.ludoResetTokens();
+    const greenStep = (31 - 26 + 52) % 52;
+    H.place(2, 0, greenStep); H.place(2, 1, greenStep);
+    H.place(0, 0, 30);
+
+    H.prefs.ludoBlockPassing = true;
+    const walled = [1, 2, 3, 4, 5, 6].filter(r =>
+        H.ludoLegalMoves(0, r).some(m => m.token.i === 0));
+    ok('default rule: the token is walled in completely', walled.length === 0,
+       'legal rolls: ' + walled.join());
+
+    H.prefs.ludoBlockPassing = false;
+    const free = [1, 2, 3, 4, 5, 6].filter(r =>
+        H.ludoLegalMoves(0, r).some(m => m.token.i === 0));
+    ok('jumping allowed: every roll but the landing one works',
+       free.join() === '2,3,4,5,6', 'legal rolls: ' + free.join());
+    ok('the pair still cannot be landed on',
+       !H.ludoLegalMoves(0, 1).some(m => m.token.i === 0));
+    ok('and still cannot be captured',
+       H.ludoLegalMoves(0, 3).filter(m => m.token.i === 0)[0].captures.length === 0);
+    H.prefs.ludoBlockPassing = true;
+}
 
 console.log('\n' + '='.repeat(52));
 console.log('  ' + pass + ' passed, ' + fail + ' failed');

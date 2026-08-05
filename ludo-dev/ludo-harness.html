@@ -66,7 +66,8 @@
 
   <div class="panel">
     <h1>Rules (⚙️ settings equivalents)</h1>
-    <label class="chk"><input type="checkbox" id="p-blocks" checked> Blocks bar landing &amp; passing</label>
+    <label class="chk"><input type="checkbox" id="p-blocks" checked> Blocks bar opponents</label>
+    <label class="chk"><input type="checkbox" id="p-blockpass" checked> …and can't be jumped over</label>
     <label class="chk"><input type="checkbox" id="p-three" checked> Three sixes forfeits the turn</label>
     <label class="chk"><input type="checkbox" id="p-exact" checked> Exact roll required to finish</label>
     <label class="chk"><input type="checkbox" id="p-free"> Release on any roll (no 6 needed)</label>
@@ -121,7 +122,7 @@ function awardGameXP(type, perf) {
         `${perf.captures} caps, ${perf.tier}${perf.vsCPU ? '' : ', hot-seat'}]`);
 }
 let userPreferences = {
-    ludoBlocks: true, ludoThreeSixes: true, ludoExactHome: true, ludoFreeRelease: false,
+    ludoBlocks: true, ludoBlockPassing: true, ludoThreeSixes: true, ludoExactHome: true, ludoFreeRelease: false,
     ludoRotation: 0,
 };
 const logEl = () => document.getElementById('log');
@@ -155,6 +156,7 @@ const bind = (id, key) => {
     $(id).onchange = e => { userPreferences[key] = e.target.checked; log(`${key} = ${e.target.checked}`); };
 };
 bind('p-blocks', 'ludoBlocks');
+bind('p-blockpass', 'ludoBlockPassing');
 bind('p-three',  'ludoThreeSixes');
 bind('p-exact',  'ludoExactHome');
 bind('p-free',   'ludoFreeRelease');

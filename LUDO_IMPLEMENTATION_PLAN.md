@@ -8,7 +8,7 @@
 > Branch: `feat/ludo-game` (off `main` @ `efbf33d`)
 > Status: **Phases 0–11 complete — Ludo is integrated.** The engine lives in
 > `AttendanceTimeCheckerPlus.js` (now 16,491 lines), byte-identical to the copy in
-> [`ludo-dev/`](ludo-dev/) that the tests exercise. **584 assertions green**, including
+> [`ludo-dev/`](ludo-dev/) that the tests exercise. **612 assertions green**, including
 > a suite that executes the real userscript. The only step left is a pass on the live
 > portal — see Verification.
 > Last updated: 2026-08-05
@@ -228,9 +228,14 @@ Implemented in full; the first three are toggleable in ⚙️ settings.
 - **Another sequence** on a capture or on landing a token home
 - **`threeSixes`** (default on) — three consecutive 6s forfeits the turn and voids
   **the whole banked sequence**, which is the risk that balances accumulating
-- **`blocks`** (default on) — 2+ own tokens on one ring cell: opponents can neither
-  land on nor pass through it. **Never applies on a safe square** — see the
-  decision log; a pair on the CPU's own start square otherwise sealed the track.
+- **`blocks`** (default on) — 2+ own tokens on one ring cell: opponents cannot land
+  on it. **Never applies on a safe square** — see the decision log; a pair on the
+  CPU's own start square otherwise sealed the track.
+- **`blockPassing`** (default on) — a block also bars *passing through*. This is the
+  Ludo Star rule, but it means a pair on the square directly ahead of a token leaves
+  it with **no legal roll at all** until the pair moves. Turn it off to hop over a
+  block while still being unable to land on it (and without making the stack
+  capturable, which switching `blocks` off entirely would).
 - **`exactHome`** (default on) — exact roll required to reach step 56; otherwise
   overshoot is allowed
 - **Safe squares** — no capture on `LUDO_SAFE_RING` cells or in any home column
@@ -556,20 +561,20 @@ The script self-guards to one URL (43–48), so iterating in-place is slow.
 own [README](ludo-dev/README.md). One command:
 
 ```
-node ludo-dev/verify-all.js     # 584 assertions across 9 suites, non-zero exit on failure
+node ludo-dev/verify-all.js     # 612 assertions across 9 suites, non-zero exit on failure
 ```
 
 | Suite | Covers | Assertions |
 |---|---|---|
 | `ludo-verify.js` | Board geometry | 78 |
-| `rules-verify.js` | Dice, legal moves, rule toggles, dice accumulation, pool spending, safe-square blocks, 400 self-play games | 114 |
+| `rules-verify.js` | Dice, legal moves, rule toggles, dice accumulation, pool spending, block rules, 400 self-play games | 121 |
 | `ai-verify.js` | Tiers, scorer, 600-game strength ordering | 36 |
 | `modes-verify.js` | Mode cycling, seats, turn order | 38 |
 | `ui-verify.js` | State machine, animation, clock, pointer input, die-choice popover, recap, anti-farm, XP | 126 |
 | `rotation-verify.js` | Board rotation — that it moves quadrants, chips, dice and hit-testing, and moves nothing else | 76 |
 | `render-smoke.js` | `ludoRender()` across all modes and steps | 10 |
-| `integration-verify.js` | Every wiring point in `AttendanceTimeCheckerPlus.js`, plus engine parity | 51 |
-| `host-smoke.js` | **Executes the real userscript**: full PvCPU match, XP, achievements, cloud round-trip, both Max modals | 55 |
+| `integration-verify.js` | Every wiring point in `AttendanceTimeCheckerPlus.js`, plus engine parity | 61 |
+| `host-smoke.js` | **Executes the real userscript**: full PvCPU match, XP, achievements, cloud round-trip, both Max modals, rotation, both reported bugs | 66 |
 
 Plus `node ludo-dev/preview.js out.png <scenario>` to render the board to a PNG, and
 `ludo-dev/ludo-harness.html` to actually play it. Verify there:
@@ -639,6 +644,7 @@ doesn't re-derive it from the code.
 | **2026-08-04** | **Extra turns now come only from a capture or a token reaching home** | Otherwise a 6 would pay twice — once as an extra die and again as an extra turn. `ludoGrantsExtraTurn(roll, result)` became `ludoEarnsAnotherRoll(result)`; `ludoFinishMove` lost its `roll` argument and returns `{ continueTurn, extraRoll }`. |
 | **2026-08-04** | **Tap a token → popover of that token's playable values** | With up to three distinct values banked, a tap is ambiguous. `ludoValuesForToken` filters the pool to what that token can legally spend: one value moves immediately, several open a popover anchored to the token. `ludoPopoverLayout()` is shared by the renderer and the hit-test so they cannot drift. |
 | **2026-08-04** | **Ghost previews suppressed while several distinct values are banked** | Three values × four tokens is up to a dozen ghost destinations. Ghosts now show only when one distinct value remains, or when a popover has narrowed it to one token; otherwise the glow and chevron carry it. |
+| **2026-08-05** | **Barring passage split out of the blocks rule as `ludoBlockPassing`** | *Reported by the user, from in-app play.* A Green pair on ring 31 sat directly in front of a Blue token on ring 30, so all six rolls had to cross it and that token had **no legal move at all** — the turn silently auto-played a different token instead. That is the Ludo Star rule behaving correctly, not a bug, but the only escape was switching `blocks` off entirely, which also makes a stack capturable (landing on it takes both). Passage is now its own toggle: default on (standard), off lets you hop a block while still being unable to land on or capture it. Default deliberately unchanged, since "full Ludo Star ruleset" was an explicit decision. |
 | **2026-08-05** | **Board rotation is a coordinate transform, not a canvas transform** | *Requested by the user — players want their own colour nearest them.* `ctx.rotate` would have been one line, but it turns the dice pips, chip labels and stack badges upside down with the board. Instead `ludoRotateGrid` maps grid-line coordinates and everything funnels through `ludoPointXY`, so glyphs stay upright while positions move. The model is untouched, which is what makes it safe to change mid-match. |
 | **2026-08-05** | **`ludoSeat(ci)` replaced the static `LUDO_SEATS` table** | The HUD lives in strip space, not board space, so it does not rotate for free. Deriving each colour's strip/side from its quadrant's rotated centre means the chips, dice and roll recap follow the board without a second lookup table to keep in sync. |
 | **2026-08-05** | **`ludoRectXY` for anything rectangular** | `fillRect(ludoPointXY(r0,c0), w, h)` assumed `(r0,c0)` stays the top-left corner. Under a quarter-turn it becomes a different corner, which drew quadrants and base panels one cell off. Deriving the rect from both rotated corners is rotation-agnostic. |

@@ -13766,6 +13766,7 @@
             }
 
             .ludo-rule-row span {
+                color: azure;
                 font-size: 0.82rem;
                 opacity: 0.85;
             }

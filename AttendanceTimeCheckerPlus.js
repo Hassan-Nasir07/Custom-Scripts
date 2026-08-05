@@ -290,6 +290,9 @@
         lightning:    { icon: '⚡', name: 'Lightning Reflexes', desc: 'Average under 220ms in RefleX' },
         brickBuster:  { icon: '🧨', name: 'Brick Buster',      desc: 'Reach level 30 in Breakout' },
         poolShark:    { icon: '🎱', name: 'Pool Shark',        desc: 'Win 100 pool games against the CPU' },
+        ludoChamp:    { icon: '🎲', name: 'Ludo Champion',     desc: 'Win 100 Ludo games against the CPU' },
+        ludoFlawless: { icon: '🛡️', name: 'Flawless',          desc: 'Win a Ludo game without losing a single token' },
+        ludoHunter:   { icon: '🔥', name: 'Token Hunter',      desc: 'Capture 5 opponent tokens in one Ludo match' },
 
         // ── Engagement / Customization ────────────────────
         curator:      { icon: '💬', name: 'Curator',           desc: 'Add a custom motivational quote' },
@@ -321,6 +324,13 @@
         shiftDuration: '8h', // '4h' = short leave, '8h' = standard, '9h' = overtime
         poolTableColor: 'green', // 'green', 'red', 'blue', 'lightgrey'
         gameFps: 60, // 30 or 60 — half or full vsync
+        // Ludo rule toggles. Stored flat, not nested, because the generic
+        // .toggle-switch handler writes userPreferences[data-pref] directly.
+        // ludoRules() reads these live, so changes apply mid-match.
+        ludoBlocks: true,       // 2+ own tokens bar opponents (never on a safe square)
+        ludoThreeSixes: true,   // three 6s forfeit the whole banked sequence
+        ludoExactHome: true,    // exact roll needed to finish
+        ludoFreeRelease: false, // leave base on any roll, not just a 6
         // Cyberpunk HUD customizable colors (only applied when displayTheme === 'retro-futuristic')
         cyberBgPrimary: '#07091a',
         cyberBgSecondary: '#11142b',
@@ -561,6 +571,10 @@
     function savePoolRecord(rec) {
         localStorage.setItem('poolRecord', JSON.stringify(rec));
     }
+    // Ludo's equivalents (ludoGamesWon / ludoRecord) live inside the LUDO GAME
+    // block below as ludoLoadWins/ludoSaveWins/ludoLoadRecord/ludoSaveRecord.
+    // They stay there so the code running here is byte-identical to the copy in
+    // ludo-dev/ that the headless XP tests exercise.
     // Prayer Counter Storage
     function loadPrayerCount() { return parseInt(localStorage.getItem('prayerCount') || '0', 10); }
     function savePrayerCount(n) { localStorage.setItem('prayerCount', String(n)); }
@@ -765,6 +779,7 @@
             tetris:   parseInt(localStorage.getItem('tetrisHighScore') || '0', 10),
             breakout: parseInt(localStorage.getItem('breakoutHighScore') || '0', 10),
             pool:     parseInt(localStorage.getItem('poolGamesWon') || '0', 10),
+            ludo:     parseInt(localStorage.getItem('ludoGamesWon') || '0', 10),
             aim:      parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
             reflex:   (reflexBest && reflexBest !== Infinity && reflexBest > 0) ? reflexBest : 0
         };
@@ -793,6 +808,9 @@
             gameBests: collectGameBests(),
             // Pool extended record (W/L/win-rate)
             poolRecord: JSON.parse(localStorage.getItem('poolRecord') || 'null') || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 },
+            // Ludo W/L vs CPU — also what drives the adaptive difficulty tier,
+            // so restoring it on a fresh browser restores the right difficulty.
+            ludoRecord: JSON.parse(localStorage.getItem('ludoRecord') || 'null') || { wins: 0, losses: 0 },
             // Reflex full blob (screen + target modes)
             reflexHighScores: JSON.parse(localStorage.getItem('reflexHighScores') || 'null') || null,
             // Personalisation
@@ -998,6 +1016,7 @@
         raise('tetrisHighScore',    gb.tetris);
         raise('breakoutHighScore',  gb.breakout);
         raise('poolGamesWon',       gb.pool);
+        raise('ludoGamesWon',       gb.ludo);
         raise('aimChaosHighScore',  gb.aim);
 
         // Reflex — merge from gameBests.reflex (legacy) AND rec.reflexHighScores (new full blob)
@@ -1047,6 +1066,15 @@
                 p2Losses: Math.max(localRec.p2Losses || 0, rec.poolRecord.p2Losses || 0)
             };
             localStorage.setItem('poolRecord', JSON.stringify(merged));
+        }
+
+        // Ludo record (W/L vs CPU) — same only-raise merge as Pool
+        if (rec.ludoRecord && typeof rec.ludoRecord === 'object') {
+            const localLudo = JSON.parse(localStorage.getItem('ludoRecord') || '{}');
+            localStorage.setItem('ludoRecord', JSON.stringify({
+                wins:   Math.max(localLudo.wins   || 0, rec.ludoRecord.wins   || 0),
+                losses: Math.max(localLudo.losses || 0, rec.ludoRecord.losses || 0)
+            }));
         }
 
         // Personalisation — restore only if local is empty/default
@@ -1299,6 +1327,7 @@
                 <td class="lb-xp">${(p.totalXP || 0).toLocaleString()}</td>
                 <td class="lb-score">${fmt(gb.breakout)}</td>
                 <td class="lb-score">${fmt(gb.pool)}</td>
+                <td class="lb-score">${fmt(gb.ludo)}</td>
                 <td class="lb-score">${fmt(gb.tetris)}</td>
                 <td class="lb-score">${fmt(gb.snake)}</td>
                 <td class="lb-score">${fmt(gb.flappy)}</td>
@@ -1318,13 +1347,14 @@
                         <th>XP</th>
                         <th title="Breakout">🏓</th>
                         <th title="Pool">🎱</th>
+                        <th title="Ludo">🎲</th>
                         <th title="Tetris">🧱</th>
                         <th title="Snake">🐍</th>
                         <th title="Flappy">🐦</th>
                         <th title="Aim Trainer">💥</th>
                         <th title="Reflex">⚡</th>
                     </tr></thead>
-                    <tbody>${rows || '<tr><td colspan="11" class="lb-empty">No players yet</td></tr>'}</tbody>
+                    <tbody>${rows || '<tr><td colspan="12" class="lb-empty">No players yet</td></tr>'}</tbody>
                 </table>
             </div>
             <div class="lb-footer">Last updated: ${lastSync}</div>`;
@@ -4400,50 +4430,60 @@
         resetPoolGame();
     }
 
-    // POOL MAXIMIZE
-    let poolOriginalStyles = null;
-    let poolModalOverlay = null;
-    let poolModalPlaceholder = null; // invisible placeholder keeping layout space
+    // ═══════════════════════════════════════════════════════════════
+    // SHARED "MAXIMIZE TO MODAL" HELPER
+    // ═══════════════════════════════════════════════════════════════
+    // Pool and Ludo both blow their canvas up into a 2× modal, and the mechanics
+    // are identical: drop an invisible placeholder so the panel doesn't collapse,
+    // build overlay + panel, move the real canvas across, scale its backing
+    // store, then put everything back on close. Each game supplies only its own
+    // ids and buffer size.
+    //
+    // Both renderers derive their internal scale from canvas.width, so doubling
+    // the buffer is all it takes to redraw crisp — drawPoolFrame divides by
+    // POOL_W, ludoRender by LUDO_CANVAS_W.
+    //
+    // State is keyed by canvasId so two games can never cross wires. Returns the
+    // new maximized state, which callers store in their own flag.
+    const _gameMaxModals = {};
 
-    function togglePoolMaximize() {
-        const canvas = document.getElementById('pool-canvas');
-        if (!canvas) return;
+    function toggleGameMaxModal(cfg) {
+        const canvas = document.getElementById(cfg.canvasId);
+        if (!canvas) return false;
+        const openState = _gameMaxModals[cfg.canvasId];
 
-        if (!poolMaximized) {
+        if (!openState) {
             // --- Open modal ---
             const gameContainer = canvas.closest('.snake-game-container') || canvas.parentElement;
 
-            // Insert an invisible placeholder so the widget doesn't collapse
-            poolModalPlaceholder = document.createElement('div');
-            poolModalPlaceholder.style.cssText =
+            const placeholder = document.createElement('div');
+            placeholder.style.cssText =
                 'width:' + canvas.offsetWidth + 'px;height:' + canvas.offsetHeight + 'px;visibility:hidden;';
-            gameContainer.insertBefore(poolModalPlaceholder, canvas);
+            gameContainer.insertBefore(placeholder, canvas);
 
-            // Build overlay
-            poolModalOverlay = document.createElement('div');
-            poolModalOverlay.id = 'pool-modal-overlay';
-            poolModalOverlay.className = 'pool-modal-overlay';
+            const overlay = document.createElement('div');
+            overlay.id = cfg.canvasId + '-max-overlay';
+            overlay.className = 'pool-modal-overlay';
 
-            // Inner modal panel
             const panel = document.createElement('div');
             panel.className = 'pool-modal-panel';
 
-            // Header row
             const header = document.createElement('div');
             header.className = 'pool-modal-header';
-            header.innerHTML = '<span class="pool-modal-title">🎱 8-Ball Pool</span>';
+            const titleEl = document.createElement('span');
+            titleEl.className = 'pool-modal-title';
+            titleEl.textContent = cfg.title;
+            header.appendChild(titleEl);
             const closeBtn = document.createElement('button');
             closeBtn.className = 'pool-modal-close';
             closeBtn.textContent = '✕';
-            closeBtn.onclick = togglePoolMaximize;
+            closeBtn.onclick = () => { if (cfg.onToggle) cfg.onToggle(); else toggleGameMaxModal(cfg); };
             header.appendChild(closeBtn);
 
-            // Canvas wrapper — scales canvas to fit without distortion
             const canvasWrap = document.createElement('div');
             canvasWrap.className = 'pool-modal-canvas-wrap';
 
-            // Move canvas into modal
-            poolOriginalStyles = {
+            const original = {
                 bufferWidth: canvas.width,
                 bufferHeight: canvas.height,
                 width: canvas.style.width,
@@ -4453,10 +4493,9 @@
                 transformOrigin: canvas.style.transformOrigin,
                 parent: gameContainer,
             };
-            // Scale the canvas buffer to 2x — drawPoolFrame uses canvas.width/POOL_W
-            // as its internal scale factor, so everything redraws crisp at 2x resolution.
-            canvas.width = POOL_W * 2;
-            canvas.height = POOL_CANVAS_H * 2;
+            const k = cfg.scale || 2;
+            canvas.width = cfg.bufferW * k;
+            canvas.height = cfg.bufferH * k;
             canvas.style.width = '100%';
             canvas.style.height = 'auto';
             canvas.style.maxWidth = '100%';
@@ -4466,68 +4505,71 @@
 
             panel.appendChild(header);
             panel.appendChild(canvasWrap);
-            poolModalOverlay.appendChild(panel);
-            document.body.appendChild(poolModalOverlay);
+            overlay.appendChild(panel);
+            document.body.appendChild(overlay);
 
-            // Trigger CSS transition
             requestAnimationFrame(() => {
-                poolModalOverlay.classList.add('active');
+                overlay.classList.add('active');
                 panel.classList.add('active');
             });
 
-            // Close on backdrop click
-            poolModalOverlay.addEventListener('click', function(e) {
-                if (e.target === poolModalOverlay) togglePoolMaximize();
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) { if (cfg.onToggle) cfg.onToggle(); else toggleGameMaxModal(cfg); }
             });
 
-            // Close on Escape
-            poolModalOverlay._escHandler = function(e) {
-                if (e.key === 'Escape') togglePoolMaximize();
+            overlay._escHandler = function(e) {
+                if (e.key === 'Escape') { if (cfg.onToggle) cfg.onToggle(); else toggleGameMaxModal(cfg); }
             };
-            document.addEventListener('keydown', poolModalOverlay._escHandler);
+            document.addEventListener('keydown', overlay._escHandler);
 
-            poolMaximized = true;
-        } else {
-            // --- Close modal ---
-            if (poolModalOverlay) {
-                const canvas2 = document.getElementById('pool-canvas');
-                if (canvas2 && poolOriginalStyles) {
-                    // Restore canvas buffer size first, then CSS styles
-                    canvas2.width = poolOriginalStyles.bufferWidth;
-                    canvas2.height = poolOriginalStyles.bufferHeight;
-                    canvas2.style.width = poolOriginalStyles.width;
-                    canvas2.style.height = poolOriginalStyles.height;
-                    canvas2.style.maxWidth = poolOriginalStyles.maxWidth;
-                    canvas2.style.transform = poolOriginalStyles.transform;
-                    canvas2.style.transformOrigin = poolOriginalStyles.transformOrigin;
-                    // Move canvas back before placeholder
-                    if (poolModalPlaceholder && poolOriginalStyles.parent) {
-                        poolOriginalStyles.parent.insertBefore(canvas2, poolModalPlaceholder);
-                    }
-                }
-                // Remove placeholder
-                if (poolModalPlaceholder) {
-                    poolModalPlaceholder.parentNode && poolModalPlaceholder.parentNode.removeChild(poolModalPlaceholder);
-                    poolModalPlaceholder = null;
-                }
-                // Remove esc listener
-                if (poolModalOverlay._escHandler) {
-                    document.removeEventListener('keydown', poolModalOverlay._escHandler);
-                }
-                poolModalOverlay.classList.remove('active');
-                const panelEl = poolModalOverlay.querySelector('.pool-modal-panel');
-                if (panelEl) panelEl.classList.remove('active');
-                setTimeout(() => {
-                    if (poolModalOverlay && poolModalOverlay.parentNode) {
-                        poolModalOverlay.parentNode.removeChild(poolModalOverlay);
-                    }
-                    poolModalOverlay = null;
-                }, 300);
-            }
-
-            poolMaximized = false;
+            _gameMaxModals[cfg.canvasId] = { overlay, placeholder, original };
+            return true;
         }
 
+        // --- Close modal ---
+        const overlay = openState.overlay;
+        const placeholder = openState.placeholder;
+        const original = openState.original;
+
+        if (original) {
+            // Restore buffer size first, then CSS styles
+            canvas.width = original.bufferWidth;
+            canvas.height = original.bufferHeight;
+            canvas.style.width = original.width;
+            canvas.style.height = original.height;
+            canvas.style.maxWidth = original.maxWidth;
+            canvas.style.transform = original.transform;
+            canvas.style.transformOrigin = original.transformOrigin;
+            if (placeholder && original.parent) {
+                original.parent.insertBefore(canvas, placeholder);
+            }
+        }
+        if (placeholder && placeholder.parentNode) {
+            placeholder.parentNode.removeChild(placeholder);
+        }
+        if (overlay._escHandler) {
+            document.removeEventListener('keydown', overlay._escHandler);
+        }
+        overlay.classList.remove('active');
+        const panelEl = overlay.querySelector('.pool-modal-panel');
+        if (panelEl) panelEl.classList.remove('active');
+        setTimeout(() => {
+            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        }, 300);
+
+        delete _gameMaxModals[cfg.canvasId];
+        return false;
+    }
+
+    // POOL MAXIMIZE
+    function togglePoolMaximize() {
+        poolMaximized = toggleGameMaxModal({
+            canvasId: 'pool-canvas',
+            title: '🎱 8-Ball Pool',
+            bufferW: POOL_W,
+            bufferH: POOL_CANVAS_H,
+            onToggle: togglePoolMaximize,
+        });
         drawPoolFrame();
     }
 
@@ -6379,6 +6421,1848 @@
         if (hdr) hdr.textContent = prayerCount;
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // LUDO GAME
+    // ═══════════════════════════════════════════════════════════════════
+    // 15×15 grid, 20px cells → a 300×300 board inside a 344×416 canvas,
+    // leaving 58px HUD strips top and bottom. Everything is canvas-drawn so the
+    // ⛶ Max modal (which relocates only the <canvas>) keeps the whole UI.
+
+    const LUDO_GRID       = 15;
+    const LUDO_CELL       = 20;
+    const LUDO_BOARD      = LUDO_GRID * LUDO_CELL;            // 300
+    // 58 keeps the dice's turn-ring (r=19) clear of the board frame, which is
+    // inset 8px above LUDO_BOARD_Y. At 52 the ring clipped the frame.
+    const LUDO_STRIP_H    = 58;                               // HUD strip, top and bottom
+    // 344 rather than Pool's 368: the board then fills 87% of the width instead
+    // of 81%, which matters in a ~300px panel column. Still leaves room for two
+    // 122px player chips either side of the dice.
+    const LUDO_CANVAS_W   = 344;
+    const LUDO_CANVAS_H   = LUDO_BOARD + LUDO_STRIP_H * 2;    // 404
+    const LUDO_BOARD_X    = (LUDO_CANVAS_W - LUDO_BOARD) / 2; // 34
+    const LUDO_BOARD_Y    = LUDO_STRIP_H;
+
+    const LUDO_TURN_CLOCK   = 20;    // seconds per turn
+    const LUDO_DICE_MS      = 620;   // dice tumble
+    const LUDO_HOP_MS       = 95;    // per square hopped
+    const LUDO_AUTOPLAY_MS  = 420;   // pause before auto-playing a forced move
+    const LUDO_PASS_MS      = 850;   // "no moves" banner dwell
+    const LUDO_CPU_THINK_MS = 520;   // CPU hesitation, so it reads as deliberate
+
+    // The 52-square shared ring, walked clockwise from Blue's start square.
+    // Built from segments rather than a 52-entry literal so the walk is legible
+    // and each turn of the cross is checkable by eye.
+    //
+    // NOTE: four consecutive pairs are DIAGONAL neighbours, not orthogonal —
+    // 4→5, 17→18, 30→31 and 43→44. That is correct: the track wraps around the
+    // outer corner of each 6×6 base (e.g. (6,5)→(5,6) rounds Blue's corner at
+    // (5,5)), which is how a physical Ludo board is laid out. Anything that
+    // walks the ring cell-by-cell — the hop animation especially — must tolerate
+    // a diagonal step and must not assume |Δr|+|Δc| === 1.
+    const LUDO_RING = (() => {
+        const seg = (r0, c0, r1, c1) => {
+            const dr = Math.sign(r1 - r0), dc = Math.sign(c1 - c0);
+            const n  = Math.max(Math.abs(r1 - r0), Math.abs(c1 - c0));
+            const out = [];
+            for (let i = 0; i <= n; i++) out.push({ r: r0 + dr * i, c: c0 + dc * i });
+            return out;
+        };
+        return [
+            ...seg( 6,  1,  6,  5),   //  0–4   Blue start, right along the left arm
+            ...seg( 5,  6,  0,  6),   //  5–10  up the top arm's left column
+            ...seg( 0,  7,  0,  7),   //  11    Red's gate
+            ...seg( 0,  8,  5,  8),   //  12–17 down the top arm's right column
+            ...seg( 6,  9,  6, 14),   //  18–23 right along the right arm's top row
+            ...seg( 7, 14,  7, 14),   //  24    Green's gate
+            ...seg( 8, 14,  8,  9),   //  25–30 left along the right arm's bottom row
+            ...seg( 9,  8, 14,  8),   //  31–36 down the bottom arm's right column
+            ...seg(14,  7, 14,  7),   //  37    Yellow's gate
+            ...seg(14,  6,  9,  6),   //  38–43 up the bottom arm's left column
+            ...seg( 8,  5,  8,  0),   //  44–49 left along the left arm's bottom row
+            ...seg( 7,  0,  7,  0),   //  50    Blue's gate
+            ...seg( 6,  0,  6,  0),   //  51    last square before Blue's start
+        ];
+    })();
+
+    // Turn order is clockwise: Blue(TL) → Red(TR) → Green(BR) → Yellow(BL).
+    // startIndex values are 13 apart, so every colour walks 51 shared squares
+    // (steps 0–50) and arrives at its own gate exactly one step before its home
+    // column — verified: (start + 50) % 52 is the gate cell for all four.
+    const LUDO_COLORS = [
+        {
+            key: 'blue',  label: 'Blue',  hex: '#2196f3', deep: '#1565c0',
+            startIndex: 0,
+            quad:      { r0:  0, c0:  0, r1:  6, c1:  6 },
+            basePanel: { r0:  1, c0:  1, r1:  5, c1:  5 },
+            baseSlots: [{ r: 2, c: 2 }, { r: 2, c: 4 }, { r: 4, c: 2 }, { r: 4, c: 4 }],
+            homeCol:   [{ r: 7, c: 1 }, { r: 7, c: 2 }, { r: 7, c: 3 }, { r: 7, c: 4 }, { r: 7, c: 5 }],
+            apex:      [{ r: 6, c: 6 }, { r: 9, c: 6 }],   // left triangle
+        },
+        {
+            key: 'red',   label: 'Red',   hex: '#f44336', deep: '#c62828',
+            startIndex: 13,
+            quad:      { r0:  0, c0:  9, r1:  6, c1: 15 },
+            basePanel: { r0:  1, c0: 10, r1:  5, c1: 14 },
+            baseSlots: [{ r: 2, c: 11 }, { r: 2, c: 13 }, { r: 4, c: 11 }, { r: 4, c: 13 }],
+            homeCol:   [{ r: 1, c: 7 }, { r: 2, c: 7 }, { r: 3, c: 7 }, { r: 4, c: 7 }, { r: 5, c: 7 }],
+            apex:      [{ r: 6, c: 6 }, { r: 6, c: 9 }],   // top triangle
+        },
+        {
+            key: 'green', label: 'Green', hex: '#4caf50', deep: '#2e7d32',
+            startIndex: 26,
+            quad:      { r0:  9, c0:  9, r1: 15, c1: 15 },
+            basePanel: { r0: 10, c0: 10, r1: 14, c1: 14 },
+            baseSlots: [{ r: 11, c: 11 }, { r: 11, c: 13 }, { r: 13, c: 11 }, { r: 13, c: 13 }],
+            homeCol:   [{ r: 7, c: 13 }, { r: 7, c: 12 }, { r: 7, c: 11 }, { r: 7, c: 10 }, { r: 7, c: 9 }],
+            apex:      [{ r: 6, c: 9 }, { r: 9, c: 9 }],   // right triangle
+        },
+        {
+            key: 'yellow', label: 'Yellow', hex: '#fdd835', deep: '#f9a825',
+            startIndex: 39,
+            quad:      { r0:  9, c0:  0, r1: 15, c1:  6 },
+            basePanel: { r0: 10, c0:  1, r1: 14, c1:  5 },
+            baseSlots: [{ r: 11, c: 2 }, { r: 11, c: 4 }, { r: 13, c: 2 }, { r: 13, c: 4 }],
+            homeCol:   [{ r: 13, c: 7 }, { r: 12, c: 7 }, { r: 11, c: 7 }, { r: 10, c: 7 }, { r: 9, c: 7 }],
+            apex:      [{ r: 9, c: 6 }, { r: 9, c: 9 }],   // bottom triangle
+        },
+    ];
+
+    // 4 start squares + 4 ★ squares, each 8 past a start. No capture here.
+    const LUDO_SAFE_RING = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
+
+    // ringIndex → colour index, for the four coloured start squares.
+    const LUDO_START_OWNER = (() => {
+        const m = {};
+        LUDO_COLORS.forEach((col, ci) => { m[col.startIndex] = ci; });
+        return m;
+    })();
+
+    const LUDO_HOME_STEP = 56;   // 51 ring squares (0–50) + 5 home column (51–55) + centre
+
+    // Dice ACCUMULATE before anything moves: a 6 buys another roll, not another
+    // turn. A sequence therefore hands the player up to three values to spend
+    // however they choose — 6,6,5 can release two tokens and advance a third.
+    // Capped at 3: with threeSixes on the third 6 forfeits anyway, and with it
+    // off this cap is the only thing stopping the sequence running forever.
+    const LUDO_MAX_DICE = 3;
+
+    // ── State ──────────────────────────────────────────────────────────
+    let ludoActive    = [0, 2];   // colour indices in play; default 2P diagonal
+    let ludoTokens    = [];       // [{ ci, i, step, inBase, home }]
+    let ludoTurn      = 0;        // index into ludoActive
+    let ludoMessage   = '';
+    let ludoCpuTier   = 'normal';
+    let ludoMode      = 'cpu2';   // cpu2 | pvp2 | pvp3 | pvp4
+    let ludoDebugRing = false;    // harness-only: overlay ring indices
+
+    let ludoRoll       = 0;       // 0 = not rolled yet this turn
+    let ludoSixStreak  = 0;       // consecutive 6s by the player to move
+    let ludoGameOver   = false;
+    let ludoPlacements = [];      // colour indices, in finishing order
+    let ludoStats      = {};      // ci -> { captures, lost }
+
+    // Every face rolled by the player currently to move, and a snapshot of the
+    // turn that just ended. Without this a roll that produces no legal move —
+    // the common "needed a 6, got a 4" case — passes the turn with nothing on
+    // screen to say what was rolled. The HUD shows the snapshot as dimmed dice.
+    let ludoTurnRolls  = [];      // faces rolled so far this turn
+    let ludoRecap      = null;    // { ci, faces } from the last completed turn
+
+    // Values rolled this sequence and not yet spent, and whether anything this
+    // turn (a capture or a token reaching home) has earned a fresh sequence.
+    let ludoPool       = [];
+    let ludoTurnEarned = false;
+
+    function ludoResetTokens() {
+        ludoTokens = [];
+        ludoStats  = {};
+        ludoActive.forEach(ci => {
+            ludoStats[ci] = { captures: 0, lost: 0 };
+            for (let i = 0; i < 4; i++) {
+                ludoTokens.push({ ci, i, step: -1, inBase: true, home: false });
+            }
+        });
+        ludoRoll       = 0;
+        ludoSixStreak  = 0;
+        ludoGameOver   = false;
+        ludoPlacements = [];
+        ludoTurnRolls  = [];
+        ludoRecap      = null;
+        ludoPool       = [];
+        ludoTurnEarned = false;
+    }
+
+    // ── Rules ──────────────────────────────────────────────────────────
+    // Read straight off userPreferences so the ⚙️ toggles take effect mid-match.
+    // Defaults match Ludo Star: blocks / three-sixes / exact-home on, free
+    // release off. `typeof` guard keeps the headless tests independent of the host.
+    function ludoRules() {
+        const P = (typeof userPreferences === 'object' && userPreferences) ? userPreferences : {};
+        return {
+            blocks:      P.ludoBlocks      !== false,
+            threeSixes:  P.ludoThreeSixes  !== false,
+            exactHome:   P.ludoExactHome   !== false,
+            freeRelease: P.ludoFreeRelease === true,
+        };
+    }
+
+    function ludoRollDice() {
+        return 1 + Math.floor(Math.random() * 6);
+    }
+
+    // Ring squares carrying 2+ tokens of one colour other than `forCi`.
+    // Counted per (colour, square) because two different colours may legitimately
+    // share a safe square — that pair is not a block.
+    //
+    // Safe squares can NEVER block. A ★/start square is shared ground: nothing
+    // can be captured there, so several colours are expected to stand on it. If
+    // a pair there also sealed the track, a colour's own start square — which it
+    // refills every time it releases a token — would become a permanent wall
+    // across the one route every opponent must take. In PvCPU that stranded
+    // Blue's tokens on Green's doorstep until they were picked off: from ring 24,
+    // only a roll of 1 was ever legal.
+    function ludoBlockRings(forCi) {
+        const per = {};
+        ludoTokens.forEach(t => {
+            if (t.inBase || t.home || t.ci === forCi) return;
+            const ri = ludoStepToRing(t.ci, t.step);
+            if (ri < 0 || LUDO_SAFE_RING.has(ri)) return;
+            const k = t.ci + ':' + ri;
+            per[k] = (per[k] || 0) + 1;
+        });
+        const blocked = new Set();
+        Object.keys(per).forEach(k => {
+            if (per[k] >= 2) blocked.add(parseInt(k.split(':')[1], 10));
+        });
+        return blocked;
+    }
+
+    // Opponent tokens sitting on the square `ci` is about to land on. Empty on a
+    // ★/start square and anywhere off the shared ring — home columns are private.
+    function ludoCaptures(ci, to) {
+        if (to > 50) return [];
+        const ri = ludoStepToRing(ci, to);
+        if (LUDO_SAFE_RING.has(ri)) return [];
+        return ludoTokens.filter(t =>
+            t.ci !== ci && !t.inBase && !t.home && ludoStepToRing(t.ci, t.step) === ri);
+    }
+
+    // Every move `ci` may legally make with `roll`.
+    // { token, from, to, release, captures, finishes }
+    function ludoLegalMoves(ci, roll) {
+        if (!roll) return [];
+        const R = ludoRules();
+        const blocked = R.blocks ? ludoBlockRings(ci) : new Set();
+        const moves = [];
+
+        ludoTokens.forEach(t => {
+            if (t.ci !== ci || t.home) return;
+
+            let to;
+            if (t.inBase) {
+                if (roll !== 6 && !R.freeRelease) return;
+                to = 0;
+            } else {
+                to = t.step + roll;
+                if (to > LUDO_HOME_STEP) {
+                    if (R.exactHome) return;    // must land exactly on 56
+                    to = LUDO_HOME_STEP;        // otherwise an overshoot still finishes
+                }
+                // A block bars passage as well as landing. Only ring squares
+                // strictly after the current one and up to the destination count;
+                // home-column squares (>50) can never be blocked.
+                for (let s = t.step + 1; s <= Math.min(to, 50); s++) {
+                    if (blocked.has(ludoStepToRing(ci, s))) return;
+                }
+            }
+            if (to <= 50 && blocked.has(ludoStepToRing(ci, to))) return;
+
+            moves.push({
+                token: t, from: t.inBase ? -1 : t.step, to,
+                release:  !!t.inBase,
+                captures: to === LUDO_HOME_STEP ? [] : ludoCaptures(ci, to),
+                finishes: to === LUDO_HOME_STEP,
+            });
+        });
+        return moves;
+    }
+
+    // Commits a move and returns what it earned. Does not advance the turn.
+    function ludoApplyMove(move) {
+        const t  = move.token;
+        const ci = t.ci;
+
+        t.inBase = false;
+        t.step   = move.to;
+        t.home   = move.to === LUDO_HOME_STEP;
+
+        const caps = move.captures || [];
+        caps.forEach(o => {
+            o.inBase = true; o.step = -1; o.home = false;
+            if (ludoStats[o.ci]) ludoStats[o.ci].lost++;
+        });
+        if (ludoStats[ci]) ludoStats[ci].captures += caps.length;
+
+        // Record finishing order the first time a colour gets all four home.
+        if (t.home && ludoTokensHome(ci) === 4 && ludoPlacements.indexOf(ci) === -1) {
+            ludoPlacements.push(ci);
+        }
+        // Spend the die this move used. Moves built by ludoLegalMoves alone
+        // carry no value, so direct callers (tests) are unaffected.
+        if (move.value) ludoConsumeValue(move.value);
+        return { captured: caps.length, finished: t.home };
+    }
+
+    const ludoTokensHome = ci => ludoTokens.filter(t => t.ci === ci && t.home).length;
+
+    // ── Dice pool ──────────────────────────────────────────────────────
+    // Every legal (token, value) pair across the distinct values still unspent.
+    // Each move carries the value it would consume.
+    function ludoPoolMoves(ci) {
+        const seen = {}, out = [];
+        ludoPool.forEach(v => {
+            if (seen[v]) return;
+            seen[v] = true;
+            ludoLegalMoves(ci, v).forEach(m => { m.value = v; out.push(m); });
+        });
+        return out;
+    }
+
+    // Which unspent values this particular token could legally use. Drives the
+    // tap-a-token popover.
+    function ludoValuesForToken(ci, token) {
+        const out = [];
+        ludoPoolMoves(ci).forEach(m => {
+            if (m.token === token && out.indexOf(m.value) === -1) out.push(m.value);
+        });
+        return out.sort((a, b) => a - b);
+    }
+
+    function ludoConsumeValue(v) {
+        const i = ludoPool.indexOf(v);
+        if (i !== -1) ludoPool.splice(i, 1);
+    }
+
+    // A 6 no longer grants an extra turn — it granted an extra die back in the
+    // roll phase. Only a capture or a token reaching home buys a fresh sequence.
+    function ludoEarnsAnotherRoll(result) {
+        return !!(result && (result.captured > 0 || result.finished));
+    }
+
+    function ludoAdvanceTurn() {
+        // The turn is handing over, so freeze what this player rolled. Extra
+        // sequences never reach here, which is why a 6,6,5 turn recaps as all three.
+        if (ludoActive.length && ludoTurnRolls.length) {
+            ludoRecap = { ci: ludoActive[ludoTurn], faces: ludoTurnRolls.slice() };
+        }
+        ludoTurnRolls  = [];
+        ludoPool       = [];
+        ludoTurnEarned = false;
+
+        ludoSixStreak = 0;
+        ludoRoll = 0;
+        if (ludoActive.length === 0) return;
+        let guard = 0;
+        do {
+            ludoTurn = (ludoTurn + 1) % ludoActive.length;
+        } while (ludoTokensHome(ludoActive[ludoTurn]) === 4 && ++guard < ludoActive.length);
+    }
+
+    // The match is over as soon as only one player still has tokens to bring home
+    // (or, in 2P, as soon as the first player finishes).
+    function ludoCheckGameOver() {
+        const unfinished = ludoActive.filter(ci => ludoTokensHome(ci) < 4);
+        if (ludoPlacements.length === 0) return false;
+        return unfinished.length <= 1;
+    }
+
+    // ── Turn flow ──────────────────────────────────────────────────────
+    // Split out from the animation layer so it can be exercised headlessly.
+    // Call ludoRegisterRoll when the dice settles, then ludoFinishMove once the
+    // hop animation for the chosen move has completed.
+
+    // Banks the settled face. Returns one of:
+    //   { rollAgain } — it was a 6, so roll once more before moving anything
+    //   { voided }    — three sixes; the whole sequence is forfeited
+    //   { passed }    — nothing in the pool can be played, turn handed over
+    //   { moves }     — the pool is final, here is everything playable
+    function ludoRegisterRoll(ci, roll) {
+        const R = ludoRules();
+        const done = (extra) => Object.assign(
+            { voided: false, rollAgain: false, passed: false, moves: [] }, extra);
+
+        ludoRoll = roll;
+        // Recorded before the three-sixes check so the voided third 6 still
+        // shows up in the recap — it was rolled, it just did not count.
+        ludoTurnRolls.push(roll);
+        ludoSixStreak = roll === 6 ? ludoSixStreak + 1 : 0;
+
+        // Three consecutive 6s forfeit the whole sequence, including any values
+        // already banked. That is the risk that balances accumulating.
+        if (R.threeSixes && ludoSixStreak >= 3) {
+            ludoPool = [];
+            ludoRoll = 0;
+            ludoAdvanceTurn();
+            return done({ voided: true });
+        }
+
+        ludoPool.push(roll);
+
+        // A 6 buys another die rather than forcing an immediate move.
+        if (roll === 6 && ludoPool.length < LUDO_MAX_DICE) {
+            return done({ rollAgain: true });
+        }
+
+        const moves = ludoPoolMoves(ci);
+        if (moves.length === 0) {
+            ludoPool = [];
+            ludoRoll = 0;
+            ludoAdvanceTurn();
+            return done({ passed: true });
+        }
+        return done({ moves });
+    }
+
+    // Called once a move has been committed. Decides whether the player keeps
+    // spending the pool, earns a fresh sequence, or hands over.
+    function ludoFinishMove(result) {
+        if (ludoEarnsAnotherRoll(result)) ludoTurnEarned = true;
+
+        if (ludoCheckGameOver()) {
+            ludoGameOver = true;
+            ludoPool = [];
+            ludoRoll = 0;
+            return { gameOver: true, continueTurn: false, extraRoll: false, moves: [] };
+        }
+
+        const moves = ludoPool.length ? ludoPoolMoves(ludoActive[ludoTurn]) : [];
+        if (moves.length) {
+            return { gameOver: false, continueTurn: true, extraRoll: false, moves };
+        }
+
+        // Pool spent, or whatever is left of it is unplayable.
+        ludoPool = [];
+        ludoRoll = 0;
+        if (ludoTurnEarned) {
+            ludoTurnEarned = false;
+            ludoSixStreak  = 0;      // a captured-into sequence starts clean
+            return { gameOver: false, continueTurn: false, extraRoll: true, moves: [] };
+        }
+        ludoAdvanceTurn();
+        return { gameOver: false, continueTurn: false, extraRoll: false, moves: [] };
+    }
+
+    // ── Modes ──────────────────────────────────────────────────────────
+    // PvCPU is 2P only — the scorer is written against a single opponent.
+    // 2P uses the diagonal pair so neither side starts closer to the other.
+    const LUDO_MODES = ['cpu2', 'pvp2', 'pvp3', 'pvp4'];
+    const LUDO_MODE_COLORS = {
+        cpu2: [0, 2],
+        pvp2: [0, 2],
+        pvp3: [0, 1, 2],
+        pvp4: [0, 1, 2, 3],
+    };
+    const LUDO_MODE_LABEL = {
+        cpu2: 'PvCPU', pvp2: 'PvP 2P', pvp3: 'PvP 3P', pvp4: 'PvP 4P',
+    };
+
+    // In PvCPU the human is Blue and the CPU is Green.
+    const LUDO_HUMAN_CI = 0;
+    const ludoIsCPUSeat = ci => ludoMode === 'cpu2' && ci !== LUDO_HUMAN_CI;
+
+    function ludoSetMode(m) {
+        if (LUDO_MODE_COLORS[m] === undefined) return;
+        ludoMode   = m;
+        ludoActive = LUDO_MODE_COLORS[m].slice();
+        ludoTurn   = 0;
+        ludoResetTokens();
+    }
+
+    function cycleLudoMode() {
+        ludoSetMode(LUDO_MODES[(LUDO_MODES.indexOf(ludoMode) + 1) % LUDO_MODES.length]);
+        return ludoMode;
+    }
+
+    // ── CPU ────────────────────────────────────────────────────────────
+    // Difficulty adapts to the player's recorded win rate against the CPU, so a
+    // struggling player is eased off and a dominant one is pushed. Locked in at
+    // match start (ludoCpuTier) so it cannot shift mid-game.
+    function ludoDifficultyTier(rec) {
+        const wins = (rec && rec.wins) || 0, losses = (rec && rec.losses) || 0;
+        const games = wins + losses;
+        if (games < 5) return 'normal';        // too small a sample to judge
+        const rate = wins / games;
+        if (rate < 0.40) return 'easy';
+        if (rate <= 0.65) return 'normal';
+        return 'hard';
+    }
+
+    // Would landing on ring square `ri` put us within a single roll of an
+    // opponent sitting behind us? Only counts opponents that could actually
+    // reach it — one already past its gate turns inward instead.
+    function ludoUnderThreat(ci, ri) {
+        return ludoTokens.some(t => {
+            if (t.ci === ci || t.inBase || t.home) return false;
+            const ori = ludoStepToRing(t.ci, t.step);
+            if (ori < 0) return false;
+            const gap = (ri - ori + 52) % 52;
+            if (gap < 1 || gap > 6) return false;
+            return t.step + gap <= 50;
+        });
+    }
+
+    function ludoScoreMove(ci, move, tier) {
+        let s = 0;
+        if (move.captures.length) s += 120 * move.captures.length;
+        if (move.finishes)        s += 100;
+        if (move.release)         s += 30;
+        s += 0.4 * move.to;                       // general forward progress
+
+        if (move.to <= 50) {
+            const ri = ludoStepToRing(ci, move.to);
+            if (LUDO_SAFE_RING.has(ri)) s += 45;
+            const pairsUp = ludoTokens.some(t =>
+                t.ci === ci && t !== move.token && !t.inBase && !t.home &&
+                ludoStepToRing(t.ci, t.step) === ri);
+            if (pairsUp) s += 35;                 // forms a block
+
+            // Only 'hard' looks at what the move exposes; 'normal' plays the
+            // same priorities but blind to danger.
+            if (tier === 'hard' && !LUDO_SAFE_RING.has(ri) && ludoUnderThreat(ci, ri)) {
+                s -= 60;
+            }
+        }
+        return s;
+    }
+
+    function ludoAIChooseMove(ci, moves, tier) {
+        if (!moves || moves.length === 0) return null;
+        if (moves.length === 1) return moves[0];
+        if (tier === 'easy' && Math.random() < 0.70) {
+            return moves[Math.floor(Math.random() * moves.length)];
+        }
+        let best = moves[0], bestScore = -Infinity;
+        moves.forEach(m => {
+            const s = ludoScoreMove(ci, m, tier);
+            if (s > bestScore) { bestScore = s; best = m; }
+        });
+        return best;
+    }
+
+    // Final standings: finishers in the order they finished, then everyone else
+    // ranked by tokens home, then by total distance travelled.
+    function ludoStandings() {
+        const rest = ludoActive
+            .filter(ci => ludoPlacements.indexOf(ci) === -1)
+            .map(ci => ({
+                ci,
+                home:  ludoTokensHome(ci),
+                steps: ludoTokens.filter(t => t.ci === ci)
+                                 .reduce((n, t) => n + Math.max(0, t.step), 0),
+            }))
+            .sort((a, b) => b.home - a.home || b.steps - a.steps)
+            .map(x => x.ci);
+        return ludoPlacements.concat(rest);
+    }
+
+    // -- Step ? board cell ----------------------------------------------
+    // Pure position logic, kept here because the rules engine depends on it.
+    // Everything pixel-based lives in ludo-ui.js.
+
+    // Returns null at step 56 (the centre), which occupies no single cell.
+    function ludoStepToCell(ci, step) {
+        const col = LUDO_COLORS[ci];
+        if (step < 0)   return null;                                   // still in base
+        if (step <= 50) return LUDO_RING[(col.startIndex + step) % 52];
+        if (step <= 55) return col.homeCol[step - 51];
+        return null;                                                   // home
+    }
+
+    // step ? ring index, or -1 when off the shared ring (base/home column/home).
+    function ludoStepToRing(ci, step) {
+        if (step < 0 || step > 50) return -1;
+        return (LUDO_COLORS[ci].startIndex + step) % 52;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // LUDO — presentation and interaction
+    // ═══════════════════════════════════════════════════════════════════
+    // Concatenated after ludo-core.js. Everything here is canvas-drawn: the ⛶ Max
+    // modal relocates only the <canvas>, so a DOM-based HUD would vanish inside it.
+    //
+    // Layout — 368 × 404:
+    //   0–52     top strip     Blue chip (left) · Red chip (right)
+    //   52–352   board         300 × 300, inset 34px each side, wooden frame
+    //   352–404  bottom strip  Yellow chip (left) · Green chip (right)
+    // The dice renders in whichever strip belongs to the player to move, so the
+    // eye is drawn to the right half of the board — same idea as Ludo Star.
+
+    const LUDO_SEATS = {
+        0: { strip: 'top',    side: 'left'  },   // blue   — top-left quadrant
+        1: { strip: 'top',    side: 'right' },   // red    — top-right
+        2: { strip: 'bottom', side: 'right' },   // green  — bottom-right
+        3: { strip: 'bottom', side: 'left'  },   // yellow — bottom-left
+    };
+
+    // ── Interaction state ──────────────────────────────────────────────
+    let ludoPhase      = 'idle';   // idle | awaitRoll | rolling | awaitMove | moving | over
+    let ludoAnimFrame  = null;
+    let ludoLastFrame  = 0;
+    let ludoDiceFace   = 1;
+    let ludoDiceSpin   = 0;        // ms left of the tumble
+    let ludoTurnLeft   = LUDO_TURN_CLOCK;
+    let ludoLegal      = [];       // legal moves for the current roll
+    let ludoHop        = null;     // { move, path, idx, t }
+    let ludoPulse      = 0;        // drives markers, glows and the dice bob
+    let ludoBanner     = null;     // { text, ttl, tone }
+    let ludoPending    = null;     // { ms, fn } — loop-driven timer, see ludoAfter
+    let ludoRenderPos  = new Map();// token -> drawn position, for hit-testing
+    let ludoPopover    = null;     // { token } — which die to spend on that token
+    let ludoAwarded    = false;    // endLudoGame idempotency guard
+    let ludoStarted    = false;
+    let ludoCanvasEl   = null;
+
+    // Timers run off the animation loop rather than setTimeout, so cancelling
+    // ludoAnimFrame in cleanupCurrentGame stops absolutely everything. A stray
+    // setTimeout would keep firing after the player switched tabs.
+    function ludoAfter(ms, fn) { ludoPending = { ms, fn }; }
+    function ludoClearPending() { ludoPending = null; }
+
+    // ── Pixel geometry ─────────────────────────────────────────────────
+    // ludoPointXY takes grid-line coords (base slots, triangle vertices);
+    // ludoCellCenter takes a cell index and returns the middle of that cell.
+    function ludoPointXY(r, c) {
+        return { x: LUDO_BOARD_X + c * LUDO_CELL, y: LUDO_BOARD_Y + r * LUDO_CELL };
+    }
+    function ludoCellCenter(r, c) {
+        return ludoPointXY(r + 0.5, c + 0.5);
+    }
+
+    // Where token `i` of colour `ci` sits at an arbitrary step, including the
+    // base (-1) and the centre (56). Used for both drawing and hop interpolation.
+    function ludoPosForStep(ci, i, step) {
+        const col = LUDO_COLORS[ci];
+        if (step >= LUDO_HOME_STEP) {
+            // Fanned along the colour's own triangle so four tokens stay distinct.
+            const mid = ludoPointXY(7.5, 7.5);
+            const a   = ludoPointXY((col.apex[0].r + col.apex[1].r) / 2,
+                                    (col.apex[0].c + col.apex[1].c) / 2);
+            const k   = 0.30 + i * 0.16;
+            return { x: mid.x + (a.x - mid.x) * k, y: mid.y + (a.y - mid.y) * k };
+        }
+        if (step < 0) {
+            const s = col.baseSlots[i];
+            return ludoPointXY(s.r, s.c);
+        }
+        const cell = ludoStepToCell(ci, step);
+        return cell ? ludoCellCenter(cell.r, cell.c) : ludoPointXY(7.5, 7.5);
+    }
+
+    function ludoTokenXY(t) {
+        return ludoPosForStep(t.ci, t.i, t.home ? LUDO_HOME_STEP : (t.inBase ? -1 : t.step));
+    }
+
+    // Inactive quadrants: wash the hue out toward the colour's own luminance,
+    // then lift toward paper. Blending straight to grey turned red into mud and
+    // yellow into olive, which read as "dirty" rather than "not in play".
+    function ludoDim(hex) {
+        const n = parseInt(hex.slice(1), 16);
+        const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        const soft = v => {
+            const desat = v * 0.25 + lum * 0.75;
+            return Math.round(desat + (235 - desat) * 0.45);
+        };
+        return `rgb(${soft(r)},${soft(g)},${soft(b)})`;
+    }
+
+    const ludoIsActive = ci => ludoActive.indexOf(ci) !== -1;
+    const ludoCurrentCi = () => ludoActive[ludoTurn];
+
+    function ludoRoundRect(ctx, x, y, w, h, r) {
+        const k = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + k, y);
+        ctx.arcTo(x + w, y,     x + w, y + h, k);
+        ctx.arcTo(x + w, y + h, x,     y + h, k);
+        ctx.arcTo(x,     y + h, x,     y,     k);
+        ctx.arcTo(x,     y,     x + w, y,     k);
+        ctx.closePath();
+    }
+
+    // Tokens sharing a square are spread apart and badged with a count, so a
+    // block never looks like a single piece.
+    function ludoComputeLayout() {
+        const groups = new Map();
+        ludoTokens.forEach(t => {
+            const p = ludoTokenXY(t);
+            const k = Math.round(p.x) + ':' + Math.round(p.y);
+            if (!groups.has(k)) groups.set(k, []);
+            groups.get(k).push({ t, p });
+        });
+        const pos = new Map();
+        groups.forEach(list => {
+            const n = list.length;
+            list.forEach((entry, idx) => {
+                if (n === 1) {
+                    pos.set(entry.t, { x: entry.p.x, y: entry.p.y, scale: 1, stack: 1, idx: 0 });
+                    return;
+                }
+                const spread = Math.min(4.5, 11 / n);
+                const off = (idx - (n - 1) / 2) * spread;
+                pos.set(entry.t, {
+                    x: entry.p.x + off, y: entry.p.y - Math.abs(off) * 0.35,
+                    scale: 0.82, stack: n, idx,
+                });
+            });
+        });
+        return pos;
+    }
+
+    // ── Board ──────────────────────────────────────────────────────────
+    function ludoDrawFrame(ctx) {
+        const pad = 9;
+        const x = LUDO_BOARD_X - pad, y = LUDO_BOARD_Y - pad;
+        const s = LUDO_BOARD + pad * 2;
+
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.55)';
+        ctx.shadowBlur = 14;
+        ctx.shadowOffsetY = 4;
+        const g = ctx.createLinearGradient(x, y, x + s, y + s);
+        g.addColorStop(0,    '#4a3324');
+        g.addColorStop(0.5,  '#33221a');
+        g.addColorStop(1,    '#241610');
+        ctx.fillStyle = g;
+        ludoRoundRect(ctx, x, y, s, s, 14);
+        ctx.fill();
+        ctx.restore();
+
+        // Inner bevel — a light top edge and a dark bottom edge reads as depth.
+        ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+        ctx.lineWidth = 1;
+        ludoRoundRect(ctx, x + 1.5, y + 1.5, s - 3, s - 3, 12);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+        ludoRoundRect(ctx, LUDO_BOARD_X - 1.5, LUDO_BOARD_Y - 1.5,
+                      LUDO_BOARD + 3, LUDO_BOARD + 3, 4);
+        ctx.stroke();
+    }
+
+    function ludoDrawCell(ctx, r, c, fill, stroke) {
+        const p = ludoPointXY(r, c);
+        ctx.fillStyle = fill;
+        ctx.fillRect(p.x, p.y, LUDO_CELL, LUDO_CELL);
+        if (stroke) {
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(p.x + 0.5, p.y + 0.5, LUDO_CELL - 1, LUDO_CELL - 1);
+        }
+    }
+
+    function ludoDrawStar(ctx, r, c, colour) {
+        const p = ludoCellCenter(r, c);
+        const R = LUDO_CELL * 0.33, r2 = R * 0.45;
+        ctx.beginPath();
+        for (let i = 0; i < 10; i++) {
+            const rad = i % 2 ? r2 : R;
+            const a = -Math.PI / 2 + i * Math.PI / 5;
+            const x = p.x + Math.cos(a) * rad, y = p.y + Math.sin(a) * rad;
+            i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = colour;
+        ctx.fill();
+    }
+
+    // Arrow on each start square showing which way that colour travels.
+    function ludoDrawStartArrow(ctx, ci) {
+        const col  = LUDO_COLORS[ci];
+        const cur  = LUDO_RING[col.startIndex];
+        const next = LUDO_RING[(col.startIndex + 1) % 52];
+        const dr = Math.sign(next.r - cur.r), dc = Math.sign(next.c - cur.c);
+        const p  = ludoCellCenter(cur.r, cur.c);
+        const L  = LUDO_CELL * 0.30;
+
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(Math.atan2(dr, dc));
+        ctx.beginPath();
+        ctx.moveTo(L, 0);
+        ctx.lineTo(-L * 0.65, -L * 0.8);
+        ctx.lineTo(-L * 0.2, 0);
+        ctx.lineTo(-L * 0.65, L * 0.8);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function ludoDrawBoard(ctx) {
+        const S = LUDO_CELL;
+        ludoDrawFrame(ctx);
+
+        ctx.fillStyle = '#fbfcfe';
+        ctx.fillRect(LUDO_BOARD_X, LUDO_BOARD_Y, LUDO_BOARD, LUDO_BOARD);
+
+        // Quadrants and their base panels
+        LUDO_COLORS.forEach((col, ci) => {
+            const on   = ludoIsActive(ci);
+            const tint = on ? col.hex : ludoDim(col.hex);
+            const deep = on ? col.deep : ludoDim(col.deep);
+            const q = col.quad, b = col.basePanel;
+            const qp = ludoPointXY(q.r0, q.c0);
+
+            ctx.fillStyle = tint;
+            ctx.fillRect(qp.x, qp.y, (q.c1 - q.c0) * S, (q.r1 - q.r0) * S);
+
+            const bp = ludoPointXY(b.r0, b.c0);
+            const bw = (b.c1 - b.c0) * S, bh = (b.r1 - b.r0) * S;
+            ctx.fillStyle = '#fbfcfe';
+            ludoRoundRect(ctx, bp.x, bp.y, bw, bh, 8);
+            ctx.fill();
+            ctx.strokeStyle = deep;
+            ctx.lineWidth = 2;
+            ludoRoundRect(ctx, bp.x + 1, bp.y + 1, bw - 2, bh - 2, 7);
+            ctx.stroke();
+
+            col.baseSlots.forEach(s => {
+                const p = ludoPointXY(s.r, s.c);
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, S * 0.42, 0, Math.PI * 2);
+                ctx.fillStyle = on ? 'rgba(0,0,0,0.07)' : 'rgba(0,0,0,0.04)';
+                ctx.fill();
+                ctx.strokeStyle = tint;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            });
+        });
+
+        // Ring squares — start squares wear their owner's colour
+        LUDO_RING.forEach((cell, idx) => {
+            const owner = LUDO_START_OWNER[idx];
+            let fill = '#ffffff';
+            if (owner !== undefined) {
+                fill = ludoIsActive(owner) ? LUDO_COLORS[owner].hex : ludoDim(LUDO_COLORS[owner].hex);
+            }
+            ludoDrawCell(ctx, cell.r, cell.c, fill, 'rgba(40,50,70,0.28)');
+        });
+
+        LUDO_SAFE_RING.forEach(idx => {
+            if (LUDO_START_OWNER[idx] !== undefined) return;
+            const cell = LUDO_RING[idx];
+            ludoDrawStar(ctx, cell.r, cell.c, 'rgba(60,72,96,0.40)');
+        });
+        LUDO_COLORS.forEach((col, ci) => ludoDrawStartArrow(ctx, ci));
+
+        // Home columns
+        LUDO_COLORS.forEach((col, ci) => {
+            const tint = ludoIsActive(ci) ? col.hex : ludoDim(col.hex);
+            col.homeCol.forEach(cell => ludoDrawCell(ctx, cell.r, cell.c, tint, 'rgba(40,50,70,0.28)'));
+        });
+
+        // Centre pinwheel
+        const mid = ludoPointXY(7.5, 7.5);
+        LUDO_COLORS.forEach((col, ci) => {
+            const a = ludoPointXY(col.apex[0].r, col.apex[0].c);
+            const b = ludoPointXY(col.apex[1].r, col.apex[1].c);
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(mid.x, mid.y);
+            ctx.closePath();
+            ctx.fillStyle = ludoIsActive(ci) ? col.hex : ludoDim(col.hex);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        });
+        ctx.strokeStyle = 'rgba(40,50,70,0.35)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(ludoPointXY(6, 6).x, ludoPointXY(6, 6).y, S * 3, S * 3);
+
+        if (ludoDebugRing) {
+            ctx.font = '8px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#c2185b';
+            LUDO_RING.forEach((cell, idx) => {
+                const p = ludoCellCenter(cell.r, cell.c);
+                ctx.fillText(String(idx), p.x, p.y);
+            });
+        }
+    }
+
+    // ── Tokens ─────────────────────────────────────────────────────────
+    // Concentric-ring piece: coloured body, white band, coloured pip. Reads
+    // clearly at 20px and matches the look players expect from Ludo Star.
+    function ludoDrawToken(ctx, x, y, ci, opt) {
+        const o    = opt || {};
+        const col  = LUDO_COLORS[ci];
+        const on   = ludoIsActive(ci);
+        const body = on ? col.hex : ludoDim(col.hex);
+        const deep = on ? col.deep : ludoDim(col.deep);
+        const R    = LUDO_CELL * 0.40 * (o.scale || 1);
+
+        // Destination marker. Drawn as a dashed ring in the mover's own colour
+        // rather than a translucent white disc — most of the track is white, and
+        // a white ghost was simply invisible on it.
+        if (o.ghost) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(x, y, R * 0.86, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,255,255,0.62)';
+            ctx.fill();
+            ctx.setLineDash([3.5, 2.5]);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = deep;
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.arc(x, y, R * 0.30, 0, Math.PI * 2);
+            ctx.fillStyle = body;
+            ctx.fill();
+            ctx.restore();
+            return;
+        }
+
+        ctx.save();
+
+        {
+            ctx.beginPath();
+            ctx.ellipse(x, y + R * 0.62, R * 0.82, R * 0.30, 0, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(0,0,0,0.28)';
+            ctx.fill();
+        }
+        if (o.glow) {
+            ctx.beginPath();
+            ctx.arc(x, y, R + 3.5 + Math.sin(ludoPulse * 5) * 1.2, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,214,64,0.45)';
+            ctx.fill();
+        }
+
+        ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI * 2);
+        ctx.fillStyle = body; ctx.fill();
+        ctx.lineWidth = 1.4; ctx.strokeStyle = deep;
+        ctx.stroke();
+
+        ctx.beginPath(); ctx.arc(x, y, R * 0.62, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+
+        ctx.beginPath(); ctx.arc(x, y, R * 0.34, 0, Math.PI * 2);
+        ctx.fillStyle = body; ctx.fill();
+
+        {
+            ctx.beginPath();
+            ctx.arc(x - R * 0.30, y - R * 0.34, R * 0.24, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,255,255,0.55)';
+            ctx.fill();
+        }
+
+        if (o.stack > 1) {
+            ctx.beginPath();
+            ctx.arc(x + R * 0.75, y - R * 0.75, R * 0.46, 0, Math.PI * 2);
+            ctx.fillStyle = '#1d2740'; ctx.fill();
+            ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.stroke();
+            ctx.font = `bold ${Math.round(R * 0.66)}px system-ui, sans-serif`;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(String(o.stack), x + R * 0.75, y - R * 0.72);
+        }
+        ctx.restore();
+    }
+
+    // ── Die-choice popover ─────────────────────────────────────────────
+    // With more than one value unspent, tapping a token asks which die to
+    // spend on it. One layout function serves both the draw and the hit-test,
+    // so they cannot drift apart.
+    const LUDO_POP_D   = 22;
+    const LUDO_POP_GAP = 5;
+    const LUDO_POP_PAD = 5;
+
+    function ludoPopoverLayout() {
+        if (!ludoPopover) return null;
+        const values = ludoValuesForToken(ludoPopover.token.ci, ludoPopover.token);
+        if (values.length < 2) return null;
+
+        const n = values.length;
+        const w = n * LUDO_POP_D + (n - 1) * LUDO_POP_GAP + LUDO_POP_PAD * 2;
+        const h = LUDO_POP_D + LUDO_POP_PAD * 2;
+        const p = ludoRenderPos.get(ludoPopover.token) || ludoTokenXY(ludoPopover.token);
+
+        let y = p.y - LUDO_CELL * 0.7 - h;
+        if (y < LUDO_BOARD_Y + 2) y = p.y + LUDO_CELL * 0.7;   // flip below near the top edge
+        const x = Math.max(LUDO_BOARD_X + 2,
+                  Math.min(p.x - w / 2, LUDO_BOARD_X + LUDO_BOARD - w - 2));
+
+        return {
+            x, y, w, h, values,
+            cells: values.map((v, i) => ({
+                value: v,
+                x: x + LUDO_POP_PAD + i * (LUDO_POP_D + LUDO_POP_GAP) + LUDO_POP_D / 2,
+                y: y + LUDO_POP_PAD + LUDO_POP_D / 2,
+            })),
+        };
+    }
+
+    function ludoDrawPopover(ctx) {
+        const L = ludoPopoverLayout();
+        if (!L) return;
+        const anchor = ludoRenderPos.get(ludoPopover.token) || ludoTokenXY(ludoPopover.token);
+
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.55)';
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = 'rgba(14,19,38,0.96)';
+        ludoRoundRect(ctx, L.x, L.y, L.w, L.h, 8);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = LUDO_COLORS[ludoPopover.token.ci].hex;
+        ctx.lineWidth = 1.5;
+        ludoRoundRect(ctx, L.x, L.y, L.w, L.h, 8);
+        ctx.stroke();
+
+        // Little tail pointing at the token it belongs to.
+        const below = L.y > anchor.y;
+        const ty = below ? L.y : L.y + L.h;
+        const tx = Math.max(L.x + 8, Math.min(anchor.x, L.x + L.w - 8));
+        ctx.beginPath();
+        ctx.moveTo(tx - 5, ty);
+        ctx.lineTo(tx + 5, ty);
+        ctx.lineTo(tx, ty + (below ? -5 : 5));
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(14,19,38,0.96)';
+        ctx.fill();
+
+        L.cells.forEach(c => ludoDrawMiniDie(ctx, c.x, c.y, LUDO_POP_D, c.value, true));
+        ctx.restore();
+    }
+
+    // Bouncing chevron over a token that can legally move.
+    function ludoDrawMarker(ctx, x, y) {
+        const bob = Math.sin(ludoPulse * 6) * 2.2;
+        const yy  = y - LUDO_CELL * 0.78 + bob;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(x - 5, yy - 4);
+        ctx.lineTo(x + 5, yy - 4);
+        ctx.lineTo(x, yy + 3.5);
+        ctx.closePath();
+        ctx.fillStyle = '#3ddc6b';
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 3;
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function ludoDrawTokens(ctx) {
+        ludoRenderPos = ludoComputeLayout();
+
+        // Ghost previews. With three unspent dice and four tokens there can be
+        // a dozen destinations, so only show them when the choice is narrow:
+        // one die left, or a token already picked. Otherwise the glow and the
+        // chevron are enough to say which tokens can move at all.
+        if (ludoPhase === 'awaitMove') {
+            const distinct = ludoPool.filter((v, i) => ludoPool.indexOf(v) === i).length;
+            const ghosts = ludoPopover
+                ? ludoLegal.filter(m => m.token === ludoPopover.token)
+                : (distinct <= 1 ? ludoLegal : []);
+            ghosts.forEach(m => {
+                const p = ludoPosForStep(m.token.ci, m.token.i, m.to);
+                ludoDrawToken(ctx, p.x, p.y, m.token.ci, { ghost: true, scale: 0.9 });
+            });
+        }
+
+        const hopTok = ludoHop && ludoHop.move.token;
+        ludoTokens.forEach(t => {
+            if (t === hopTok) return;                    // drawn separately, on top
+            const p = ludoRenderPos.get(t);
+            const movable = ludoPhase === 'awaitMove' && ludoLegal.some(m => m.token === t);
+            ludoDrawToken(ctx, p.x, p.y, t.ci, {
+                scale: p.scale, stack: p.idx === p.stack - 1 ? p.stack : 1, glow: movable,
+            });
+        });
+
+        if (hopTok) {
+            const p = ludoHopXY();
+            ludoDrawToken(ctx, p.x, p.y, hopTok.ci, { scale: 1.08 });
+        }
+        if (ludoPhase === 'awaitMove') {
+            ludoLegal.forEach(m => {
+                const p = ludoRenderPos.get(m.token);
+                if (p) ludoDrawMarker(ctx, p.x, p.y);
+            });
+        }
+    }
+
+    // Interpolated position mid-hop, with a small parabolic lift per square.
+    function ludoHopXY() {
+        const h  = ludoHop;
+        const t  = h.move.token;
+        const fromStep = h.idx === 0 ? (h.move.release ? -1 : h.move.from) : h.path[h.idx - 1];
+        const toStep   = h.path[h.idx];
+        const a = ludoPosForStep(t.ci, t.i, fromStep);
+        const b = ludoPosForStep(t.ci, t.i, toStep);
+        const k = Math.min(1, h.t / LUDO_HOP_MS);
+        return {
+            x: a.x + (b.x - a.x) * k,
+            y: a.y + (b.y - a.y) * k - Math.sin(k * Math.PI) * 6,
+        };
+    }
+
+    // ── Dice ───────────────────────────────────────────────────────────
+    const LUDO_PIPS = {
+        1: [[0, 0]],
+        2: [[-1, -1], [1, 1]],
+        3: [[-1, -1], [0, 0], [1, 1]],
+        4: [[-1, -1], [1, -1], [-1, 1], [1, 1]],
+        5: [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]],
+        6: [[-1, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [1, 1]],
+    };
+
+    function ludoDrawDice(ctx, cx, cy, size, face, opts) {
+        const o = opts || {};
+        // Breathing scale while it waits for a tap — a clearer affordance than a
+        // text label, and it costs no vertical room inside the 58px strip.
+        const grow = o.glow ? 1 + Math.sin(ludoPulse * 4) * 0.055 : 1;
+        const half = (size * grow) / 2;
+        ctx.save();
+        ctx.translate(cx, cy);
+        if (o.spin) ctx.rotate(Math.sin(ludoPulse * 22) * 0.28);
+
+        if (o.glow) {
+            ctx.shadowColor = 'rgba(255,206,64,0.95)';
+            ctx.shadowBlur = 10 + Math.sin(ludoPulse * 4) * 4;
+        }
+        const g = ctx.createLinearGradient(-half, -half, half, half);
+        g.addColorStop(0, '#ffffff');
+        g.addColorStop(1, '#dfe4ec');
+        ctx.fillStyle = g;
+        ludoRoundRect(ctx, -half, -half, size, size, size * 0.22);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = o.glow ? '#ffce40' : 'rgba(0,0,0,0.32)';
+        ctx.lineWidth = o.glow ? 2 : 1;
+        ludoRoundRect(ctx, -half, -half, size, size, size * 0.22);
+        ctx.stroke();
+
+        const pr = half * 0.20, sp = half * 0.52;
+        ctx.fillStyle = '#26304a';
+        (LUDO_PIPS[face] || LUDO_PIPS[1]).forEach(([px, py]) => {
+            ctx.beginPath();
+            ctx.arc(px * sp, py * sp, pr, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.restore();
+    }
+
+    // Depleting ring around the dice — the turn clock.
+    function ludoDrawTurnRing(ctx, cx, cy, radius) {
+        const frac = Math.max(0, ludoTurnLeft / LUDO_TURN_CLOCK);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.13)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+        ctx.strokeStyle = frac > 0.5 ? '#3ddc6b' : frac > 0.22 ? '#ffce40' : '#ff5d5d';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // ── HUD ────────────────────────────────────────────────────────────
+    // Strip layout. The chip is 88 wide rather than 122 so the roll recap fits
+    // between it and the live dice (ring spans centre ± 19) even in 3P/4P,
+    // where two players share a strip.
+    const LUDO_CHIP_W    = 88;
+    const LUDO_CHIP_H    = 38;
+    const LUDO_CHIP_PAD  = 6;
+    const LUDO_RECAP_GAP = 6;    // chip → recap; keeps the recap clear of the dice ring
+    const ludoChipX = side =>
+        side === 'left' ? LUDO_CHIP_PAD : LUDO_CANVAS_W - LUDO_CHIP_W - LUDO_CHIP_PAD;
+
+    function ludoDrawChip(ctx, ci, x, y, isCurrent) {
+        const col  = LUDO_COLORS[ci];
+        const home = ludoTokensHome(ci);
+        const isCPU = ludoIsCPUSeat(ci);
+        const w = LUDO_CHIP_W, h = LUDO_CHIP_H;
+
+        if (isCurrent) {
+            ctx.fillStyle = 'rgba(255,255,255,0.11)';
+            ludoRoundRect(ctx, x, y, w, h, 9);
+            ctx.fill();
+            ctx.strokeStyle = col.hex;
+            ctx.lineWidth = 1.5;
+            ludoRoundRect(ctx, x + 0.75, y + 0.75, w - 1.5, h - 1.5, 9);
+            ctx.stroke();
+        }
+
+        const cy = y + h / 2;
+        ctx.beginPath();
+        ctx.arc(x + 14, cy, 8, 0, Math.PI * 2);
+        ctx.fillStyle = col.hex;
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = col.deep;
+        ctx.stroke();
+        if (isCurrent) {
+            ctx.beginPath();
+            ctx.arc(x + 14, cy, 11 + Math.sin(ludoPulse * 4) * 0.9, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+        }
+
+        // Name at 11px, CPU tier trailing it at 8px. Right-aligning the tier
+        // would collide with the recap, and "CPU · normal" as one 11px string
+        // overflowed the 88px chip.
+        const name = isCPU ? 'CPU' : col.label;
+        ctx.font = isCurrent ? 'bold 11px system-ui, sans-serif' : '11px system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = isCurrent ? '#ffffff' : 'rgba(255,255,255,0.66)';
+        ctx.fillText(name, x + 26, cy - 1);
+        if (isCPU) {
+            const nameW = ctx.measureText(name).width;
+            ctx.font = '8px system-ui, sans-serif';
+            ctx.fillStyle = 'rgba(255,255,255,0.42)';
+            ctx.fillText(ludoCpuTier, x + 26 + nameW + 5, cy - 1);
+        }
+
+        for (let k = 0; k < 4; k++) {
+            ctx.beginPath();
+            ctx.arc(x + 29 + k * 8.5, cy + 9, 3, 0, Math.PI * 2);
+            ctx.fillStyle = k < home ? col.hex : 'rgba(255,255,255,0.20)';
+            ctx.fill();
+        }
+    }
+
+    // Small die used for the unspent pool (bright) and the recap (dimmed).
+    // Pips need real contrast at this size — a pale face with near-black pips
+    // stays countable where a low global alpha turned them to mush.
+    function ludoDrawMiniDie(ctx, cx, cy, size, face, bright) {
+        const half = size / 2;
+        ctx.save();
+        ctx.globalAlpha = bright ? 1 : 0.78;
+        if (bright) {
+            ctx.shadowColor = 'rgba(255,206,64,0.55)';
+            ctx.shadowBlur = 5;
+        }
+        ludoRoundRect(ctx, cx - half, cy - half, size, size, size * 0.24);
+        ctx.fillStyle = bright ? '#ffffff' : '#c6cde4';
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = bright ? '#ffce40' : 'rgba(255,255,255,0.34)';
+        ctx.lineWidth = bright ? 1.5 : 1;
+        ludoRoundRect(ctx, cx - half, cy - half, size, size, size * 0.24);
+        ctx.stroke();
+        const pr = Math.max(1.05, half * 0.235), sp = half * 0.50;
+        ctx.fillStyle = '#141a2e';
+        (LUDO_PIPS[face] || []).forEach(p => {
+            ctx.beginPath();
+            ctx.arc(cx + p[0] * sp, cy + p[1] * sp, pr, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.restore();
+    }
+
+    // Unspent dice for the player to move, parked between their chip and the
+    // live dice. Sits on the current player's own side, and the recap sits on
+    // its owner's side — those are always different seats, so they never clash.
+    function ludoDrawPool(ctx, strip) {
+        if (!ludoStarted || ludoPhase === 'over' || !ludoPool.length) return;
+        const cur  = ludoCurrentCi();
+        const seat = LUDO_SEATS[cur];
+        if (seat.strip !== strip) return;
+
+        const D = 15, GAP = 2;
+        const w  = ludoPool.length * D + (ludoPool.length - 1) * GAP;
+        const y0 = strip === 'top' ? 0 : LUDO_CANVAS_H - LUDO_STRIP_H;
+        const cy = y0 + LUDO_STRIP_H / 2;
+        const x0 = seat.side === 'left'
+            ? ludoChipX('left') + LUDO_CHIP_W + LUDO_RECAP_GAP
+            : ludoChipX('right') - LUDO_RECAP_GAP - w;
+
+        ludoPool.forEach((v, k) =>
+            ludoDrawMiniDie(ctx, x0 + k * (D + GAP) + D / 2, cy, D, v, true));
+    }
+
+    // What the previous player rolled, parked beside their own chip. Cleared
+    // the moment the next roll starts (see ludoDoRoll).
+    function ludoDrawRecap(ctx, strip) {
+        if (!ludoRecap || !ludoRecap.faces.length) return;
+        const seat = LUDO_SEATS[ludoRecap.ci];
+        if (seat.strip !== strip || !ludoIsActive(ludoRecap.ci)) return;
+
+        // At most 4, most recent first-to-last. Three sixes is the natural
+        // maximum; longer runs only come from capture chains.
+        const faces = ludoRecap.faces.slice(-4);
+        const D = faces.length <= 3 ? 15 : 11;
+        const GAP = 2;
+        const w = faces.length * D + (faces.length - 1) * GAP;   // <= 50
+        const y0 = strip === 'top' ? 0 : LUDO_CANVAS_H - LUDO_STRIP_H;
+        const cy = y0 + LUDO_STRIP_H / 2;
+        const x0 = seat.side === 'left'
+            ? ludoChipX('left') + LUDO_CHIP_W + LUDO_RECAP_GAP
+            : ludoChipX('right') - LUDO_RECAP_GAP - w;
+
+        faces.forEach((f, k) => ludoDrawMiniDie(ctx, x0 + k * (D + GAP) + D / 2, cy, D, f));
+    }
+
+    function ludoDrawHud(ctx) {
+        const cur = ludoCurrentCi();
+        const curStrip = ludoPhase === 'over' ? null : LUDO_SEATS[cur].strip;
+
+        ['top', 'bottom'].forEach(strip => {
+            const y0 = strip === 'top' ? 0 : LUDO_CANVAS_H - LUDO_STRIP_H;
+            ludoActive.forEach(ci => {
+                const seat = LUDO_SEATS[ci];
+                if (seat.strip !== strip) return;
+                ludoDrawChip(ctx, ci, ludoChipX(seat.side),
+                             y0 + (LUDO_STRIP_H - LUDO_CHIP_H) / 2,
+                             ci === cur && ludoPhase !== 'over');
+            });
+
+            ludoDrawRecap(ctx, strip);
+            ludoDrawPool(ctx, strip);
+
+            if (strip === curStrip) {
+                const cx = LUDO_CANVAS_W / 2, cy = y0 + LUDO_STRIP_H / 2;
+                ludoDrawTurnRing(ctx, cx, cy, 19);
+                ludoDrawDice(ctx, cx, cy, 28, ludoDiceFace, {
+                    glow: ludoPhase === 'awaitRoll' && !ludoIsCPUSeat(cur),
+                    spin: ludoPhase === 'rolling',
+                });
+            }
+        });
+    }
+
+    function ludoDrawBanner(ctx) {
+        if (!ludoBanner) return;
+        const fade = Math.min(1, ludoBanner.ttl / 260);
+        const text = ludoBanner.text;
+        ctx.save();
+        ctx.globalAlpha = fade;
+        ctx.font = 'bold 13px system-ui, sans-serif';
+        const w = ctx.measureText(text).width + 26;
+        const x = (LUDO_CANVAS_W - w) / 2, y = LUDO_CANVAS_H / 2 - 17;
+        ctx.fillStyle = ludoBanner.tone === 'bad' ? 'rgba(150,32,42,0.94)'
+                      : ludoBanner.tone === 'good' ? 'rgba(24,120,62,0.94)'
+                      : 'rgba(24,32,54,0.94)';
+        ludoRoundRect(ctx, x, y, w, 34, 9);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, LUDO_CANVAS_W / 2, y + 17);
+        ctx.restore();
+    }
+
+    function ludoDrawIdle(ctx) {
+        if (ludoStarted) return;
+        ctx.save();
+        ctx.fillStyle = 'rgba(8,12,24,0.62)';
+        ctx.fillRect(LUDO_BOARD_X, LUDO_BOARD_Y, LUDO_BOARD, LUDO_BOARD);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 15px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🎲  ' + LUDO_MODE_LABEL[ludoMode],
+                     LUDO_CANVAS_W / 2, LUDO_BOARD_Y + LUDO_BOARD / 2 - 10);
+        ctx.font = '11px system-ui, sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.70)';
+        ctx.fillText('Press ▶ Play to start',
+                     LUDO_CANVAS_W / 2, LUDO_BOARD_Y + LUDO_BOARD / 2 + 12);
+        ctx.restore();
+    }
+
+    function ludoDrawGameOver(ctx) {
+        if (ludoPhase !== 'over') return;
+        const order = ludoStandings();
+        const h = 34 + order.length * 20 + 30;
+        const w = 190;
+        const x = (LUDO_CANVAS_W - w) / 2, y = LUDO_BOARD_Y + (LUDO_BOARD - h) / 2;
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(8,12,24,0.78)';
+        ctx.fillRect(LUDO_BOARD_X, LUDO_BOARD_Y, LUDO_BOARD, LUDO_BOARD);
+        ctx.fillStyle = 'rgba(20,27,48,0.98)';
+        ludoRoundRect(ctx, x, y, w, h, 12);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = 'bold 14px system-ui, sans-serif';
+        ctx.fillStyle = '#ffd166';
+        ctx.fillText('🏆  ' + LUDO_COLORS[order[0]].label + ' wins', x + w / 2, y + 20);
+
+        order.forEach((ci, k) => {
+            const ry = y + 44 + k * 20;
+            ctx.beginPath();
+            ctx.arc(x + 22, ry, 6, 0, Math.PI * 2);
+            ctx.fillStyle = LUDO_COLORS[ci].hex;
+            ctx.fill();
+            ctx.font = '11px system-ui, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillStyle = 'rgba(255,255,255,0.86)';
+            ctx.fillText(`${k + 1}. ${ludoIsCPUSeat(ci) ? 'CPU' : LUDO_COLORS[ci].label}`, x + 34, ry);
+            ctx.textAlign = 'right';
+            ctx.fillStyle = 'rgba(255,255,255,0.52)';
+            ctx.fillText(`${ludoTokensHome(ci)}/4`, x + w - 16, ry);
+        });
+
+        ctx.textAlign = 'center';
+        ctx.font = '10px system-ui, sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.fillText('▶ Play for a new match', x + w / 2, y + h - 14);
+        ctx.restore();
+    }
+
+    function ludoRender() {
+        const canvas = ludoCanvasEl || document.getElementById('ludo-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+
+        // Everything below draws in fixed 344×416 space. The ⛶ Max modal doubles
+        // the backing store, so derive the scale from it — same trick
+        // drawPoolFrame uses via canvas.width / POOL_W — and the board redraws
+        // crisp at 2× instead of in a quarter of the canvas.
+        const s = (canvas.width || LUDO_CANVAS_W) / LUDO_CANVAS_W;
+        ctx.setTransform(s, 0, 0, s, 0, 0);
+
+        ctx.clearRect(0, 0, LUDO_CANVAS_W, LUDO_CANVAS_H);
+        ludoDrawBoard(ctx);
+        ludoDrawTokens(ctx);
+        ludoDrawPopover(ctx);
+        ludoDrawHud(ctx);
+        ludoDrawIdle(ctx);
+        ludoDrawGameOver(ctx);
+        ludoDrawBanner(ctx);
+    }
+
+    // ── Turn orchestration ─────────────────────────────────────────────
+    function ludoSay(text, tone, ms) {
+        ludoBanner = { text, tone: tone || 'info', ttl: ms || 900 };
+    }
+
+    // Also used to start a follow-up sequence (after a 6, or after a capture),
+    // neither of which advances the turn — that is core's job.
+    function ludoBeginTurn() {
+        if (ludoPhase === 'over') return;
+        ludoPhase    = 'awaitRoll';
+        ludoTurnLeft = LUDO_TURN_CLOCK;
+        ludoLegal    = [];
+        ludoHop      = null;
+        ludoPopover  = null;
+        updateLudoScoreboard();
+        if (ludoIsCPUSeat(ludoCurrentCi())) ludoAfter(LUDO_CPU_THINK_MS, ludoDoRoll);
+    }
+
+    // CPU spends the pool greedily; a human with exactly one option gets it
+    // played for them. Otherwise we wait for a tap.
+    function ludoAwaitMove(moves) {
+        ludoLegal   = moves;
+        ludoPhase   = 'awaitMove';
+        ludoPopover = null;
+
+        const ci = ludoCurrentCi();
+        if (ludoIsCPUSeat(ci)) {
+            ludoAfter(LUDO_CPU_THINK_MS, () => {
+                const m = ludoAIChooseMove(ci, ludoLegal, ludoCpuTier);
+                if (m) ludoPlayMove(m);
+            });
+        } else if (ludoLegal.length === 1) {
+            ludoAfter(LUDO_AUTOPLAY_MS, () => {
+                if (ludoPhase === 'awaitMove' && ludoLegal.length === 1) ludoPlayMove(ludoLegal[0]);
+            });
+        }
+    }
+
+    function ludoDoRoll() {
+        if (ludoPhase !== 'awaitRoll') return;
+        ludoRecap = null;                 // last turn's dice clear as the new roll starts
+        ludoPhase = 'rolling';
+        ludoDiceSpin = LUDO_DICE_MS;
+    }
+
+    function ludoSettleRoll() {
+        const ci = ludoCurrentCi();
+        ludoDiceFace = ludoRollDice();
+        const res = ludoRegisterRoll(ci, ludoDiceFace);
+
+        if (res.voided) {
+            ludoSay('Three sixes — turn lost', 'bad', LUDO_PASS_MS);
+            ludoAfter(LUDO_PASS_MS, ludoBeginTurn);
+            return;
+        }
+        // A 6 banks a die and hands the dice straight back.
+        if (res.rollAgain) {
+            ludoSay('Six — roll again', 'good', 700);
+            ludoBeginTurn();
+            return;
+        }
+        if (res.passed) {
+            // Name the numbers. "No moves" alone left the player guessing what
+            // they had rolled, which is the complaint the recap fixes.
+            const stuck = ludoTokens.filter(t => t.ci === ci).every(t => t.inBase || t.home);
+            // Read the faces off the recap: the pass path already advanced the
+            // turn, which clears ludoTurnRolls into exactly that snapshot.
+            const faces = (ludoRecap && ludoRecap.ci === ci && ludoRecap.faces.length)
+                ? ludoRecap.faces : [ludoDiceFace];
+            const rolled = faces.slice(-LUDO_MAX_DICE).join(', ');
+            ludoSay(stuck && ludoDiceFace !== 6
+                ? `Rolled ${rolled} — need a 6`
+                : `Rolled ${rolled} — no moves`, 'info', LUDO_PASS_MS);
+            ludoAfter(LUDO_PASS_MS, ludoBeginTurn);
+            return;
+        }
+        ludoAwaitMove(res.moves);
+    }
+
+    function ludoPlayMove(move) {
+        if (ludoPhase !== 'awaitMove') return;
+        ludoClearPending();
+        const path = [];
+        if (move.release) path.push(0);
+        else for (let s = move.from + 1; s <= move.to; s++) path.push(s);
+
+        ludoPhase   = 'moving';
+        ludoLegal   = [];
+        ludoPopover = null;
+        ludoHop     = { move, path, idx: 0, t: 0 };
+    }
+
+    function ludoCompleteMove() {
+        const move = ludoHop.move;
+        ludoHop = null;
+
+        const result = ludoApplyMove(move);        // also spends move.value
+        const after  = ludoFinishMove(result);
+
+        if (after.gameOver) {
+            ludoPhase = 'over';
+            endLudoGame();
+            updateLudoScoreboard();
+            return;
+        }
+        if (result.captured)      ludoSay(after.extraRoll ? 'Captured — roll again' : 'Captured!', 'good', 850);
+        else if (result.finished) ludoSay(after.extraRoll ? 'Home — roll again' : 'Home!', 'good', 850);
+
+        // Still holding dice: keep spending without re-rolling.
+        if (after.continueTurn) { ludoAwaitMove(after.moves); updateLudoScoreboard(); return; }
+        ludoBeginTurn();
+    }
+
+    // Clock expiry: roll for them, or play the scorer's pick.
+    function ludoTimeout() {
+        if (ludoPhase === 'awaitRoll') { ludoSay('Time — rolling', 'info', 700); ludoDoRoll(); return; }
+        if (ludoPhase === 'awaitMove') {
+            const m = ludoAIChooseMove(ludoCurrentCi(), ludoLegal, 'normal');
+            ludoSay('Time — auto-move', 'info', 700);
+            if (m) ludoPlayMove(m);
+        }
+    }
+
+    // ── Loop ───────────────────────────────────────────────────────────
+    function ludoUpdate(dt) {
+        ludoPulse += dt / 1000;
+
+        if (ludoBanner) {
+            ludoBanner.ttl -= dt;
+            if (ludoBanner.ttl <= 0) ludoBanner = null;
+        }
+        if (ludoPending) {
+            ludoPending.ms -= dt;
+            if (ludoPending.ms <= 0) {
+                const fn = ludoPending.fn;
+                ludoPending = null;
+                fn();
+            }
+        }
+        if (ludoDiceSpin > 0) {
+            ludoDiceSpin -= dt;
+            ludoDiceFace = 1 + Math.floor(Math.random() * 6);   // tumble flicker
+            if (ludoDiceSpin <= 0) { ludoDiceSpin = 0; ludoSettleRoll(); }
+        }
+        if (ludoHop) {
+            ludoHop.t += dt;
+            while (ludoHop && ludoHop.t >= LUDO_HOP_MS) {
+                ludoHop.t -= LUDO_HOP_MS;
+                ludoHop.idx++;
+                if (ludoHop.idx >= ludoHop.path.length) { ludoCompleteMove(); break; }
+            }
+        }
+        if ((ludoPhase === 'awaitRoll' || ludoPhase === 'awaitMove') && ludoStarted) {
+            ludoTurnLeft -= dt / 1000;
+            if (ludoTurnLeft <= 0) { ludoTurnLeft = LUDO_TURN_CLOCK; ludoTimeout(); }
+        }
+    }
+
+    function ludoLoop(now) {
+        ludoAnimFrame = requestAnimationFrame(ludoLoop);
+        const interval = (typeof getFrameInterval === 'function') ? getFrameInterval() : 1000 / 60;
+        const elapsed = now - ludoLastFrame;
+        if (elapsed < interval) return;
+        ludoLastFrame = now;
+        ludoUpdate(Math.min(elapsed, 100));
+        ludoRender();
+    }
+
+    // ── Input ──────────────────────────────────────────────────────────
+    // Scale-aware, exactly as handlePoolMouseDown does: the canvas is laid out
+    // with width:100% so rect.width rarely equals LUDO_CANVAS_W.
+    function ludoEventXY(e) {
+        const canvas = ludoCanvasEl || document.getElementById('ludo-canvas');
+        if (!canvas) return null;
+        const rect = canvas.getBoundingClientRect();
+        if (!rect.width || !rect.height) return null;
+        const src = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+        return {
+            x: (src.clientX - rect.left) * (LUDO_CANVAS_W / rect.width),
+            y: (src.clientY - rect.top)  * (LUDO_CANVAS_H / rect.height),
+        };
+    }
+
+    function ludoDiceHit(p) {
+        if (ludoPhase === 'over') return false;
+        const seat = LUDO_SEATS[ludoCurrentCi()];
+        const cy = seat.strip === 'top'
+            ? LUDO_STRIP_H / 2
+            : LUDO_CANVAS_H - LUDO_STRIP_H / 2;
+        return Math.abs(p.x - LUDO_CANVAS_W / 2) <= 22 && Math.abs(p.y - cy) <= 22;
+    }
+
+    function handleLudoPointerDown(e) {
+        if (!ludoStarted || ludoPhase === 'over') return;
+        const p = ludoEventXY(e);
+        if (!p) return;
+        const ci = ludoCurrentCi();
+        if (ludoIsCPUSeat(ci)) return;               // hands off during the CPU's turn
+
+        if (ludoPhase === 'awaitRoll' && ludoDiceHit(p)) {
+            if (e.preventDefault) e.preventDefault();
+            ludoClearPending();
+            ludoDoRoll();
+            return;
+        }
+        if (ludoPhase !== 'awaitMove') return;
+
+        // An open popover owns the next tap: either it picks a die, or it closes.
+        if (ludoPopover) {
+            const L = ludoPopoverLayout();
+            const r = LUDO_POP_D / 2 + 3;
+            const hit = L && L.cells.filter(c =>
+                Math.abs(p.x - c.x) <= r && Math.abs(p.y - c.y) <= r)[0];
+            const token = ludoPopover.token;
+            ludoPopover = null;
+            if (hit) {
+                const m = ludoLegal.filter(x => x.token === token && x.value === hit.value)[0];
+                if (m) { if (e.preventDefault) e.preventDefault(); ludoPlayMove(m); }
+                return;
+            }
+            // fall through — a tap outside dismisses, and may select another token
+        }
+
+        // Nearest movable token within a cell's reach wins, so near-misses still register.
+        let best = null, bestD = 15 * 15;
+        ludoLegal.forEach(m => {
+            const rp = ludoRenderPos.get(m.token);
+            if (!rp) return;
+            const d = (rp.x - p.x) * (rp.x - p.x) + (rp.y - p.y) * (rp.y - p.y);
+            if (d < bestD) { bestD = d; best = m.token; }
+        });
+        if (!best) return;
+        if (e.preventDefault) e.preventDefault();
+
+        // One playable die for this token → just move. More than one → ask.
+        const values = ludoValuesForToken(best.ci, best);
+        if (values.length <= 1) {
+            const m = ludoLegal.filter(x => x.token === best)[0];
+            if (m) ludoPlayMove(m);
+        } else {
+            ludoPopover = { token: best };
+        }
+    }
+
+    // ── Host panel glue ────────────────────────────────────────────────
+    // The board is entirely canvas-drawn, but the widget's game header expects a
+    // scoreboard strip like every other game. Called only at state transitions,
+    // never per frame — this writes to the DOM.
+    function updateLudoScoreboard() {
+        const modeEl = document.getElementById('ludo-mode-label');
+        const homeEl = document.getElementById('ludo-home-label');
+        const turnEl = document.getElementById('ludo-turn-label');
+        if (modeEl) modeEl.textContent = LUDO_MODE_LABEL[ludoMode] || 'Ludo';
+        if (homeEl) homeEl.textContent = '🏠 ' + ludoTokensHome(LUDO_HUMAN_CI) + '/4';
+        if (!turnEl) return;
+        if (ludoPhase === 'over') {
+            const winner = ludoStandings()[0];
+            turnEl.textContent = ludoIsCPUSeat(winner)
+                ? 'CPU wins!' : LUDO_COLORS[winner].label + ' wins!';
+        } else if (!ludoStarted) {
+            turnEl.textContent = 'Press Play';
+        } else {
+            const ci = ludoCurrentCi();
+            turnEl.textContent = 'Turn: ' + (ludoIsCPUSeat(ci) ? 'CPU' : LUDO_COLORS[ci].label);
+        }
+    }
+
+    // ⛶ Max. Delegates to the host's shared modal helper; the standalone harness
+    // has no such helper, so this is a no-op there and the harness uses its own
+    // fullscreen button instead.
+    let ludoMaximized = false;
+    function toggleLudoMaximize() {
+        if (typeof toggleGameMaxModal !== 'function') return;
+        ludoMaximized = toggleGameMaxModal({
+            canvasId: 'ludo-canvas',
+            title: '🎲 Ludo',
+            bufferW: LUDO_CANVAS_W,
+            bufferH: LUDO_CANVAS_H,
+        });
+        ludoRender();
+    }
+
+    // ── Lifecycle ──────────────────────────────────────────────────────
+    function ludoLoadWins() {
+        try { return parseInt(localStorage.getItem('ludoGamesWon') || '0', 10) || 0; }
+        catch (err) { return 0; }
+    }
+    function ludoSaveWins(n) {
+        try { localStorage.setItem('ludoGamesWon', String(n)); } catch (err) { /* quota */ }
+    }
+    function ludoLoadRecord() {
+        try {
+            return JSON.parse(localStorage.getItem('ludoRecord') || 'null') || { wins: 0, losses: 0 };
+        } catch (err) { return { wins: 0, losses: 0 }; }
+    }
+    function ludoSaveRecord(rec) {
+        try { localStorage.setItem('ludoRecord', JSON.stringify(rec)); } catch (err) { /* quota */ }
+    }
+
+    // Idempotent: guarded on ludoAwarded so replaying the end state, or pressing
+    // ▶ Play on a finished board, cannot pay out twice.
+    function endLudoGame() {
+        if (ludoAwarded) return;
+        ludoAwarded = true;
+        ludoGameOver = true;
+
+        const order   = ludoStandings();
+        const me      = LUDO_HUMAN_CI;
+        const place   = order.indexOf(me);
+        const vsCPU   = ludoMode === 'cpu2';
+        const home    = ludoTokensHome(me);
+        const caps    = (ludoStats[me] && ludoStats[me].captures) || 0;
+        const lost    = (ludoStats[me] && ludoStats[me].lost) || 0;
+        const won     = place === 0;
+        const bigBoard = ludoActive.length >= 3;
+
+        if (vsCPU) {
+            const rec = ludoLoadRecord();
+            if (won) { rec.wins++; ludoSaveWins(ludoLoadWins() + 1); }
+            else rec.losses++;
+            ludoSaveRecord(rec);
+        }
+
+        let xp;
+        if (!vsCPU) {
+            xp = 20;                                    // hot-seat: nothing to beat
+        } else {
+            const mult = { easy: 0.6, normal: 1.0, hard: 1.35 }[ludoCpuTier] || 1;
+            xp = (won ? 90 : place === 1 && bigBoard ? 40 : 15)
+               + Math.min(32, home * 8)
+               + Math.min(18, caps * 3);
+            xp = Math.round(xp * mult * (bigBoard ? 1.15 : 1));
+        }
+        xp = Math.max(0, Math.min(300, xp));
+
+        if (typeof awardGameXP === 'function') {
+            awardGameXP('ludo', {
+                won, placement: place + 1, players: ludoActive.length,
+                tokensHome: home, captures: caps, tokensLost: lost,
+                tier: ludoCpuTier, vsCPU, xp,
+                gamesWon: ludoLoadWins(),
+            });
+        }
+        return xp;
+    }
+
+    function initLudoGame() {
+        ludoCanvasEl = document.getElementById('ludo-canvas');
+        if (!ludoCanvasEl) return;
+        ludoCanvasEl.width  = LUDO_CANVAS_W;
+        ludoCanvasEl.height = LUDO_CANVAS_H;
+        ludoCanvasEl.addEventListener('mousedown', handleLudoPointerDown);
+        ludoCanvasEl.addEventListener('touchstart', handleLudoPointerDown, { passive: false });
+        ludoSetMode(ludoMode);
+        ludoCpuTier = ludoDifficultyTier(ludoLoadRecord());
+        ludoStarted = false;
+        ludoPhase   = 'idle';
+        updateLudoScoreboard();
+        if (!ludoAnimFrame) { ludoLastFrame = 0; ludoAnimFrame = requestAnimationFrame(ludoLoop); }
+    }
+
+    function resetLudoGame() {
+        ludoClearPending();
+        ludoResetTokens();
+        ludoStarted  = false;
+        ludoAwarded  = false;
+        ludoPhase    = 'idle';
+        ludoHop      = null;
+        ludoLegal    = [];
+        ludoBanner   = null;
+        ludoDiceSpin = 0;
+        ludoDiceFace = 1;
+        ludoTurnLeft = LUDO_TURN_CLOCK;
+        ludoPopover  = null;
+        updateLudoScoreboard();
+        ludoRender();
+    }
+
+    function startLudoGame() {
+        // Force a clean slate if the previous match finished — this is what stops
+        // ▶ Play from re-awarding XP on a completed board.
+        if (ludoGameOver || ludoPhase === 'over' || ludoAwarded) resetLudoGame();
+        if (ludoStarted && ludoPhase !== 'idle') return;
+        ludoResetTokens();
+        ludoAwarded = false;
+        ludoCpuTier = ludoDifficultyTier(ludoLoadRecord());
+        ludoStarted = true;
+        ludoTurn    = 0;
+        ludoBeginTurn();
+    }
+
+    function cleanupLudoGame() {
+        // Close the Max modal first: it has moved the canvas out of the panel,
+        // and switching game while it is open would strand it on the overlay.
+        if (ludoMaximized) toggleLudoMaximize();
+        if (ludoAnimFrame) { cancelAnimationFrame(ludoAnimFrame); ludoAnimFrame = null; }
+        ludoClearPending();
+        if (ludoCanvasEl) {
+            ludoCanvasEl.removeEventListener('mousedown', handleLudoPointerDown);
+            ludoCanvasEl.removeEventListener('touchstart', handleLudoPointerDown);
+        }
+        ludoCanvasEl = null;
+        ludoPopover  = null;
+    }
+
+    function cycleLudoModeAndReset() {
+        cycleLudoMode();
+        resetLudoGame();
+        ludoCpuTier = ludoDifficultyTier(ludoLoadRecord());
+        updateLudoScoreboard();
+        return LUDO_MODE_LABEL[ludoMode];
+    }
+
     // GAME SWITCHING SYSTEM
     
     function switchToGame(gameKey) {
@@ -6457,6 +8341,13 @@
                 }
                 if (poolMaximized) togglePoolMaximize();
                 break;
+            case 'ludo':
+                // cleanupLudoGame cancels ludoAnimFrame, drains the pending
+                // loop-timer, detaches both pointer listeners and closes the
+                // Max modal. Ludo schedules everything off the animation loop
+                // rather than setTimeout precisely so this one call stops it all.
+                cleanupLudoGame();
+                break;
             case 'prayer':
                 break;
             case 'leaderboard':
@@ -6472,9 +8363,10 @@
         // Hide all first
         const breakoutCv = document.getElementById('breakout-canvas');
         const poolCv = document.getElementById('pool-canvas');
+        const ludoCv = document.getElementById('ludo-canvas');
         const prayerPanel = document.getElementById('prayer-panel');
         const lbPanelEl = document.getElementById('leaderboard-panel');
-        [snakeCv, flappyCv, tetrisCv, breakoutCv, poolCv].forEach(c => { if (c) c.style.display = 'none'; });
+        [snakeCv, flappyCv, tetrisCv, breakoutCv, poolCv, ludoCv].forEach(c => { if (c) c.style.display = 'none'; });
         if (gameArea) gameArea.style.display = 'none';
         if (prayerPanel) prayerPanel.style.display = 'none';
         if (lbPanelEl) lbPanelEl.style.display = 'none';
@@ -6526,6 +8418,12 @@
                     poolCanvas.addEventListener('touchend', handlePoolTouchEnd);
                 }
                 break;
+            case 'ludo':
+                if (ludoCv) ludoCv.style.display = 'block';
+                // initLudoGame binds its own pointer listeners and starts the
+                // loop — unlike Pool, whose listeners are attached out here.
+                initLudoGame();
+                break;
             case 'prayer':
                 if (prayerPanel) prayerPanel.style.display = 'flex';
                 initPrayerCounter();
@@ -6540,7 +8438,7 @@
     }
     
     function updateGameSwitcher() {
-        const ids = ['snake', 'reflex', 'aim', 'flappy', 'tetris', 'breakout', 'pool', 'prayer', 'leaderboard'];
+        const ids = ['snake', 'reflex', 'aim', 'flappy', 'tetris', 'breakout', 'pool', 'ludo', 'prayer', 'leaderboard'];
         ids.forEach(id => {
             const btn = document.getElementById('game-switch-' + id);
             if (btn) btn.classList.toggle('active', currentGame === id);
@@ -6548,8 +8446,8 @@
     }
     
     function updateGameControls() {
-        const ctrlIds = ['snake-controls', 'reflex-controls', 'aim-controls', 'flappy-controls', 'tetris-controls', 'breakout-controls', 'pool-controls', 'prayer-controls', 'leaderboard-controls'];
-        const statIds = ['snake-scoreboard', 'reflex-scoreboard', 'reflex-stats', 'aim-scoreboard', 'aim-stats', 'flappy-scoreboard', 'tetris-scoreboard', 'breakout-scoreboard', 'pool-scoreboard', 'prayer-scoreboard', 'leaderboard-scoreboard'];
+        const ctrlIds = ['snake-controls', 'reflex-controls', 'aim-controls', 'flappy-controls', 'tetris-controls', 'breakout-controls', 'pool-controls', 'ludo-controls', 'prayer-controls', 'leaderboard-controls'];
+        const statIds = ['snake-scoreboard', 'reflex-scoreboard', 'reflex-stats', 'aim-scoreboard', 'aim-stats', 'flappy-scoreboard', 'tetris-scoreboard', 'breakout-scoreboard', 'pool-scoreboard', 'ludo-scoreboard', 'prayer-scoreboard', 'leaderboard-scoreboard'];
         ctrlIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
         statIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
         
@@ -6583,6 +8481,11 @@
             case 'pool':
                 { const c = document.getElementById('pool-controls'); if (c) c.style.display = 'flex'; }
                 { const s = document.getElementById('pool-scoreboard'); if (s) s.style.display = 'flex'; }
+                break;
+            case 'ludo':
+                { const c = document.getElementById('ludo-controls'); if (c) c.style.display = 'flex'; }
+                { const s = document.getElementById('ludo-scoreboard'); if (s) s.style.display = 'flex'; }
+                updateLudoScoreboard();
                 break;
             case 'prayer':
                 { const c = document.getElementById('prayer-controls'); if (c) c.style.display = 'flex'; }
@@ -7038,6 +8941,7 @@
         const tetrisHS   = parseInt(localStorage.getItem('tetrisHighScore')   || '0', 10);
         const breakoutHS = parseInt(localStorage.getItem('breakoutHighScore') || '0', 10);
         const poolWon    = parseInt(localStorage.getItem('poolGamesWon')      || '0', 10);
+        const ludoWon    = parseInt(localStorage.getItem('ludoGamesWon')      || '0', 10);
         const aimHS      = parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10);
         const reflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
         const reflexBest = (reflexData.screen && typeof reflexData.screen.best === 'number') ? reflexData.screen.best : Infinity;
@@ -7045,9 +8949,13 @@
         if (!has('snakeCharmer') && snakeHS >= 40)     unlockAchievement('snakeCharmer', S);
         if (!has('flapMaster')   && flappyHS >= 50)    unlockAchievement('flapMaster', S);
         if (!has('poolShark')    && poolWon >= 100)    unlockAchievement('poolShark', S);
+        if (!has('ludoChamp')    && ludoWon >= 100)    unlockAchievement('ludoChamp', S);
         // tetrisMaster, sharpshooter, brickBuster, lightning require session-specific
         // metrics (lines, accuracy, level, avgTime) that aren't in localStorage high-scores,
         // so they can only be granted during live gameplay via checkGameAchievements().
+        // ludoFlawless and ludoHunter are the same: "lost no token" and "5 captures
+        // in one match" are per-match facts, not running totals, so nothing in
+        // localStorage can reconstruct them after the fact.
         if (!has('sharpshooter') && aimHS >= 600)      unlockAchievement('sharpshooter', S);
         if (!has('lightning')    && reflexBest <= 200 && reflexBest > 0) unlockAchievement('lightning', S);
 
@@ -7107,6 +9015,20 @@
                     unlockAchievement('poolShark');
                 }
                 break;
+            case 'ludo':
+                // All three are CPU-only: hot-seat wins cost nothing to farm,
+                // so endLudoGame reports vsCPU and they are gated on it.
+                if (!p.vsCPU) break;
+                if (!userXP.achievements.includes('ludoChamp') && (p.gamesWon || 0) >= 100) {
+                    unlockAchievement('ludoChamp');
+                }
+                if (!userXP.achievements.includes('ludoFlawless') && p.won && (p.tokensLost || 0) === 0) {
+                    unlockAchievement('ludoFlawless');
+                }
+                if (!userXP.achievements.includes('ludoHunter') && (p.captures || 0) >= 5) {
+                    unlockAchievement('ludoHunter');
+                }
+                break;
         }
     }
     
@@ -7123,6 +9045,7 @@
         gamer: 100, gamer50: 200,
         snakeCharmer: 80, flapMaster: 100, tetrisMaster: 120,
         sharpshooter: 100, lightning: 120, brickBuster: 100, poolShark: 150,
+        ludoChamp: 150, ludoFlawless: 120, ludoHunter: 80,
         // Engagement
         curator: 40, picturePerfect: 40, meditative: 200, teamPlayer: 60
     };
@@ -7473,6 +9396,24 @@
                 } else {
                     xpGained = 15;
                     message = `🎱 +${xpGained} XP (Pool: Good game)`;
+                }
+                break;
+            }
+
+            case 'ludo': {
+                // The award itself is computed in endLudoGame — placement, tokens
+                // home, captures, difficulty tier and board size — because that is
+                // where the headless XP tests pin it. Re-clamped here because
+                // AC_MAX_XP_PER_GAME is the host's contract with the sync
+                // anti-cheat budget, and this is the last point before it lands.
+                xpGained = Math.max(0, Math.min(AC_MAX_XP_PER_GAME, Math.round(performance.xp || 0)));
+                const ludoSeats = performance.players || 2;
+                if (!performance.vsCPU) {
+                    message = `🎲 +${xpGained} XP (Ludo: ${ludoSeats}P hot-seat)`;
+                } else if (performance.won) {
+                    message = `🎲 +${xpGained} XP (Ludo: beat the ${performance.tier} CPU! 🏆)`;
+                } else {
+                    message = `🎲 +${xpGained} XP (Ludo: ${performance.tokensHome}/4 home vs ${performance.tier} CPU)`;
                 }
                 break;
             }
@@ -11682,6 +13623,42 @@
                 height: auto;
             }
 
+            /* ==================== LUDO STYLES ==================== */
+            /* 344/416, not 1/1 — the board is square but sits between two 58px
+               HUD strips. The backing store stays 344×416 while CSS scales the
+               element, so ludoRender divides canvas.width by LUDO_CANVAS_W and
+               hit-testing rescales pointer coords the same way. */
+            #ludo-canvas {
+                border-radius: 12px;
+                box-shadow: 0 0 20px rgba(124, 92, 252, 0.28), inset 0 2px 8px rgba(0, 0, 0, 0.4);
+                display: block;
+                cursor: pointer;
+                aspect-ratio: 344 / 416;
+                width: 100%;
+                height: auto;
+                touch-action: manipulation;
+                background: rgba(0, 0, 0, 0.3);
+            }
+
+            .ludo-rule-toggles {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                width: 100%;
+            }
+
+            .ludo-rule-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+            }
+
+            .ludo-rule-row span {
+                font-size: 0.82rem;
+                opacity: 0.85;
+            }
+
             .pool-color-swatches {
                 display: flex;
                 gap: 8px;
@@ -12562,6 +14539,27 @@
                     <div class="pool-color-swatch ${userPreferences.poolTableColor === 'red' ? 'active' : ''}" data-pool-color="red" style="background: linear-gradient(135deg, #8b3a3a, #5c1a1a);" title="Red"></div>
                     <div class="pool-color-swatch ${userPreferences.poolTableColor === 'blue' ? 'active' : ''}" data-pool-color="blue" style="background: linear-gradient(135deg, #2a5a8a, #1a3a5c);" title="Blue"></div>
                     <div class="pool-color-swatch ${userPreferences.poolTableColor === 'lightgrey' ? 'active' : ''}" data-pool-color="lightgrey" style="background: linear-gradient(135deg, #a8b0b8, #c8cfd6);" title="Light Grey"></div>
+                </div>
+            </div>
+            <div class="settings-option" style="align-items: flex-start; flex-direction: column; gap: 10px;">
+                <span class="settings-option-label">🎲 Ludo Rules</span>
+                <div class="ludo-rule-toggles">
+                    <div class="ludo-rule-row">
+                        <span>Blocks bar opponents <small style="opacity:0.6;">(never on ★ squares)</small></span>
+                        <div class="toggle-switch ${userPreferences.ludoBlocks !== false ? 'active' : ''}" data-pref="ludoBlocks"></div>
+                    </div>
+                    <div class="ludo-rule-row">
+                        <span>Three 6s forfeit the turn</span>
+                        <div class="toggle-switch ${userPreferences.ludoThreeSixes !== false ? 'active' : ''}" data-pref="ludoThreeSixes"></div>
+                    </div>
+                    <div class="ludo-rule-row">
+                        <span>Exact roll to finish</span>
+                        <div class="toggle-switch ${userPreferences.ludoExactHome !== false ? 'active' : ''}" data-pref="ludoExactHome"></div>
+                    </div>
+                    <div class="ludo-rule-row">
+                        <span>Release on any roll <small style="opacity:0.6;">(no 6 needed)</small></span>
+                        <div class="toggle-switch ${userPreferences.ludoFreeRelease === true ? 'active' : ''}" data-pref="ludoFreeRelease"></div>
+                    </div>
                 </div>
             </div>
             <button class="close-modal-button">✨ Save & Close</button>
@@ -13766,6 +15764,7 @@
                         <button id="game-switch-aim" class="game-switch-btn" onclick="window.switchGame('aim')" title="Chaos Aim">💥</button>
                         <button id="game-switch-breakout" class="game-switch-btn" onclick="window.switchGame('breakout')" title="Breakout">🏓</button>
                         <button id="game-switch-pool" class="game-switch-btn" onclick="window.switchGame('pool')" title="8-Ball Pool">🎱</button>
+                        <button id="game-switch-ludo" class="game-switch-btn" onclick="window.switchGame('ludo')" title="Ludo">🎲</button>
                         <button id="game-switch-prayer" class="game-switch-btn" onclick="window.switchGame('prayer')" title="Prayer Counter">📿</button>
                         <button id="game-switch-leaderboard" class="game-switch-btn" onclick="window.switchGame('leaderboard')" title="Leaderboard">🏆</button>
                     </div>
@@ -13802,6 +15801,11 @@
                             <span class="snake-score">P2: <span id="pool-p2-score">0</span></span>
                             <span class="snake-score" id="pool-turn-label">Turn: P1</span>
                         </div>
+                        <div id="ludo-scoreboard" class="snake-scoreboard" style="display: none;">
+                            <span class="snake-score" id="ludo-mode-label">PvCPU</span>
+                            <span class="snake-score" id="ludo-home-label">🏠 0/4</span>
+                            <span class="snake-score" id="ludo-turn-label">Press Play</span>
+                        </div>
                         <div id="prayer-scoreboard" class="snake-scoreboard" style="display: none;">
                             <span class="snake-score">📿 Count: <span id="prayer-hdr-count">0</span></span>
                         </div>
@@ -13817,6 +15821,8 @@
                     <canvas id="tetris-canvas" class="snake-canvas" width="368" height="368" style="display:none;"></canvas>
                     <canvas id="breakout-canvas" class="snake-canvas" width="368" height="368" style="display:none; cursor:none;"></canvas>
                     <canvas id="pool-canvas" width="368" height="368" style="display:none; cursor:crosshair;"></canvas>
+                    <!-- Ludo is 344×416, not 368² — a square board plus HUD strips. -->
+                    <canvas id="ludo-canvas" width="344" height="416" style="display:none; cursor:pointer;"></canvas>
                     
                     <!-- Multi-Game Area (for RefleX and AimTrainer) -->
                     <div id="multi-game-area" class="multi-game-area" style="display: none;"></div>
@@ -13886,6 +15892,14 @@
                         <button class="snake-btn" onclick="window.startPoolGameBtn()">▶ Play</button>
                         <button class="snake-btn" onclick="window.resetPoolGameBtn()">🔄 Reset</button>
                         <button class="snake-btn" onclick="window.togglePoolMaximizeBtn()">⛶ Max</button>
+                    </div>
+
+                    <!-- Ludo Controls -->
+                    <div id="ludo-controls" class="snake-controls" style="display: none;">
+                        <button class="snake-btn" id="ludo-mode-btn" onclick="window.cycleLudoModeBtn()">🔄 PvCPU</button>
+                        <button class="snake-btn" onclick="window.startLudoGameBtn()">▶ Play</button>
+                        <button class="snake-btn" onclick="window.resetLudoGameBtn()">🔄 Reset</button>
+                        <button class="snake-btn" onclick="window.toggleLudoMaximizeBtn()">⛶ Max</button>
                     </div>
 
                     <!-- Prayer Counter Controls (empty — interaction is on the panel itself) -->
@@ -14088,6 +16102,7 @@
                         case '6': window.switchGame('breakout'); break;
                         case '7': window.switchGame('pool'); break;
                         case '8': window.switchGame('leaderboard'); break;
+                        case '9': window.switchGame('ludo'); break;
                         case 'p': case 'P':
                             if (currentGame === 'snake' && snakeGameRunning) pauseSnakeGame();
                             break;
@@ -14100,6 +16115,7 @@
                                 case 'tetris': resetTetrisGame(); break;
                                 case 'breakout': resetBreakoutGame(); break;
                                 case 'pool': resetPoolGame(); break;
+                                case 'ludo': resetLudoGame(); break;
                             }
                             break;
                     }
@@ -14158,6 +16174,16 @@
         window.resetPoolGameBtn = () => { resetPoolGame(); };
         window.togglePoolModeBtn = () => { togglePoolMode(); };
         window.togglePoolMaximizeBtn = () => { togglePoolMaximize(); };
+        window.startLudoGameBtn = () => { startLudoGame(); };
+        window.resetLudoGameBtn = () => { resetLudoGame(); };
+        window.cycleLudoModeBtn = () => {
+            // cycleLudoModeAndReset returns the new mode's label so the button
+            // text stays in step with the mode it actually switched to.
+            const label = cycleLudoModeAndReset();
+            const btn = document.getElementById('ludo-mode-btn');
+            if (btn) btn.textContent = '🔄 ' + label;
+        };
+        window.toggleLudoMaximizeBtn = () => { toggleLudoMaximize(); };
         window.prayerIncrementBtn = prayerIncrement;
         window.prayerResetBtn = prayerReset;
 
@@ -14190,6 +16216,7 @@
                             tetris: parseInt(localStorage.getItem('tetrisHighScore') || '0', 10),
                             breakout: parseInt(localStorage.getItem('breakoutHighScore') || '0', 10),
                             pool: parseInt(localStorage.getItem('poolGamesWon') || '0', 10),
+                            ludo: parseInt(localStorage.getItem('ludoGamesWon') || '0', 10),
                             aim: parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
                             reflex: (() => { const d = JSON.parse(localStorage.getItem('reflexHighScores') || '{}'); return (d?.screen?.best && d.screen.best !== Infinity && d.screen.best > 0) ? d.screen.best : 0; })()
                         },
@@ -14220,6 +16247,7 @@
                     tetris: parseInt(localStorage.getItem('tetrisHighScore') || '0', 10),
                     breakout: parseInt(localStorage.getItem('breakoutHighScore') || '0', 10),
                     pool: parseInt(localStorage.getItem('poolGamesWon') || '0', 10),
+                    ludo: parseInt(localStorage.getItem('ludoGamesWon') || '0', 10),
                     aim: parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
                     reflex: (syncReflexBest && syncReflexBest !== Infinity && syncReflexBest > 0) ? syncReflexBest : 0
                 };
@@ -14255,6 +16283,9 @@
                     break;
                 case 'pool':
                     titleElement.textContent = '🎱 8-Ball Pool';
+                    break;
+                case 'ludo':
+                    titleElement.textContent = '🎲 Ludo';
                     break;
                 case 'prayer':
                     titleElement.textContent = '📿 Prayer Counter';

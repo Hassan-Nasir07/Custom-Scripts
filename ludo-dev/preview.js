@@ -139,6 +139,13 @@ class Ctx {
         this.m[0] = m0 * c + m2 * s;  this.m[1] = m1 * c + m3 * s;
         this.m[2] = m0 * -s + m2 * c; this.m[3] = m1 * -s + m3 * c;
     }
+    // ludoRender calls setTransform(s,0,0,s,0,0) where s is derived from
+    // canvas.width. Compose it onto the supersample scale rather than replacing
+    // it, or the preview would render at 1/SS size.
+    setTransform(a, b, c, d, e, f) {
+        this.m = [a * this.s, b * this.s, c * this.s, d * this.s, e * this.s, f * this.s];
+    }
+
     tp(x, y) {
         return { x: this.m[0] * x + this.m[2] * y + this.m[4],
                  y: this.m[1] * x + this.m[3] * y + this.m[5] };

@@ -9,6 +9,10 @@ const SUITES = [
     ['Modes',          'modes-verify.js'],
     ['Interaction',    'ui-verify.js'],
     ['Render smoke',   'render-smoke.js'],
+    // These two check the integration into AttendanceTimeCheckerPlus.js rather
+    // than the engine, so they only mean anything once the block is inserted.
+    ['Integration',    'integration-verify.js'],
+    ['Host smoke',     'host-smoke.js'],
 ];
 
 const results = [];

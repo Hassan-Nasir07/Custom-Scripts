@@ -4,22 +4,25 @@
 > **Progress tracking** as work lands, and record any deviation from this plan in the
 > **Decision log** at the bottom.
 >
-> Target file: [`AttendanceTimeCheckerPlus.js`](AttendanceTimeCheckerPlus.js) · 13,671 lines
+> Target file: [`AttendanceTimeCheckerPlus.js`](AttendanceTimeCheckerPlus.js) · 14,460 → 16,491 lines
 > Branch: `feat/ludo-game` (off `main` @ `efbf33d`)
-> Status: **Phases 0–7 complete** — the game is finished and playable standalone in
-> [`ludo-dev/`](ludo-dev/) (391 assertions green). `AttendanceTimeCheckerPlus.js` is
-> still untouched; Phases 8–11 are the integration.
-> Last updated: 2026-08-04
+> Status: **Phases 0–11 complete — Ludo is integrated.** The engine lives in
+> `AttendanceTimeCheckerPlus.js` (now 16,491 lines), byte-identical to the copy in
+> [`ludo-dev/`](ludo-dev/) that the tests exercise. **508 assertions green**, including
+> a suite that executes the real userscript. The only step left is a pass on the live
+> portal — see Verification.
+> Last updated: 2026-08-05
 
 ## ⚠️ How to read the line numbers in this document
 
-Every line number below was **verified against a clean `AttendanceTimeCheckerPlus.js` at
-`main`/`efbf33d`** (see the Anchor table). They are navigation hints, not contracts.
+**The Anchor table below is now historical.** It records where things sat at
+`main`/`efbf33d`, *before* the 1,842-line Ludo block was inserted at line 6382 —
+so every anchor after that point is off by roughly that much, and the file is now
+16,491 lines. It is kept because it documents what was touched and why, not
+because the numbers still resolve.
 
-The Ludo block gets inserted **before line 6382**, so the moment it lands, *every anchor
-after 6382 shifts down by the size of the block*. Do not trust a post-6382 number after
-Phase 1 — **re-find the symbol by name** (`grep -n "function initCurrentGame"`), and use
-`git diff` to see exactly what moved. Anchors before 6382 stay stable.
+**Find things by symbol name** (`grep -n "function initCurrentGame"`), and use
+`git diff main` to see what moved. Anchors *before* 6382 are still accurate.
 
 ## Context
 
@@ -465,41 +468,56 @@ board tables.
       then lift toward paper (blending straight to grey turned red to mud and
       yellow to olive)
 
-### Phase 8 — Panel wiring
-> Anchors below shift once the Ludo block lands — re-find by symbol name.
-- [ ] `cleanupCurrentGame` — cancel `ludoAnimFrame`, detach listeners
-- [ ] `initCurrentGame`
-- [ ] `updateGameSwitcher` ids array
-- [ ] `updateGameControls` `ctrlIds` / `statIds` + case
-- [ ] `updateGameTitle`
-- [ ] HTML: 🎲 switcher button, `ludo-scoreboard`, `ludo-canvas`, `ludo-controls`
-- [ ] Window bridges: `startLudoGameBtn`, `resetLudoGameBtn`, `cycleLudoModeBtn`, `toggleLudoMaximizeBtn`
-- [ ] Keyboard: `case '9'` (**not `8`** — that's leaderboard) + Escape reset
-- [ ] CSS: `#ludo-canvas` + `.ludo-rule-toggles` after the `#pool-canvas` rule; light-mode override
+### Phase 8 — Panel wiring ✅
+> The engine block was inserted verbatim from `ludo-dev/` (1,842 lines) before
+> `// GAME SWITCHING SYSTEM`. `integration-verify.js` re-checks every item below
+> on each run, so none of it can silently rot.
+- [x] `cleanupCurrentGame` — one `cleanupLudoGame()` call cancels the frame,
+      drains the pending loop-timer, detaches both listeners and closes the modal
+- [x] `initCurrentGame` — reveals the canvas, calls `initLudoGame()`
+      (which binds its own listeners, unlike Pool)
+- [x] `updateGameSwitcher` ids array
+- [x] `updateGameControls` `ctrlIds` / `statIds` + case
+- [x] `updateGameTitle`
+- [x] HTML: 🎲 switcher button, `ludo-scoreboard` (mode / tokens-home / turn),
+      `ludo-canvas` **344×416**, `ludo-controls`
+- [x] Window bridges: `startLudoGameBtn`, `resetLudoGameBtn`, `cycleLudoModeBtn`
+      (re-labels the button from the returned mode), `toggleLudoMaximizeBtn`
+- [x] Keyboard: `case '9'` (`8` is leaderboard) + Escape reset
+- [x] CSS: `#ludo-canvas` with `aspect-ratio: 344/416`, `.ludo-rule-toggles`
 
-### Phase 9 — Progression & cloud
-- [ ] `userPreferences` flat rule flags (314)
-- [ ] localStorage helpers beside `savePoolRecord` (557/561)
-- [ ] ⚙️ settings `🎲 Ludo Rules` toggle group
-- [ ] `awardGameXP` → `case 'ludo'`
-- [ ] `ACHIEVEMENTS` + `ACHIEVEMENT_XP` → `ludoChamp` / `ludoFlawless` / `ludoHunter`
-- [ ] `checkGameAchievements` → `case 'ludo'`
-- [ ] `revalidateAchievements` → `ludoChamp` at 100 wins + comment update
-- [ ] `collectGameBests` (759) → `ludo`
-- [ ] `buildPlayerSnapshot` (795) → `ludoRecord`
-- [ ] `applyPlayerRecordToLocal` (1000, 1041–1049) → raise `ludoGamesWon`, merge `ludoRecord`
-- [ ] `renderLeaderboardPanel` → 🎲 `<th>`/`<td>`, colspan 11 → 12 (1327)
-- [ ] Inline `gameBests` literals in `lbRegister` and `lbSync`
+### Phase 9 — Progression & cloud ✅
+- [x] `userPreferences` flat rule flags
+- [x] localStorage helpers — **kept inside the Ludo block**, see decision log
+- [x] ⚙️ settings `🎲 Ludo Rules` toggle group (4 toggles, generic handler)
+- [x] `awardGameXP` → `case 'ludo'`, re-clamped to `AC_MAX_XP_PER_GAME`
+- [x] `ACHIEVEMENTS` + `ACHIEVEMENT_XP` → `ludoChamp` / `ludoFlawless` / `ludoHunter`
+- [x] `checkGameAchievements` → `case 'ludo'`, all three gated on `vsCPU`
+- [x] `revalidateAchievements` → `ludoChamp` at 100 wins + comment extended
+- [x] `collectGameBests` → `ludo`
+- [x] `buildPlayerSnapshot` → `ludoRecord`
+- [x] `applyPlayerRecordToLocal` → raise `ludoGamesWon`, only-raise merge of `ludoRecord`
+- [x] `renderLeaderboardPanel` → 🎲 `<th>`/`<td>`, **colspan 11 → 12**
+- [x] Inline `gameBests` literals in `lbRegister` and `lbSync`
 
-### Phase 10 — Shared Max modal
-- [ ] Extract `toggleGameMaxModal(cfg)` near 4400
-- [ ] Migrate `togglePoolMaximize` onto it
-- [ ] Wire Ludo's ⛶ Max
-- [ ] Pool regression pass
+### Phase 10 — Shared Max modal ✅
+- [x] Extract `toggleGameMaxModal(cfg)`; state keyed by `canvasId` so two games
+      cannot cross wires, returns the new maximised state
+- [x] Migrate `togglePoolMaximize` onto it — ~120 lines down to 9
+- [x] Wire Ludo's ⛶ Max (`ludoRender` now scales off `canvas.width`, so the 2×
+      buffer draws crisp instead of filling a quarter of the canvas)
+- [x] **Pool regression covered by a test**, not just a click-through: the canvas
+      leaves the panel, doubles to 736×736, and returns with buffer and inline
+      styles exactly as found
 
-### Phase 11 — Verification
-- [ ] Harness checks (see Verification)
-- [ ] In-app checks (see Verification)
+### Phase 11 — Verification ✅ *(automated)*
+- [x] Engine suites — 402 assertions
+- [x] `integration-verify.js` — 51 assertions over every wiring point
+- [x] `host-smoke.js` — 55 assertions **executing the real userscript**: a full
+      PvCPU match, XP, achievements, cloud round-trip, both Max modals
+- [x] Syntax gate (`node --check` under Node 22 — Node 10 cannot parse the
+      file's optional chaining)
+- [ ] In-app pass on the live portal (see Verification) — **still yours to do**
 
 ---
 
@@ -511,17 +529,19 @@ The script self-guards to one URL (43–48), so iterating in-place is slow.
 own [README](ludo-dev/README.md). One command:
 
 ```
-node ludo-dev/verify-all.js     # 391 assertions across 6 suites, non-zero exit on failure
+node ludo-dev/verify-all.js     # 508 assertions across 8 suites, non-zero exit on failure
 ```
 
 | Suite | Covers | Assertions |
 |---|---|---|
 | `ludo-verify.js` | Board geometry | 78 |
-| `rules-verify.js` | Dice, legal moves, rule toggles, dice accumulation, pool spending, 400 self-play games | 103 |
+| `rules-verify.js` | Dice, legal moves, rule toggles, dice accumulation, pool spending, safe-square blocks, 400 self-play games | 114 |
 | `ai-verify.js` | Tiers, scorer, 600-game strength ordering | 36 |
 | `modes-verify.js` | Mode cycling, seats, turn order | 38 |
 | `ui-verify.js` | State machine, animation, clock, pointer input, die-choice popover, recap, anti-farm, XP | 126 |
 | `render-smoke.js` | `ludoRender()` across all modes and steps | 10 |
+| `integration-verify.js` | Every wiring point in `AttendanceTimeCheckerPlus.js`, plus engine parity | 51 |
+| `host-smoke.js` | **Executes the real userscript**: full PvCPU match, XP, achievements, cloud round-trip, both Max modals | 55 |
 
 Plus `node ludo-dev/preview.js out.png <scenario>` to render the board to a PNG, and
 `ludo-dev/ludo-harness.html` to actually play it. Verify there:
@@ -591,6 +611,11 @@ doesn't re-derive it from the code.
 | **2026-08-04** | **Extra turns now come only from a capture or a token reaching home** | Otherwise a 6 would pay twice — once as an extra die and again as an extra turn. `ludoGrantsExtraTurn(roll, result)` became `ludoEarnsAnotherRoll(result)`; `ludoFinishMove` lost its `roll` argument and returns `{ continueTurn, extraRoll }`. |
 | **2026-08-04** | **Tap a token → popover of that token's playable values** | With up to three distinct values banked, a tap is ambiguous. `ludoValuesForToken` filters the pool to what that token can legally spend: one value moves immediately, several open a popover anchored to the token. `ludoPopoverLayout()` is shared by the renderer and the hit-test so they cannot drift. |
 | **2026-08-04** | **Ghost previews suppressed while several distinct values are banked** | Three values × four tokens is up to a dozen ghost destinations. Ghosts now show only when one distinct value remains, or when a popover has narrowed it to one token; otherwise the glow and chevron carry it. |
+| **2026-08-05** | **Ludo's localStorage helpers stayed in the engine block, not beside `savePoolRecord`** | The plan put `load/saveLudoWins` and `load/saveLudoRecord` at ~557. They were already written and covered by the headless XP tests inside `ludo-ui.js`, and moving them would have split the tested source from the integrated source. Parity between the two is now an asserted invariant (`integration-verify.js` compares the bytes), which is worth more than the placement. A pointer comment sits at 557 for anyone looking there. |
+| **2026-08-05** | **The XP formula stayed in `endLudoGame`; `awardGameXP`'s case only clamps and phrases it** | The plan put the arithmetic in `awardGameXP`. It was already implemented and pinned by tests in `endLudoGame`, which is also where the CPU-vs-hot-seat and win/placement facts live. `awardGameXP` re-clamps to `AC_MAX_XP_PER_GAME` because that is the host's contract with the sync anti-cheat and is the last point before the XP lands. |
+| **2026-08-05** | **`toggleGameMaxModal` keys its state by `canvasId` instead of taking a `stateRef`** | The plan suggested passing a state reference. A module-level map keyed by canvas id means neither game can corrupt the other's state, and callers just store the returned boolean — `poolMaximized` and `ludoMaximized` keep working exactly as before. |
+| **2026-08-05** | **`ludoRender` derives its scale from `canvas.width`** | The Max modal doubles the backing store. Pool already handled this because `drawPoolFrame` divides by `POOL_W`; Ludo drew in fixed 344×416 coordinates and would have rendered into a quarter of the enlarged canvas. It now does `setTransform(canvas.width / LUDO_CANVAS_W, …)`. |
+| **2026-08-05** | **Syntax checking needs Node 14+, not the repo default** | `AttendanceTimeCheckerPlus.js` uses optional chaining and the default node here is 10.24, so `node --check` reports a bogus `SyntaxError` at line 713. Volta has 22.22.2; `host-smoke.js` re-execs itself into it automatically and skips loudly if no modern Node exists. |
 | **2026-08-05** | **A safe square can never form a block** | *Reported by the user, from harness play.* Blue's route home runs straight past Green's start (ring 26), which is a ★ safe square Green refills on every release. A pair there counted as a block, so from ring 24 **only a roll of 1 was ever legal** — Blue's tokens were stranded on Green's doorstep until they were captured, while the CPU moved freely. Safe squares are shared ground by definition (nothing can be captured on them), so `ludoBlockRings` now skips them entirely: landing and passage are both allowed. Blocks on ordinary squares are unchanged. Pinned by a regression test that walks a token over every ring position and asserts no dead ends. |
 | **2026-08-05** | **Destination ghost redrawn as a dashed coloured ring** | *Reported by the user.* The ghost was a translucent white disc with a white inner band — invisible on the white track squares, which is most of the board. It is now a light disc with a dashed ring in the mover's `deep` colour plus a solid centre pip, which reads on white track, coloured home columns and base panels alike, and cannot be mistaken for a real token. |
 | **2026-08-04** | **`preview.js` — a from-scratch software rasterizer** | No `canvas`/`playwright`/`puppeteer` available and Node is 10.24, so the board could not otherwise be *seen*. It implements enough Canvas2D (transforms, arc/arcTo/ellipse paths, nonzero fill, strokes, gradients, a 3×5 bitmap font) to render real `ludoRender()` output to a PNG. Caught the turn-ring/frame collision and the muddy dim colours, neither of which any assertion would have found. |

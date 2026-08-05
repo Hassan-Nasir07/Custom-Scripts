@@ -50,6 +50,7 @@ module.exports = function load(prefs) {
             ludoRender, ludoDrawBoard, ludoDrawTokens, ludoDrawHud, ludoUpdate,
             ludoBeginTurn, ludoDoRoll, ludoSettleRoll, ludoPlayMove, ludoTimeout,
             ludoAwaitMove, ludoPopoverLayout, ludoDrawPopover,
+            updateLudoScoreboard, toggleLudoMaximize,
             handleLudoPointerDown, ludoEventXY, ludoDiceHit,
             initLudoGame, resetLudoGame, startLudoGame, cleanupLudoGame,
             cycleLudoModeAndReset, endLudoGame,

@@ -8,7 +8,7 @@ is slow. The engine is built and tested here first, then inserted into that file
 reviewed diff.
 
 ```
-node ludo-dev/verify-all.js              # every suite — 391 assertions
+node ludo-dev/verify-all.js              # every suite — 508 assertions
 node ludo-dev/preview.js out.png fourplayer   # render a PNG of the board
 start ludo-dev/ludo-harness.html         # play it
 ```
@@ -38,11 +38,13 @@ modal relocates only the `<canvas>`, so a DOM HUD would disappear inside it.
 | Suite | Covers | Assertions |
 |---|---|---|
 | `ludo-verify.js` | Board geometry — ring closure, corner turns, home columns, safe squares, quadrants | 78 |
-| `rules-verify.js` | Dice fairness, legal moves, every rule toggle, capture/safe behaviour, dice accumulation, pool spending, match resolution, 400 random self-play games | 103 |
+| `rules-verify.js` | Dice fairness, legal moves, every rule toggle, capture/safe behaviour, dice accumulation, pool spending, safe-square blocks, match resolution, 400 random self-play games | 114 |
 | `ai-verify.js` | Difficulty tiers, scorer priorities, threat awareness, 600-game head-to-head strength ordering | 36 |
 | `modes-verify.js` | Mode cycling, active colour sets, turn order, CPU seats, reset-on-switch | 38 |
 | `ui-verify.js` | Turn state machine, dice tumble, hop animation, turn clock, scale-aware pointer input, die-choice popover, roll recap, anti-farm guards, XP maths | 126 |
 | `render-smoke.js` | `ludoRender()` across every mode and all 57 steps × 4 colours | 10 |
+| `integration-verify.js` | Every wiring point in `AttendanceTimeCheckerPlus.js` — switcher cases, DOM ids, CSS, keyboard, bridges, XP, achievements, leaderboard columns — plus engine parity | 51 |
+| `host-smoke.js` | **Executes the real userscript** under a minimal DOM: boots Ludo, plays a full PvCPU match, checks XP/achievements/cloud round-trip and both Max modals | 55 |
 
 `ui-verify.js` simulates time by pumping `ludoUpdate(dt)` instead of waiting on real
 frames, so a full PvCPU match plays out in milliseconds and is deterministic.
@@ -64,8 +66,20 @@ dice renders in whichever strip belongs to the player to move.
 correct — the track wraps the outer corner of each 6×6 base, e.g. `(6,5)→(5,6)` rounds
 Blue's corner at `(5,5)`. Anything walking the ring cell-by-cell must tolerate it.
 
+## Integration status
+
+The engine is **already inserted** into `../AttendanceTimeCheckerPlus.js`, and
+`integration-verify.js` asserts the copy there is byte-identical to the files here.
+Edit the sources in this directory, re-run the suite, then re-insert — never patch the
+userscript's copy directly, or the two will drift and that assertion will fail.
+
+Note `host-smoke.js` needs Node 14+ (the userscript uses optional chaining, and the
+default node here is 10). It finds a newer Volta node and re-execs itself automatically.
+
 ## Disposition
 
-Delete this directory at Phase 11, **or** keep `ludo-verify.js` as a standing regression
-test for the board tables. Decide when the feature lands; note the choice in the plan's
-decision log.
+**Keep this directory.** The original plan floated deleting it once the feature landed,
+but the parity assertion means it is no longer scaffolding: it is the source of truth for
+the engine, and `integration-verify.js` + `host-smoke.js` are the only regression tests
+covering the Ludo wiring *and* Pool's Max modal. Deleting it would leave 2,286 lines of
+`AttendanceTimeCheckerPlus.js` with no tests at all.

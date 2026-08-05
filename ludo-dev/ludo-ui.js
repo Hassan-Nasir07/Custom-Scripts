@@ -846,6 +846,14 @@
         const canvas = ludoCanvasEl || document.getElementById('ludo-canvas');
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
+
+        // Everything below draws in fixed 344×416 space. The ⛶ Max modal doubles
+        // the backing store, so derive the scale from it — same trick
+        // drawPoolFrame uses via canvas.width / POOL_W — and the board redraws
+        // crisp at 2× instead of in a quarter of the canvas.
+        const s = (canvas.width || LUDO_CANVAS_W) / LUDO_CANVAS_W;
+        ctx.setTransform(s, 0, 0, s, 0, 0);
+
         ctx.clearRect(0, 0, LUDO_CANVAS_W, LUDO_CANVAS_H);
         ludoDrawBoard(ctx);
         ludoDrawTokens(ctx);
@@ -870,6 +878,7 @@
         ludoLegal    = [];
         ludoHop      = null;
         ludoPopover  = null;
+        updateLudoScoreboard();
         if (ludoIsCPUSeat(ludoCurrentCi())) ludoAfter(LUDO_CPU_THINK_MS, ludoDoRoll);
     }
 
@@ -957,13 +966,14 @@
         if (after.gameOver) {
             ludoPhase = 'over';
             endLudoGame();
+            updateLudoScoreboard();
             return;
         }
         if (result.captured)      ludoSay(after.extraRoll ? 'Captured — roll again' : 'Captured!', 'good', 850);
         else if (result.finished) ludoSay(after.extraRoll ? 'Home — roll again' : 'Home!', 'good', 850);
 
         // Still holding dice: keep spending without re-rolling.
-        if (after.continueTurn) { ludoAwaitMove(after.moves); return; }
+        if (after.continueTurn) { ludoAwaitMove(after.moves); updateLudoScoreboard(); return; }
         ludoBeginTurn();
     }
 
@@ -1098,6 +1108,44 @@
         }
     }
 
+    // ── Host panel glue ────────────────────────────────────────────────
+    // The board is entirely canvas-drawn, but the widget's game header expects a
+    // scoreboard strip like every other game. Called only at state transitions,
+    // never per frame — this writes to the DOM.
+    function updateLudoScoreboard() {
+        const modeEl = document.getElementById('ludo-mode-label');
+        const homeEl = document.getElementById('ludo-home-label');
+        const turnEl = document.getElementById('ludo-turn-label');
+        if (modeEl) modeEl.textContent = LUDO_MODE_LABEL[ludoMode] || 'Ludo';
+        if (homeEl) homeEl.textContent = '🏠 ' + ludoTokensHome(LUDO_HUMAN_CI) + '/4';
+        if (!turnEl) return;
+        if (ludoPhase === 'over') {
+            const winner = ludoStandings()[0];
+            turnEl.textContent = ludoIsCPUSeat(winner)
+                ? 'CPU wins!' : LUDO_COLORS[winner].label + ' wins!';
+        } else if (!ludoStarted) {
+            turnEl.textContent = 'Press Play';
+        } else {
+            const ci = ludoCurrentCi();
+            turnEl.textContent = 'Turn: ' + (ludoIsCPUSeat(ci) ? 'CPU' : LUDO_COLORS[ci].label);
+        }
+    }
+
+    // ⛶ Max. Delegates to the host's shared modal helper; the standalone harness
+    // has no such helper, so this is a no-op there and the harness uses its own
+    // fullscreen button instead.
+    let ludoMaximized = false;
+    function toggleLudoMaximize() {
+        if (typeof toggleGameMaxModal !== 'function') return;
+        ludoMaximized = toggleGameMaxModal({
+            canvasId: 'ludo-canvas',
+            title: '🎲 Ludo',
+            bufferW: LUDO_CANVAS_W,
+            bufferH: LUDO_CANVAS_H,
+        });
+        ludoRender();
+    }
+
     // ── Lifecycle ──────────────────────────────────────────────────────
     function ludoLoadWins() {
         try { return parseInt(localStorage.getItem('ludoGamesWon') || '0', 10) || 0; }
@@ -1173,6 +1221,7 @@
         ludoCpuTier = ludoDifficultyTier(ludoLoadRecord());
         ludoStarted = false;
         ludoPhase   = 'idle';
+        updateLudoScoreboard();
         if (!ludoAnimFrame) { ludoLastFrame = 0; ludoAnimFrame = requestAnimationFrame(ludoLoop); }
     }
 
@@ -1188,6 +1237,8 @@
         ludoDiceSpin = 0;
         ludoDiceFace = 1;
         ludoTurnLeft = LUDO_TURN_CLOCK;
+        ludoPopover  = null;
+        updateLudoScoreboard();
         ludoRender();
     }
 
@@ -1205,6 +1256,9 @@
     }
 
     function cleanupLudoGame() {
+        // Close the Max modal first: it has moved the canvas out of the panel,
+        // and switching game while it is open would strand it on the overlay.
+        if (ludoMaximized) toggleLudoMaximize();
         if (ludoAnimFrame) { cancelAnimationFrame(ludoAnimFrame); ludoAnimFrame = null; }
         ludoClearPending();
         if (ludoCanvasEl) {
@@ -1212,11 +1266,13 @@
             ludoCanvasEl.removeEventListener('touchstart', handleLudoPointerDown);
         }
         ludoCanvasEl = null;
+        ludoPopover  = null;
     }
 
     function cycleLudoModeAndReset() {
         cycleLudoMode();
         resetLudoGame();
         ludoCpuTier = ludoDifficultyTier(ludoLoadRecord());
+        updateLudoScoreboard();
         return LUDO_MODE_LABEL[ludoMode];
     }

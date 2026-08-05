@@ -10877,6 +10877,41 @@
                 opacity: 1;
                 visibility: visible;
                 transform: translate(-50%, -50%) scale(1);
+                max-height: 90vh;
+                overflow-y: auto;
+            
+                /* Firefox */
+                scrollbar-width: none;
+            
+                /* IE/Edge Legacy */
+                -ms-overflow-style: none;
+            }
+            
+            /* Chrome, Edge, Safari */
+            .settings-modal.active::-webkit-scrollbar {
+                display: none;
+            }
+
+            .settings-modal.active {
+                scrollbar-width: thin;
+                scrollbar-color: rgba(255,255,255,.25) transparent;
+            }
+            
+            .settings-modal.active::-webkit-scrollbar {
+                width: 6px;
+            }
+            
+            .settings-modal.active::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            
+            .settings-modal.active::-webkit-scrollbar-thumb {
+                background: rgba(255,255,255,.25);
+                border-radius: 999px;
+            }
+            
+            .settings-modal.active::-webkit-scrollbar-thumb:hover {
+                background: rgba(255,255,255,.45);
             }
             
             .settings-modal-overlay {

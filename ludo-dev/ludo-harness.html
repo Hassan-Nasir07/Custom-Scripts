@@ -71,6 +71,16 @@
     <label class="chk"><input type="checkbox" id="p-exact" checked> Exact roll required to finish</label>
     <label class="chk"><input type="checkbox" id="p-free"> Release on any roll (no 6 needed)</label>
   </div>
+
+  <div class="panel">
+    <h1>Board rotation</h1>
+    <div class="tools">
+      <button data-rot="0">Blue ↖ TL</button>
+      <button data-rot="1">Blue ↙ BL</button>
+      <button data-rot="2">Blue ↘ BR</button>
+      <button data-rot="3">Blue ↗ TR</button>
+    </div>
+  </div>
 </div>
 
 <div class="side">
@@ -112,6 +122,7 @@ function awardGameXP(type, perf) {
 }
 let userPreferences = {
     ludoBlocks: true, ludoThreeSixes: true, ludoExactHome: true, ludoFreeRelease: false,
+    ludoRotation: 0,
 };
 const logEl = () => document.getElementById('log');
 function log(msg) {
@@ -152,6 +163,17 @@ $('btn-ring').onclick = function () {
     ludoDebugRing = !ludoDebugRing;
     this.classList.toggle('on', ludoDebugRing);
 };
+
+// Rotation is a pure display pref — safe to change mid-match, the loop redraws.
+document.querySelectorAll('[data-rot]').forEach(b => {
+    b.onclick = () => {
+        userPreferences.ludoRotation = parseInt(b.dataset.rot, 10);
+        document.querySelectorAll('[data-rot]').forEach(o =>
+            o.classList.toggle('on', o === b));
+        log('rotation → ' + b.dataset.rot + ' (' + b.textContent.trim() + ')');
+    };
+});
+document.querySelector('[data-rot="0"]').classList.add('on');
 
 $('btn-scatter').onclick = () => {
     resetLudoGame();

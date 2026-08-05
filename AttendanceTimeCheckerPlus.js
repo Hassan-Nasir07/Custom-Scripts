@@ -331,6 +331,10 @@
         ludoThreeSixes: true,   // three 6s forfeit the whole banked sequence
         ludoExactHome: true,    // exact roll needed to finish
         ludoFreeRelease: false, // leave base on any roll, not just a 6
+        // 0-3 counter-clockwise quarter-turns of the board, so a player can put
+        // their own colour nearest them. Purely presentational — see the board
+        // rotation notes in the LUDO block.
+        ludoRotation: 0,
         // Cyberpunk HUD customizable colors (only applied when displayTheme === 'retro-futuristic')
         cyberBgPrimary: '#07091a',
         cyberBgSecondary: '#11142b',
@@ -6990,19 +6994,63 @@
     // Concatenated after ludo-core.js. Everything here is canvas-drawn: the ⛶ Max
     // modal relocates only the <canvas>, so a DOM-based HUD would vanish inside it.
     //
-    // Layout — 368 × 404:
-    //   0–52     top strip     Blue chip (left) · Red chip (right)
-    //   52–352   board         300 × 300, inset 34px each side, wooden frame
-    //   352–404  bottom strip  Yellow chip (left) · Green chip (right)
-    // The dice renders in whichever strip belongs to the player to move, so the
-    // eye is drawn to the right half of the board — same idea as Ludo Star.
+    // Layout — 344 × 416:
+    //   0–58     top strip     two player chips, dice between them
+    //   58–358   board         300 × 300, inset 22px each side, wooden frame
+    //   358–416  bottom strip  the other two chips
+    // Each chip sits in the strip on its own quadrant's side, and the dice
+    // renders in whichever strip belongs to the player to move, so the eye is
+    // drawn to the right half of the board — same idea as Ludo Star. Which
+    // quadrant is where depends on the board rotation; see ludoSeat below.
 
-    const LUDO_SEATS = {
-        0: { strip: 'top',    side: 'left'  },   // blue   — top-left quadrant
-        1: { strip: 'top',    side: 'right' },   // red    — top-right
-        2: { strip: 'bottom', side: 'right' },   // green  — bottom-right
-        3: { strip: 'bottom', side: 'left'  },   // yellow — bottom-left
-    };
+    // ── Board rotation ─────────────────────────────────────────────────
+    // Players want their own colour nearest them, so the board can be turned in
+    // quarter-turns. Two rules keep this from breaking anything:
+    //
+    //   1. Rotate COORDINATES, never the model. ludoStepToCell, the ring indices
+    //      and every rule still speak unrotated grid space, so a turn cannot
+    //      change what is legal — only where it is painted. Everything funnels
+    //      through ludoPointXY, so board, tokens, ghosts, the hop animation and
+    //      hit-testing all follow from that one function.
+    //   2. Never rotate the canvas context. ctx.rotate would carry the dice
+    //      pips, chip labels and stack badges over with it and leave them
+    //      upside down; only positions should move, not glyphs.
+    //
+    // 0..3 counter-clockwise quarter-turns, so Blue's quadrant walks
+    // top-left → bottom-left → bottom-right → top-right.
+    function ludoRotation() {
+        const P = (typeof userPreferences === 'object' && userPreferences) ? userPreferences : {};
+        const raw = P.ludoRotation;
+        const n = typeof raw === 'number' ? raw : parseInt(raw, 10);
+        return Number.isFinite(n) ? ((n % 4) + 4) % 4 : 0;
+    }
+
+    // (gr, gc) are grid-LINE coordinates in [0, LUDO_GRID] rather than cell
+    // indices, so this serves cell corners, cell centres (x.5), base slots and
+    // the board centre alike. The centre (7.5, 7.5) is a fixed point.
+    function ludoRotateGrid(gr, gc) {
+        const G = LUDO_GRID;
+        switch (ludoRotation()) {
+            case 1:  return { r: G - gc, c: gr };        // 90° CCW
+            case 2:  return { r: G - gr, c: G - gc };    // 180°
+            case 3:  return { r: gc,     c: G - gr };    // 90° CW
+            default: return { r: gr,     c: gc };
+        }
+    }
+
+    // Which HUD strip a colour's chip belongs in, derived from where its
+    // quadrant actually ended up rather than a fixed table — so the chips, the
+    // dice and the roll recap all follow the board round. A quarter-turn is a
+    // bijection on quadrants, so the four seats always land in four distinct
+    // (strip, side) slots and can never collide.
+    function ludoSeat(ci) {
+        const q = LUDO_COLORS[ci].quad;
+        const p = ludoRotateGrid((q.r0 + q.r1) / 2, (q.c0 + q.c1) / 2);
+        return {
+            strip: p.r < LUDO_GRID / 2 ? 'top'  : 'bottom',
+            side:  p.c < LUDO_GRID / 2 ? 'left' : 'right',
+        };
+    }
 
     // ── Interaction state ──────────────────────────────────────────────
     let ludoPhase      = 'idle';   // idle | awaitRoll | rolling | awaitMove | moving | over
@@ -7032,10 +7080,22 @@
     // ludoPointXY takes grid-line coords (base slots, triangle vertices);
     // ludoCellCenter takes a cell index and returns the middle of that cell.
     function ludoPointXY(r, c) {
-        return { x: LUDO_BOARD_X + c * LUDO_CELL, y: LUDO_BOARD_Y + r * LUDO_CELL };
+        const p = ludoRotateGrid(r, c);
+        return { x: LUDO_BOARD_X + p.c * LUDO_CELL, y: LUDO_BOARD_Y + p.r * LUDO_CELL };
     }
     function ludoCellCenter(r, c) {
         return ludoPointXY(r + 0.5, c + 0.5);
+    }
+
+    // Axis-aligned rect spanning grid lines [r0,r1] × [c0,c1]. A quarter-turn
+    // keeps a rect axis-aligned but moves which corner is which, so derive it
+    // from both rotated corners instead of assuming (r0,c0) is still top-left.
+    function ludoRectXY(r0, c0, r1, c1) {
+        const a = ludoPointXY(r0, c0), b = ludoPointXY(r1, c1);
+        return {
+            x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+            w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y),
+        };
     }
 
     // Where token `i` of colour `ci` sits at an arbitrary step, including the
@@ -7150,13 +7210,13 @@
     }
 
     function ludoDrawCell(ctx, r, c, fill, stroke) {
-        const p = ludoPointXY(r, c);
+        const q = ludoRectXY(r, c, r + 1, c + 1);
         ctx.fillStyle = fill;
-        ctx.fillRect(p.x, p.y, LUDO_CELL, LUDO_CELL);
+        ctx.fillRect(q.x, q.y, q.w, q.h);
         if (stroke) {
             ctx.strokeStyle = stroke;
             ctx.lineWidth = 1;
-            ctx.strokeRect(p.x + 0.5, p.y + 0.5, LUDO_CELL - 1, LUDO_CELL - 1);
+            ctx.strokeRect(q.x + 0.5, q.y + 0.5, q.w - 1, q.h - 1);
         }
     }
 
@@ -7180,13 +7240,17 @@
         const col  = LUDO_COLORS[ci];
         const cur  = LUDO_RING[col.startIndex];
         const next = LUDO_RING[(col.startIndex + 1) % 52];
-        const dr = Math.sign(next.r - cur.r), dc = Math.sign(next.c - cur.c);
+        // Take the heading from the two squares' *drawn* positions, so the arrow
+        // turns with the board instead of always pointing the unrotated way.
+        // No start square sits on one of the four diagonal corner turns, so this
+        // is always exactly horizontal or vertical.
         const p  = ludoCellCenter(cur.r, cur.c);
+        const n  = ludoCellCenter(next.r, next.c);
         const L  = LUDO_CELL * 0.30;
 
         ctx.save();
         ctx.translate(p.x, p.y);
-        ctx.rotate(Math.atan2(dr, dc));
+        ctx.rotate(Math.atan2(n.y - p.y, n.x - p.x));
         ctx.beginPath();
         ctx.moveTo(L, 0);
         ctx.lineTo(-L * 0.65, -L * 0.8);
@@ -7211,19 +7275,18 @@
             const tint = on ? col.hex : ludoDim(col.hex);
             const deep = on ? col.deep : ludoDim(col.deep);
             const q = col.quad, b = col.basePanel;
-            const qp = ludoPointXY(q.r0, q.c0);
+            const qr = ludoRectXY(q.r0, q.c0, q.r1, q.c1);
 
             ctx.fillStyle = tint;
-            ctx.fillRect(qp.x, qp.y, (q.c1 - q.c0) * S, (q.r1 - q.r0) * S);
+            ctx.fillRect(qr.x, qr.y, qr.w, qr.h);
 
-            const bp = ludoPointXY(b.r0, b.c0);
-            const bw = (b.c1 - b.c0) * S, bh = (b.r1 - b.r0) * S;
+            const br = ludoRectXY(b.r0, b.c0, b.r1, b.c1);
             ctx.fillStyle = '#fbfcfe';
-            ludoRoundRect(ctx, bp.x, bp.y, bw, bh, 8);
+            ludoRoundRect(ctx, br.x, br.y, br.w, br.h, 8);
             ctx.fill();
             ctx.strokeStyle = deep;
             ctx.lineWidth = 2;
-            ludoRoundRect(ctx, bp.x + 1, bp.y + 1, bw - 2, bh - 2, 7);
+            ludoRoundRect(ctx, br.x + 1, br.y + 1, br.w - 2, br.h - 2, 7);
             ctx.stroke();
 
             col.baseSlots.forEach(s => {
@@ -7277,7 +7340,8 @@
         });
         ctx.strokeStyle = 'rgba(40,50,70,0.35)';
         ctx.lineWidth = 1.5;
-        ctx.strokeRect(ludoPointXY(6, 6).x, ludoPointXY(6, 6).y, S * 3, S * 3);
+        const cr = ludoRectXY(6, 6, 9, 9);
+        ctx.strokeRect(cr.x, cr.y, cr.w, cr.h);
 
         if (ludoDebugRing) {
             ctx.font = '8px monospace';
@@ -7676,7 +7740,7 @@
     function ludoDrawPool(ctx, strip) {
         if (!ludoStarted || ludoPhase === 'over' || !ludoPool.length) return;
         const cur  = ludoCurrentCi();
-        const seat = LUDO_SEATS[cur];
+        const seat = ludoSeat(cur);
         if (seat.strip !== strip) return;
 
         const D = 15, GAP = 2;
@@ -7695,7 +7759,7 @@
     // the moment the next roll starts (see ludoDoRoll).
     function ludoDrawRecap(ctx, strip) {
         if (!ludoRecap || !ludoRecap.faces.length) return;
-        const seat = LUDO_SEATS[ludoRecap.ci];
+        const seat = ludoSeat(ludoRecap.ci);
         if (seat.strip !== strip || !ludoIsActive(ludoRecap.ci)) return;
 
         // At most 4, most recent first-to-last. Three sixes is the natural
@@ -7715,12 +7779,12 @@
 
     function ludoDrawHud(ctx) {
         const cur = ludoCurrentCi();
-        const curStrip = ludoPhase === 'over' ? null : LUDO_SEATS[cur].strip;
+        const curStrip = ludoPhase === 'over' ? null : ludoSeat(cur).strip;
 
         ['top', 'bottom'].forEach(strip => {
             const y0 = strip === 'top' ? 0 : LUDO_CANVAS_H - LUDO_STRIP_H;
             ludoActive.forEach(ci => {
-                const seat = LUDO_SEATS[ci];
+                const seat = ludoSeat(ci);
                 if (seat.strip !== strip) return;
                 ludoDrawChip(ctx, ci, ludoChipX(seat.side),
                              y0 + (LUDO_STRIP_H - LUDO_CHIP_H) / 2,
@@ -8035,7 +8099,7 @@
 
     function ludoDiceHit(p) {
         if (ludoPhase === 'over') return false;
-        const seat = LUDO_SEATS[ludoCurrentCi()];
+        const seat = ludoSeat(ludoCurrentCi());
         const cy = seat.strip === 'top'
             ? LUDO_STRIP_H / 2
             : LUDO_CANVAS_H - LUDO_STRIP_H / 2;
@@ -14541,6 +14605,15 @@
                     <div class="pool-color-swatch ${userPreferences.poolTableColor === 'lightgrey' ? 'active' : ''}" data-pool-color="lightgrey" style="background: linear-gradient(135deg, #a8b0b8, #c8cfd6);" title="Light Grey"></div>
                 </div>
             </div>
+            <div class="settings-option">
+                <span class="settings-option-label">🎲 Ludo Board</span>
+                <select class="settings-select" data-pref="ludoRotation">
+                    <option value="0" ${Number(userPreferences.ludoRotation) === 0 ? 'selected' : ''}>Blue top-left (default)</option>
+                    <option value="1" ${Number(userPreferences.ludoRotation) === 1 ? 'selected' : ''}>Blue bottom-left</option>
+                    <option value="2" ${Number(userPreferences.ludoRotation) === 2 ? 'selected' : ''}>Blue bottom-right</option>
+                    <option value="3" ${Number(userPreferences.ludoRotation) === 3 ? 'selected' : ''}>Blue top-right</option>
+                </select>
+            </div>
             <div class="settings-option" style="align-items: flex-start; flex-direction: column; gap: 10px;">
                 <span class="settings-option-label">🎲 Ludo Rules</span>
                 <div class="ludo-rule-toggles">
@@ -14587,7 +14660,10 @@
         modal.querySelectorAll('.settings-select').forEach(select => {
             select.addEventListener('change', function() {
                 const pref = this.getAttribute('data-pref');
-                userPreferences[pref] = pref === 'gameFps' ? parseInt(this.value) : this.value;
+                // Selects hand back strings; these two are numbers everywhere else.
+                const numericPrefs = ['gameFps', 'ludoRotation'];
+                userPreferences[pref] = numericPrefs.indexOf(pref) !== -1
+                    ? parseInt(this.value, 10) : this.value;
                 savePreferences();
                 applyPreferences();
                 

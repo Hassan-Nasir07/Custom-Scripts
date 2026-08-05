@@ -426,6 +426,18 @@ if (scenario === 'fresh') {
     L.place(0, 0, 12);
     L.recap = { ci: 0, faces: [6, 6, 6] };
     L.turn = 1;
+} else if (/^rot[0-3]$/.test(scenario)) {
+    // Same mid-game position at each quarter-turn, to eyeball that the board,
+    // the HUD chips and the dice all swing round together.
+    global.userPreferences.ludoRotation = parseInt(scenario.slice(3), 10);
+    L.ludoSetMode('cpu2');
+    L.startLudoGame();
+    L.place(0, 0, 8); L.place(0, 1, 24); L.place(0, 2, 52);
+    L.place(2, 0, 3); L.place(2, 1, 3); L.place(2, 2, 45);
+    load.forceDice(3);
+    L.ludoDoRoll();
+    pump(L.LUDO_DICE_MS + 40);
+    load.restoreDice();
 } else if (scenario === 'pool') {
     // 6,6,5 banked, one token out, popover open on it.
     L.ludoSetMode('cpu2');

@@ -10,7 +10,8 @@ const fs   = require('fs');
 const path = require('path');
 
 const DEFAULT_PREFS = {
-    ludoBlocks: true, ludoThreeSixes: true, ludoExactHome: true, ludoFreeRelease: false,
+    ludoBlocks: true, ludoBlockPassing: true, ludoThreeSixes: true,
+    ludoExactHome: true, ludoFreeRelease: false,
 };
 
 function source() {

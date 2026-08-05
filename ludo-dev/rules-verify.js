@@ -144,6 +144,54 @@ head('Blocks');
     ok('blocks OFF: landing captures both', land && land.captures.length === 2);
 }
 
+// ── Jumping a block ──────────────────────────────────────────────────
+// Reported: a pair parked on the very next square left a token with no legal
+// roll at all — every 1..6 had to cross it — so the turn silently auto-played a
+// different token. Barring passage is the Ludo Star rule, but it can wall a
+// token in completely, so it is now separable from barring the landing.
+{
+    const L = board({ ludoBlockPassing: false });        // blocks on, jumping on
+    const gStep = stepOnRing(L.LUDO_COLORS, GREEN, 6);
+    L.place(GREEN, 0, gStep);
+    L.place(GREEN, 1, gStep);
+    L.place(BLUE, 0, 3);
+    ok('the pair is still a block', L.ludoBlockRings(BLUE).has(6));
+    ok('jumping over it is allowed', L.ludoLegalMoves(BLUE, 4).some(m => m.token.i === 0));
+    ok('landing on it is still barred', !L.ludoLegalMoves(BLUE, 3).some(m => m.token.i === 0));
+    ok('and it still cannot be captured',
+       L.ludoLegalMoves(BLUE, 4).filter(m => m.token.i === 0)[0].captures.length === 0);
+}
+{
+    // The exact reported position: block on the square immediately ahead.
+    const L = board();                                   // default: passage barred
+    const gStep = stepOnRing(L.LUDO_COLORS, GREEN, 31);
+    L.place(GREEN, 0, gStep); L.place(GREEN, 1, gStep);
+    L.place(BLUE, 0, 30);
+    const walled = [1, 2, 3, 4, 5, 6].filter(r =>
+        L.ludoLegalMoves(BLUE, r).some(m => m.token.i === 0));
+    ok('default: a block directly ahead leaves no legal roll', walled.length === 0,
+       'legal rolls: ' + walled.join());
+
+    const J = board({ ludoBlockPassing: false });
+    const gJ = stepOnRing(J.LUDO_COLORS, GREEN, 31);
+    J.place(GREEN, 0, gJ); J.place(GREEN, 1, gJ);
+    J.place(BLUE, 0, 30);
+    const free = [1, 2, 3, 4, 5, 6].filter(r =>
+        J.ludoLegalMoves(BLUE, r).some(m => m.token.i === 0));
+    ok('jumping on: only the landing roll is refused', free.join() === '2,3,4,5,6',
+       'legal rolls: ' + free.join());
+}
+{
+    // Turning blocks off entirely is still the bigger hammer — it also makes
+    // the stack capturable, which jumping deliberately does not.
+    const L = board({ ludoBlocks: false });
+    const gStep = stepOnRing(L.LUDO_COLORS, GREEN, 31);
+    L.place(GREEN, 0, gStep); L.place(GREEN, 1, gStep);
+    L.place(BLUE, 0, 30);
+    const land = L.ludoLegalMoves(BLUE, 1).filter(m => m.token.i === 0)[0];
+    ok('blocks off: landing captures the whole stack', land && land.captures.length === 2);
+}
+
 // ── A safe square can never become a wall ────────────────────────────
 // Regression: Green's own start (ring 26) is safe AND is refilled every time
 // Green releases. When a pair there still sealed the track, a Blue token at

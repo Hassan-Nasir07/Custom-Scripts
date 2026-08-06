@@ -91,4 +91,73 @@ console.log('\n  with a perfectly fair die, chance of NO six in N turns stuck in
     console.log('    ' + String(n).padStart(2) + ' turns   ' +
                 (100 * Math.pow(5 / 6, n)).toFixed(1) + '%'));
 
+// ─────────────────────────────────────────────────────────────────────
+// Does CPU DIFFICULTY touch your dice?
+//
+// It should not: the tier only selects which legal move the CPU plays, via
+// ludoAIChooseMove. It never reaches ludoRollDice. But it does decide how often
+// you get captured, and a capture sends a token back to base — where you need a
+// six again. So the tier cannot change your six RATE, only how often you are
+// put in a position of needing one. Separating those two is the whole point of
+// this section.
+console.log('\n\n─── does CPU difficulty affect your dice? ───\n');
+const PER_TIER = 250;
+console.log('  you always play at "normal"; only the CPU tier changes\n');
+console.log('  CPU tier     your six rate   your tokens lost   turns base-locked   you win');
+
+['easy', 'normal', 'hard'].forEach(tier => {
+    let rolls = 0, sixes = 0, lost = 0, locked = 0, wins = 0, done = 0;
+
+    for (let g = 0; g < PER_TIER; g++) {
+        const L = load();
+        L.ludoSetMode('cpu2');
+        L.ludoResetTokens();
+        L.turn = g % 2;
+        let guard = 0;
+
+        while (!L.gameOver && guard++ < 20000) {
+            const ci = L.active[L.turn];
+            const mine = ci === HUMAN;
+
+            // Count a turn as base-locked if every one of your tokens that is
+            // not already home is still sitting in the base.
+            if (mine && L.tokens.filter(t => t.ci === HUMAN).every(t => t.inBase || t.home)) locked++;
+
+            let r, n = 0;
+            do {
+                const face = L.ludoRollDice();
+                if (mine) { rolls++; if (face === 6) sixes++; }
+                r = L.ludoRegisterRoll(ci, face);
+            } while (r.rollAgain && ++n < L.LUDO_MAX_DICE);
+
+            if (r.voided || r.passed) continue;
+
+            let moves = r.moves, spends = 0;
+            while (moves.length && spends++ < 6) {
+                const m = L.ludoAIChooseMove(ci, moves, mine ? 'normal' : tier);
+                if (!m) break;
+                const after = L.ludoFinishMove(L.ludoApplyMove(m));
+                if (after.gameOver) break;
+                moves = after.continueTurn ? after.moves : [];
+            }
+        }
+        if (!L.gameOver) continue;
+        done++;
+        lost += L.stats[HUMAN].lost;
+        if (L.ludoStandings()[0] === HUMAN) wins++;
+    }
+
+    console.log('  ' + tier.padEnd(12) +
+        pct(sixes, rolls).padStart(11) +
+        (lost / done).toFixed(2).padStart(17) +
+        (locked / done).toFixed(1).padStart(19) +
+        pct(wins, done).padStart(10));
+});
+
+console.log('\n  Six rate should be flat across all three rows — the tier cannot');
+console.log('  reach the dice. Tokens lost and base-locked turns should climb with');
+console.log('  difficulty: a harder CPU captures you more, and every capture puts');
+console.log('  you back in the base needing another six. That is the only way');
+console.log('  difficulty and "I keep needing sixes" are connected.\n');
+
 process.exit(Math.abs(z) < 1.96 ? 0 : 1);

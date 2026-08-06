@@ -31,6 +31,8 @@ modal relocates only the `<canvas>`, so a DOM HUD would disappear inside it.
 | `canvas-stub.js` | Recording stand-in for `CanvasRenderingContext2D`; returns usable objects from `createLinearGradient` and `measureText` so draw code runs to completion. |
 | `verify-all.js` | Runs every suite and prints one summary. Non-zero exit if any fails. |
 | `preview.js` | Software rasterizer — renders the real `ludoRender()` output to a PNG with no native dependencies, so layout can be inspected without a browser. Scenarios: `fresh`, `midgame`, `fourplayer`, `gameover`, `rolling`, `recap`, `recap4p`, `pool`, `rot0`–`rot3`. |
+| `fairness-check.js` | Answers "is the CPU cheating?" with numbers. 400 games, per-seat roll and six-rate counts, plus a two-proportion z-test. Exits non-zero if either side is measurably favoured. |
+| `balance-check.js` | Answers the different question of how *one-sided the results* are: win rate with both seats identical, how often the loser gets 0/4, whether getting out first predicts winning, and what triple-six forfeits cost. |
 | `ludo-harness.html` | The playable harness. Mimics the widget's ~330px game column, with mode/play/reset controls, live rule toggles, a state readout, ring-index overlay, a 0→56 token walk, a dice histogram and CPU-vs-CPU auto-play. |
 
 ### Suites
@@ -49,6 +51,11 @@ modal relocates only the `<canvas>`, so a DOM HUD would disappear inside it.
 
 `ui-verify.js` simulates time by pumping `ludoUpdate(dt)` instead of waiting on real
 frames, so a full PvCPU match plays out in milliseconds and is deterministic.
+
+`fairness-check.js` and `balance-check.js` are **not** in `verify-all.js` — they are
+statistical rather than pass/fail, take a few seconds, and answer questions about game
+feel rather than correctness. Run them by hand when someone asks whether the dice are
+rigged; the answer is measured, not argued.
 
 ## Board geometry, in one paragraph
 

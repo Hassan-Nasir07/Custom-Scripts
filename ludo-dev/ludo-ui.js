@@ -972,6 +972,7 @@
     function ludoSettleRoll() {
         const ci = ludoCurrentCi();
         ludoDiceFace = ludoRollDice();
+        ludoLogRoll(ci, ludoDiceFace);          // audit trail; see ludoDiceStats
         const res = ludoRegisterRoll(ci, ludoDiceFace);
 
         if (res.voided) {
@@ -1204,6 +1205,46 @@
             bufferH: LUDO_CANVAS_H,
         });
         ludoRender();
+    }
+
+    // ── Dice audit log ─────────────────────────────────────────────────
+    // Tallies every settled roll per colour and persists it, so the die can be
+    // audited from real play instead of taken on trust. Simulations can always
+    // be dismissed as "not the real game" — this is the real game. One small
+    // localStorage write per roll; it reads nothing back into the engine and
+    // cannot influence a roll.
+    function ludoLogRoll(ci, face) {
+        try {
+            const log = JSON.parse(localStorage.getItem('ludoDiceLog') || '{}');
+            if (!log[ci]) log[ci] = [0, 0, 0, 0, 0, 0, 0];
+            log[ci][face]++;
+            localStorage.setItem('ludoDiceLog', JSON.stringify(log));
+        } catch (err) { /* quota or private mode — auditing is strictly optional */ }
+    }
+
+    // Returns one row per colour: how many times it rolled, and each face as a
+    // percentage. A fair die converges on 16.67% everywhere.
+    function ludoDiceStats() {
+        let log = {};
+        try { log = JSON.parse(localStorage.getItem('ludoDiceLog') || '{}'); } catch (err) { /* ignore */ }
+        const out = {};
+        Object.keys(log).forEach(ci => {
+            const row = log[ci];
+            const n = row.reduce((a, b) => a + b, 0);
+            if (!n) return;
+            const col = LUDO_COLORS[ci];
+            const p = f => (100 * row[f] / n).toFixed(1) + '%';
+            out[(col ? col.label : 'seat ' + ci) + (ludoIsCPUSeat(Number(ci)) ? ' (CPU)' : '')] = {
+                rolls: n,
+                '1': p(1), '2': p(2), '3': p(3), '4': p(4), '5': p(5), '6': p(6),
+            };
+        });
+        return out;
+    }
+
+    function ludoDiceReset() {
+        try { localStorage.removeItem('ludoDiceLog'); } catch (err) { /* ignore */ }
+        return 'dice log cleared';
     }
 
     // ── Lifecycle ──────────────────────────────────────────────────────

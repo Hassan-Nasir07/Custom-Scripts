@@ -540,6 +540,75 @@ head('Roll recap');
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+head('Dice audit log');
+{
+    // The log exists so the player can audit the die from real play. If it
+    // itself miscounted — dropped a seat's rolls, or logged a face other than
+    // the one played — it would manufacture exactly the bias it is meant to
+    // disprove. So check it against the rolls the engine actually used.
+    const L = fresh();
+    L.ludoDiceReset();
+    ok('starts empty', Object.keys(L.ludoDiceStats()).length === 0);
+
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+    const played = { 0: [0, 0, 0, 0, 0, 0, 0], 2: [0, 0, 0, 0, 0, 0, 0] };
+    let lastRecap = null, guard = 0;
+    while (L.phase !== 'over' && guard++ < 200000) {
+        L.ludoUpdate(16);
+        if (L.recap && L.recap !== lastRecap) {
+            lastRecap = L.recap;
+            L.recap.faces.forEach(f => played[L.recap.ci][f]++);
+        }
+        if (L.phase === 'awaitRoll') L.ludoDoRoll();
+        else if (L.phase === 'awaitMove' && L.legal.length) L.ludoPlayMove(L.legal[0]);
+    }
+
+    const stats = L.ludoDiceStats();
+    ok('both seats appear in the log', Object.keys(stats).length === 2, Object.keys(stats).join());
+
+    // Every roll the engine committed must appear, and no extras. The recap
+    // misses the final turn (no handover), so the log may lead by a little.
+    const logged = n => (stats[n] || {}).rolls || 0;
+    const sum = a => a.reduce((x, y) => x + y, 0);
+    [[0, 'Blue'], [2, 'Green']].forEach(([ci, name]) => {
+        const seen = sum(played[ci]), got = logged(name);
+        ok(`${name}: logged ${got} rolls vs ${seen} observed`,
+           got >= seen && got - seen <= L.LUDO_MAX_DICE, `diff ${got - seen}`);
+    });
+
+    ok('percentages are reported per face',
+       ['1', '2', '3', '4', '5', '6'].every(f => /%$/.test(stats['Blue'][f])));
+
+    L.ludoDiceReset();
+    ok('reset clears it', Object.keys(L.ludoDiceStats()).length === 0);
+}
+{
+    // Auditing must never be able to break play, however hostile storage is.
+    const L = fresh();
+    const real = global.localStorage;
+    global.localStorage = {
+        getItem: () => '{ this is not json',
+        setItem: () => { throw new Error('QuotaExceededError'); },
+        removeItem: () => { throw new Error('nope'); },
+    };
+    let threw = null;
+    try {
+        L.ludoSetMode('pvp2');
+        L.startLudoGame();
+        for (let i = 0; i < 400; i++) {
+            L.ludoUpdate(16);
+            if (L.phase === 'awaitRoll') L.ludoDoRoll();
+            else if (L.phase === 'awaitMove' && L.legal.length) L.ludoPlayMove(L.legal[0]);
+        }
+        L.ludoDiceStats();
+        L.ludoDiceReset();
+    } catch (e) { threw = e.message; }
+    global.localStorage = real;
+    ok('corrupt storage and a full quota do not break the game', threw === null, threw);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 head('CPU seat plays itself');
 {
     const L = fresh();

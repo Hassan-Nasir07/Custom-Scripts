@@ -8,7 +8,8 @@ is slow. The engine is built and tested here first, then inserted into that file
 reviewed diff.
 
 ```
-node ludo-dev/verify-all.js              # every suite — 619 assertions
+node ludo-dev/verify-all.js              # every suite — 648 assertions
+node ludo-dev/reinsert.js                # copy the engine into the userscript
 node ludo-dev/preview.js out.png fourplayer   # render a PNG of the board
 start ludo-dev/ludo-harness.html         # play it
 ```
@@ -30,10 +31,12 @@ modal relocates only the `<canvas>`, so a DOM HUD would disappear inside it.
 | `load.js` | Evaluates core + UI in a `Function` wrapper and exposes their internals plus test helpers (`place`, `tok`, `forceDice`). Neither source file has exports of its own — this is what makes the same code both drop-in-able and testable. |
 | `canvas-stub.js` | Recording stand-in for `CanvasRenderingContext2D`; returns usable objects from `createLinearGradient` and `measureText` so draw code runs to completion. |
 | `verify-all.js` | Runs every suite and prints one summary. Non-zero exit if any fails. |
+| `reinsert.js` | Copies the engine into `AttendanceTimeCheckerPlus.js`. Reconstructs the block currently in the file from git, demands an exact single match, and refuses to guess — a partial match would corrupt 16k lines. This is what keeps the parity assertion honest without hand-editing the copy. |
 | `preview.js` | Software rasterizer — renders the real `ludoRender()` output to a PNG with no native dependencies, so layout can be inspected without a browser. Scenarios: `fresh`, `midgame`, `fourplayer`, `gameover`, `rolling`, `recap`, `recap4p`, `pool`, `rot0`–`rot3`. |
 | `fairness-check.js` | Answers "is the CPU cheating?" with numbers. 400 games, per-seat roll and six-rate counts, plus a two-proportion z-test. Exits non-zero if either side is measurably favoured. |
 | `live-dice-check.js` | The same question through the **live animation loop** (tap → tumble → settle) rather than by calling the dice directly, harvesting rolls from `ludoRecap`. Written after noticing the direct-call tests could never have caught a bug in that path. |
 | `capture-check.js` | Where the hard CPU's apparent precision comes from: options per decision, capture conversion, and how often each side lands within enemy reach. The finding stands; the on-board warning it prompted was reverted as clutter, so this is now the record of *why* `hard` feels the way it does. |
+| `six-count-check.js` | Sixes **counted per game**, not rated. Every other fairness tool measures the rate, which has always been 16.67% for both seats and has never once matched what a player reports — because nobody watching a game counts a rate. Written to test whether the rules compound (a 6 buys a die, a capture buys a sequence) into a real gap in sixes *seen*. They do not: 88.5 vs 89.8 rolls and 14.68 vs 14.79 sixes per game. Kept because ruling that out is worth as much as confirming it. |
 | `balance-check.js` | Answers the different question of how *one-sided the results* are: win rate with both seats identical, how often the loser gets 0/4, whether getting out first predicts winning, and what triple-six forfeits cost. |
 | `ludo-harness.html` | The playable harness. Mimics the widget's ~330px game column, with mode/play/reset controls, live rule toggles, a state readout, ring-index overlay, a 0→56 token walk, a dice histogram and CPU-vs-CPU auto-play. |
 
@@ -43,12 +46,12 @@ modal relocates only the `<canvas>`, so a DOM HUD would disappear inside it.
 |---|---|---|
 | `ludo-verify.js` | Board geometry — ring closure, corner turns, home columns, safe squares, quadrants | 78 |
 | `rules-verify.js` | Dice fairness, legal moves, every rule toggle, capture/safe behaviour, dice accumulation, pool spending, safe-square blocks, jumping blocks, match resolution, 400 random self-play games | 121 |
-| `ai-verify.js` | Difficulty tiers, scorer priorities, threat awareness, 600-game head-to-head strength ordering | 36 |
+| `ai-verify.js` | Difficulty tiers, pinning a tier over the adaptive ladder, scorer priorities, threat awareness, 600-game head-to-head strength ordering | 50 |
 | `modes-verify.js` | Mode cycling, active colour sets, turn order, CPU seats, reset-on-switch | 38 |
-| `ui-verify.js` | Turn state machine, dice tumble, hop animation, turn clock, scale-aware pointer input, die-choice popover, roll recap, dice audit log, anti-farm guards, XP maths | 133 |
+| `ui-verify.js` | Turn state machine, dice tumble, hop animation, turn clock, scale-aware pointer input, die-choice popover, roll recap, dice audit log and its settings-panel summary, anti-farm guards, XP maths | 139 |
 | `rotation-verify.js` | Board rotation: quadrants land where the setting promises, seats never collide, all 225 cells stay distinct and on-board, legal moves and ring indices are identical at every turn, hit-testing follows | 76 |
 | `render-smoke.js` | `ludoRender()` across every mode and all 57 steps × 4 colours | 10 |
-| `integration-verify.js` | Every wiring point in `AttendanceTimeCheckerPlus.js` — switcher cases, DOM ids, CSS, keyboard, bridges, XP, achievements, leaderboard columns — plus engine parity | 61 |
+| `integration-verify.js` | Every wiring point in `AttendanceTimeCheckerPlus.js` — switcher cases, DOM ids, CSS, keyboard, bridges, difficulty control, dice audit, XP, achievements, leaderboard columns — plus engine parity | 70 |
 | `host-smoke.js` | **Executes the real userscript** under a minimal DOM: boots Ludo, plays a full PvCPU match, checks XP/achievements/cloud round-trip and both Max modals, board rotation | 66 |
 
 `ui-verify.js` simulates time by pumping `ludoUpdate(dt)` instead of waiting on real
@@ -80,7 +83,7 @@ Blue's corner at `(5,5)`. Anything walking the ring cell-by-cell must tolerate i
 
 The engine is **already inserted** into `../AttendanceTimeCheckerPlus.js`, and
 `integration-verify.js` asserts the copy there is byte-identical to the files here.
-Edit the sources in this directory, re-run the suite, then re-insert — never patch the
+Edit the sources in this directory, then `node ludo-dev/reinsert.js` — never patch the
 userscript's copy directly, or the two will drift and that assertion will fail.
 
 Note `host-smoke.js` needs Node 14+ (the userscript uses optional chaining, and the

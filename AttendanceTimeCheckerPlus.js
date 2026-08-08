@@ -339,6 +339,12 @@
         // their own colour nearest them. Purely presentational — see the board
         // rotation notes in the LUDO block.
         ludoRotation: 0,
+        // 'adaptive' | 'easy' | 'normal' | 'hard'. Adaptive is the original
+        // behaviour: the CPU is promoted on your win rate. It is kept as the
+        // default but it is no longer the only option, because a silent
+        // promotion to 'hard' is indistinguishable from the game cheating —
+        // see ludoDifficultyTier.
+        ludoDifficulty: 'adaptive',
         // Cyberpunk HUD customizable colors (only applied when displayTheme === 'retro-futuristic')
         cyberBgPrimary: '#07091a',
         cyberBgSecondary: '#11142b',
@@ -6903,7 +6909,20 @@
     // Difficulty adapts to the player's recorded win rate against the CPU, so a
     // struggling player is eased off and a dominant one is pushed. Locked in at
     // match start (ludoCpuTier) so it cannot shift mid-game.
+    //
+    // Adapting *silently* was the mistake. Win more than 65% and the CPU is
+    // promoted to 'hard', where ludoScoreMove starts subtracting 60 for landing
+    // anywhere you can reach — so it stops parking in front of you and starts
+    // converting nearly every chance it gets. Measured against a casual player
+    // that is a 12% win rate. The only notice you get is a four-letter chip on
+    // the scoreboard. Play well and the game quietly turns on you, which reads
+    // exactly like being cheated, because in the sense that matters it is.
+    // ludoDifficulty pins a tier; 'adaptive' (the default) keeps the old
+    // behaviour for anyone who wants the ladder.
+    const LUDO_TIERS = ['easy', 'normal', 'hard'];
     function ludoDifficultyTier(rec) {
+        const P = (typeof userPreferences === 'object' && userPreferences) ? userPreferences : {};
+        if (LUDO_TIERS.indexOf(P.ludoDifficulty) !== -1) return P.ludoDifficulty;
         const wins = (rec && rec.wins) || 0, losses = (rec && rec.losses) || 0;
         const games = wins + losses;
         if (games < 5) return 'normal';        // too small a sample to judge
@@ -8242,6 +8261,24 @@
             };
         });
         return out;
+    }
+
+    // One-line version for the settings panel. An audit that needs a console is
+    // an audit nobody runs, and "check it yourself" is not a real offer if the
+    // checking is the hard part. Six rate only, because that is the number every
+    // rigged-dice report is actually about.
+    function ludoDiceSummary() {
+        let log = {};
+        try { log = JSON.parse(localStorage.getItem('ludoDiceLog') || '{}'); } catch (err) { /* ignore */ }
+        const parts = Object.keys(log).map(ci => {
+            const row = log[ci] || [];
+            const n = row.reduce((a, b) => a + b, 0);
+            if (!n) return null;
+            const col = LUDO_COLORS[ci];
+            const who = Number(ci) === LUDO_HUMAN_CI ? 'you' : (col ? col.label.toLowerCase() : 'seat ' + ci);
+            return `${who} ${(100 * row[6] / n).toFixed(1)}% (${n})`;
+        }).filter(Boolean);
+        return parts.length ? parts.join(' · ') : 'no rolls recorded yet';
     }
 
     function ludoDiceReset() {
@@ -14703,6 +14740,15 @@
                     <option value="3" ${Number(userPreferences.ludoRotation) === 3 ? 'selected' : ''}>Blue top-right</option>
                 </select>
             </div>
+            <div class="settings-option">
+                <span class="settings-option-label">🎲 Ludo CPU</span>
+                <select class="settings-select" data-pref="ludoDifficulty">
+                    <option value="adaptive" ${userPreferences.ludoDifficulty === 'adaptive' || !userPreferences.ludoDifficulty ? 'selected' : ''}>Adaptive — follows your win rate</option>
+                    <option value="easy" ${userPreferences.ludoDifficulty === 'easy' ? 'selected' : ''}>Easy — often plays a random move</option>
+                    <option value="normal" ${userPreferences.ludoDifficulty === 'normal' ? 'selected' : ''}>Normal — plays well, ignores danger</option>
+                    <option value="hard" ${userPreferences.ludoDifficulty === 'hard' ? 'selected' : ''}>Hard — also dodges your tokens</option>
+                </select>
+            </div>
             <div class="settings-option" style="align-items: flex-start; flex-direction: column; gap: 10px;">
                 <span class="settings-option-label">🎲 Ludo Rules</span>
                 <div class="ludo-rule-toggles">
@@ -14725,6 +14771,9 @@
                     <div class="ludo-rule-row">
                         <span>Release on any roll <small style="opacity:0.6;">(no 6 needed)</small></span>
                         <div class="toggle-switch ${userPreferences.ludoFreeRelease === true ? 'active' : ''}" data-pref="ludoFreeRelease"></div>
+                    </div>
+                    <div class="ludo-rule-row" style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 8px; margin-top: 2px;">
+                        <span>Sixes rolled <small style="opacity:0.6;">${typeof ludoDiceSummary === 'function' ? ludoDiceSummary() : ''} — a fair die lands 16.7%. <code>ludoDiceReset()</code> starts a fresh sample.</small></span>
                     </div>
                 </div>
             </div>

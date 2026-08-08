@@ -38,6 +38,37 @@ head('Adaptive difficulty tier');
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+head('Difficulty can be pinned');
+{
+    // The ladder promotes silently on a win streak, which is indistinguishable
+    // from the game turning on you. A pinned tier must beat the record outright,
+    // including the record that would otherwise say 'hard'.
+    const undefeated = { wins: 20, losses: 0 };   // adaptive would say 'hard'
+    const hopeless   = { wins: 0,  losses: 20 };  // adaptive would say 'easy'
+
+    ['easy', 'normal', 'hard'].forEach(t => {
+        const L = board({ ludoDifficulty: t });
+        ok(`"${t}" overrides an undefeated record`, L.ludoDifficultyTier(undefeated) === t);
+        ok(`"${t}" overrides a hopeless record`,    L.ludoDifficultyTier(hopeless) === t);
+    });
+
+    const A = board({ ludoDifficulty: 'adaptive' });
+    ok('"adaptive" still follows the record (hard)', A.ludoDifficultyTier(undefeated) === 'hard');
+    ok('"adaptive" still follows the record (easy)', A.ludoDifficultyTier(hopeless) === 'easy');
+
+    const D = board();
+    ok('absent setting means adaptive', D.ludoDifficultyTier(undefeated) === 'hard');
+
+    // A junk value must not silently become a tier — an unrecognised string has
+    // to fall back to the ladder rather than to whatever indexOf happens to do.
+    ['', 'HARD', 'impossible', '0', null].forEach(v => {
+        const L = board({ ludoDifficulty: v });
+        ok(`junk setting ${JSON.stringify(v)} falls back to adaptive`,
+           L.ludoDifficultyTier(undefeated) === 'hard');
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 head('Scorer priorities');
 {
     // A capture must outrank a plain advance of the same length.

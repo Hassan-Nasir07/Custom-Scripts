@@ -472,7 +472,20 @@
     // Difficulty adapts to the player's recorded win rate against the CPU, so a
     // struggling player is eased off and a dominant one is pushed. Locked in at
     // match start (ludoCpuTier) so it cannot shift mid-game.
+    //
+    // Adapting *silently* was the mistake. Win more than 65% and the CPU is
+    // promoted to 'hard', where ludoScoreMove starts subtracting 60 for landing
+    // anywhere you can reach — so it stops parking in front of you and starts
+    // converting nearly every chance it gets. Measured against a casual player
+    // that is a 12% win rate. The only notice you get is a four-letter chip on
+    // the scoreboard. Play well and the game quietly turns on you, which reads
+    // exactly like being cheated, because in the sense that matters it is.
+    // ludoDifficulty pins a tier; 'adaptive' (the default) keeps the old
+    // behaviour for anyone who wants the ladder.
+    const LUDO_TIERS = ['easy', 'normal', 'hard'];
     function ludoDifficultyTier(rec) {
+        const P = (typeof userPreferences === 'object' && userPreferences) ? userPreferences : {};
+        if (LUDO_TIERS.indexOf(P.ludoDifficulty) !== -1) return P.ludoDifficulty;
         const wins = (rec && rec.wins) || 0, losses = (rec && rec.losses) || 0;
         const games = wins + losses;
         if (games < 5) return 'normal';        // too small a sample to judge

@@ -1242,6 +1242,24 @@
         return out;
     }
 
+    // One-line version for the settings panel. An audit that needs a console is
+    // an audit nobody runs, and "check it yourself" is not a real offer if the
+    // checking is the hard part. Six rate only, because that is the number every
+    // rigged-dice report is actually about.
+    function ludoDiceSummary() {
+        let log = {};
+        try { log = JSON.parse(localStorage.getItem('ludoDiceLog') || '{}'); } catch (err) { /* ignore */ }
+        const parts = Object.keys(log).map(ci => {
+            const row = log[ci] || [];
+            const n = row.reduce((a, b) => a + b, 0);
+            if (!n) return null;
+            const col = LUDO_COLORS[ci];
+            const who = Number(ci) === LUDO_HUMAN_CI ? 'you' : (col ? col.label.toLowerCase() : 'seat ' + ci);
+            return `${who} ${(100 * row[6] / n).toFixed(1)}% (${n})`;
+        }).filter(Boolean);
+        return parts.length ? parts.join(' · ') : 'no rolls recorded yet';
+    }
+
     function ludoDiceReset() {
         try { localStorage.removeItem('ludoDiceLog'); } catch (err) { /* ignore */ }
         return 'dice log cleared';

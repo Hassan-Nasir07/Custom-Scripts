@@ -580,8 +580,23 @@ head('Dice audit log');
     ok('percentages are reported per face',
        ['1', '2', '3', '4', '5', '6'].every(f => /%$/.test(stats['Blue'][f])));
 
+    // The settings-panel one-liner must agree with the table it summarises,
+    // or the audit contradicts itself in the two places anyone will read it.
+    const summary = L.ludoDiceSummary();
+    ok('the summary names the human seat as "you"', /^you /.test(summary), summary);
+    Object.keys(stats).forEach(name => {
+        ok(`summary carries ${name}'s roll count`,
+           summary.indexOf('(' + stats[name].rolls + ')') !== -1, summary);
+    });
+    const sixes = summary.match(/([\d.]+)%/g) || [];
+    ok('summary reports a six rate per seat', sixes.length === Object.keys(stats).length, summary);
+    ok('and it is the same six rate the table gives',
+       sixes[0] === stats['Blue']['6'], `${sixes[0]} vs ${stats['Blue']['6']}`);
+
     L.ludoDiceReset();
     ok('reset clears it', Object.keys(L.ludoDiceStats()).length === 0);
+    ok('the summary says so rather than rendering blank',
+       L.ludoDiceSummary() === 'no rolls recorded yet', L.ludoDiceSummary());
 }
 {
     // Auditing must never be able to break play, however hostile storage is.
@@ -602,6 +617,7 @@ head('Dice audit log');
             else if (L.phase === 'awaitMove' && L.legal.length) L.ludoPlayMove(L.legal[0]);
         }
         L.ludoDiceStats();
+        L.ludoDiceSummary();
         L.ludoDiceReset();
     } catch (e) { threw = e.message; }
     global.localStorage = real;

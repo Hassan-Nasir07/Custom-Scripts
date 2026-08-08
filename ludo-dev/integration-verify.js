@@ -123,6 +123,24 @@ ok('no ctx.rotate is driven by the board rotation',
 ok('ludoRender sets an unrotated scale transform',
    /setTransform\(s, 0, 0, s, 0, 0\)/.test(src));
 
+head('Difficulty control and dice audit');
+ok('ludoDifficulty default in userPreferences', has("ludoDifficulty: 'adaptive'"));
+ok('difficulty select in the settings modal', has('data-pref="ludoDifficulty"'));
+ok('all four choices offered',
+   (src.match(/<option value="(adaptive|easy|normal|hard)"/g) || []).length === 4);
+// It is a string pref, so it must NOT be in the list that parseInts selects —
+// 'hard' through parseInt is NaN, which would silently fall back to adaptive.
+ok('difficulty is not parsed as a number',
+   /numericPrefs = \[[^\]]*\]/.test(src) &&
+   src.match(/numericPrefs = \[[^\]]*\]/)[0].indexOf('ludoDifficulty') === -1);
+ok('the tier reads the setting before the record',
+   /function ludoDifficultyTier\(rec\) \{[\s\S]{0,320}?LUDO_TIERS\.indexOf\(P\.ludoDifficulty\)[\s\S]{0,80}?return P\.ludoDifficulty;/.test(src));
+ok('only real tiers can be pinned', has("const LUDO_TIERS = ['easy', 'normal', 'hard']"));
+ok('the dice audit is readable without a console', has('ludoDiceSummary()'));
+ok('and it is guarded, so a load-order slip cannot blank the modal',
+   /typeof ludoDiceSummary === 'function' \? ludoDiceSummary\(\) : ''/.test(src));
+ok('the fair baseline is stated next to it', has('a fair die lands 16.7%'));
+
 head('XP and achievements');
 ok('awardGameXP has a ludo case', /case 'ludo': \{[\s\S]{0,700}?performance\.xp/.test(src));
 ok('award clamped to AC_MAX_XP_PER_GAME',

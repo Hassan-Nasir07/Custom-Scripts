@@ -292,7 +292,7 @@
         poolShark:    { icon: '🎱', name: 'Pool Shark',        desc: 'Win 100 pool games against the CPU' },
         ludoChamp:    { icon: '🎲', name: 'Ludo Champion',     desc: 'Win 100 Ludo games against the CPU' },
         ludoFlawless: { icon: '🛡️', name: 'Flawless',          desc: 'Win a Ludo game without losing a single token' },
-        ludoHunter:   { icon: '🔥', name: 'Token Hunter',      desc: 'Capture 5 opponent tokens in one Ludo match' },
+        ludoHunter:   { icon: '🐺', name: 'Token Hunter',      desc: 'Capture 5 opponent tokens in one Ludo match' },
 
         // ── Engagement / Customization ────────────────────
         curator:      { icon: '💬', name: 'Curator',           desc: 'Add a custom motivational quote' },

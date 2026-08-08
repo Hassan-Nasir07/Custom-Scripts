@@ -4,14 +4,14 @@
 > **Progress tracking** as work lands, and record any deviation from this plan in the
 > **Decision log** at the bottom.
 >
-> Target file: [`AttendanceTimeCheckerPlus.js`](AttendanceTimeCheckerPlus.js) · 14,460 → 16,491 lines
+> Target file: [`AttendanceTimeCheckerPlus.js`](AttendanceTimeCheckerPlus.js) · 14,460 → 16,670 lines
 > Branch: `feat/ludo-game` (off `main` @ `efbf33d`)
 > Status: **Phases 0–11 complete — Ludo is integrated.** The engine lives in
-> `AttendanceTimeCheckerPlus.js` (now 16,491 lines), byte-identical to the copy in
-> [`ludo-dev/`](ludo-dev/) that the tests exercise. **629 assertions green**, including
+> `AttendanceTimeCheckerPlus.js` (now 16,670 lines), byte-identical to the copy in
+> [`ludo-dev/`](ludo-dev/) that the tests exercise. **619 assertions green**, including
 > a suite that executes the real userscript. The only step left is a pass on the live
 > portal — see Verification.
-> Last updated: 2026-08-05
+> Last updated: 2026-08-08
 
 ## ⚠️ How to read the line numbers in this document
 
@@ -561,7 +561,7 @@ The script self-guards to one URL (43–48), so iterating in-place is slow.
 own [README](ludo-dev/README.md). One command:
 
 ```
-node ludo-dev/verify-all.js     # 629 assertions across 9 suites, non-zero exit on failure
+node ludo-dev/verify-all.js     # 619 assertions across 9 suites, non-zero exit on failure
 ```
 
 | Suite | Covers | Assertions |
@@ -570,7 +570,7 @@ node ludo-dev/verify-all.js     # 629 assertions across 9 suites, non-zero exit 
 | `rules-verify.js` | Dice, legal moves, rule toggles, dice accumulation, pool spending, block rules, 400 self-play games | 121 |
 | `ai-verify.js` | Tiers, scorer, 600-game strength ordering | 36 |
 | `modes-verify.js` | Mode cycling, seats, turn order | 38 |
-| `ui-verify.js` | State machine, animation, clock, pointer input, die-choice popover, recap, capture warnings, dice audit log, anti-farm, XP | 143 |
+| `ui-verify.js` | State machine, animation, clock, pointer input, die-choice popover, recap, dice audit log, anti-farm, XP | 133 |
 | `rotation-verify.js` | Board rotation — that it moves quadrants, chips, dice and hit-testing, and moves nothing else | 76 |
 | `render-smoke.js` | `ludoRender()` across all modes and steps | 10 |
 | `integration-verify.js` | Every wiring point in `AttendanceTimeCheckerPlus.js`, plus engine parity | 61 |
@@ -644,7 +644,8 @@ doesn't re-derive it from the code.
 | **2026-08-04** | **Extra turns now come only from a capture or a token reaching home** | Otherwise a 6 would pay twice — once as an extra die and again as an extra turn. `ludoGrantsExtraTurn(roll, result)` became `ludoEarnsAnotherRoll(result)`; `ludoFinishMove` lost its `roll` argument and returns `{ continueTurn, extraRoll }`. |
 | **2026-08-04** | **Tap a token → popover of that token's playable values** | With up to three distinct values banked, a tap is ambiguous. `ludoValuesForToken` filters the pool to what that token can legally spend: one value moves immediately, several open a popover anchored to the token. `ludoPopoverLayout()` is shared by the renderer and the hit-test so they cannot drift. |
 | **2026-08-04** | **Ghost previews suppressed while several distinct values are banked** | Three values × four tokens is up to a dozen ghost destinations. Ghosts now show only when one distinct value remains, or when a popover has narrowed it to one token; otherwise the glow and chevron carry it. |
-| **2026-08-05** | **The hard CPU's real edge is information, not dice — so the player now sees it too** | *Reported after many games: "the CPU always has the exact roll to capture me, and I always land in front of it."* The observation was right; the attribution to the dice was not. `ludoScoreMove` subtracts 60 on the `hard` tier for finishing within an opponent's reach, so the CPU silently declines those squares. Measured in `capture-check.js`: with both sides reasoning identically the exposure rate is symmetric (14.5% vs 14.9%), but against `hard` the CPU lands in danger **6.8–7.9%** of the time versus the player's **17–17.5%**, and out-captures them 1.5× (skilled player) to **4.3×** (casual). Player win rate against `hard` is 42% skilled, **13% casual** — so "it wins all the time" was accurate. Fixed by surfacing the same calculation: destinations an opponent can reach are drawn as a red crossed-out ghost, and the die-choice popover flags the values that would expose you. `ludoWarnCapture`, default on. Acting on it measured 47.0% → 50.7% win rate and 18.3% → 11.3% exposure. **No rule changed** — a test asserts the legal-move set is identical with the warning on and off, and another asserts the warning fires on exactly the moves the hard scorer penalises. |
+| **2026-08-05** | **The hard CPU's real edge is information, not dice** — *finding kept, the UI it prompted was reverted* | *Reported after many games: "the CPU always has the exact roll to capture me, and I always land in front of it."* The observation was right; the attribution to the dice was not. `ludoScoreMove` subtracts 60 on the `hard` tier for finishing within an opponent's reach, so the CPU silently declines those squares. Measured in `capture-check.js`: with both sides reasoning identically the exposure rate is symmetric (14.5% vs 14.9%), but against `hard` the CPU lands in danger **6.8–7.9%** of the time versus the player's **17–17.5%**, and out-captures them 1.5× (skilled player) to **4.3×** (casual). Player win rate against `hard` is 42% skilled, **13% casual** — so "it wins all the time" was accurate. The attempted fix drew every reachable destination as a red crossed-out ghost and flagged exposing values in the die popover (`ludoWarnCapture`). **Reverted on 2026-08-08** — see the row below. The measurement is why `hard` feels the way it does and is worth keeping; painting it on a 300px board was not. |
+| **2026-08-08** | **Capture warnings reverted — the board is not the place for coaching** | *"It makes the board cluttered. It's not me being dumb and not seeing the right moves."* Fair on both counts: three tokens × three banked values is up to nine ghosts, and turning some of them red on a 300px board costs more legibility than the information is worth. The whole change was render-only, so reverting it restores the exact bytes of the previous engine — `git checkout f1c1162 -- ludo-ui.js load.js ui-verify.js AttendanceTimeCheckerPlus.js`, back to 619 assertions. Also reported: *"after this update it is harder to win even in normal mode."* It cannot be the update — `ludo-core.js`, which holds every rule and the whole CPU, has not changed since the `feat/ludo-game` merge (`git log ada0fb8..HEAD -- ludo-dev/ludo-core.js` is empty), and the only `ludo-ui.js` changes since were drawing code plus one `localStorage` write. Simulated it anyway, 400 games at a fixed `normal` CPU: a player who obeys the red ghosts wins **57.3%** against **51.0%** for one who ignores them, so if the warnings had any effect it was the opposite one. Left as variance. **If it persists, the lever is `ludoDifficultyTier` — it is adaptive and locked at match start, so a win streak silently promotes the CPU; a manual difficulty setting is the honest fix and has not been asked for.** |
 | **2026-08-05** | **Every roll is logged so the die can be audited from real play** | Repeated "the dice are rigged" reports could not be settled by simulation, which is always dismissible as not-the-real-game. `ludoLogRoll` tallies every settled roll per colour into localStorage; `ludoDiceStats()` / `ludoDiceReset()` are exposed on `window`. The logger is itself tested against the rolls the engine committed, because one that miscounted would manufacture the very bias it exists to disprove, and it degrades silently on corrupt storage or a full quota rather than throwing into the game. |
 | **2026-08-05** | **Live-path dice measurement, after finding a hole in the earlier tests** | Every fairness check up to this point called `ludoRollDice`/`ludoRegisterRoll` directly and never went through tap → tumble → `ludoSettleRoll` — where the flicker burns a `Math.random` per frame. A bug there would have been invisible. `live-dice-check.js` drives the real animation loop and harvests rolls from `ludoRecap` (stamped with the colour that produced them): six rate 16.68% player vs 16.38% CPU, z = 0.93. Clean, but the gap was real and worth closing. |
 | **2026-08-05** | **Dice fairness questioned, measured, and left alone** | *Raised by the user after a 0/4 loss where the CPU freed all four tokens first.* `ludoRollDice` takes no seat argument and is called from one place, so it cannot favour anyone — confirmed by measurement in `fairness-check.js`: over 400 games and ~35k rolls each, six-rate was 16.70% (player) vs 16.76% (CPU) against a fair 16.67%, z = −0.22. `balance-check.js` then measured the *results* with both seats identical: 49.5% win rate, and a 0/4 wipeout happens in only **3.2%** of games while 48.7% end with the loser on 3/4. The snowball is real but modest — whoever gets a token out first wins 61% of the time, not 85%. **User's call: change nothing.** Both scripts are kept so this is re-runnable rather than a one-off claim. |

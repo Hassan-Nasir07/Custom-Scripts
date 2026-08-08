@@ -10,7 +10,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const DEFAULT_PREFS = {
-    ludoBlocks: true, ludoBlockPassing: true, ludoThreeSixes: true, ludoWarnCapture: true,
+    ludoBlocks: true, ludoBlockPassing: true, ludoThreeSixes: true,
     ludoExactHome: true, ludoFreeRelease: false,
 };
 
@@ -49,7 +49,6 @@ module.exports = function load(prefs) {
 
             ludoPointXY, ludoCellCenter, ludoPosForStep, ludoTokenXY, ludoComputeLayout,
             ludoRotation, ludoRotateGrid, ludoSeat, ludoRectXY,
-            ludoWarnsCapture, ludoMoveIsExposed,
             ludoRender, ludoDrawBoard, ludoDrawTokens, ludoDrawHud, ludoUpdate,
             ludoBeginTurn, ludoDoRoll, ludoSettleRoll, ludoPlayMove, ludoTimeout,
             ludoAwaitMove, ludoPopoverLayout, ludoDrawPopover,

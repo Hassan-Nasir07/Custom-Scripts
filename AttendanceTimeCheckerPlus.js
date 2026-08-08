@@ -700,6 +700,7 @@
     let leaderboardData = [];
     let lbFetching = false;
     let lbLastLocalSyncMs = 0; // Local cooldown — prevents rapid-fire syncs regardless of gist propagation delay
+    let lbAchPopoverInit = false; // guards the one-time delegated hover-popover listeners
 
     // Leaderboard localStorage helpers
     function loadLeaderboardProfile() {
@@ -1326,6 +1327,7 @@
         }
 
         // Build leaderboard table
+        const achTotal = Object.keys(ACHIEVEMENTS).length;
         let rows = '';
         leaderboardData.forEach((p, i) => {
             const rank = i + 1;
@@ -1334,11 +1336,21 @@
             const gb = p.gameBests || {};
             const fmt = v => (v && v > 0) ? v.toLocaleString() : '—';
             const fmtMs = v => (v && v > 0) ? v + 'ms' : '—';
+            // Achievement count — earned/total, same figures as the "View All" button.
+            // Only keys still present in ACHIEVEMENTS count, so a retired/renamed key
+            // synced from an older client build can't inflate the total.
+            const achKeys = (Array.isArray(p.achievements) ? p.achievements : []).filter(k => ACHIEVEMENTS[k]);
+            const achBadge = `<span class="lb-ach-badge" tabindex="0" data-ach-keys="${achKeys.join(',')}">🏆${achKeys.length}/${achTotal}</span>`;
+            const nameHtml = escapeHtml(p.displayName);
+            // escapeHtml only encodes &/</> (safe for text content); the title
+            // attribute below also needs quotes encoded or a name containing one
+            // could break out of the attribute.
+            const nameAttr = nameHtml.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
             rows += `<tr class="${isMe ? 'lb-row-me' : ''}">
                 <td class="lb-rank">${medal}</td>
-                <td class="lb-name">${escapeHtml(p.displayName)}${isMe ? ' <span class="lb-you">(you)</span>' : ''}</td>
-                <td class="lb-level">Lv.${p.level}</td>
-                <td class="lb-xp">${(p.totalXP || 0).toLocaleString()}</td>
+                <td class="lb-name" title="${nameAttr}">${nameHtml}${isMe ? ' <span class="lb-you">You</span>' : ''}</td>
+                <td class="lb-level"><span class="lb-level-pill">Lv.${p.level}</span></td>
+                <td class="lb-xp">${(p.totalXP || 0).toLocaleString()}${achBadge}</td>
                 <td class="lb-score">${fmt(gb.breakout)}</td>
                 <td class="lb-score">${fmt(gb.pool)}</td>
                 <td class="lb-score">${fmt(gb.ludo)}</td>
@@ -1355,8 +1367,8 @@
             <div class="lb-table-wrap">
                 <table class="lb-table">
                     <thead><tr>
-                        <th></th>
-                        <th>Player</th>
+                        <th class="lb-rank"></th>
+                        <th class="lb-name">Player</th>
                         <th>Lv.</th>
                         <th>XP</th>
                         <th title="Breakout">🏓</th>
@@ -1380,7 +1392,78 @@
         return div.innerHTML;
     }
 
+    // ── Achievement-badge hover popover ─────────────────────────────
+    // The leaderboard panel scrolls both ways (narrow widget, wide table), so a
+    // CSS-only absolutely-positioned popover would get clipped by the scroll
+    // containers whenever a row sits near an edge. Instead we keep one shared
+    // popover fixed to the viewport and position it from getBoundingClientRect
+    // on hover/focus, which sidesteps the clipping entirely.
+    function ensureLbAchPopover() {
+        let pop = document.getElementById('lb-ach-popover');
+        if (!pop) {
+            pop = document.createElement('div');
+            pop.id = 'lb-ach-popover';
+            pop.className = 'lb-ach-popover';
+            document.body.appendChild(pop);
+        }
+        return pop;
+    }
+
+    function showLbAchPopover(badge) {
+        const pop = ensureLbAchPopover();
+        const keys = (badge.dataset.achKeys || '').split(',').filter(Boolean);
+        pop.innerHTML = keys.length
+            ? keys.map(k => {
+                const a = ACHIEVEMENTS[k];
+                return a ? `<span class="lb-ach-emoji" title="${escapeHtml(a.name)}">${a.icon}</span>` : '';
+            }).join('')
+            : '<span class="lb-ach-empty">No achievements yet</span>';
+        pop.style.display = 'flex';
+
+        const rect = badge.getBoundingClientRect();
+        const popRect = pop.getBoundingClientRect();
+        let top = rect.top - popRect.height - 8;
+        let below = false;
+        if (top < 4) { top = rect.bottom + 8; below = true; }
+        let left = rect.left + rect.width / 2 - popRect.width / 2;
+        left = Math.max(4, Math.min(left, window.innerWidth - popRect.width - 4));
+        pop.style.top = `${top}px`;
+        pop.style.left = `${left}px`;
+        pop.classList.toggle('lb-ach-popover-below', below);
+    }
+
+    function hideLbAchPopover() {
+        const pop = document.getElementById('lb-ach-popover');
+        if (pop) pop.style.display = 'none';
+    }
+
+    function initLbAchPopoverDelegation() {
+        if (lbAchPopoverInit) return;
+        lbAchPopoverInit = true;
+        document.addEventListener('mouseover', (e) => {
+            const badge = e.target.closest && e.target.closest('.lb-ach-badge');
+            if (badge) showLbAchPopover(badge);
+        });
+        document.addEventListener('mouseout', (e) => {
+            const badge = e.target.closest && e.target.closest('.lb-ach-badge');
+            if (badge && !badge.contains(e.relatedTarget)) hideLbAchPopover();
+        });
+        document.addEventListener('focusin', (e) => {
+            const badge = e.target.closest && e.target.closest('.lb-ach-badge');
+            if (badge) showLbAchPopover(badge);
+        });
+        document.addEventListener('focusout', (e) => {
+            const badge = e.target.closest && e.target.closest('.lb-ach-badge');
+            if (badge) hideLbAchPopover();
+        });
+        // Positions go stale once the badge moves under a scroll/resize — just hide.
+        document.addEventListener('scroll', hideLbAchPopover, true);
+        window.addEventListener('resize', hideLbAchPopover);
+    }
+    // ──────────────────────────────────────────────────────────────
+
     function initLeaderboard() {
+        initLbAchPopoverDelegation();
         loadLeaderboardProfile();
         if (lbRegistered) {
             fetchLeaderboard().then(() => {
@@ -14366,11 +14449,9 @@
             .leaderboard-panel {
                 display: flex;
                 flex-direction: column;
-                gap: 12px;
-                padding: 16px;
+                gap: 10px;
+                padding: 14px;
                 min-height: 200px;
-                max-height: 340px;
-                overflow-y: auto;
                 background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
                 border-radius: 16px;
                 border: 1px solid rgba(255,255,255,0.1);
@@ -14454,59 +14535,192 @@
                 transition: background 0.2s;
             }
             .lb-sync-btn:hover { background: rgba(255,255,255,0.2); }
+            /* .lb-table-wrap is the ONE scroll container for both axes — sticky
+               positioning below sticks relative to whichever ancestor actually
+               scrolls, so header/rank/name must scroll (and stick) in the same
+               box, not a parent one level up. */
             .lb-table-wrap {
-                overflow-x: auto;
-                border-radius: 10px;
+                max-height: 280px;
+                overflow: auto;
+                border-radius: 12px;
                 border: 1px solid rgba(255,255,255,0.08);
+                background: rgba(0,0,0,0.15);
                 -webkit-overflow-scrolling: touch;
+                /* Themed thin scrollbar — same recipe as .game-switcher — instead
+                   of the OS default block scrollbar. */
+                scrollbar-width: thin;
+                scrollbar-color: rgba(255,255,255,0.28) transparent;
             }
+            .lb-table-wrap::-webkit-scrollbar { width: 7px; height: 7px; }
+            .lb-table-wrap::-webkit-scrollbar-track { background: transparent; }
+            .lb-table-wrap::-webkit-scrollbar-thumb {
+                background: rgba(255,255,255,0.28);
+                border-radius: 999px;
+            }
+            .lb-table-wrap::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.45); }
+            .lb-table-wrap::-webkit-scrollbar-corner { background: transparent; }
             .lb-table {
                 width: max-content;
                 min-width: 100%;
-                border-collapse: collapse;
+                border-collapse: separate;
+                border-spacing: 0;
                 font-size: 0.72rem;
             }
             .lb-table thead th {
-                padding: 6px 8px;
+                position: sticky;
+                top: 0;
+                z-index: 2;
+                padding: 7px 8px;
                 text-align: left;
-                font-weight: 600;
-                opacity: 0.7;
-                border-bottom: 1px solid rgba(255,255,255,0.1);
+                font-weight: 700;
+                font-size: 0.64rem;
+                text-transform: uppercase;
+                letter-spacing: 0.4px;
+                opacity: 0.8;
+                background: rgba(14,16,26,0.92);
+                border-bottom: 1px solid rgba(255,255,255,0.12);
                 white-space: nowrap;
             }
             .lb-table thead th[title] {
                 text-align: center;
                 font-size: 1rem;
-                padding: 4px 6px;
+                padding: 5px 6px;
                 cursor: help;
+                text-transform: none;
+                letter-spacing: normal;
             }
             .lb-table tbody td {
                 padding: 6px 8px;
-                border-bottom: 1px solid rgba(255,255,255,0.04);
+                border-bottom: 1px solid rgba(255,255,255,0.05);
+            }
+            .lb-table tbody tr:last-child td { border-bottom: none; }
+            /* Sticky cells (.lb-rank/.lb-name below) get their own opaque
+               background and are excluded here — a translucent hover tint on
+               them would let the horizontally-scrolled score columns show
+               through, since they sit visually "in front of" that content. */
+            .lb-table tbody tr:hover td:not(.lb-rank):not(.lb-name) {
+                background: rgba(255,255,255,0.045);
+            }
+            .lb-table tbody tr:hover .lb-rank,
+            .lb-table tbody tr:hover .lb-name {
+                filter: brightness(1.18);
             }
             .lb-row-me {
                 background: rgba(102,126,234,0.15);
                 font-weight: 600;
             }
             .lb-row-me td { border-color: rgba(102,126,234,0.2); }
-            .lb-rank { text-align: center; min-width: 28px; }
-            .lb-level { white-space: nowrap; min-width: 40px; }
+            /* Rank + name are frozen while the score columns scroll underneath,
+               so the player stays identifiable no matter how far the table is
+               scrolled — the disorienting part of a wide leaderboard table. */
+            .lb-rank {
+                position: sticky;
+                left: 0;
+                z-index: 1;
+                width: 30px;
+                min-width: 30px;
+                text-align: center;
+                background: rgba(16,18,28,0.94);
+            }
+            .lb-name {
+                position: sticky;
+                left: 30px;
+                z-index: 1;
+                width: 96px;
+                min-width: 96px;
+                max-width: 96px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                background: rgba(16,18,28,0.94);
+                box-shadow: 2px 0 6px rgba(0,0,0,0.28);
+            }
+            .lb-table thead .lb-rank, .lb-table thead .lb-name {
+                z-index: 3;
+                background: rgba(14,16,26,0.96);
+            }
+            .lb-row-me .lb-rank, .lb-row-me .lb-name {
+                background: linear-gradient(rgba(102,126,234,0.32), rgba(102,126,234,0.32)), rgba(16,18,28,0.94);
+            }
+            .lb-level { white-space: nowrap; min-width: 44px; }
+            .lb-level-pill {
+                display: inline-block;
+                padding: 1px 7px;
+                border-radius: 999px;
+                background: rgba(255,255,255,0.08);
+                border: 1px solid rgba(255,255,255,0.14);
+                font-size: 0.66rem;
+                font-weight: 700;
+            }
             .lb-xp { white-space: nowrap; min-width: 58px; font-variant-numeric: tabular-nums; }
+            .lb-ach-badge {
+                display: inline-block;
+                margin-left: 6px;
+                padding: 1px 6px;
+                border-radius: 8px;
+                font-size: 0.62rem;
+                font-weight: 600;
+                letter-spacing: 0.2px;
+                background: rgba(255,215,0,0.14);
+                border: 1px solid rgba(255,215,0,0.3);
+                color: inherit;
+                opacity: 0.85;
+                cursor: help;
+                vertical-align: middle;
+            }
+            .lb-ach-badge:hover, .lb-ach-badge:focus {
+                opacity: 1;
+                background: rgba(255,215,0,0.24);
+                outline: none;
+            }
             .lb-score { text-align: right; min-width: 52px; font-variant-numeric: tabular-nums; opacity: 0.9; white-space: nowrap; }
             .lb-you {
-                font-size: 0.65rem;
-                opacity: 0.7;
-                font-weight: 400;
+                display: inline-block;
+                margin-left: 4px;
+                padding: 0 5px;
+                border-radius: 999px;
+                background: rgba(255,255,255,0.25);
+                font-size: 0.58rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+                vertical-align: middle;
             }
             .lb-footer {
-                font-size: 0.7rem;
+                font-size: 0.68rem;
                 opacity: 0.5;
                 text-align: right;
+                padding: 0 2px;
             }
             .lb-empty {
                 text-align: center;
                 opacity: 0.5;
                 padding: 20px !important;
+            }
+            /* Fixed to the viewport (not the scrolling table) so it's never clipped
+               by .leaderboard-panel/.lb-table-wrap's overflow:auto. */
+            .lb-ach-popover {
+                display: none;
+                position: fixed;
+                z-index: 99999;
+                flex-wrap: wrap;
+                gap: 3px;
+                max-width: 220px;
+                padding: 6px 8px;
+                border-radius: 10px;
+                background: rgba(20,20,30,0.95);
+                border: 1px solid rgba(255,255,255,0.15);
+                box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+                font-size: 0.8rem;
+                line-height: 1.4;
+                pointer-events: none;
+            }
+            .lb-ach-popover .lb-ach-emoji { cursor: default; }
+            .lb-ach-popover .lb-ach-empty {
+                font-size: 0.65rem;
+                opacity: 0.6;
+                color: #fff;
+                white-space: nowrap;
             }
         </style>
     `;
@@ -16437,6 +16651,7 @@
                         totalWorkDays: userXP.totalWorkDays || 0,
                         consecutiveDays: userXP.consecutiveDays || 0,
                         longestStreak: userXP.longestStreak || 0,
+                        achievements: Array.isArray(userXP.achievements) ? userXP.achievements.slice() : [],
                         gameBests: {
                             snake: parseInt(localStorage.getItem('snakeHighScore') || '0', 10),
                             flappy: parseInt(localStorage.getItem('flappyHighScore') || '0', 10),
@@ -16466,6 +16681,7 @@
                 myEntry.totalWorkDays = userXP.totalWorkDays || 0;
                 myEntry.consecutiveDays = userXP.consecutiveDays || 0;
                 myEntry.longestStreak = userXP.longestStreak || 0;
+                myEntry.achievements = Array.isArray(userXP.achievements) ? userXP.achievements.slice() : [];
                 const syncReflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
                 const syncReflexBest = syncReflexData?.screen?.best;
                 myEntry.gameBests = {

@@ -8,7 +8,7 @@ is slow. The engine is built and tested here first, then inserted into that file
 reviewed diff.
 
 ```
-node ludo-dev/verify-all.js              # every suite — 612 assertions
+node ludo-dev/verify-all.js              # every suite — 629 assertions
 node ludo-dev/preview.js out.png fourplayer   # render a PNG of the board
 start ludo-dev/ludo-harness.html         # play it
 ```
@@ -32,6 +32,8 @@ modal relocates only the `<canvas>`, so a DOM HUD would disappear inside it.
 | `verify-all.js` | Runs every suite and prints one summary. Non-zero exit if any fails. |
 | `preview.js` | Software rasterizer — renders the real `ludoRender()` output to a PNG with no native dependencies, so layout can be inspected without a browser. Scenarios: `fresh`, `midgame`, `fourplayer`, `gameover`, `rolling`, `recap`, `recap4p`, `pool`, `rot0`–`rot3`. |
 | `fairness-check.js` | Answers "is the CPU cheating?" with numbers. 400 games, per-seat roll and six-rate counts, plus a two-proportion z-test. Exits non-zero if either side is measurably favoured. |
+| `live-dice-check.js` | The same question through the **live animation loop** (tap → tumble → settle) rather than by calling the dice directly, harvesting rolls from `ludoRecap`. Written after noticing the direct-call tests could never have caught a bug in that path. |
+| `capture-check.js` | Where the hard CPU's apparent precision comes from: options per decision, capture conversion, and how often each side lands within enemy reach. |
 | `balance-check.js` | Answers the different question of how *one-sided the results* are: win rate with both seats identical, how often the loser gets 0/4, whether getting out first predicts winning, and what triple-six forfeits cost. |
 | `ludo-harness.html` | The playable harness. Mimics the widget's ~330px game column, with mode/play/reset controls, live rule toggles, a state readout, ring-index overlay, a 0→56 token walk, a dice histogram and CPU-vs-CPU auto-play. |
 
@@ -43,7 +45,7 @@ modal relocates only the `<canvas>`, so a DOM HUD would disappear inside it.
 | `rules-verify.js` | Dice fairness, legal moves, every rule toggle, capture/safe behaviour, dice accumulation, pool spending, safe-square blocks, jumping blocks, match resolution, 400 random self-play games | 121 |
 | `ai-verify.js` | Difficulty tiers, scorer priorities, threat awareness, 600-game head-to-head strength ordering | 36 |
 | `modes-verify.js` | Mode cycling, active colour sets, turn order, CPU seats, reset-on-switch | 38 |
-| `ui-verify.js` | Turn state machine, dice tumble, hop animation, turn clock, scale-aware pointer input, die-choice popover, roll recap, anti-farm guards, XP maths | 126 |
+| `ui-verify.js` | Turn state machine, dice tumble, hop animation, turn clock, scale-aware pointer input, die-choice popover, roll recap, capture warnings, dice audit log, anti-farm guards, XP maths | 143 |
 | `rotation-verify.js` | Board rotation: quadrants land where the setting promises, seats never collide, all 225 cells stay distinct and on-board, legal moves and ring indices are identical at every turn, hit-testing follows | 76 |
 | `render-smoke.js` | `ludoRender()` across every mode and all 57 steps × 4 colours | 10 |
 | `integration-verify.js` | Every wiring point in `AttendanceTimeCheckerPlus.js` — switcher cases, DOM ids, CSS, keyboard, bridges, XP, achievements, leaderboard columns — plus engine parity | 61 |

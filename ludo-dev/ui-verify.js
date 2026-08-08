@@ -540,6 +540,73 @@ head('Roll recap');
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+head('Capture warning');
+{
+    // The warning must agree EXACTLY with the term the hard scorer applies.
+    // If it flagged different squares than the CPU avoids, it would be worse
+    // than useless — it would teach the player the wrong instinct.
+    const L = fresh();
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+
+    // Green sitting 3 back from ring 20; landing there is reachable.
+    const gStep = stepOnRing(L.LUDO_COLORS, 2, 17);
+    L.place(2, 0, gStep);
+    L.place(0, 0, 19);          // 19 -> 20, exposed
+    L.place(0, 1, 30);          // 30 -> 31, out of that token's range
+
+    const moves = L.ludoLegalMoves(0, 1);
+    const risky = moves.filter(m => m.token.i === 0)[0];
+    const safeM = moves.filter(m => m.token.i === 1)[0];
+
+    ok('flags a move that lands within reach', L.ludoMoveIsExposed(risky));
+    ok('does not flag one out of reach', !L.ludoMoveIsExposed(safeM));
+
+    // The scorer's penalty and the warning must fire on exactly the same moves.
+    const penalised = m =>
+        L.ludoScoreMove(0, m, 'normal') - L.ludoScoreMove(0, m, 'hard') > 0;
+    ok('warning matches the hard scorer exactly on the risky move',
+       L.ludoMoveIsExposed(risky) === penalised(risky));
+    ok('warning matches the hard scorer exactly on the safe move',
+       L.ludoMoveIsExposed(safeM) === penalised(safeM));
+}
+{
+    const L = fresh();
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+    // A ★ square cannot be captured on, so it must never be flagged.
+    const gStep = stepOnRing(L.LUDO_COLORS, 2, 5);
+    L.place(2, 0, gStep);
+    L.place(0, 0, 7);           // 7 -> 8, and ring 8 is safe
+    const onStar = L.ludoLegalMoves(0, 1).filter(m => m.token.i === 0)[0];
+    ok('a ★ destination is never flagged', !L.ludoMoveIsExposed(onStar));
+
+    L.place(0, 1, 54);          // 54 -> 56, finishing
+    const finishing = L.ludoLegalMoves(0, 2).filter(m => m.token.i === 1)[0];
+    ok('finishing is never flagged', !L.ludoMoveIsExposed(finishing));
+    ok('a null move is handled', !L.ludoMoveIsExposed(null));
+}
+{
+    const L = fresh({ ludoWarnCapture: false });
+    ok('the setting can be turned off', !L.ludoWarnsCapture());
+    const on = fresh();
+    ok('and defaults to on', on.ludoWarnsCapture());
+}
+{
+    // Warnings are presentation only — they must not alter legality.
+    const sig = warn => {
+        const L = fresh({ ludoWarnCapture: warn });
+        L.ludoSetMode('pvp2');
+        L.ludoResetTokens();
+        L.place(0, 0, 19); L.place(0, 1, 30);
+        L.place(2, 0, stepOnRing(L.LUDO_COLORS, 2, 17));
+        return [1, 2, 3, 4, 5, 6]
+            .map(r => L.ludoLegalMoves(0, r).map(m => m.token.i + '>' + m.to).join(',')).join('|');
+    };
+    ok('legal moves are identical with warnings on and off', sig(true) === sig(false));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 head('Dice audit log');
 {
     // The log exists so the player can audit the die from real play. If it

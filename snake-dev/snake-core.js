@@ -58,6 +58,9 @@
     // the player is actually judging.
     // Four, not one. A single-segment start renders as a dot with a face on it.
     const SNAKE_START_LEN = 4;
+    // Clear cells the spawn tries to leave straight ahead, so the first forward
+    // press is never the one that kills you.
+    const SNAKE_MIN_RUNWAY = 4;
 
     const SNAKE_BIG_FOOD_TICKS  = 45;
     const SNAKE_BIG_FOOD_CHANCE = 0.22;
@@ -213,20 +216,40 @@
     function snakeSpawnBody() {
         const head = snakeSpawnCell();
         const dirs = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
-        let best = { body: [head], dir: dirs[0] };
+        let best = null;
+
         for (let i = 0; i < dirs.length; i++) {
             const d = dirs[i];
+
+            // Trailing body, laid out opposite to the facing.
             const body = [head];
+            const taken = new Set([snakeKey(head.x, head.y)]);
             let cur = head;
             for (let n = 1; n < SNAKE_START_LEN; n++) {
                 const step = snakeStepCell(cur, { x: -d.x, y: -d.y });
-                if (!step.ok) break;
-                if (body.some(s => s.x === step.x && s.y === step.y)) break;
+                if (!step.ok || taken.has(snakeKey(step.x, step.y))) break;
                 cur = { x: step.x, y: step.y };
+                taken.add(snakeKey(cur.x, cur.y));
                 body.push(cur);
             }
-            if (body.length > best.body.length) best = { body, dir: d };
-            if (best.body.length === SNAKE_START_LEN) break;
+
+            // Clear cells straight ahead. Without this the snake could spawn
+            // nose-to-wall on a Levels stage, and the very first forward press
+            // would kill it — the player's only other options being the two
+            // turns, which the same wall layout may also block.
+            let runway = 0, ahead = head;
+            while (runway < SNAKE_MIN_RUNWAY) {
+                const step = snakeStepCell(ahead, d);
+                if (!step.ok || taken.has(snakeKey(step.x, step.y))) break;
+                ahead = { x: step.x, y: step.y };
+                taken.add(snakeKey(ahead.x, ahead.y));
+                runway++;
+            }
+
+            // Runway outranks tail length: a short snake facing open space is
+            // playable, a full-length one facing a brick is not.
+            const score = runway * 100 + body.length;
+            if (!best || score > best.score) best = { body, dir: d, runway, score };
         }
         return best;
     }
@@ -353,12 +376,23 @@
     function handleSnakeKeyPress(e) {
         if (!snakeGameRunning || snakeGamePaused || snakeDying) return;
         const key = e.key;
-        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) e.preventDefault();
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(key) === -1) return;
+        e.preventDefault();
 
-        if (key === 'ArrowUp')         snakeQueueDir({ x: 0,  y: -1 });
-        else if (key === 'ArrowDown')  snakeQueueDir({ x: 0,  y: 1 });
-        else if (key === 'ArrowLeft')  snakeQueueDir({ x: -1, y: 0 });
-        else if (key === 'ArrowRight') snakeQueueDir({ x: 1,  y: 0 });
+        const nd = key === 'ArrowUp'   ? { x: 0,  y: -1 }
+                 : key === 'ArrowDown' ? { x: 0,  y: 1 }
+                 : key === 'ArrowLeft' ? { x: -1, y: 0 }
+                 :                       { x: 1,  y: 0 };
+
+        // Starting the run is NOT the same as queueing a turn. Routing both
+        // through snakeQueueDir meant its no-op guard swallowed the forward key,
+        // so a resting snake could only be started by turning — and on a stage
+        // with a wall directly above and below, both turns were fatal.
+        //
+        // A straight reversal is still not a move, so it starts nothing.
+        const reverse = nd.x === -snakeDir.x && nd.y === -snakeDir.y;
+        if (!reverse) snakeMoving = true;
+        snakeQueueDir(nd);
     }
 
     // rAF already stalls in a hidden tab, but the widget also runs inside a

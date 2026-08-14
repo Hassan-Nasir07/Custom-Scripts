@@ -485,6 +485,75 @@ head('Scoring, storage and stages');
     I.snakeTick();
     ok('and moves once steered',
        I.body[0].x !== head0.x || I.body[0].y !== head0.y);
+
+    // Every spawn must leave room straight ahead. Without it the snake can be
+    // placed nose-to-wall, and on a stage that also walls the two turns there
+    // is no opening key that doesn't kill you.
+    const P = load();
+    P.SNAKE_STAGES.forEach((st, i) => {
+        P.mode = 'levels';
+        P.stageIdx = i;
+        P.resetSnakeGame();
+        let runway = 0, cur = P.body[0];
+        const occupied = new Set(P.body.map(s => P.snakeKey(s.x, s.y)));
+        for (let n = 0; n < 4; n++) {
+            const step = P.snakeStepCell(cur, P.dir);
+            if (!step.ok || occupied.has(P.snakeKey(step.x, step.y))) break;
+            cur = { x: step.x, y: step.y };
+            occupied.add(P.snakeKey(cur.x, cur.y));
+            runway++;
+        }
+        ok('stage ' + (i + 1) + ' spawns with room straight ahead',
+           runway >= 4, runway + ' clear cells');
+    });
+})();
+
+// The forward key has to start the run. Routing "start" through snakeQueueDir
+// meant its no-op guard swallowed it, so only the two turns could begin a run —
+// and a stage walled above and below made both of those fatal.
+(function openingKeyChecks() {
+    const press = key => ({ key, preventDefault() {} });
+    const dirKey = d => d.x === 1 ? 'ArrowRight' : d.x === -1 ? 'ArrowLeft'
+                      : d.y === 1 ? 'ArrowDown'  : 'ArrowUp';
+    const opposite = d => ({ x: -d.x, y: -d.y });
+
+    const G = load();
+    G.snakeSetMode('endless');
+    G.running = true;
+    const facing = { ...G.dir };
+    const head0 = { ...G.body[0] };
+    G.handleSnakeKeyPress(press(dirKey(facing)));
+    ok('the forward key starts the run', G.moving === true);
+    G.snakeTick();
+    ok('and the snake actually moves forward',
+       G.body[0].x === head0.x + facing.x && G.body[0].y === head0.y + facing.y);
+
+    // A straight reversal is not a move, so it must not start anything either.
+    const H = load();
+    H.snakeSetMode('endless');
+    H.running = true;
+    H.handleSnakeKeyPress(press(dirKey(opposite(H.dir))));
+    ok('the reverse key does not start the run', H.moving === false);
+    const hHead = { ...H.body[0] };
+    H.snakeTick();
+    ok('and the snake stays put', H.body[0].x === hHead.x && H.body[0].y === hHead.y);
+
+    // Both perpendicular turns still work as openings.
+    ['left', 'right'].forEach((side, i) => {
+        const T = load();
+        T.snakeSetMode('endless');
+        T.running = true;
+        const perp = i === 0 ? { x: T.dir.y, y: -T.dir.x } : { x: -T.dir.y, y: T.dir.x };
+        T.handleSnakeKeyPress(press(dirKey(perp)));
+        ok('turning ' + side + ' also starts the run', T.moving === true);
+    });
+
+    // Keys that aren't arrows must not start it.
+    const N = load();
+    N.snakeSetMode('endless');
+    N.running = true;
+    N.handleSnakeKeyPress(press('a'));
+    ok('a non-arrow key does not start the run', N.moving === false);
 })();
 
 (function stageChecks() {

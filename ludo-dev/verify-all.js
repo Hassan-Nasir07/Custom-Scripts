@@ -14,6 +14,9 @@ const SUITES = [
     // than the engine, so they only mean anything once the block is inserted.
     ['Integration',    'integration-verify.js'],
     ['Host smoke',     'host-smoke.js'],
+    // Snake ships as its own module pair under snake-dev/ with the same
+    // reinsert + byte-identity contract, so its suite runs from here too.
+    ['Snake',          '../snake-dev/snake-verify.js'],
 ];
 
 const results = [];

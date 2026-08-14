@@ -15,7 +15,7 @@
     //   3. Compute the new token (see comment in sync.yml) and rotate the
     //      BUILD_TOKEN_CURRENT / BUILD_TOKEN_PREVIOUS repo secrets.
     const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
-    const BUILD_LABEL = 'v2';
+    const BUILD_LABEL = 'v3';
     // ──────────────────────────────────────────────────────────────
 
     // Ordinal parse of a 'v<N>' label. Returns null for anything that doesn't fit
@@ -70,23 +70,10 @@
     // which would overwrite saved data with default values and reset progress to Level 1.
     let xpSystemReady = false;
     
-    // SNAKE GAME VARIABLES
-    let snakeCanvas, snakeCtx;
-    let snake = [{x: 10, y: 10}];
-    let food = {x: 15, y: 15};
-    let direction = {x: 0, y: 0};
-    let nextDirection = {x: 0, y: 0};
-    let snakeScore = 0;
-    let snakeHighScore = 0;
-    let snakeAnimFrame = null;     // rAF handle for smooth render
-    let snakeLastTickMs = 0;        // timestamp of last render frame
-    let snakeAccumulatorMs = 0;
-    let snakePrevSnap = [];         // segment grid positions before last tick
-    let snakeTickInterval = 300;    // ms — matches setInterval, updated on score
-    let snakeGameRunning = false;
-    let snakeGamePaused = false;
-    const snakeGridSize = 20;
-    const snakeCellSize = 2; // 2px per cell for smooth growth
+    // Snake's state, storage helpers and render timestamp all live in the
+    // SNAKE ENGINE block below, so the copy there stays byte-identical to
+    // snake-dev/. Nothing outside that block reads them before initSnakeGame()
+    // runs, which is the first thing the featuresInitialized bootstrap does.
     
     // MULTI-GAME SYSTEM VARIABLES
     let currentGame = 'snake'; // 'snake' | 'reflex' | 'aim'
@@ -284,6 +271,15 @@
         gamer:        { icon: '🎮', name: 'Office Gamer',      desc: 'Earn XP in 50 game sessions' },
         gamer50:      { icon: '🕹️', name: 'Game Addict',       desc: 'Earn XP in 100 game sessions' },
         snakeCharmer: { icon: '🐍', name: 'Snake Charmer',     desc: 'Score 40+ in Snake' },
+        // Snake v2. The first two also unlock skins, so retiring or renaming a
+        // key here makes the matching skin permanently unobtainable —
+        // snake-verify.js asserts every SNAKE_SKINS.unlock still resolves.
+        snakeEndless:   { icon: '♾️', name: 'Round Trip',    desc: 'Score 40+ in Endless mode' },
+        snakeWalled:    { icon: '🧱', name: 'Wallflower',    desc: 'Score 40+ in Walled mode' },
+        snakeGourmand:  { icon: '🍯', name: 'Gourmand',      desc: 'Eat 10 golden bites in one run' },
+        snakeCampaign:  { icon: '🗺️', name: 'Pathfinder',    desc: 'Clear stage 6 in Levels mode' },
+        snakeConqueror: { icon: '👑', name: 'Grand Serpent', desc: 'Clear all 12 stages in one run' },
+        snakeLong:      { icon: '📏', name: 'Long Boy',      desc: 'Reach a length of 60 segments' },
         flapMaster:   { icon: '🐦', name: 'Sky Captain',       desc: 'Clear 50+ pipes in Flappy' },
         tetrisMaster: { icon: '🧱', name: 'Block Master',      desc: 'Clear 50+ lines in one Tetris run' },
         sharpshooter: { icon: '🎯', name: 'Sharpshooter',      desc: 'Hit 95%+ accuracy with 600+ score in Aim' },
@@ -387,7 +383,6 @@
     let poolLastLogicMs = 0;
     let poolAccumulator = 0;
     let tetrisLastFrameMs = 0;
-    let snakeLastRenderMs = 0;
     
     // Load saved preferences
     function loadPreferences() {
@@ -405,16 +400,6 @@
     // ====================================
     // LOCALSTORAGE MANAGEMENT
     // ====================================
-    
-    // Snake Game Storage
-    function loadSnakeHighScore() {
-        const saved = localStorage.getItem('snakeHighScore');
-        return saved ? parseInt(saved) : 0;
-    }
-    
-    function saveSnakeHighScore(score) {
-        localStorage.setItem('snakeHighScore', score.toString());
-    }
     
     // Quotes Storage  
     function loadQuotes() {
@@ -577,6 +562,25 @@
     }
     function savePoolHighScore(score) {
         localStorage.setItem('poolGamesWon', score.toString());
+    }
+    // poolGamesWon counts every P1 win in BOTH modes, so on its own it can't
+    // say whether a win came against the CPU or the other half of a hot seat.
+    // Seeded once with the legacy total in the cpu bucket, since that is what
+    // the number has mostly meant.
+    function loadPoolWinsByMode() {
+        let rec = null;
+        try { rec = JSON.parse(localStorage.getItem('poolWinsByMode') || 'null'); } catch (_) {}
+        if (!rec || typeof rec !== 'object') {
+            rec = { cpu: parseInt(localStorage.getItem('poolGamesWon') || '0', 10) || 0, pvp: 0 };
+            localStorage.setItem('poolWinsByMode', JSON.stringify(rec));
+        }
+        return { cpu: parseInt(rec.cpu, 10) || 0, pvp: parseInt(rec.pvp, 10) || 0 };
+    }
+    function savePoolWinByMode(mode) {
+        const rec = loadPoolWinsByMode();
+        const key = mode === 'pvp' ? 'pvp' : 'cpu';
+        rec[key]++;
+        localStorage.setItem('poolWinsByMode', JSON.stringify(rec));
     }
     function loadPoolRecord() {
         const saved = localStorage.getItem('poolRecord');
@@ -800,6 +804,50 @@
         };
     }
 
+    // Per-game-mode bests, keyed "<game>:<mode>". This is a NEW field rather
+    // than a reshape of gameBests: older clients still in the wild send
+    // gameBests.snake as a scalar, and turning that field into an object is
+    // exactly what would let the only-raise merge silently mangle it. The
+    // leaderboard falls back to gameBests for anyone who hasn't synced this
+    // build yet, so the boards aren't empty on day one.
+    //
+    // sync.yml's validatePlayer() does not whitelist fields, so this round-trips
+    // with no workflow change — and, equally, with no server validation.
+    function collectGameModeBests() {
+        const out = {};
+        const put = (k, v) => { const n = parseInt(v, 10) || 0; if (n > 0) out[k] = n; };
+
+        let snakeModes = {};
+        try { snakeModes = JSON.parse(localStorage.getItem('snakeHighScores') || '{}') || {}; } catch (_) {}
+        put('snake:endless', snakeModes.endless);
+        put('snake:walled',  snakeModes.walled);
+        put('snake:levels',  snakeModes.levels);
+        put('snake:levelsStage', localStorage.getItem('snakeLevelsBest'));
+
+        let reflex = {};
+        try { reflex = JSON.parse(localStorage.getItem('reflexHighScores') || '{}') || {}; } catch (_) {}
+        ['screen', 'target'].forEach(m => {
+            const best = reflex[m] && reflex[m].best;
+            if (typeof best === 'number' && isFinite(best) && best > 0) out['reflex:' + m] = best;
+        });
+
+        // Via the loader, not localStorage directly: poolWinsByMode is only
+        // written once Pool has been opened, so reading the raw key would omit
+        // pool:cpu for anyone who upgraded and synced without touching Pool —
+        // and since lbBoardValue treats a present gameModeBests as
+        // authoritative, they would vanish from the Pool board entirely rather
+        // than falling back to gameBests.pool.
+        const poolModes = loadPoolWinsByMode();
+        put('pool:cpu', poolModes.cpu);
+        put('pool:pvp', poolModes.pvp);
+
+        // Ludo is CPU-only by construction: ludoSaveWins is called under
+        // `if (vsCPU)`, so hot-seat wins have never been recorded anywhere.
+        put('ludo:cpu', localStorage.getItem('ludoGamesWon'));
+
+        return out;
+    }
+
     // Build a complete restorable snapshot. A wiped client can fully rehydrate from this single record.
     function buildPlayerSnapshot() {
         return {
@@ -821,6 +869,11 @@
             achievements: Array.isArray(userXP.achievements) ? userXP.achievements.slice() : [],
             milestonesReached: Array.isArray(userXP.milestonesReached) ? userXP.milestonesReached.slice() : [],
             gameBests: collectGameBests(),
+            gameModeBests: collectGameModeBests(),
+            // Which scoring rules these numbers were set under. Without a stamp,
+            // a later rule change silently makes old and new scores incomparable
+            // and nothing records which is which.
+            rulesetVersion: { snake: parseInt(localStorage.getItem('snakeRulesetVer') || '1', 10) || 1 },
             // Pool extended record (W/L/win-rate)
             poolRecord: JSON.parse(localStorage.getItem('poolRecord') || 'null') || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 },
             // Ludo W/L vs CPU — also what drives the adaptive difficulty tier,
@@ -1034,6 +1087,12 @@
         raise('ludoGamesWon',       gb.ludo);
         raise('aimChaosHighScore',  gb.aim);
 
+        // Per-mode bests. Only-raise like everything else above, and gated on
+        // the same per-mode invalidation flags the engine uses — otherwise one
+        // bad score in the gist would re-infect every clean client forever,
+        // which is the hole REFLEX_RESET_FLAG had to be retrofitted to close.
+        applySnakeModeBests(rec.gameModeBests);
+
         // Reflex — merge from gameBests.reflex (legacy) AND rec.reflexHighScores (new full blob)
         // GUARD: If the reset flag is set, skip reflex restoration entirely to prevent
         // the gist from re-infecting localStorage with pre-patch exploited scores.
@@ -1129,6 +1188,44 @@
         }
 
         return true;
+    }
+
+    // Merge a cloud record's gameModeBests into localStorage, raising only.
+    // Split out of applyPlayerRecordToLocal because the snake half needs the
+    // invalidation gate and the pool half does not.
+    function applySnakeModeBests(gmb) {
+        if (!gmb || typeof gmb !== 'object') return;
+
+        let local = { endless: 0, walled: 0, levels: 0 };
+        try {
+            const parsed = JSON.parse(localStorage.getItem('snakeHighScores') || 'null');
+            if (parsed && typeof parsed === 'object') local = { ...local, ...parsed };
+        } catch (_) {}
+
+        let changed = false;
+        ['endless', 'walled', 'levels'].forEach(mode => {
+            // snakeModeInvalidated lives in the SNAKE ENGINE block. Guarded so a
+            // restore triggered before initSnakeGame() can't throw.
+            const blocked = (typeof snakeModeInvalidated === 'function') && snakeModeInvalidated(mode);
+            if (blocked) return;
+            const v = parseInt(gmb['snake:' + mode], 10) || 0;
+            if (v > (local[mode] || 0)) { local[mode] = v; changed = true; }
+        });
+        if (changed) localStorage.setItem('snakeHighScores', JSON.stringify(local));
+
+        const stage = parseInt(gmb['snake:levelsStage'], 10) || 0;
+        if (stage > (parseInt(localStorage.getItem('snakeLevelsBest') || '0', 10) || 0)) {
+            localStorage.setItem('snakeLevelsBest', String(stage));
+        }
+
+        let pool = {};
+        try { pool = JSON.parse(localStorage.getItem('poolWinsByMode') || '{}') || {}; } catch (_) {}
+        let poolChanged = false;
+        ['cpu', 'pvp'].forEach(m => {
+            const v = parseInt(gmb['pool:' + m], 10) || 0;
+            if (v > (parseInt(pool[m], 10) || 0)) { pool[m] = v; poolChanged = true; }
+        });
+        if (poolChanged) localStorage.setItem('poolWinsByMode', JSON.stringify(pool));
     }
 
     // Restore the current client's progress from the gist.
@@ -1333,9 +1430,8 @@
             const rank = i + 1;
             const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
             const isMe = p.clientId === lbClientId;
-            const gb = p.gameBests || {};
-            const fmt = v => (v && v > 0) ? v.toLocaleString() : '—';
-            const fmtMs = v => (v && v > 0) ? v + 'ms' : '—';
+            // Game scores moved to the per-game boards below — this table is
+            // now identity and progression only, which is what fits the panel.
             // Achievement count — earned/total, same figures as the "View All" button.
             // Only keys still present in ACHIEVEMENTS count, so a retired/renamed key
             // synced from an older client build can't inflate the total.
@@ -1351,14 +1447,6 @@
                 <td class="lb-name" title="${nameAttr}">${nameHtml}${isMe ? ' <span class="lb-you">You</span>' : ''}</td>
                 <td class="lb-level"><span class="lb-level-pill">Lv.${p.level}</span></td>
                 <td class="lb-xp">${(p.totalXP || 0).toLocaleString()}${achBadge}</td>
-                <td class="lb-score">${fmt(gb.breakout)}</td>
-                <td class="lb-score">${fmt(gb.pool)}</td>
-                <td class="lb-score">${fmt(gb.ludo)}</td>
-                <td class="lb-score">${fmt(gb.tetris)}</td>
-                <td class="lb-score">${fmt(gb.snake)}</td>
-                <td class="lb-score">${fmt(gb.flappy)}</td>
-                <td class="lb-score">${fmt(gb.aim)}</td>
-                <td class="lb-score">${fmtMs(gb.reflex)}</td>
             </tr>`;
         });
 
@@ -1371,19 +1459,209 @@
                         <th class="lb-name">Player</th>
                         <th>Lv.</th>
                         <th>XP</th>
-                        <th title="Breakout">🏓</th>
-                        <th title="Pool">🎱</th>
-                        <th title="Ludo">🎲</th>
-                        <th title="Tetris">🧱</th>
-                        <th title="Snake">🐍</th>
-                        <th title="Flappy">🐦</th>
-                        <th title="Aim Trainer">💥</th>
-                        <th title="Reflex">⚡</th>
                     </tr></thead>
-                    <tbody>${rows || '<tr><td colspan="12" class="lb-empty">No players yet</td></tr>'}</tbody>
+                    <tbody>${rows || '<tr><td colspan="4" class="lb-empty">No players yet</td></tr>'}</tbody>
                 </table>
             </div>
             <div class="lb-footer">Last updated: ${lastSync}</div>`;
+    }
+
+    // ── Per-game boards ────────────────────────────────────────────────
+    // The old table carried eight emoji columns of numbers that were not
+    // comparable with each other — a high score, two win counts and a
+    // milliseconds-lower-is-better — squeezed into a ~340px panel. One board at
+    // a time, with its own unit and its own sort direction, is both narrower
+    // and honest.
+    const LB_BOARDS = {
+        snake:    { icon: '🐍', label: 'Snake',    unit: 'pts',
+                    modes: { endless: 'Endless', walled: 'Walled', levels: 'Levels' } },
+        tetris:   { icon: '🧱', label: 'Tetris',   unit: 'pts' },
+        breakout: { icon: '🏓', label: 'Breakout', unit: 'pts' },
+        flappy:   { icon: '🐦', label: 'Flappy',   unit: 'pipes' },
+        aim:      { icon: '💥', label: 'Aim',      unit: 'pts' },
+        reflex:   { icon: '⚡', label: 'RefleX',   unit: 'ms', lowerIsBetter: true,
+                    modes: { screen: 'Screen', target: 'Target' } },
+        pool:     { icon: '🎱', label: 'Pool',     unit: 'wins',
+                    modes: { cpu: 'vs CPU', pvp: 'Hot-seat' } },
+        // Ludo is single-mode on purpose: ludoSaveWins runs only under
+        // `if (vsCPU)`, so hot-seat wins have never been recorded at all.
+        ludo:     { icon: '🎲', label: 'Ludo',     unit: 'wins' }
+    };
+
+    // A player who hasn't run this build has no gameModeBests. Fall back to the
+    // legacy scalar for each game's primary mode so the boards aren't empty on
+    // day one, and show nothing for the modes it can't speak to.
+    const LB_PRIMARY_MODE = { snake: 'walled', reflex: 'screen', pool: 'cpu', ludo: 'cpu' };
+
+    function lbBoardValue(player, game, mode) {
+        const primary = LB_PRIMARY_MODE[game];
+        const gb = player.gameBests || {};
+
+        // Games with no mode dimension at all only ever live in gameBests.
+        if (!mode && !primary) return parseInt(gb[game], 10) || 0;
+
+        const gmb = player.gameModeBests;
+        // A record that carries gameModeBests is authoritative for every mode of
+        // that game. Falling back per-mode would print one mode's score under
+        // another's heading — a v2 player who has only played Levels would show
+        // their Levels score under Walled, because the legacy scalar is the max
+        // across modes.
+        if (gmb && typeof gmb === 'object') {
+            return parseInt(gmb[game + ':' + (mode || primary)], 10) || 0;
+        }
+
+        // Pre-v2 record: the legacy scalar only speaks for the primary mode.
+        if (mode && primary && mode !== primary) return 0;
+        return parseInt(gb[game], 10) || 0;
+    }
+
+    // The ranked table for one game+mode. Shared verbatim with the in-game
+    // overlay the Snake panel opens, so the two can never disagree about
+    // ranking, units or who is in first.
+    function lbBoardRowsHtml(game, mode) {
+        const cfg = LB_BOARDS[game];
+        if (!cfg) return '';
+
+        const ranked = leaderboardData
+            .map(p => ({ p, v: lbBoardValue(p, game, mode) }))
+            .filter(r => r.v > 0)
+            .sort((a, b) => cfg.lowerIsBetter ? a.v - b.v : b.v - a.v);
+
+        const rows = ranked.map((r, i) => {
+            const rank = i + 1;
+            const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+            const isMe = r.p.clientId === lbClientId;
+            const nameHtml = escapeHtml(r.p.displayName);
+            const nameAttr = nameHtml.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            // Snake's campaign is scored on two axes — the stage reached sits
+            // alongside the score, not instead of it.
+            let extra = '';
+            if (game === 'snake' && mode === 'levels') {
+                const stage = lbBoardValue(r.p, 'snake', 'levelsStage');
+                if (stage > 0) extra = ` <span class="lb-board-extra">· Stage ${stage}</span>`;
+            }
+            return `<tr class="${isMe ? 'lb-row-me' : ''}">
+                <td class="lb-rank">${medal}</td>
+                <td class="lb-name" title="${nameAttr}">${nameHtml}${isMe ? ' <span class="lb-you">You</span>' : ''}</td>
+                <td class="lb-score lb-board-value">${r.v.toLocaleString()} <span class="lb-board-unit">${cfg.unit}</span>${extra}</td>
+            </tr>`;
+        }).join('');
+
+        return `<table class="lb-table lb-board-table">
+                    <tbody>${rows || '<tr><td colspan="3" class="lb-empty">No scores yet</td></tr>'}</tbody>
+                </table>`;
+    }
+
+    // ── Per-game leaderboards, shown over the game itself ──────────────
+    // These used to be a section appended under the Leaderboard panel, which
+    // stretched the whole widget taller than the games it sat beside. Each game
+    // now carries its own scoreboard button that opens this overlay on top of
+    // its board, so the ranking is one tap from the thing being ranked and
+    // costs no layout at all.
+    //
+    // One overlay element serves every panel — they all live inside
+    // .snake-game-container, and only one game is ever visible.
+    let gameLbOpen = null;
+
+    // Which board a game is currently showing. Reads live game state so the
+    // overlay always matches the mode being played, rather than a remembered
+    // preference that may have drifted from it.
+    function gameLbMode(game) {
+        const cfg = LB_BOARDS[game];
+        if (!cfg || !cfg.modes) return null;
+        try {
+            if (game === 'snake')  return snakeMode;
+            if (game === 'reflex') return reflexMode;
+            if (game === 'pool')   return poolMode === 'pvp' ? 'pvp' : 'cpu';
+        } catch (_) {}
+        return Object.keys(cfg.modes)[0];
+    }
+
+    function renderGameLeaderboard(game) {
+        const box = document.getElementById('game-lb-overlay');
+        const cfg = LB_BOARDS[game];
+        if (!box || !cfg) return;
+        const mode = gameLbMode(game);
+        const modeLabel = mode && cfg.modes ? ' · ' + cfg.modes[mode] : '';
+        box.innerHTML =
+            '<div class="game-lb-head">' +
+                '<span>🏆 ' + cfg.icon + ' ' + escapeHtml(cfg.label + modeLabel) + '</span>' +
+                (cfg.lowerIsBetter ? '<span class="game-lb-note">lower is better</span>' : '') +
+                '<button class="game-lb-close" onclick="window.closeGameLeaderboard()">✕</button>' +
+            '</div>' +
+            '<div class="game-lb-body">' + lbBoardRowsHtml(game, mode) + '</div>';
+    }
+
+    function toggleGameLeaderboard(game, force) {
+        const box = document.getElementById('game-lb-overlay');
+        if (!box || !LB_BOARDS[game]) return;
+        const show = (typeof force === 'boolean') ? force : gameLbOpen !== game;
+        gameLbOpen = show ? game : null;
+        box.style.display = show ? 'flex' : 'none';
+        if (!show) return;
+
+        // Snake's skin tray shares this corner of the panel.
+        if (typeof toggleSnakeSkinTray === 'function') toggleSnakeSkinTray(false);
+        renderGameLeaderboard(game);
+
+        // The Leaderboard panel may never have been opened, in which case there
+        // is nothing cached to rank. Fetch once, then re-render in place.
+        if (!leaderboardData.length) {
+            const body = box.querySelector('.game-lb-body');
+            if (body) body.innerHTML = '<div class="game-lb-empty">Loading scores…</div>';
+            fetchLeaderboard()
+                .then(() => { if (gameLbOpen === game) renderGameLeaderboard(game); })
+                .catch(() => { if (gameLbOpen === game) renderGameLeaderboard(game); });
+        }
+    }
+
+    // Called by each game's score-display function so an open overlay tracks
+    // mode switches and new records without the player reopening it.
+    function refreshGameLeaderboard(game) {
+        if (gameLbOpen === game) renderGameLeaderboard(game);
+    }
+
+    // Pool and Ludo are ranked on career wins rather than a per-run score, so
+    // they have no update*ScoreDisplay that fires as the number changes. Ludo's
+    // scoreboard function also lives inside the byte-identical engine block and
+    // can't be edited, so both are refreshed from here instead — on panel entry
+    // and at the end of a match, which is the only time a win count moves.
+    function refreshGameScoreBtn(game) {
+        try {
+            if (game === 'ludo') {
+                updateGameScoreBtn('ludo', null, ludoLoadWins());
+            } else if (game === 'pool') {
+                const byMode = loadPoolWinsByMode();
+                updateGameScoreBtn('pool', null, poolMode === 'pvp' ? byMode.pvp : byMode.cpu);
+            }
+        } catch (_) {}
+    }
+
+    // Fills a game's scoreboard button. `cur` is the live figure, `best` the one
+    // to beat; either may be null for games where it doesn't apply. `suffix` is
+    // glued to both numbers for games whose figure is meaningless bare (RefleX
+    // milliseconds).
+    function updateGameScoreBtn(game, cur, best, suffix) {
+        const btn = document.getElementById(game + '-lb-btn');
+        if (!btn) return;
+        const cfg = LB_BOARDS[game] || {};
+        const sfx = suffix || '';
+        const fmt = v => (v === null || v === undefined || v === '' ||
+                          v === Infinity || v < 0)
+            ? '—' : Number(v).toLocaleString() + sfx;
+        const curEl  = btn.querySelector('.gsb-score');
+        const bestEl = btn.querySelector('.gsb-best');
+        if (curEl)  curEl.textContent  = fmt(cur);
+        if (bestEl) bestEl.textContent = fmt(best);
+        btn.title = (cur === null || cur === undefined ? '' : 'Now ' + fmt(cur) + ' · ') +
+                    'Best ' + fmt(best) + ' ' + (cfg.unit || '') +
+                    ' — open the ' + (cfg.label || game) + ' leaderboard';
+        // Lower-is-better games beat their record by going down.
+        const beat = (cur !== null && cur !== undefined && best !== null && best > 0)
+            ? (cfg.lowerIsBetter ? cur > 0 && cur <= best : cur >= best)
+            : false;
+        btn.classList.toggle('is-record', !!beat);
+        refreshGameLeaderboard(game);
     }
 
     function escapeHtml(str) {
@@ -2284,14 +2562,11 @@
     }
 
     function updateBreakoutScoreboard() {
-        const sc = document.getElementById('breakout-score');
-        const hs = document.getElementById('breakout-hiscore');
         const lv = document.getElementById('breakout-level');
         const li = document.getElementById('breakout-lives');
-        if (sc) sc.textContent = breakoutScore;
-        if (hs) hs.textContent = breakoutHighScore;
         if (lv) lv.textContent = breakoutLevel;
         if (li) li.textContent = '❤️'.repeat(Math.max(0, breakoutLives));
+        updateGameScoreBtn('breakout', breakoutScore, breakoutHighScore);
     }
 
     function handleBreakoutMouseMove(e) {
@@ -4352,6 +4627,7 @@
         if (!poolCanvas) return;
         poolCtx = poolCanvas.getContext('2d');
         poolGamesWon = loadPoolHighScore();
+        loadPoolWinsByMode();   // seeds the per-mode split on first run
         poolRecord = loadPoolRecord();
         poolPockets = poolGetPockets();
         resetPoolGame();
@@ -4489,6 +4765,7 @@
         if (poolWinner === 1) {
             poolGamesWon++;
             savePoolHighScore(poolGamesWon);
+            savePoolWinByMode(poolMode);
             poolRecord.p1Wins++;
             poolRecord.p2Losses++;
             savePoolRecord(poolRecord);
@@ -4510,6 +4787,10 @@
         const turn = document.getElementById('pool-turn-label');
         if (p1) p1.textContent = poolPlayer1Pocketed.length;
         if (p2) p2.textContent = poolPlayer2Pocketed.length;
+        // The button shows wins in the mode being played, which is what the
+        // Pool board ranks — the balls-pocketed figures beside it are per-frame.
+        const byMode = loadPoolWinsByMode();
+        updateGameScoreBtn('pool', null, poolMode === 'pvp' ? byMode.pvp : byMode.cpu);
         if (turn) {
             if (poolGameOver) {
                 const w = poolWinner === 1 ? 'P1 Wins!' : (poolMode === 'cpu' ? 'CPU Wins!' : 'P2 Wins!');
@@ -4670,322 +4951,1541 @@
         drawPoolFrame();
     }
 
-    // SNAKE GAME LOGIC
-    
-    function initSnakeGame() {
-        snakeCanvas = document.getElementById('snake-canvas');
-        if (!snakeCanvas) return;
-        
-        snakeCtx = snakeCanvas.getContext('2d');
-        snakeHighScore = loadSnakeHighScore();
-        updateSnakeScoreDisplay();
-        
-        // Keyboard controls
-        document.addEventListener('keydown', handleSnakeKeyPress);
-        
-        // Reset game
+    // ═══ SNAKE ENGINE — generated from snake-dev/, do not edit here ═══
+    // ═══════════════════════════════════════════════════════════════════
+    // SNAKE GAME — CORE
+    // ═══════════════════════════════════════════════════════════════════
+    // 20×20 grid on a 368×368 canvas. Three modes share one engine and differ
+    // only in their edge rule and obstacle set, so nothing below branches on
+    // the mode name except snakeApplyRules().
+    //
+    // The render loop (snake-ui.js) is unchanged in shape from v1: a fixed
+    // logic tick with an accumulator, interpolated between ticks from
+    // snakePrevSnap, capped at userPreferences.gameFps. That foundation was
+    // already right; what v1 got wrong was the collision code, which could
+    // not carry a visible wall (see snakeStepCell).
+
+    // ── State ──────────────────────────────────────────────────────────
+    let snakeCanvas, snakeCtx;
+    let snakeBody      = [{ x: 10, y: 10 }];
+    let snakeFood      = { x: 15, y: 15 };
+    let snakeBigFood   = null;      // { x, y, bornMs, ttlMs } — the timed golden bite
+    let snakeDir       = { x: 0, y: 0 };
+    let snakeDirQueue  = [];        // up to 2 buffered turns, see snakeQueueDir
+    let snakeScore     = 0;
+    let snakeHighScore = 0;         // best across all modes (the legacy key)
+    let snakeAnimFrame = null;
+    let snakeLastTickMs   = 0;
+    let snakeLastRenderMs = 0;
+    let snakeAccumulatorMs = 0;
+    let snakePrevSnap  = [];        // segment positions before the last tick
+    let snakeTickInterval = 300;
+    let snakeGameRunning = false;
+    let snakeGamePaused  = false;
+    let snakeMoving      = false;   // set by the first arrow press of a run
+    let snakeRestartTimer = null;   // v1 leaked this one; cleanup clears it now
+
+    let snakePendingGrowth = 0;     // segments still owed — a golden bite owes 3
+    let snakeBulges    = [];        // [{ pos, size }] swallowed lumps travelling tailward
+    let snakeDying     = false;
+    let snakeDeathT    = 0;
+    let snakeDeathCell = null;      // where it went wrong, for the red flash
+    let snakeSkinTime  = 0;         // seconds, drives the legendary hue flow
+    let snakeBannerT   = 0;
+    let snakeBannerText = '';
+
+    let snakeMode      = 'walled';
+    let snakeStageIdx  = 0;
+    let snakeStageEaten = 0;        // food eaten toward the current stage goal
+    let snakeStagesCleared = 0;     // this run
+    let snakeBigEaten  = 0;         // golden bites this run
+    let snakeMaxLength = 1;         // longest the body got this run
+    let snakeWrap      = { left: false, right: false, top: false, bottom: false };
+    let snakeWalls     = new Set(); // "x,y" interior obstacles
+
+    const snakeGridSize = 20;
+
+    // ── Tuning ─────────────────────────────────────────────────────────
+    // The golden bite's lifetime is measured in MOVES, not seconds. Wall-clock
+    // TTL would make it strictly harder as the snake speeds up; a fixed move
+    // count means the window is always the same distance, which is the thing
+    // the player is actually judging.
+    // Four, not one. A single-segment start renders as a dot with a face on it.
+    const SNAKE_START_LEN = 4;
+
+    const SNAKE_BIG_FOOD_TICKS  = 45;
+    const SNAKE_BIG_FOOD_CHANCE = 0.22;
+    const SNAKE_BIG_FOOD_VALUE  = 3;   // points AND segments
+    const SNAKE_BIG_MIN_GAP     = 3;   // normal foods between golden bites
+
+    const SNAKE_DEATH_MS   = 1400;     // blink 0-900, fade 900-1400
+    const SNAKE_BLINK_MS   = 900;
+    const SNAKE_RESTART_MS = 1600;     // after the animation finishes
+    const SNAKE_BANNER_MS  = 1300;
+
+    // Bumped whenever a scoring rule changes. Stamped into every synced record
+    // so a later reader can tell which ruleset a score was set under — without
+    // it, a rule change silently makes old and new scores incomparable.
+    const SNAKE_RULESET_VERSION = 2;
+
+    let snakeFoodsSinceBig = 0;
+
+    // ── Modes ──────────────────────────────────────────────────────────
+    const SNAKE_MODES = ['endless', 'walled', 'levels'];
+    const SNAKE_MODE_META = {
+        endless: { icon: '♾️', label: 'Endless', desc: 'Edges wrap around' },
+        walled:  { icon: '🧱', label: 'Walled',  desc: 'Walls are lethal' },
+        levels:  { icon: '🎯', label: 'Levels',  desc: '12 designed stages' }
+    };
+
+    // 'all' | 'lr' | 'tb' | 'none' → which edges teleport rather than kill.
+    function snakeWrapFlags(spec) {
+        return {
+            left:   spec === 'all' || spec === 'lr',
+            right:  spec === 'all' || spec === 'lr',
+            top:    spec === 'all' || spec === 'tb',
+            bottom: spec === 'all' || spec === 'tb'
+        };
+    }
+
+    // ── Stages ─────────────────────────────────────────────────────────
+    // Authored as wall RUNS rather than 20×20 ASCII art: twelve literal grids
+    // would be 240 lines of characters nobody can diff or edit in place.
+    //   ['h', y, x0, x1]  horizontal run, inclusive
+    //   ['v', x, y0, y1]  vertical run, inclusive
+    // Every stage is flood-filled at load and by snake-verify.js, so an
+    // unwinnable layout is caught at author time rather than by a player.
+    const SNAKE_STAGES = [
+        { name: 'Open Road', goal: 5,  wrap: 'all',  walls: [] },
+        { name: 'The Gate',  goal: 6,  wrap: 'lr',   walls: [['v', 10, 0, 7], ['v', 10, 12, 19]] },
+        { name: 'Crossroads', goal: 7, wrap: 'lr',   walls: [['h', 10, 1, 7], ['h', 10, 12, 18],
+                                                             ['v', 10, 1, 7], ['v', 10, 12, 18]] },
+        { name: 'Pillars',   goal: 7,  wrap: 'all',  walls: [['v', 5, 4, 8],  ['v', 14, 4, 8],
+                                                             ['v', 5, 11, 15], ['v', 14, 11, 15]] },
+        { name: 'Corridor',  goal: 8,  wrap: 'tb',   walls: [['h', 6, 1, 18], ['h', 13, 1, 18]] },
+        { name: 'Chambers',  goal: 8,  wrap: 'none', walls: [['v', 9, 0, 7],  ['v', 9, 12, 19],
+                                                             ['h', 9, 0, 7],  ['h', 9, 12, 19]] },
+        { name: 'Zigzag',    goal: 9,  wrap: 'lr',   walls: [['h', 4, 0, 13], ['h', 9, 6, 19],
+                                                             ['h', 14, 0, 13]] },
+        { name: 'The Combs', goal: 9,  wrap: 'tb',   walls: [['v', 3, 0, 12], ['v', 8, 7, 19],
+                                                             ['v', 13, 0, 12], ['v', 17, 7, 19]] },
+        { name: 'Diamond',   goal: 10, wrap: 'all',  walls: [['h', 5, 7, 12], ['h', 14, 7, 12],
+                                                             ['v', 6, 7, 12], ['v', 13, 7, 12]] },
+        { name: 'The Lattice', goal: 10, wrap: 'lr', walls: [['h', 3, 2, 6],  ['h', 3, 13, 17],
+                                                             ['h', 9, 2, 6],  ['h', 9, 13, 17],
+                                                             ['h', 15, 2, 6], ['h', 15, 13, 17]] },
+        { name: 'Bottleneck', goal: 11, wrap: 'tb',  walls: [['v', 6, 0, 8],  ['v', 6, 11, 19],
+                                                             ['v', 13, 0, 8], ['v', 13, 11, 19]] },
+        // The four gaps at x/y 9-10 are load-bearing: a closed box seals its own
+        // interior, and food spawning inside an unreachable pocket makes the
+        // stage silently unwinnable. snake-verify.js flood-fills for exactly this.
+        { name: 'The Vault', goal: 12, wrap: 'none', walls: [['h', 4, 4, 8],  ['h', 4, 11, 15],
+                                                             ['h', 15, 4, 8], ['h', 15, 11, 15],
+                                                             ['v', 4, 5, 8],  ['v', 4, 11, 14],
+                                                             ['v', 15, 5, 8], ['v', 15, 11, 14],
+                                                             ['h', 9, 8, 11], ['h', 10, 8, 11]] }
+    ];
+
+    const snakeKey = (x, y) => x + ',' + y;
+
+    function snakeExpandWalls(runs) {
+        const set = new Set();
+        (runs || []).forEach(run => {
+            const [kind, fixed, from, to] = run;
+            const lo = Math.min(from, to), hi = Math.max(from, to);
+            for (let i = lo; i <= hi; i++) {
+                if (kind === 'h') set.add(snakeKey(i, fixed));
+                else              set.add(snakeKey(fixed, i));
+            }
+        });
+        return set;
+    }
+
+    // Is every free cell reachable from every other? A stage that fails this is
+    // unwinnable the moment food spawns in the sealed-off pocket.
+    function snakeFreeRegionConnected(walls, wrap) {
+        const total = snakeGridSize * snakeGridSize - walls.size;
+        if (total <= 0) return false;
+        let start = null;
+        for (let y = 0; y < snakeGridSize && !start; y++) {
+            for (let x = 0; x < snakeGridSize; x++) {
+                if (!walls.has(snakeKey(x, y))) { start = { x, y }; break; }
+            }
+        }
+        const seen = new Set([snakeKey(start.x, start.y)]);
+        const queue = [start];
+        const dirs = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+        while (queue.length) {
+            const cur = queue.shift();
+            for (const d of dirs) {
+                const step = snakeStepCell(cur, d, wrap, walls);
+                if (!step.ok) continue;
+                const k = snakeKey(step.x, step.y);
+                if (seen.has(k)) continue;
+                seen.add(k);
+                queue.push({ x: step.x, y: step.y });
+            }
+        }
+        return seen.size === total;
+    }
+
+    // ── The one place edges and obstacles are resolved ─────────────────
+    // v1 checked `head.x < -1 || head.x > snakeGridSize`, which let the snake
+    // survive a full cell outside the board. That was invisible when the board
+    // had no border; with a drawn wall the snake passes through the bricks and
+    // dies a frame later, which just reads as broken. Bounds are exact here.
+    function snakeStepCell(from, dir, wrap, walls) {
+        let x = from.x + dir.x, y = from.y + dir.y;
+        const W = wrap || snakeWrap;
+        if (x < 0)                { if (!W.left)   return { ok: false }; x = snakeGridSize - 1; }
+        if (x >= snakeGridSize)   { if (!W.right)  return { ok: false }; x = 0; }
+        if (y < 0)                { if (!W.top)    return { ok: false }; y = snakeGridSize - 1; }
+        if (y >= snakeGridSize)   { if (!W.bottom) return { ok: false }; y = 0; }
+        if ((walls || snakeWalls).has(snakeKey(x, y))) return { ok: false };
+        return { ok: true, x, y };
+    }
+
+    function snakeApplyRules() {
+        if (snakeMode === 'levels') {
+            const stage = SNAKE_STAGES[snakeStageIdx] || SNAKE_STAGES[0];
+            snakeWrap  = snakeWrapFlags(stage.wrap);
+            snakeWalls = snakeExpandWalls(stage.walls);
+        } else {
+            snakeWrap  = snakeWrapFlags(snakeMode === 'endless' ? 'all' : 'none');
+            snakeWalls = new Set();
+        }
+    }
+
+    // Lay the starting body out behind the spawn cell, facing whichever way has
+    // the most room. Starting as ONE segment rendered as a single dot with a
+    // face on it — you couldn't tell it was a snake, or which way it pointed,
+    // until you had already eaten twice.
+    //
+    // The returned facing also seeds snakeDir, so the 180°-into-yourself guard
+    // works on the very first keypress rather than letting the player reverse
+    // straight into their own body.
+    function snakeSpawnBody() {
+        const head = snakeSpawnCell();
+        const dirs = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+        let best = { body: [head], dir: dirs[0] };
+        for (let i = 0; i < dirs.length; i++) {
+            const d = dirs[i];
+            const body = [head];
+            let cur = head;
+            for (let n = 1; n < SNAKE_START_LEN; n++) {
+                const step = snakeStepCell(cur, { x: -d.x, y: -d.y });
+                if (!step.ok) break;
+                if (body.some(s => s.x === step.x && s.y === step.y)) break;
+                cur = { x: step.x, y: step.y };
+                body.push(cur);
+            }
+            if (body.length > best.body.length) best = { body, dir: d };
+            if (best.body.length === SNAKE_START_LEN) break;
+        }
+        return best;
+    }
+
+    // Nearest-to-centre free cell with the most free neighbours. A stage whose
+    // centre is walled would otherwise spawn the snake inside a brick.
+    function snakeSpawnCell() {
+        const mid = (snakeGridSize - 1) / 2;
+        let best = null, bestScore = -Infinity;
+        for (let y = 0; y < snakeGridSize; y++) {
+            for (let x = 0; x < snakeGridSize; x++) {
+                if (snakeWalls.has(snakeKey(x, y))) continue;
+                let room = 0;
+                [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }]
+                    .forEach(d => { if (snakeStepCell({ x, y }, d).ok) room++; });
+                const dist = Math.abs(x - mid) + Math.abs(y - mid);
+                const score = room * 100 - dist;
+                if (score > bestScore) { bestScore = score; best = { x, y }; }
+            }
+        }
+        return best || { x: 0, y: 0 };
+    }
+
+    // ── Storage ────────────────────────────────────────────────────────
+    // Per-mode invalidation, ready before there is any data to invalidate.
+    // REFLEX_RESET_FLAG exists because "raise, never lower" makes one bad score
+    // immortal — it re-infects every clean client from the gist forever — and
+    // that guard had to be retrofitted under fire. Bumping a mode's number here
+    // wipes it locally and makes applyPlayerRecordToLocal refuse to restore it,
+    // which breaks the loop. Cheap now, expensive later.
+    const SNAKE_RESET_FLAGS = { endless: 0, walled: 0, levels: 0 };
+
+    function snakeResetFlagKey(mode) { return 'snakeReset_' + mode + '_' + SNAKE_RESET_FLAGS[mode]; }
+    function snakeModeInvalidated(mode) {
+        return SNAKE_RESET_FLAGS[mode] > 0 && !!localStorage.getItem(snakeResetFlagKey(mode));
+    }
+
+    function loadSnakeHighScore() {
+        const saved = localStorage.getItem('snakeHighScore');
+        return saved ? (parseInt(saved, 10) || 0) : 0;
+    }
+    function saveSnakeHighScore(score) {
+        localStorage.setItem('snakeHighScore', String(score));
+    }
+
+    function snakeLoadHighScores() {
+        let raw = null;
+        try { raw = JSON.parse(localStorage.getItem('snakeHighScores') || 'null'); } catch (_) {}
+        const out = { endless: 0, walled: 0, levels: 0 };
+        if (raw && typeof raw === 'object') {
+            SNAKE_MODES.forEach(m => { out[m] = parseInt(raw[m], 10) || 0; });
+        } else {
+            // First run on this build. The pre-v2 game had lethal edges, so the
+            // legacy score belongs to Walled — that is where it was actually set.
+            out.walled = loadSnakeHighScore();
+        }
+        SNAKE_MODES.forEach(m => { if (snakeModeInvalidated(m)) out[m] = 0; });
+        return out;
+    }
+
+    function snakeSaveHighScores(scores) {
+        localStorage.setItem('snakeHighScores', JSON.stringify(scores));
+        // Keep the legacy key as the overall best. collectGameBests(),
+        // revalidateAchievements() and the cloud restore all still read it, so
+        // retiring it would mean touching all three for no gain.
+        const best = Math.max(scores.endless || 0, scores.walled || 0, scores.levels || 0);
+        if (best > loadSnakeHighScore()) saveSnakeHighScore(best);
+    }
+
+    function snakeLoadLevelsBest() {
+        return parseInt(localStorage.getItem('snakeLevelsBest') || '0', 10) || 0;
+    }
+    function snakeSaveLevelsBest(stage) {
+        if (stage > snakeLoadLevelsBest()) localStorage.setItem('snakeLevelsBest', String(stage));
+    }
+
+    function snakeModeBest(mode) { return snakeLoadHighScores()[mode] || 0; }
+
+    // Run once per load: creates snakeHighScores from the legacy key if absent,
+    // and drops any mode whose reset flag has been bumped.
+    function snakeMigrateStorage() {
+        SNAKE_MODES.forEach(mode => {
+            if (SNAKE_RESET_FLAGS[mode] > 0 && !localStorage.getItem(snakeResetFlagKey(mode))) {
+                const scores = snakeLoadHighScores();
+                scores[mode] = 0;
+                localStorage.setItem('snakeHighScores', JSON.stringify(scores));
+                localStorage.setItem(snakeResetFlagKey(mode), '1');
+            }
+        });
+        if (!localStorage.getItem('snakeHighScores')) snakeSaveHighScores(snakeLoadHighScores());
+        localStorage.setItem('snakeRulesetVer', String(SNAKE_RULESET_VERSION));
+    }
+
+    // ── Mode control ───────────────────────────────────────────────────
+    function snakeSetMode(mode) {
+        if (SNAKE_MODES.indexOf(mode) === -1) return snakeMode;
+        snakeMode = mode;
+        try {
+            userPreferences.snakeMode = mode;
+            savePreferences();
+        } catch (_) {}
+        snakeStageIdx = 0;
         resetSnakeGame();
+        return snakeMode;
     }
-    
+
+    function cycleSnakeMode() {
+        return snakeSetMode(SNAKE_MODES[(SNAKE_MODES.indexOf(snakeMode) + 1) % SNAKE_MODES.length]);
+    }
+
+    // ── Input ──────────────────────────────────────────────────────────
+    // v1 kept a single nextDirection, so a fast ↑ then ← inside one 300ms tick
+    // silently dropped the ←. Two buffered turns is enough for every real input
+    // burst and still can't run the snake into itself: each entry is validated
+    // against the one before it, not against the direction currently drawn.
+    function snakeQueueDir(nd) {
+        const prev = snakeDirQueue.length ? snakeDirQueue[snakeDirQueue.length - 1] : snakeDir;
+        if (prev.x === nd.x && prev.y === nd.y) return;             // no-op
+        if (prev.x === -nd.x && prev.y === -nd.y && (prev.x || prev.y)) return; // 180°
+        if (snakeDirQueue.length >= 2) return;
+        snakeDirQueue.push(nd);
+    }
+
     function handleSnakeKeyPress(e) {
-        if (!snakeGameRunning || snakeGamePaused) return;
-        
+        if (!snakeGameRunning || snakeGamePaused || snakeDying) return;
         const key = e.key;
-        
-        // Prevent default arrow key scrolling
-        if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
-            e.preventDefault();
-        }
-        
-        if (key === 'ArrowUp' && direction.y === 0) {
-            nextDirection = {x: 0, y: -1};
-        } else if (key === 'ArrowDown' && direction.y === 0) {
-            nextDirection = {x: 0, y: 1};
-        } else if (key === 'ArrowLeft' && direction.x === 0) {
-            nextDirection = {x: -1, y: 0};
-        } else if (key === 'ArrowRight' && direction.x === 0) {
-            nextDirection = {x: 1, y: 0};
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) e.preventDefault();
+
+        if (key === 'ArrowUp')         snakeQueueDir({ x: 0,  y: -1 });
+        else if (key === 'ArrowDown')  snakeQueueDir({ x: 0,  y: 1 });
+        else if (key === 'ArrowLeft')  snakeQueueDir({ x: -1, y: 0 });
+        else if (key === 'ArrowRight') snakeQueueDir({ x: 1,  y: 0 });
+    }
+
+    // rAF already stalls in a hidden tab, but the widget also runs inside a
+    // Picture-in-Picture document where it does not — so a run left in PiP kept
+    // playing unattended.
+    function handleSnakeVisibility() {
+        if (document.hidden && snakeGameRunning && !snakeGamePaused) {
+            snakeGamePaused = true;
+            updateSnakePlayButton();
         }
     }
-    
+
+    // ── Speed ──────────────────────────────────────────────────────────
     function snakeGetInterval() {
-        // 300ms base, -8ms per food, floor 60ms
+        if (snakeMode === 'levels') {
+            // Ramp per STAGE, not per food. Ramping per food on top of twelve
+            // stages of accumulated score puts stage 12 past the point of being
+            // playable rather than merely hard.
+            return Math.max(80, 260 - snakeStageIdx * 14);
+        }
         return Math.max(60, 300 - snakeScore * 8);
     }
 
+    // ── Lifecycle ──────────────────────────────────────────────────────
     function startSnakeGame() {
         if (snakeGameRunning) return;
-
         snakeGameRunning = true;
-        snakeGamePaused = false;
+        snakeGamePaused  = false;
+        snakeDying = false;
+        snakeDeathT = 0;
         hideSnakeGameOver();
 
-        snakeTickInterval = snakeGetInterval();
-        snakeLastTickMs = performance.now();
+        snakeTickInterval  = snakeGetInterval();
+        snakeLastTickMs    = performance.now();
         snakeAccumulatorMs = 0;
-        snakePrevSnap = snake.map(s => ({...s}));
+        snakePrevSnap      = snakeBody.map(s => ({ ...s }));
 
-        // Smooth render loop — separate from logic tick
         if (snakeAnimFrame) cancelAnimationFrame(snakeAnimFrame);
         snakeAnimFrame = requestAnimationFrame(snakeRenderLoop);
-
         updateSnakePlayButton();
     }
-    
+
     function pauseSnakeGame() {
+        if (snakeDying) return;
         snakeGamePaused = !snakeGamePaused;
         updateSnakePlayButton();
     }
-    
+
     function resetSnakeGame() {
-        snake = [{x: 10, y: 10}];
-        direction = {x: 0, y: 0};
-        nextDirection = {x: 0, y: 0};
-        snakeScore = 0;
+        // v1 left this timer running, so switching panels within 3s of dying
+        // resurrected the loop on a hidden canvas and burned a core until the
+        // page was reloaded.
+        if (snakeRestartTimer) { clearTimeout(snakeRestartTimer); snakeRestartTimer = null; }
+
+        // Levels restarts from stage 1, not from wherever you died. The run is
+        // the unit — score, stages cleared and the campaign all reset together,
+        // and "clear all 12 in one run" only means anything if a death costs
+        // the run. snakeLevelsBest keeps the furthest stage you ever reached.
+        snakeStageIdx = 0;
+        snakeApplyRules();
+
+        const spawn    = snakeSpawnBody();
+        snakeBody      = spawn.body;
+        snakeDir       = spawn.dir;
+        snakeMoving    = false;      // facing set, but idle until the first key
+        snakeDirQueue  = [];
+        snakeScore     = 0;
+        snakeStageEaten = 0;
+        snakeStagesCleared = 0;
+        snakeBigEaten  = 0;
+        snakeMaxLength = snakeBody.length;
+        snakePendingGrowth = 0;
+        snakeFoodsSinceBig = 0;
+        snakeBulges    = [];
+        snakeBigFood   = null;
         snakeGameRunning = false;
-        snakeGamePaused = false;
-        
+        snakeGamePaused  = false;
+        snakeDying     = false;
+        snakeDeathT    = 0;
+        snakeDeathCell = null;
+        snakeBannerT   = 0;
+        snakeTickInterval = snakeGetInterval();
+
         if (snakeAnimFrame) { cancelAnimationFrame(snakeAnimFrame); snakeAnimFrame = null; }
         snakePrevSnap = [];
         snakeLastTickMs = 0;
         snakeAccumulatorMs = 0;
-        
-        // Clear canvas completely on reset
-        if (snakeCtx) {
-            snakeCtx.clearRect(0, 0, snakeCanvas.width, snakeCanvas.height);
-        }
-        
+
+        if (snakeCtx) snakeCtx.clearRect(0, 0, snakeCanvas.width, snakeCanvas.height);
+
         spawnFood();
         updateSnakeScoreDisplay();
         drawSnakeGame();
         hideSnakeGameOver();
         updateSnakePlayButton();
     }
-    
-    function snakeTick() {
-        if (snakeGamePaused) return;
 
-        // Snapshot grid positions BEFORE moving — rAF loop lerps from these
-        snakePrevSnap = snake.map(s => ({...s}));
-
-        direction = {...nextDirection};
-        if (direction.x === 0 && direction.y === 0) return; // waiting for first input
-
-        const head = {
-            x: snake[0].x + direction.x,
-            y: snake[0].y + direction.y
-        };
-
-        // Wall collision (1-cell grace buffer)
-        if (head.x < -1 || head.x > snakeGridSize || head.y < -1 || head.y > snakeGridSize) {
-            gameOver(); return;
+    // ── Food ───────────────────────────────────────────────────────────
+    // v1 rejection-sampled in a `do…while` with no exit, so a full board hung
+    // the tab outright. At 20×20 open that was theoretical; Levels shrinks the
+    // playable area enough to reach it, and this runs inside an HR portal where
+    // a hung tab is a visible incident. Enumerate instead: an empty list is a
+    // won board, not an infinite loop.
+    function snakeFreeCells() {
+        const taken = new Set(snakeBody.map(s => snakeKey(s.x, s.y)));
+        if (snakeBigFood) taken.add(snakeKey(snakeBigFood.x, snakeBigFood.y));
+        const cells = [];
+        for (let y = 0; y < snakeGridSize; y++) {
+            for (let x = 0; x < snakeGridSize; x++) {
+                const k = snakeKey(x, y);
+                if (snakeWalls.has(k) || taken.has(k)) continue;
+                cells.push({ x, y });
+            }
         }
-        // Self collision
-        if (snake.some(seg => seg.x === head.x && seg.y === head.y)) {
-            gameOver(); return;
-        }
-
-        snake.unshift(head);
-
-        if (head.x === food.x && head.y === food.y) {
-            snakeScore++;
-            updateSnakeScoreDisplay();
-            spawnFood();
-            // Increase speed by reducing per-tick interval
-            snakeTickInterval = snakeGetInterval();
-        } else {
-            snake.pop();
-        }
-        // Drawing is handled exclusively by snakeRenderLoop
+        return cells;
     }
 
-    // Keep alias so any other callers still work
+    // Returns false when the board was full, i.e. the caller's tick is over:
+    // snakeBoardCleared has either advanced the stage (rebuilding the body) or
+    // ended the run, and any further bookkeeping in that tick is stale.
+    function spawnFood() {
+        const cells = snakeFreeCells();
+        if (!cells.length) { snakeBoardCleared(); return false; }
+        snakeFood = cells[Math.floor(Math.random() * cells.length)];
+        return true;
+    }
+
+    function snakeMaybeSpawnBigFood() {
+        if (snakeBigFood) return;
+        if (snakeFoodsSinceBig < SNAKE_BIG_MIN_GAP) return;
+        if (Math.random() > SNAKE_BIG_FOOD_CHANCE) return;
+        const cells = snakeFreeCells().filter(c => !(c.x === snakeFood.x && c.y === snakeFood.y));
+        if (!cells.length) return;
+        const spot = cells[Math.floor(Math.random() * cells.length)];
+        snakeBigFood = {
+            x: spot.x,
+            y: spot.y,
+            bornMs: performance.now(),
+            ttlMs: snakeTickInterval * SNAKE_BIG_FOOD_TICKS
+        };
+        snakeFoodsSinceBig = 0;
+    }
+
+    function snakeBigFoodRemaining(nowMs) {
+        if (!snakeBigFood) return 0;
+        return Math.max(0, 1 - (nowMs - snakeBigFood.bornMs) / snakeBigFood.ttlMs);
+    }
+
+    // Filling the board is a win, not a crash. In Levels it clears the stage;
+    // anywhere else it ends the run with the score intact.
+    function snakeBoardCleared() {
+        if (snakeMode === 'levels') snakeAdvanceStage();
+        else snakeGameOver('cleared');
+    }
+
+    // ── Stage progression ──────────────────────────────────────────────
+    function snakeAdvanceStage() {
+        snakeStagesCleared++;
+        snakeSaveLevelsBest(snakeStageIdx + 1);
+
+        if (snakeStageIdx >= SNAKE_STAGES.length - 1) {
+            snakeBannerText = '🏆 All ' + SNAKE_STAGES.length + ' stages cleared!';
+            snakeBannerT = SNAKE_BANNER_MS;
+            snakeGameOver('conquered');
+            return;
+        }
+
+        snakeStageIdx++;
+        snakeStageEaten = 0;
+        snakeBannerText = 'Stage ' + (snakeStageIdx + 1) + ' — ' + SNAKE_STAGES[snakeStageIdx].name;
+        snakeBannerT = SNAKE_BANNER_MS;
+
+        // New layout, fresh snake, score carries over.
+        snakeApplyRules();
+        const spawn   = snakeSpawnBody();
+        snakeBody     = spawn.body;
+        snakeDir      = spawn.dir;
+        snakeMoving   = false;
+        snakeDirQueue = [];
+        snakePendingGrowth = 0;
+        snakeBulges   = [];
+        snakeBigFood  = null;
+        snakePrevSnap = snakeBody.map(s => ({ ...s }));
+        snakeTickInterval = snakeGetInterval();
+        spawnFood();
+        updateSnakeScoreDisplay();
+    }
+
+    // ── Logic tick ─────────────────────────────────────────────────────
+    function snakeTick() {
+        if (snakeGamePaused || snakeDying) return;
+
+        snakePrevSnap = snakeBody.map(s => ({ ...s }));
+
+        // snakeDir now carries the spawn facing, so it can't double as the
+        // "hasn't started yet" sentinel the way a zero vector did.
+        if (snakeDirQueue.length) { snakeDir = snakeDirQueue.shift(); snakeMoving = true; }
+        if (!snakeMoving) return;
+
+        const step = snakeStepCell(snakeBody[0], snakeDir);
+        if (!step.ok) {
+            // Record where it ended for the death flash. The cell may be off the
+            // board (a wall hit), which is fine — the renderer clamps it.
+            snakeDeathCell = { x: snakeBody[0].x + snakeDir.x, y: snakeBody[0].y + snakeDir.y };
+            snakeGameOver('wall');
+            return;
+        }
+        const head = { x: step.x, y: step.y };
+
+        const eatsFood = head.x === snakeFood.x && head.y === snakeFood.y;
+        const eatsBig  = !!snakeBigFood && head.x === snakeBigFood.x && head.y === snakeBigFood.y;
+        const willGrow = eatsFood || eatsBig || snakePendingGrowth > 0;
+
+        // The tail vacates this tick unless something is owed, so the cell it is
+        // leaving is not a collision. v1 tested the whole body before pop(),
+        // which killed a snake following its own tail — rare on an open 20×20,
+        // routine in a Level corridor.
+        const limit = willGrow ? snakeBody.length : snakeBody.length - 1;
+        for (let i = 0; i < limit; i++) {
+            if (snakeBody[i].x === head.x && snakeBody[i].y === head.y) {
+                snakeDeathCell = { x: head.x, y: head.y };
+                snakeGameOver('self');
+                return;
+            }
+        }
+
+        snakeBody.unshift(head);
+
+        if (eatsBig) {
+            snakeScore += SNAKE_BIG_FOOD_VALUE;
+            snakePendingGrowth += SNAKE_BIG_FOOD_VALUE;
+            snakeBulges.push({ pos: 0, size: 1 });
+            snakeBigFood = null;
+            snakeBigEaten++;
+            snakeStageEaten++;
+        } else if (eatsFood) {
+            snakeScore += 1;
+            snakePendingGrowth += 1;
+            snakeBulges.push({ pos: 0, size: 0 });
+            snakeFoodsSinceBig++;
+            snakeStageEaten++;
+            // A full board either advances the stage (which rebuilds the body
+            // from one segment) or ends the run. Falling through would then pop
+            // that single segment and leave an empty body for the next tick to
+            // dereference.
+            if (!spawnFood()) return;
+            snakeMaybeSpawnBigFood();
+        }
+
+        if (snakePendingGrowth > 0) snakePendingGrowth--;
+        else snakeBody.pop();
+
+        snakeMaxLength = Math.max(snakeMaxLength, snakeBody.length);
+
+        // Lumps travel one segment per tick and fall off the tail.
+        snakeBulges.forEach(b => { b.pos++; });
+        snakeBulges = snakeBulges.filter(b => b.pos < snakeBody.length);
+
+        if (eatsBig || eatsFood) {
+            updateSnakeScoreDisplay();
+            snakeTickInterval = snakeGetInterval();
+            if (snakeMode === 'levels') {
+                const stage = SNAKE_STAGES[snakeStageIdx];
+                if (snakeStageEaten >= stage.goal) { snakeAdvanceStage(); return; }
+            }
+        }
+
+        // A golden bite that ran out of time just vanishes.
+        if (snakeBigFood && snakeBigFoodRemaining(performance.now()) <= 0) snakeBigFood = null;
+    }
+
+    // Kept so any stray caller from v1 still resolves.
     function updateSnakeGame() { snakeTick(); }
 
-    // rAF render loop — logic always runs via accumulator, render is FPS-capped
+    // ── Death ──────────────────────────────────────────────────────────
+    // Enters the animation rather than ending the run outright — v1 cleared the
+    // canvas here, which left nowhere for a death animation to exist. Scoring
+    // and XP happen in snakeFinalizeDeath once the animation has played.
+    function snakeGameOver(cause) {
+        if (snakeDying) return;
+        snakeDying  = true;
+        snakeDeathT = 0;
+        snakeGamePaused = false;
+        snakeDirQueue = [];
+        if (cause === 'cleared' || cause === 'conquered') snakeDeathCell = null;
+        updateSnakePlayButton();
+    }
+
+    function snakeFinalizeDeath() {
+        snakeDying = false;
+        snakeGameRunning = false;
+        if (snakeAnimFrame) { cancelAnimationFrame(snakeAnimFrame); snakeAnimFrame = null; }
+        snakeAccumulatorMs = 0;
+
+        // v1 read `snakeScore >= snakeHighScore` AFTER raising the high score,
+        // so it was true on every tie and on the very first game — a permanent
+        // free +15 XP. Capture it first.
+        const scores  = snakeLoadHighScores();
+        const wasHigh = snakeScore > (scores[snakeMode] || 0);
+        if (wasHigh) {
+            scores[snakeMode] = snakeScore;
+            snakeSaveHighScores(scores);
+        }
+        snakeHighScore = snakeModeBest(snakeMode);
+        updateSnakeScoreDisplay();
+
+        awardGameXP('snake', {
+            score: snakeScore,
+            isHighScore: wasHigh,
+            mode: snakeMode,
+            // Stages CLEARED, not the stage number reached. snakeLevelsBest is
+            // only written on a clear, so reporting the stage you died on would
+            // let checkGameAchievements grant a badge revalidateAchievements
+            // could never rebuild.
+            stagesCleared: snakeStagesCleared,
+            bigEaten: snakeBigEaten,
+            maxLength: snakeMaxLength,
+            allStages: snakeStagesCleared >= SNAKE_STAGES.length
+        });
+
+        showSnakeGameOver();
+        updateSnakePlayButton();
+
+        snakeRestartTimer = setTimeout(() => {
+            snakeRestartTimer = null;
+            resetSnakeGame();
+            startSnakeGame();
+        }, SNAKE_RESTART_MS);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // SNAKE GAME — RENDER, SKINS, ANIMATION
+    // ═══════════════════════════════════════════════════════════════════
+    // Everything here is procedural Canvas 2D; there are no image assets. The
+    // loop keeps v1's shape — fixed logic tick, accumulator, interpolation from
+    // snakePrevSnap, render capped by userPreferences.gameFps — because that
+    // part was already right. What is new is that it also drives the death
+    // animation, the golden-bite timer and the legendary hue flow, all off the
+    // same delta, so none of them need a timer of their own.
+
+    const SNAKE_WALL_PX = 7;   // brick frame thickness, in canvas margin — NOT a grid cell
+
+    let snakeSkinDelegationInit = false;
+
+    // ── Skins ──────────────────────────────────────────────────────────
+    // Each skin is a three-colour preset: [primary, secondary, pattern/shade].
+    // The first two make the body gradient, the third darkens toward the tail
+    // and draws the polka dots or tiger stripes.
+    //
+    // NOTE: unlocks are a client-side honour system and deliberately NOT
+    // enforced anywhere. Anyone willing to edit localStorage can wear any of
+    // these; the blast radius is a colour gradient. This is not a security
+    // boundary — do not build one on top of it.
+    const SNAKE_SKINS = {
+        emerald: {
+            name: 'Emerald Green', colors: ['#55efc4', '#00b894', '#0a6b52'],
+            pattern: 'none',    glow: '#00e676', unlock: null
+        },
+        ruby: {
+            name: 'Ruby Red',     colors: ['#ff9f9f', '#d63031', '#6b0f0f'],
+            pattern: 'dots',    glow: '#ff4757', unlock: 'snakeEndless'
+        },
+        sapphire: {
+            name: 'Sapphire Blue', colors: ['#74b9ff', '#0984e3', '#0a3d6b'],
+            pattern: 'stripes', glow: '#3498db', unlock: 'snakeWalled'
+        },
+        gold: {
+            name: 'Gold',         colors: ['#ffeaa7', '#fdcb6e', '#8a6410'],
+            pattern: 'dots',    glow: '#ffd700', unlock: 'snakeGourmand'
+        },
+        prism: {
+            name: 'Prism',        colors: null,
+            pattern: 'stripes', glow: 'dynamic', unlock: 'snakeConqueror', legendary: true
+        }
+    };
+
+    function snakeSkinUnlocked(id) {
+        const skin = SNAKE_SKINS[id];
+        if (!skin) return false;
+        if (!skin.unlock) return true;
+        try { return (userXP.achievements || []).indexOf(skin.unlock) !== -1; }
+        catch (_) { return false; }
+    }
+
+    // Falls back to emerald when the saved skin is locked, which is what a
+    // cloud restore into a fresh profile looks like: prefs come back before the
+    // achievements that justify them.
+    function snakeActiveSkinId() {
+        let id = 'emerald';
+        try { id = userPreferences.snakeSkin || 'emerald'; } catch (_) {}
+        if (!SNAKE_SKINS[id] || !snakeSkinUnlocked(id)) return 'emerald';
+        return id;
+    }
+
+    function snakeActiveSkin() { return SNAKE_SKINS[snakeActiveSkinId()]; }
+
+    function snakeSetSkin(id) {
+        if (!SNAKE_SKINS[id] || !snakeSkinUnlocked(id)) return;
+        try { userPreferences.snakeSkin = id; savePreferences(); } catch (_) {}
+        renderSnakeSkinTray();
+        drawSnakeGame(1);
+    }
+
+    function snakeMixHex(a, b, t) {
+        const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+        const ch = sh => {
+            const va = (pa >> sh) & 255, vb = (pb >> sh) & 255;
+            return Math.round(va + (vb - va) * t);
+        };
+        return 'rgb(' + ch(16) + ',' + ch(8) + ',' + ch(0) + ')';
+    }
+
+    // The legendary's hue wave is the canvas equivalent of the widget's
+    // gradientFlow / rgbFlowBacklight keyframes: those scroll background-position
+    // across an over-sized gradient, this offsets hue by time and segment index
+    // so the same band travels head to tail.
+    function snakeSegmentColors(skin, idx, total) {
+        if (skin.legendary) {
+            const h = ((snakeSkinTime * 60 - idx * 9) % 360 + 360) % 360;
+            return [
+                'hsl(' + h + ',90%,70%)',
+                'hsl(' + ((h + 330) % 360) + ',85%,50%)',
+                'hsl(' + ((h + 300) % 360) + ',75%,30%)'
+            ];
+        }
+        const span = Math.max(14, total - 1);
+        const t = Math.min(1, idx / span);
+        return [
+            snakeMixHex(skin.colors[0], skin.colors[2], t * 0.65),
+            snakeMixHex(skin.colors[1], skin.colors[2], t * 0.75),
+            skin.colors[2]
+        ];
+    }
+
+    function snakeSkinGlow(skin) {
+        if (!skin.legendary) return skin.glow;
+        return 'hsl(' + (((snakeSkinTime * 60) % 360 + 360) % 360) + ',95%,60%)';
+    }
+
+    // Body thickness before taper and bulges. Slightly under a cell so the
+    // grid still reads underneath.
+    const snakeBodyRadius = m => m.cs * 0.42;
+    // Slightly wider than the body so the head reads as a head, not as the
+    // segment that happens to be at the front.
+    const snakeHeadRadius = m => m.cs * 0.52;
+
+    // Only the last few segments taper. A body that thins along its whole
+    // length reads as a worm; a real snake is even until the tail tip. Ramped
+    // rather than stepped — four discrete widths made a visible staircase on a
+    // short body.
+    const SNAKE_TAIL_SEGMENTS = 3;
+    function snakeTaper(idx, total) {
+        if (total <= 2) return 1;
+        const fromTail = total - 1 - idx;
+        if (fromTail >= SNAKE_TAIL_SEGMENTS) return 1;
+        return 0.45 + 0.55 * (fromTail / SNAKE_TAIL_SEGMENTS);
+    }
+
+    // ── Board geometry ─────────────────────────────────────────────────
+    // The brick frame lives in canvas MARGIN, not in grid cells, so the
+    // playfield stays 20×20 in every mode and scores set before v2 remain
+    // comparable with scores set after it.
+    function snakeBoardMetrics() {
+        const W = snakeCanvas.width, H = snakeCanvas.height;
+        const anySolid = !snakeWrap.left || !snakeWrap.right || !snakeWrap.top || !snakeWrap.bottom;
+        const pad = anySolid ? SNAKE_WALL_PX : 0;
+        const cs = (Math.min(W, H) - pad * 2) / snakeGridSize;
+        return { W, H, pad, cs };
+    }
+
+    const snakeCellX = (gx, m) => m.pad + gx * m.cs;
+    const snakeCellY = (gy, m) => m.pad + gy * m.cs;
+
+    // ── Frame: bricks on lethal edges, a portal glow on wrapping ones ──
+    function snakeDrawFrame(m) {
+        const ctx = snakeCtx;
+        if (!m.pad) { snakeDrawPortalEdges(m, ['left', 'right', 'top', 'bottom']); return; }
+
+        const open = [];
+        const edges = [
+            { id: 'left',   x: 0,             y: 0,             w: m.pad,        h: m.H },
+            { id: 'right',  x: m.W - m.pad,   y: 0,             w: m.pad,        h: m.H },
+            { id: 'top',    x: 0,             y: 0,             w: m.W,          h: m.pad },
+            { id: 'bottom', x: 0,             y: m.H - m.pad,   w: m.W,          h: m.pad }
+        ];
+
+        edges.forEach(e => {
+            if (snakeWrap[e.id]) { open.push(e.id); return; }
+            // Mortar bed, then staggered bricks.
+            ctx.fillStyle = '#2b1a17';
+            ctx.fillRect(e.x, e.y, e.w, e.h);
+            const horizontal = e.w > e.h;
+            const brick = m.cs * 0.72;
+            ctx.fillStyle = '#7a3b2e';
+            if (horizontal) {
+                for (let i = 0; i * brick < e.w; i++) {
+                    const off = (Math.floor(e.y) === 0 ? 0 : brick * 0.5);
+                    ctx.fillRect(e.x + i * brick + off + 1, e.y + 1, brick - 2, e.h - 2);
+                }
+            } else {
+                for (let i = 0; i * brick < e.h; i++) {
+                    const off = (Math.floor(e.x) === 0 ? 0 : brick * 0.5);
+                    ctx.fillRect(e.x + 1, e.y + i * brick + off + 1, e.w - 2, brick - 2);
+                }
+            }
+            // Inner highlight so the frame reads as raised, not painted on.
+            ctx.fillStyle = 'rgba(255,255,255,0.10)';
+            if (horizontal) ctx.fillRect(e.x, Math.floor(e.y) === 0 ? e.h - 1 : e.y, e.w, 1);
+            else            ctx.fillRect(Math.floor(e.x) === 0 ? e.w - 1 : e.x, e.y, 1, e.h);
+        });
+
+        if (open.length) snakeDrawPortalEdges(m, open);
+    }
+
+    // A wrapping edge gets a soft glow instead of bricks, so the rule is
+    // readable from the board rather than only from the mode chip.
+    function snakeDrawPortalEdges(m, ids) {
+        const ctx = snakeCtx;
+        const depth = Math.max(4, m.pad || 6);
+        ids.forEach(id => {
+            const vertical = id === 'left' || id === 'right';
+            const x0 = id === 'right'  ? m.W - depth : 0;
+            const y0 = id === 'bottom' ? m.H - depth : 0;
+            const w = vertical ? depth : m.W;
+            const h = vertical ? m.H : depth;
+            const g = vertical
+                ? ctx.createLinearGradient(x0, 0, x0 + w, 0)
+                : ctx.createLinearGradient(0, y0, 0, y0 + h);
+            const inward = (id === 'right' || id === 'bottom');
+            g.addColorStop(inward ? 1 : 0, 'rgba(108,92,231,0.55)');
+            g.addColorStop(inward ? 0 : 1, 'rgba(108,92,231,0)');
+            ctx.fillStyle = g;
+            ctx.fillRect(x0, y0, w, h);
+        });
+    }
+
+    function snakeDrawWalls(m) {
+        if (!snakeWalls.size) return;
+        const ctx = snakeCtx;
+        snakeWalls.forEach(key => {
+            const parts = key.split(',');
+            const px = snakeCellX(+parts[0], m), py = snakeCellY(+parts[1], m);
+            ctx.fillStyle = '#3d2723';
+            ctx.beginPath(); ctx.roundRect(px, py, m.cs, m.cs, 2); ctx.fill();
+            ctx.fillStyle = '#7a3b2e';
+            ctx.beginPath(); ctx.roundRect(px + 1.5, py + 1.5, m.cs - 3, m.cs - 3, 2); ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.10)';
+            ctx.fillRect(px + 1.5, py + 1.5, m.cs - 3, 1.5);
+        });
+    }
+
+    // ── Food ───────────────────────────────────────────────────────────
+    function snakeDrawApple(cx, cy, r, glow) {
+        const ctx = snakeCtx;
+        ctx.shadowColor = glow; ctx.shadowBlur = 14;
+        const fg = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, 1, cx, cy, r);
+        fg.addColorStop(0, '#ff9f9f'); fg.addColorStop(0.5, '#e17055'); fg.addColorStop(1, '#c0392b');
+        ctx.fillStyle = fg;
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#55efc4'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx + 3, cy - r - 4); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.beginPath();
+        ctx.ellipse(cx - r * 0.28, cy - r * 0.3, r * 0.28, r * 0.18, -0.6, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // The depleting ring IS the timer — putting it on the bite means the player
+    // reads the remaining window where they are already looking, instead of
+    // glancing at a HUD counter mid-run.
+    function snakeDrawBigFood(m, nowMs) {
+        if (!snakeBigFood) return;
+        const ctx = snakeCtx;
+        const left = snakeBigFoodRemaining(nowMs);
+        const cx = snakeCellX(snakeBigFood.x, m) + m.cs / 2;
+        const cy = snakeCellY(snakeBigFood.y, m) + m.cs / 2;
+        const pulse = 1 + Math.sin(snakeSkinTime * 7) * 0.07;
+        const r = (m.cs / 2 - 1.5) * pulse;
+
+        ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 18;
+        const g = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.35, 1, cx, cy, r);
+        g.addColorStop(0, '#fff6c8'); g.addColorStop(0.45, '#ffd700'); g.addColorStop(1, '#b8860b');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+
+        ctx.fillStyle = 'rgba(255,255,255,0.45)';
+        ctx.beginPath();
+        ctx.ellipse(cx - r * 0.3, cy - r * 0.32, r * 0.3, r * 0.19, -0.6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ring runs down clockwise from 12 o'clock and reddens as it empties.
+        ctx.strokeStyle = left > 0.35 ? 'rgba(255,255,255,0.85)' : 'rgba(255,90,90,0.95)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r + 2.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * left);
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.font = 'bold ' + Math.round(m.cs * 0.42) + 'px system-ui, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('3×', cx, cy + 0.5);
+        ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+    }
+
+    // ── Snake ──────────────────────────────────────────────────────────
+    // How swollen segment `idx` is right now. Lumps advance one index per tick
+    // and are interpolated by `t` so they glide rather than hop.
+    function snakeBulgeScale(idx, t) {
+        let extra = 0;
+        for (let i = 0; i < snakeBulges.length; i++) {
+            const b = snakeBulges[i];
+            const d = Math.abs((b.pos + t) - idx);
+            if (d < 1.6) extra = Math.max(extra, (1 - d / 1.6) * (b.size ? 0.45 : 0.28));
+        }
+        return 1 + extra;
+    }
+
+    // A wrapped segment must not be lerped across the whole board — that would
+    // drag it visibly back over the playfield in a single frame. Snap it to the
+    // destination rather than holding it at the source: the portal jump then
+    // happens as the segment enters the edge and the rest of the body follows
+    // it through, instead of the segment waiting a whole tick and teleporting.
+    function snakeLerpSeg(prev, seg, t, m) {
+        const dx = seg.x - prev.x, dy = seg.y - prev.y;
+        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+            return { px: snakeCellX(seg.x, m), py: snakeCellY(seg.y, m) };
+        }
+        return {
+            px: snakeCellX(prev.x + dx * t, m),
+            py: snakeCellY(prev.y + dy * t, m)
+        };
+    }
+
+    // Interpolated centre of every segment, plus the runs they form. A run
+    // breaks wherever two consecutive segments aren't grid-adjacent, i.e. across
+    // a portal edge — drawing one continuous stroke through that gap would put a
+    // bar straight across the board.
+    function snakeCenters(m, t) {
+        const eff = snakeDying ? 1 : t;
+        return snakeBody.map((seg, idx) => {
+            const prev = snakePrevSnap[idx] || seg;
+            const p = snakeLerpSeg(prev, seg, eff, m);
+            return { x: p.px + m.cs / 2, y: p.py + m.cs / 2, idx };
+        });
+    }
+
+    function snakeRuns(centers) {
+        if (!centers.length) return [];
+        const runs = [];
+        let cur = [centers[0]];
+        for (let i = 1; i < centers.length; i++) {
+            const a = snakeBody[i - 1], b = snakeBody[i];
+            const adjacent = Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1;
+            if (adjacent) cur.push(centers[i]);
+            else { runs.push(cur); cur = [centers[i]]; }
+        }
+        runs.push(cur);
+        return runs;
+    }
+
+    // Banding rather than a tile pattern: a per-cell motif looked like a row of
+    // stamped squares once the body became continuous. Real snakes band across
+    // the body, so dots sit on the spine and stripes run perpendicular to it.
+    function snakeDrawBanding(runs, skin, radiusFor, total) {
+        if (skin.pattern === 'none') return;
+        const ctx = snakeCtx;
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.lineCap = 'butt';
+        runs.forEach(run => {
+            run.forEach((pt, k) => {
+                if (pt.idx === 0 || pt.idx % 2) return;   // skip the head, band alternately
+                const r = radiusFor(pt.idx);
+                if (r < 1.5) return;
+                ctx.fillStyle = ctx.strokeStyle = snakeSegmentColors(skin, pt.idx, total)[2];
+                if (skin.pattern === 'dots') {
+                    ctx.beginPath(); ctx.arc(pt.x, pt.y, r * 0.44, 0, Math.PI * 2); ctx.fill();
+                } else {
+                    // Perpendicular to the local direction of travel, kept just
+                    // inside the radius so it can't overhang on a corner.
+                    const a = run[k - 1] || run[k + 1] || pt;
+                    const b = run[k + 1] || run[k - 1] || pt;
+                    let dx = b.x - a.x, dy = b.y - a.y;
+                    const len = Math.hypot(dx, dy) || 1;
+                    dx /= len; dy /= len;
+                    ctx.lineWidth = r * 0.55;
+                    ctx.beginPath();
+                    ctx.moveTo(pt.x + dy * r * 0.82, pt.y - dx * r * 0.82);
+                    ctx.lineTo(pt.x - dy * r * 0.82, pt.y + dx * r * 0.82);
+                    ctx.stroke();
+                }
+            });
+        });
+        ctx.restore();
+    }
+
+    // Is the head about to bite something? Drives how far the jaws open, so the
+    // mouth shuts exactly as the head arrives on the food.
+    function snakeBiteOpen(t) {
+        if (snakeDying || !snakeMoving) return 0;
+        const step = snakeStepCell(snakeBody[0], snakeDir);
+        if (!step.ok) return 0;
+        const onFood = step.x === snakeFood.x && step.y === snakeFood.y;
+        const onBig  = !!snakeBigFood && step.x === snakeBigFood.x && step.y === snakeBigFood.y;
+        if (!onFood && !onBig) return 0;
+        return Math.min(1, 0.35 + t * 0.65);
+    }
+
+    function snakeDrawHead(cx, cy, m, colors, skin, open, alpha) {
+        const ctx = snakeCtx;
+        const r = snakeHeadRadius(m);
+        const gap = open * r * 0.42;   // beyond this the jaws read as two thin slabs
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        if (snakeDir.x || snakeDir.y) ctx.rotate(Math.atan2(snakeDir.y, snakeDir.x));
+
+        // Tongue first so the head overlaps its root. It retracts as the jaws
+        // open — a snake about to bite isn't tasting the air.
+        if (open < 0.45) {
+            const flick = 0.5 + 0.5 * Math.sin(snakeSkinTime * 8);
+            const len = r * (0.5 + 0.6 * flick) * (1 - open / 0.45);
+            if (len > 1) {
+                ctx.strokeStyle = '#ff2e5b';
+                ctx.lineWidth = Math.max(1.4, r * 0.19);
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(r * 0.55, 0);
+                ctx.lineTo(r + len, 0);
+                ctx.stroke();
+                // Fork, drawn as its own pair so the join stays sharp.
+                const fx = r + len, fl = Math.max(2.5, r * 0.42);
+                ctx.beginPath();
+                ctx.moveTo(fx, 0); ctx.lineTo(fx + fl, -fl * 0.85);
+                ctx.moveTo(fx, 0); ctx.lineTo(fx + fl,  fl * 0.85);
+                ctx.stroke();
+            }
+        }
+
+        const hg = ctx.createLinearGradient(-r, -r, r, r);
+        hg.addColorStop(0, colors[0]);
+        hg.addColorStop(1, colors[1]);
+
+        ctx.shadowColor = snakeSkinGlow(skin);
+        ctx.shadowBlur = 9 * alpha;
+
+        if (gap < 0.5) {
+            // Closed: one rounded head. The large corner radius is what stops
+            // it reading as the stamped square v1 drew.
+            ctx.fillStyle = hg;
+            ctx.beginPath();
+            ctx.roundRect(-r, -r, r * 2, r * 2, r * 0.78);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        } else {
+            ctx.shadowBlur = 0;
+            // Mouth interior, drawn before the jaws so they frame it.
+            ctx.fillStyle = '#5c1a2a';
+            ctx.beginPath();
+            ctx.moveTo(-r * 0.1, 0);
+            ctx.lineTo(r * 1.05, -gap * 1.7);
+            ctx.lineTo(r * 1.05,  gap * 1.7);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = hg;
+            ctx.beginPath(); ctx.roundRect(-r, -r,  r * 2, r - gap, r * 0.62); ctx.fill();
+            ctx.beginPath(); ctx.roundRect(-r, gap, r * 2, r - gap, r * 0.62); ctx.fill();
+        }
+
+        // One eye per jaw, mirrored about the travel axis, so they part with the
+        // mouth instead of sliding across it.
+        const ex = r * 0.28;
+        const eyeY = r * 0.45 + gap * 0.55;
+        const eyeR = Math.max(1.6, r * 0.24);
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(ex, -eyeY, eyeR, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(ex,  eyeY, eyeR, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#111';
+        ctx.beginPath(); ctx.arc(ex + eyeR * 0.34, -eyeY, eyeR * 0.5, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(ex + eyeR * 0.34,  eyeY, eyeR * 0.5, 0, Math.PI * 2); ctx.fill();
+
+        ctx.restore();
+    }
+
+    // The body is stroked as a continuous rounded path rather than one rounded
+    // square per cell. v1's per-cell squares left visible gaps on every turn and
+    // made a one-segment snake look like a stray glyph; round joins and caps
+    // give a single unbroken creature at any length.
+    function snakeDrawBody(m, t) {
+        const ctx = snakeCtx;
+        const skin = snakeActiveSkin();
+        const total = snakeBody.length;
+        if (!total) return;
+
+        // Death: blink for 900ms, then fade. Both phases run off snakeDeathT,
+        // which the render loop advances — no extra timer.
+        let alpha = 1, visible = true;
+        if (snakeDying) {
+            if (snakeDeathT < SNAKE_BLINK_MS) {
+                visible = Math.floor(snakeDeathT / 90) % 2 === 0;
+            } else {
+                alpha = Math.max(0, 1 - (snakeDeathT - SNAKE_BLINK_MS) / (SNAKE_DEATH_MS - SNAKE_BLINK_MS));
+            }
+        }
+        if (!visible) return;
+
+        const eff = snakeDying ? 1 : t;
+        const centers = snakeCenters(m, t);
+        const runs = snakeRuns(centers);
+        const base = snakeBodyRadius(m);
+        // The swallowed lump now swells the body itself, which is the whole
+        // point of tracking bulges — v1 could only nudge a square's inset.
+        const radiusFor = idx => base * snakeTaper(idx, total) * snakeBulgeScale(idx, eff);
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+
+        // Tail first so each headward segment paints over the last — that
+        // overlap is what makes per-segment colour look like one gradient body.
+        runs.forEach(run => {
+            for (let k = run.length - 1; k >= 0; k--) {
+                const pt = run[k];
+                if (pt.idx === 0) continue;               // head drawn separately
+                const colors = snakeSegmentColors(skin, pt.idx, total);
+                const r = radiusFor(pt.idx);
+                const next = run[k - 1];                  // toward the head
+                // Link and joint share one colour. Using the two gradient stops
+                // made every joint a visibly darker bead, so the body read as a
+                // chain of circles rather than one tube.
+                ctx.fillStyle = ctx.strokeStyle = colors[0];
+                if (next) {
+                    // Average the two ends' radii. Stroking at one end's width
+                    // stepped the outline wherever the radius changed, which
+                    // turned every swallowed lump and the tail taper into a
+                    // staircase instead of a curve.
+                    ctx.lineWidth = r + radiusFor(next.idx);
+                    ctx.beginPath();
+                    ctx.moveTo(pt.x, pt.y);
+                    ctx.lineTo(next.x, next.y);
+                    ctx.stroke();
+                }
+                // The joint circle is what rounds the corner on a turn.
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        });
+
+        snakeDrawBanding(runs, skin, radiusFor, total);
+
+        const head = centers[0];
+        snakeDrawHead(head.x, head.y, m,
+                      snakeSegmentColors(skin, 0, total), skin, snakeBiteOpen(t), alpha);
+
+        ctx.restore();
+
+        // Where it went wrong, flashing under the blink.
+        if (snakeDying && snakeDeathCell && snakeDeathT < SNAKE_BLINK_MS) {
+            const gx = Math.max(0, Math.min(snakeGridSize - 1, snakeDeathCell.x));
+            const gy = Math.max(0, Math.min(snakeGridSize - 1, snakeDeathCell.y));
+            ctx.save();
+            ctx.globalAlpha = 0.55 * (1 - snakeDeathT / SNAKE_BLINK_MS);
+            ctx.fillStyle = '#ff3b3b';
+            ctx.beginPath();
+            ctx.roundRect(snakeCellX(gx, m), snakeCellY(gy, m), m.cs, m.cs, 3);
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    // ── Overlays ───────────────────────────────────────────────────────
+    function snakeDrawBanner(m) {
+        if (snakeBannerT <= 0 || !snakeBannerText) return;
+        const ctx = snakeCtx;
+        const p = snakeBannerT / SNAKE_BANNER_MS;
+        const ease = p > 0.8 ? (1 - p) / 0.2 : Math.min(1, p / 0.25);
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, ease));
+        ctx.fillStyle = 'rgba(0,0,0,0.72)';
+        ctx.beginPath(); ctx.roundRect(m.W * 0.08, m.H * 0.42, m.W * 0.84, m.H * 0.16, 10); ctx.fill();
+        ctx.fillStyle = '#ffeaa7';
+        ctx.font = 'bold 15px system-ui, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(snakeBannerText, m.W / 2, m.H * 0.5);
+        ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+        ctx.restore();
+    }
+
+    function snakeDrawPaused(m) {
+        if (!snakeGamePaused || snakeDying) return;
+        const ctx = snakeCtx;
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(0, 0, m.W, m.H);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 20px system-ui, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('⏸ Paused', m.W / 2, m.H / 2 - 8);
+        ctx.font = '12px system-ui, sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.fillText('press P or ▶ to resume', m.W / 2, m.H / 2 + 16);
+        ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+        ctx.restore();
+    }
+
+    function snakeDrawProgressBar(m) {
+        const ctx = snakeCtx;
+        const y = m.H - 3;
+        let frac, hue;
+        if (snakeMode === 'levels') {
+            const stage = SNAKE_STAGES[snakeStageIdx];
+            frac = stage ? Math.min(1, snakeStageEaten / stage.goal) : 0;
+            hue = 45;
+        } else {
+            frac = Math.min(1, snakeScore / 30);
+            hue = 140 - frac * 80;
+        }
+        ctx.fillStyle = 'rgba(0,230,118,0.10)';
+        ctx.fillRect(0, y, m.W, 3);
+        ctx.fillStyle = 'hsl(' + hue + ',100%,55%)';
+        ctx.fillRect(0, y, m.W * frac, 3);
+    }
+
+    // ── Frame ──────────────────────────────────────────────────────────
+    function drawSnakeGame(t = 1) {
+        if (!snakeCtx) return;
+        const ctx = snakeCtx;
+        const m = snakeBoardMetrics();
+        const now = performance.now();
+
+        ctx.fillStyle = '#0b1a12';
+        ctx.fillRect(0, 0, m.W, m.H);
+
+        ctx.strokeStyle = 'rgba(0,255,120,0.04)';
+        ctx.lineWidth = 0.5;
+        for (let i = 1; i < snakeGridSize; i++) {
+            const gx = snakeCellX(i, m), gy = snakeCellY(i, m);
+            ctx.beginPath(); ctx.moveTo(gx, m.pad); ctx.lineTo(gx, m.H - m.pad); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(m.pad, gy); ctx.lineTo(m.W - m.pad, gy); ctx.stroke();
+        }
+
+        snakeDrawFrame(m);
+        snakeDrawWalls(m);
+
+        snakeDrawApple(
+            snakeCellX(snakeFood.x, m) + m.cs / 2,
+            snakeCellY(snakeFood.y, m) + m.cs / 2,
+            m.cs / 2 - 2,
+            '#ff6b6b'
+        );
+        snakeDrawBigFood(m, now);
+        snakeDrawBody(m, t);
+        snakeDrawProgressBar(m);
+        snakeDrawBanner(m);
+        snakeDrawPaused(m);
+    }
+
+    // ── Loop ───────────────────────────────────────────────────────────
     function snakeRenderLoop(timestamp) {
         if (!snakeGameRunning) return;
         snakeAnimFrame = requestAnimationFrame(snakeRenderLoop);
 
-        // Logic: always runs, frame-rate independent via accumulator
         if (!snakeLastTickMs) snakeLastTickMs = timestamp;
-        const delta = timestamp - snakeLastTickMs;
+        // Clamped: coming back from a background tab hands us a delta of many
+        // seconds, and an unclamped accumulator would then run hundreds of ticks
+        // in one frame — the snake dies instantly through no fault of the player.
+        const delta = Math.min(250, timestamp - snakeLastTickMs);
         snakeLastTickMs = timestamp;
 
-        if (!snakeGamePaused) {
+        snakeSkinTime += delta / 1000;
+        if (snakeBannerT > 0) snakeBannerT = Math.max(0, snakeBannerT - delta);
+
+        if (snakeDying) {
+            snakeDeathT += delta;
+            if (snakeDeathT >= SNAKE_DEATH_MS) {
+                drawSnakeGame(1);
+                snakeFinalizeDeath();
+                return;
+            }
+        } else if (!snakeGamePaused) {
             snakeAccumulatorMs += delta;
-            while (snakeAccumulatorMs >= snakeTickInterval && snakeGameRunning) {
+            while (snakeAccumulatorMs >= snakeTickInterval && snakeGameRunning && !snakeDying) {
                 snakeTick();
                 snakeAccumulatorMs -= snakeTickInterval;
             }
         }
 
-        // Render: capped by FPS setting
         const renderElapsed = timestamp - snakeLastRenderMs;
         if (renderElapsed < getFrameInterval()) return;
         snakeLastRenderMs = timestamp - (renderElapsed % getFrameInterval());
 
-        const t = Math.min(1, snakeAccumulatorMs / snakeTickInterval);
+        const t = snakeDying ? 1 : Math.min(1, snakeAccumulatorMs / snakeTickInterval);
         drawSnakeGame(t);
     }
-    
-    function spawnFood() {
-        do {
-            food = {
-                x: Math.floor(Math.random() * snakeGridSize),
-                y: Math.floor(Math.random() * snakeGridSize)
-            };
-        } while (snake.some(segment => segment.x === food.x && segment.y === food.y));
-    }
-    
-    function drawSnakeGame(t = 1) {
-        if (!snakeCtx) return;
-        const W = snakeCanvas.width, H = snakeCanvas.height;
-        const cs = W / snakeGridSize;
 
-        // Background
-        snakeCtx.fillStyle = '#0b1a12';
-        snakeCtx.fillRect(0, 0, W, H);
-
-        // Subtle grid
-        snakeCtx.strokeStyle = 'rgba(0,255,120,0.04)';
-        snakeCtx.lineWidth = 0.5;
-        for (let i = 1; i < snakeGridSize; i++) {
-            snakeCtx.beginPath(); snakeCtx.moveTo(i*cs,0); snakeCtx.lineTo(i*cs,H); snakeCtx.stroke();
-            snakeCtx.beginPath(); snakeCtx.moveTo(0,i*cs); snakeCtx.lineTo(W,i*cs); snakeCtx.stroke();
-        }
-
-        // Snake — lerp each segment from prev grid pos toward current
-        snake.forEach((seg, idx) => {
-            const prev = snakePrevSnap[idx] || seg;
-            // Smooth linear interpolation between ticks
-            const px = (prev.x + (seg.x - prev.x) * t) * cs;
-            const py = (prev.y + (seg.y - prev.y) * t) * cs;
-            const isHead = idx === 0;
-            const fade = Math.max(0.45, 1 - idx * 0.018);
-
-            if (isHead) {
-                snakeCtx.shadowColor = '#00e676';
-                snakeCtx.shadowBlur = 10;
-                const hg = snakeCtx.createLinearGradient(px, py, px+cs, py+cs);
-                hg.addColorStop(0, '#55efc4');
-                hg.addColorStop(1, '#00b894');
-                snakeCtx.fillStyle = hg;
-            } else {
-                snakeCtx.shadowBlur = 0;
-                const g = Math.floor(184 * fade);
-                snakeCtx.fillStyle = `rgb(0,${g},${Math.floor(g*0.65)})`;
-            }
-            snakeCtx.beginPath();
-            snakeCtx.roundRect(px+2, py+2, cs-4, cs-4, isHead ? 5 : 3);
-            snakeCtx.fill();
-            snakeCtx.shadowBlur = 0;
-
-            // Eyes on head
-            if (isHead && (direction.x !== 0 || direction.y !== 0)) {
-                const cx = px + cs/2, cy = py + cs/2;
-                const ex = direction.x * cs*0.22, ey = direction.y * cs*0.22;
-                const px2 = direction.y * cs*0.18, py2 = -direction.x * cs*0.18;
-                snakeCtx.fillStyle = '#fff';
-                snakeCtx.beginPath(); snakeCtx.arc(cx+ex+px2, cy+ey+py2, 2.2, 0, Math.PI*2); snakeCtx.fill();
-                snakeCtx.beginPath(); snakeCtx.arc(cx+ex-px2, cy+ey-py2, 2.2, 0, Math.PI*2); snakeCtx.fill();
-                snakeCtx.fillStyle = '#111';
-                snakeCtx.beginPath(); snakeCtx.arc(cx+ex+px2+direction.x*0.6, cy+ey+py2+direction.y*0.6, 1.1, 0, Math.PI*2); snakeCtx.fill();
-                snakeCtx.beginPath(); snakeCtx.arc(cx+ex-px2+direction.x*0.6, cy+ey-py2+direction.y*0.6, 1.1, 0, Math.PI*2); snakeCtx.fill();
-            }
-        });
-
-        // Food — glowing apple
-        const fx = food.x*cs + cs/2, fy = food.y*cs + cs/2, fr = cs/2 - 2;
-        snakeCtx.shadowColor = '#ff6b6b'; snakeCtx.shadowBlur = 14;
-        const fg = snakeCtx.createRadialGradient(fx-fr*0.3, fy-fr*0.3, 1, fx, fy, fr);
-        fg.addColorStop(0, '#ff9f9f'); fg.addColorStop(0.5, '#e17055'); fg.addColorStop(1, '#c0392b');
-        snakeCtx.fillStyle = fg;
-        snakeCtx.beginPath(); snakeCtx.arc(fx, fy, fr, 0, Math.PI*2); snakeCtx.fill();
-        snakeCtx.shadowBlur = 0;
-        // Stem + shine
-        snakeCtx.strokeStyle = '#55efc4'; snakeCtx.lineWidth = 1.5;
-        snakeCtx.beginPath(); snakeCtx.moveTo(fx, fy-fr); snakeCtx.lineTo(fx+3, fy-fr-4); snakeCtx.stroke();
-        snakeCtx.fillStyle = 'rgba(255,255,255,0.35)';
-        snakeCtx.beginPath(); snakeCtx.ellipse(fx-fr*0.28, fy-fr*0.3, fr*0.28, fr*0.18, -0.6, 0, Math.PI*2); snakeCtx.fill();
-
-        // Speed bar
-        const spd = Math.min(1, snakeScore / 30);
-        snakeCtx.fillStyle = 'rgba(0,230,118,0.1)';
-        snakeCtx.fillRect(0, H-3, W, 3);
-        snakeCtx.fillStyle = `hsl(${140-spd*80},100%,55%)`;
-        snakeCtx.fillRect(0, H-3, W*spd, 3);
-    }
-    
-    function gameOver() {
-        snakeGameRunning = false;
-        snakeGamePaused = false;
-        if (snakeAnimFrame) { cancelAnimationFrame(snakeAnimFrame); snakeAnimFrame = null; }
-        snakeAccumulatorMs = 0;
-        
-        // Clear canvas on game over
-        if (snakeCtx) {
-            snakeCtx.clearRect(0, 0, snakeCanvas.width, snakeCanvas.height);
-        }
-        
-        // Update high score
-        if (snakeScore > snakeHighScore) {
-            snakeHighScore = snakeScore;
-            saveSnakeHighScore(snakeHighScore);
-            updateSnakeScoreDisplay();
-        }
-        
-        // Award XP based on snake score
-        awardGameXP('snake', { score: snakeScore, isHighScore: snakeScore >= snakeHighScore });
-        
-        showSnakeGameOver();
-        updateSnakePlayButton();
-        
-        // Auto restart and begin playing after 3 seconds
-        setTimeout(() => {
-            resetSnakeGame();
-            startSnakeGame();
-        }, 3000);
-    }
-    
+    // ── Panel chrome ───────────────────────────────────────────────────
     function showSnakeGameOver() {
-        const gameOverDiv = document.getElementById('snake-game-over');
-        if (gameOverDiv) {
-            gameOverDiv.classList.add('active');
-            const finalScore = gameOverDiv.querySelector('.final-score');
-            if (finalScore) {
-                finalScore.textContent = snakeScore;
+        const el = document.getElementById('snake-game-over');
+        if (!el) return;
+        el.classList.add('active');
+        const score = el.querySelector('.final-score');
+        if (score) score.textContent = snakeScore;
+        const sub = el.querySelector('.snake-go-sub');
+        if (sub) {
+            sub.textContent = snakeMode === 'levels'
+                ? 'Stage ' + (snakeStageIdx + 1) + '/' + SNAKE_STAGES.length +
+                  ' · ' + snakeStagesCleared + ' cleared'
+                : SNAKE_MODE_META[snakeMode].icon + ' ' + SNAKE_MODE_META[snakeMode].label +
+                  ' · best ' + snakeModeBest(snakeMode);
+        }
+    }
+
+    function hideSnakeGameOver() {
+        const el = document.getElementById('snake-game-over');
+        if (el) el.classList.remove('active');
+    }
+
+    // "Best:" and "Score:" were two of four chips fighting over one header row.
+    // The pair now lives inside the button that opens this mode's leaderboard —
+    // the number you just scored and the number to beat belong next to the list
+    // of numbers to beat.
+    // The stage readout rides the mode chip rather than the canvas. On the board
+    // it was drawn top-left, which is inside the playfield — the snake spawns
+    // and travels through exactly that corner, so the label sat on top of the
+    // gameplay. The chip has room because the mode name is already on the button
+    // below it, so the chip can spend its width on the stage instead.
+    function updateSnakeScoreDisplay() {
+        const mode = document.getElementById('snake-mode-chip');
+        const best = snakeModeBest(snakeMode);
+        if (mode) {
+            const meta = SNAKE_MODE_META[snakeMode];
+            if (snakeMode === 'levels') {
+                const stage = SNAKE_STAGES[snakeStageIdx];
+                mode.textContent = meta.icon + ' Stage ' + (snakeStageIdx + 1) + '/' + SNAKE_STAGES.length;
+                mode.title = stage
+                    ? 'Stage ' + (snakeStageIdx + 1) + ' — ' + stage.name +
+                      ' · ' + snakeStageEaten + '/' + stage.goal + ' eaten'
+                    : meta.desc;
+            } else {
+                mode.textContent = meta.icon + ' ' + meta.label;
+                mode.title = meta.desc;
             }
         }
-    }
-    
-    function hideSnakeGameOver() {
-        const gameOverDiv = document.getElementById('snake-game-over');
-        if (gameOverDiv) {
-            gameOverDiv.classList.remove('active');
-        }
-    }
-    
-    function updateSnakeScoreDisplay() {
-        const scoreElement = document.getElementById('snake-current-score');
-        const highScoreElement = document.getElementById('snake-high-score');
-        
-        if (scoreElement) scoreElement.textContent = snakeScore;
-        if (highScoreElement) highScoreElement.textContent = `High: ${snakeHighScore}`;
-    }
-    
-    function updateSnakePlayButton() {
-        const playBtn = document.getElementById('snake-play-btn');
-        if (!playBtn) return;
-        
-        if (!snakeGameRunning) {
-            playBtn.textContent = '▶ Play';
-        } else if (snakeGamePaused) {
-            playBtn.textContent = '⏸ Pause';
+
+        if (typeof updateGameScoreBtn === 'function') {
+            updateGameScoreBtn('snake', snakeScore, best);
         } else {
-            playBtn.textContent = '⏸ Pause';
+            // Standalone (headless / preview): no host helper to lean on.
+            const score = document.getElementById('snake-current-score');
+            const high  = document.getElementById('snake-high-score');
+            if (score) score.textContent = snakeScore;
+            if (high)  high.textContent  = best;
         }
     }
+
+    // The in-game leaderboard overlay is generic and lives in the host — every
+    // game panel opens the same element. Snake only has to say which mode it is
+    // currently showing, which gameLbMode() reads straight off snakeMode.
+
+    function updateSnakePlayButton() {
+        const btn = document.getElementById('snake-play-btn');
+        if (!btn) return;
+        btn.textContent = (!snakeGameRunning || snakeGamePaused) ? '▶ Play' : '⏸ Pause';
+    }
+
+    function updateSnakeModeButton() {
+        const btn = document.getElementById('snake-mode-btn');
+        if (btn) {
+            btn.textContent = SNAKE_MODE_META[snakeMode].icon + ' ' + SNAKE_MODE_META[snakeMode].label;
+            btn.title = SNAKE_MODE_META[snakeMode].desc;
+        }
+        updateSnakeScoreDisplay();
+    }
+
+    // ── Skin tray ──────────────────────────────────────────────────────
+    // Swatches are pure CSS so the tray costs no canvas work: repeating
+    // gradients for the two patterns, and the widget's own gradientFlow
+    // keyframe for the legendary.
+    function snakeSwatchStyle(id) {
+        const skin = SNAKE_SKINS[id];
+        if (skin.legendary) {
+            return 'background:linear-gradient(90deg,#ff5f6d,#ffc371,#47e5bc,#5b7cfa,#c56cf0,#ff5f6d);' +
+                   'background-size:300% 100%;animation:gradientFlow 3s linear infinite;';
+        }
+        const base = 'background-image:' + (
+            skin.pattern === 'dots'
+                ? 'radial-gradient(' + skin.colors[2] + ' 22%, transparent 23%),' +
+                  'radial-gradient(' + skin.colors[2] + ' 22%, transparent 23%),'
+                : skin.pattern === 'stripes'
+                    ? 'repeating-linear-gradient(115deg,' + skin.colors[2] + ' 0 4px, transparent 4px 11px),'
+                    : ''
+        ) + 'linear-gradient(135deg,' + skin.colors[0] + ',' + skin.colors[1] + ');';
+        const extra = skin.pattern === 'dots'
+            ? 'background-size:12px 12px,12px 12px,100% 100%;background-position:0 0,6px 6px,0 0;'
+            : '';
+        return base + extra;
+    }
+
+    function renderSnakeSkinTray() {
+        const tray = document.getElementById('snake-skin-tray');
+        if (!tray) return;
+        const activeId = snakeActiveSkinId();
+        tray.innerHTML =
+            '<div class="snake-skin-title">🎨 Snake Skins</div>' +
+            '<div class="snake-skin-grid">' +
+            Object.keys(SNAKE_SKINS).map(id => {
+                const skin = SNAKE_SKINS[id];
+                const unlocked = snakeSkinUnlocked(id);
+                const ach = skin.unlock && typeof ACHIEVEMENTS === 'object' ? ACHIEVEMENTS[skin.unlock] : null;
+                const hint = unlocked
+                    ? (skin.legendary ? 'Legendary' : 'Unlocked')
+                    : (ach ? ach.icon + ' ' + ach.name : 'Locked');
+                return '<button class="snake-skin-card' +
+                    (unlocked ? '' : ' locked') + (id === activeId ? ' active' : '') +
+                    '" data-snake-skin="' + id + '"' + (unlocked ? '' : ' disabled') +
+                    ' title="' + escapeHtml(skin.name + ' — ' + hint) + '">' +
+                    '<span class="snake-skin-swatch" style="' + snakeSwatchStyle(id) + '">' +
+                    (unlocked ? '' : '🔒') + '</span>' +
+                    '<span class="snake-skin-name">' + escapeHtml(skin.name) + '</span>' +
+                    '<span class="snake-skin-hint">' + escapeHtml(hint) + '</span>' +
+                    '</button>';
+            }).join('') +
+            '</div>';
+    }
+
+    function toggleSnakeSkinTray(force) {
+        const tray = document.getElementById('snake-skin-tray');
+        if (!tray) return;
+        const show = (typeof force === 'boolean') ? force : tray.style.display === 'none' || !tray.style.display;
+        // The tray and the leaderboard overlay share this corner of the panel.
+        if (show) {
+            renderSnakeSkinTray();
+            if (typeof toggleGameLeaderboard === 'function') toggleGameLeaderboard('snake', false);
+        }
+        tray.style.display = show ? 'block' : 'none';
+    }
+
+    // ── Init ───────────────────────────────────────────────────────────
+    function initSnakeGame() {
+        snakeCanvas = document.getElementById('snake-canvas');
+        if (!snakeCanvas) return;
+        snakeCtx = snakeCanvas.getContext('2d');
+
+        snakeMigrateStorage();
+        try {
+            if (SNAKE_MODES.indexOf(userPreferences.snakeMode) !== -1) snakeMode = userPreferences.snakeMode;
+        } catch (_) {}
+
+        snakeHighScore = snakeModeBest(snakeMode);
+
+        // Delegated once — the tray is re-rendered on every open, so a listener
+        // per card would leak one set per toggle.
+        if (!snakeSkinDelegationInit) {
+            snakeSkinDelegationInit = true;
+            document.addEventListener('click', (e) => {
+                const card = e.target.closest && e.target.closest('[data-snake-skin]');
+                if (card && !card.disabled) snakeSetSkin(card.getAttribute('data-snake-skin'));
+            });
+        }
+
+        document.addEventListener('keydown', handleSnakeKeyPress);
+        document.addEventListener('visibilitychange', handleSnakeVisibility);
+
+        updateSnakeModeButton();
+        renderSnakeSkinTray();
+        resetSnakeGame();
+    }
+    // ═══ END SNAKE ENGINE ═══
     
     // REFLEX GAME LOGIC
     
@@ -5340,17 +6840,21 @@
         `;
     }
     
+    // Shows only the mode being played. The old label carried both modes' bests
+    // at once, which is two numbers the player can't act on and one they can.
     function updateReflexScoreDisplay() {
-        const highScoreElement = document.getElementById('reflex-high-score');
-        if (!highScoreElement) return;
-        
-        const highScores = loadReflexHighScores();
-        const screenBest = highScores.screen?.best;
-        const targetBest = highScores.target?.best;
-        const validScreen = screenBest && screenBest !== Infinity && screenBest > 0;
-        const validTarget = targetBest && targetBest !== Infinity && targetBest > 0;
-        
-        highScoreElement.textContent = `⚡ ${validScreen ? screenBest + 'ms' : '—'}  🎯 ${validTarget ? targetBest + 'ms' : '—'}`;
+        const chip = document.getElementById('reflex-mode-chip');
+        if (chip) {
+            const meta = reflexGameModes[reflexMode];
+            chip.textContent = (meta ? meta.icon + ' ' + meta.name : reflexMode);
+        }
+        const scores = loadReflexHighScores();
+        const b = scores[reflexMode] && scores[reflexMode].best;
+        const best = (b && b !== Infinity && b > 0) ? b : null;
+        // The live figure is this run's best so far, which is what the board
+        // ranks — the last individual reaction jitters too much to read.
+        const cur = reflexReactionTimes.length ? Math.min(...reflexReactionTimes) : null;
+        updateGameScoreBtn('reflex', cur, best, 'ms');
     }
     
     function showReflexResults(avgTime, bestTime, isNewHighScore) {
@@ -5761,11 +7265,7 @@
     }
     
     function updateAimScoreDisplay() {
-        const highScoreElement = document.getElementById('aim-high-score');
-        if (!highScoreElement) return;
-        
-        const highScore = loadAimHighScore();
-        highScoreElement.textContent = `Best: ${highScore > 0 ? highScore : '—'}`;
+        updateGameScoreBtn('aim', aimScore, loadAimHighScore());
     }
     
     function showAimResults(isNewHighScore) {
@@ -6077,10 +7577,7 @@
     }
 
     function updateFlappyScoreDisplay() {
-        const el = document.getElementById('flappy-current-score');
-        const hs = document.getElementById('flappy-high-score');
-        if (el) el.textContent = flappyScore;
-        if (hs) hs.textContent = 'Best: ' + flappyHighScore;
+        updateGameScoreBtn('flappy', flappyScore, flappyHighScore);
     }
 
     // TETRIS GAME LOGIC
@@ -6470,14 +7967,11 @@
     }
 
     function updateTetrisScoreDisplay() {
-        const el = document.getElementById('tetris-score');
         const ls = document.getElementById('tetris-lines');
         const lv = document.getElementById('tetris-level');
-        const hs = document.getElementById('tetris-high-score');
-        if (el) el.textContent = tetrisScore;
         if (ls) ls.textContent = tetrisLines;
         if (lv) lv.textContent = tetrisLevel;
-        if (hs) hs.textContent = 'Best: ' + tetrisHighScore;
+        updateGameScoreBtn('tetris', tetrisScore, tetrisHighScore);
     }
 
     // PRAYER COUNTER LOGIC
@@ -8520,15 +10014,25 @@
     }
     
     function cleanupCurrentGame() {
+        // The leaderboard overlay is shared across panels, so it has to close
+        // on any switch or it would hang over the next game's board.
+        if (gameLbOpen) toggleGameLeaderboard(gameLbOpen, false);
         switch (currentGame) {
             case 'snake':
                 if (snakeGameRunning) {
                     snakeGameRunning = false;
                     snakeGamePaused = false;
+                    snakeDying = false;
                     if (snakeAnimFrame) { cancelAnimationFrame(snakeAnimFrame); snakeAnimFrame = null; }
                     snakeAccumulatorMs = 0;
                 }
+                // The death auto-restart used to be an uncancellable setTimeout,
+                // so switching panels within three seconds of dying left the
+                // loop running on a hidden canvas until the page was reloaded.
+                if (snakeRestartTimer) { clearTimeout(snakeRestartTimer); snakeRestartTimer = null; }
                 document.removeEventListener('keydown', handleSnakeKeyPress);
+                document.removeEventListener('visibilitychange', handleSnakeVisibility);
+                toggleSnakeSkinTray(false);
                 break;
                 
             case 'reflex':
@@ -8723,6 +10227,7 @@
                 { const c = document.getElementById('ludo-controls'); if (c) c.style.display = 'flex'; }
                 { const s = document.getElementById('ludo-scoreboard'); if (s) s.style.display = 'flex'; }
                 updateLudoScoreboard();
+                refreshGameScoreBtn('ludo');
                 break;
             case 'prayer':
                 { const c = document.getElementById('prayer-controls'); if (c) c.style.display = 'flex'; }
@@ -9184,6 +10689,22 @@
         const reflexBest = (reflexData.screen && typeof reflexData.screen.best === 'number') ? reflexData.screen.best : Infinity;
 
         if (!has('snakeCharmer') && snakeHS >= 40)     unlockAchievement('snakeCharmer', S);
+
+        // Snake per-mode bests and campaign progress survive a wipe, so these
+        // four can be rebuilt. snakeGourmand ("10 golden bites in one run") and
+        // snakeLong ("60 segments") cannot — they are per-run facts and nothing
+        // in localStorage can reconstruct them after the fact.
+        let snakeModeHS = { endless: 0, walled: 0, levels: 0 };
+        try {
+            const parsed = JSON.parse(localStorage.getItem('snakeHighScores') || 'null');
+            if (parsed && typeof parsed === 'object') snakeModeHS = { ...snakeModeHS, ...parsed };
+        } catch (_) {}
+        const snakeStageBest = parseInt(localStorage.getItem('snakeLevelsBest') || '0', 10) || 0;
+        if (!has('snakeEndless')   && (snakeModeHS.endless || 0) >= 40) unlockAchievement('snakeEndless', S);
+        if (!has('snakeWalled')    && (snakeModeHS.walled  || 0) >= 40) unlockAchievement('snakeWalled', S);
+        if (!has('snakeCampaign')  && snakeStageBest >= 6)              unlockAchievement('snakeCampaign', S);
+        if (!has('snakeConqueror') && snakeStageBest >= 12)             unlockAchievement('snakeConqueror', S);
+
         if (!has('flapMaster')   && flappyHS >= 50)    unlockAchievement('flapMaster', S);
         if (!has('poolShark')    && poolWon >= 100)    unlockAchievement('poolShark', S);
         if (!has('ludoChamp')    && ludoWon >= 100)    unlockAchievement('ludoChamp', S);
@@ -9216,6 +10737,31 @@
             case 'snake':
                 if (!userXP.achievements.includes('snakeCharmer') && (p.score || 0) >= 40) {
                     unlockAchievement('snakeCharmer');
+                }
+                if (p.mode === 'endless' && !userXP.achievements.includes('snakeEndless') && (p.score || 0) >= 40) {
+                    unlockAchievement('snakeEndless');
+                }
+                if (p.mode === 'walled' && !userXP.achievements.includes('snakeWalled') && (p.score || 0) >= 40) {
+                    unlockAchievement('snakeWalled');
+                }
+                // Per-run facts with no localStorage trace, so — like
+                // tetrisMaster and ludoFlawless — these can only be granted
+                // live and are never backfilled by revalidateAchievements.
+                if (!userXP.achievements.includes('snakeGourmand') && (p.bigEaten || 0) >= 10) {
+                    unlockAchievement('snakeGourmand');
+                }
+                if (!userXP.achievements.includes('snakeLong') && (p.maxLength || 0) >= 60) {
+                    unlockAchievement('snakeLong');
+                }
+                // Stages cleared, not the stage number reached: the badge says
+                // "clear stage 6" and the backfill below reads snakeLevelsBest,
+                // which is only written on a clear. Gating on the stage you died
+                // *on* would hand out 110 XP the revalidator could never rebuild.
+                if (!userXP.achievements.includes('snakeCampaign') && (p.stagesCleared || 0) >= 6) {
+                    unlockAchievement('snakeCampaign');
+                }
+                if (!userXP.achievements.includes('snakeConqueror') && p.allStages) {
+                    unlockAchievement('snakeConqueror');
                 }
                 break;
             case 'flappy':
@@ -9281,6 +10827,8 @@
         // Gaming
         gamer: 100, gamer50: 200,
         snakeCharmer: 80, flapMaster: 100, tetrisMaster: 120,
+        snakeEndless: 80, snakeWalled: 90, snakeGourmand: 100,
+        snakeCampaign: 110, snakeConqueror: 200, snakeLong: 90,
         sharpshooter: 100, lightning: 120, brickBuster: 100, poolShark: 150,
         ludoChamp: 150, ludoFlawless: 120, ludoHunter: 80,
         // Engagement
@@ -9499,8 +11047,21 @@
                 } else {
                     xpGained = 2;
                 }
+                // Levels pays for progress as well as score: twelve stages of
+                // authored layouts are the harder thing to do, and scoring alone
+                // would pay a long Endless run more than clearing the campaign.
+                const snakeStages = performance.stagesCleared || 0;
+                if (snakeStages > 0) xpGained += Math.min(snakeStages * 10, 60);
                 if (performance.isHighScore) xpGained += 15;
-                message = `🐍 +${xpGained} XP (Snake: ${snakeScoreVal} pts${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
+                // Ceiling well inside AC_MAX_XP_PER_GAME (300), so neither the
+                // client gate nor the server budget in sync.yml needs to move.
+                xpGained = Math.max(0, Math.min(150, xpGained));
+
+                const snakeModeLabel = (typeof SNAKE_MODE_META === 'object' &&
+                                        SNAKE_MODE_META[performance.mode])
+                    ? SNAKE_MODE_META[performance.mode].label : 'Snake';
+                const snakeExtra = snakeStages > 0 ? `, ${snakeStages} stage${snakeStages > 1 ? 's' : ''}` : '';
+                message = `🐍 +${xpGained} XP (${snakeModeLabel}: ${snakeScoreVal} pts${snakeExtra}${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
                 break;
             }
                 
@@ -9669,8 +11230,11 @@
             checkAchievements();
             // Per-game performance achievements (Snake Charmer, Sharpshooter, etc.)
             checkGameAchievements(gameType, performance);
-            
+
             saveUserXP(userXP);
+            // A finished match may have moved a career win count that no
+            // per-frame scoreboard function redraws.
+            refreshGameScoreBtn(gameType);
             updateXPDisplay();
             showXPNotification(message, 'game');
         }
@@ -12896,7 +14460,226 @@
                 color: rgba(255, 255, 255, 0.8);
                 margin: 8px 0;
             }
-            
+
+            .snake-game-over .snake-go-sub {
+                font-size: 0.8rem;
+                color: rgba(255, 255, 255, 0.55);
+            }
+
+            /* Header has to hold a title, a mode chip and the score button on one
+               line in a ~340px column, so nothing here is allowed to wrap. */
+            .snake-game-header {
+                gap: 8px;
+                flex-wrap: nowrap;
+            }
+            .snake-game-title {
+                white-space: nowrap;
+                flex: 0 0 auto;
+            }
+            .snake-scoreboard {
+                align-items: center;
+                min-width: 0;
+            }
+
+            .snake-mode-chip {
+                padding: 2px 8px;
+                border-radius: 999px;
+                background: rgba(108, 92, 231, 0.25);
+                border: 1px solid rgba(108, 92, 231, 0.45);
+                white-space: nowrap;
+                font-size: 0.72rem;
+            }
+
+            /* Score / best, folded into the button that opens that game's
+               leaderboard — the number you just scored and the number to beat
+               belong next to the list of numbers to beat. Every game panel uses
+               this, which is what let the old "Best: … Score: …" label pairs go. */
+            .game-score-btn {
+                display: inline-flex;
+                align-items: baseline;
+                gap: 3px;
+                padding: 3px 9px;
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                color: rgba(255, 255, 255, 0.9);
+                cursor: pointer;
+                font-family: inherit;
+                line-height: 1.1;
+                white-space: nowrap;
+                transition: border-color 0.2s ease, background 0.2s ease;
+            }
+            .game-score-btn:hover {
+                background: rgba(108, 92, 231, 0.22);
+                border-color: rgba(108, 92, 231, 0.65);
+            }
+            .game-score-btn .gsb-score {
+                font-size: 0.9rem;
+                font-weight: 700;
+                font-variant-numeric: tabular-nums;
+            }
+            .game-score-btn .gsb-sep { opacity: 0.35; font-size: 0.72rem; }
+            .game-score-btn .gsb-best {
+                font-size: 0.72rem;
+                opacity: 0.6;
+                font-variant-numeric: tabular-nums;
+            }
+            .game-score-btn .gsb-trophy { font-size: 0.68rem; opacity: 0.75; }
+            /* Secondary figures that sit beside the button — lines, level,
+               lives, turn. Small and quiet: the score is the headline. */
+            .gsb-aside {
+                font-size: 0.68rem;
+                opacity: 0.62;
+                white-space: nowrap;
+            }
+            /* Live run is at or past the record — worth noticing mid-game. */
+            .game-score-btn.is-record {
+                background: rgba(253, 203, 110, 0.18);
+                border-color: rgba(253, 203, 110, 0.7);
+            }
+            .game-score-btn.is-record .gsb-score { color: #ffeaa7; }
+
+            /* In-game leaderboard, over the board rather than a panel switch. */
+            .game-lb-overlay {
+                position: absolute;
+                left: 16px;
+                right: 16px;
+                top: 64px;
+                bottom: 64px;
+                z-index: 13;
+                display: flex;
+                flex-direction: column;
+                border-radius: 12px;
+                background: rgba(12, 16, 28, 0.95);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+                backdrop-filter: blur(8px);
+                overflow: hidden;
+            }
+            .game-lb-head {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 10px 12px;
+                font-size: 0.78rem;
+                font-weight: 700;
+                color: rgba(255, 255, 255, 0.9);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            .game-lb-head > span:first-child { flex: 1; min-width: 0; }
+            .game-lb-note {
+                font-size: 0.6rem;
+                font-weight: 500;
+                opacity: 0.55;
+                white-space: nowrap;
+            }
+            .game-lb-close {
+                background: none;
+                border: none;
+                color: rgba(255, 255, 255, 0.55);
+                cursor: pointer;
+                font-size: 0.85rem;
+                padding: 0 2px;
+            }
+            .game-lb-close:hover { color: #fff; }
+            .game-lb-body {
+                flex: 1;
+                overflow-y: auto;
+                padding: 4px 6px 8px;
+            }
+            .game-lb-empty {
+                text-align: center;
+                opacity: 0.5;
+                padding: 20px;
+                font-size: 0.75rem;
+            }
+
+            /* ── Snake skin tray ────────────────────────────────────────
+               Sits over the canvas rather than in the settings modal: the
+               skins are game state, and the modal is already long. */
+            .snake-skin-tray {
+                position: absolute;
+                left: 16px;
+                right: 16px;
+                bottom: 64px;
+                z-index: 12;
+                padding: 12px;
+                border-radius: 12px;
+                background: rgba(12, 16, 28, 0.94);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+                backdrop-filter: blur(8px);
+            }
+
+            .snake-skin-title {
+                font-size: 0.8rem;
+                font-weight: 700;
+                color: rgba(255, 255, 255, 0.85);
+                margin-bottom: 10px;
+            }
+
+            .snake-skin-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+                gap: 8px;
+            }
+
+            .snake-skin-card {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 4px;
+                padding: 8px 4px;
+                border-radius: 10px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                background: rgba(255, 255, 255, 0.05);
+                cursor: pointer;
+                transition: transform 0.2s ease, border-color 0.2s ease;
+            }
+
+            .snake-skin-card:hover:not(.locked) {
+                transform: translateY(-2px);
+                border-color: rgba(108, 92, 231, 0.7);
+            }
+
+            .snake-skin-card.active {
+                border-color: #6c5ce7;
+                box-shadow: 0 0 0 1px #6c5ce7 inset;
+            }
+
+            /* Locked skins stay visible and name what earns them — a hidden
+               skin is not a goal, it is just missing. */
+            .snake-skin-card.locked {
+                cursor: not-allowed;
+                opacity: 0.5;
+            }
+
+            .snake-skin-swatch {
+                width: 44px;
+                height: 22px;
+                border-radius: 6px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 0.75rem;
+                box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+            }
+
+            .snake-skin-name {
+                font-size: 0.68rem;
+                font-weight: 600;
+                color: rgba(255, 255, 255, 0.9);
+                text-align: center;
+                line-height: 1.1;
+            }
+
+            .snake-skin-hint {
+                font-size: 0.6rem;
+                color: rgba(255, 255, 255, 0.5);
+                text-align: center;
+                line-height: 1.1;
+            }
+
             /* ==================== MULTI-GAME SWITCHER STYLES ==================== */
             .game-switcher {
                 display: flex;
@@ -14692,6 +16475,43 @@
                 text-align: right;
                 padding: 0 2px;
             }
+
+            /* ── Per-game boards ────────────────────────────────────────
+               One game at a time below the main table. Each board has a
+               single unit and its own sort direction, which the old
+               eight-column table could not express. */
+            .lb-board-section {
+                margin-top: 10px;
+                border-top: 1px solid rgba(255, 255, 255, 0.12);
+                padding-top: 10px;
+            }
+            .lb-board-note {
+                font-size: 0.62rem;
+                opacity: 0.55;
+                white-space: nowrap;
+                flex-basis: 100%;
+            }
+            .lb-board-wrap {
+                max-height: 190px;
+                overflow-y: auto;
+                overflow-x: hidden;
+            }
+            .lb-board-table td {
+                padding: 5px 6px;
+            }
+            .lb-board-value {
+                text-align: right;
+                font-variant-numeric: tabular-nums;
+                white-space: nowrap;
+            }
+            .lb-board-unit {
+                font-size: 0.62rem;
+                opacity: 0.5;
+            }
+            .lb-board-extra {
+                font-size: 0.62rem;
+                opacity: 0.65;
+            }
             .lb-empty {
                 text-align: center;
                 opacity: 0.5;
@@ -16203,40 +18023,76 @@
                     
                     <!-- Game Header (Dynamic) -->
                     <div class="snake-game-header">
-                        <span id="game-title" class="snake-game-title">🐍 Snake Game</span>
+                        <span id="game-title" class="snake-game-title">🐍 Snake</span>
                         <div id="snake-scoreboard" class="snake-scoreboard">
-                            <span id="snake-high-score" class="snake-score">High: 0</span>
-                            <span class="snake-score">Score: <span id="snake-current-score">0</span></span>
+                            <span id="snake-mode-chip" class="snake-score snake-mode-chip">🧱 Walled</span>
+                            <button id="snake-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('snake')">
+                                <span class="gsb-score" id="snake-current-score">0</span>
+                                <span class="gsb-sep">/</span>
+                                <span class="gsb-best" id="snake-high-score">0</span>
+                                <span class="gsb-trophy">🏆</span>
+                            </button>
                         </div>
                         <div id="flappy-scoreboard" class="snake-scoreboard" style="display: none;">
-                            <span id="flappy-high-score" class="snake-score">Best: 0</span>
-                            <span class="snake-score">Score: <span id="flappy-current-score">0</span></span>
+                            <button id="flappy-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('flappy')">
+                                <span class="gsb-score" id="flappy-current-score">0</span>
+                                <span class="gsb-sep">/</span>
+                                <span class="gsb-best" id="flappy-high-score">0</span>
+                                <span class="gsb-trophy">🏆</span>
+                            </button>
                         </div>
                         <div id="tetris-scoreboard" class="snake-scoreboard" style="display: none;">
-                            <span id="tetris-high-score" class="snake-score">Best: 0</span>
-                            <span class="snake-score">Sc: <span id="tetris-score">0</span> | Ln: <span id="tetris-lines">0</span> | Lv: <span id="tetris-level">1</span></span>
+                            <span class="snake-score gsb-aside">Ln <span id="tetris-lines">0</span> · Lv <span id="tetris-level">1</span></span>
+                            <button id="tetris-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('tetris')">
+                                <span class="gsb-score" id="tetris-score">0</span>
+                                <span class="gsb-sep">/</span>
+                                <span class="gsb-best" id="tetris-high-score">0</span>
+                                <span class="gsb-trophy">🏆</span>
+                            </button>
                         </div>
-                        <div id="reflex-scoreboard" style="display: none;">
-                            <span id="reflex-high-score" class="snake-score">Best: 0ms</span>
+                        <div id="reflex-scoreboard" class="snake-scoreboard" style="display: none;">
+                            <span class="snake-score gsb-aside" id="reflex-mode-chip">⚡ Screen</span>
+                            <button id="reflex-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('reflex')">
+                                <span class="gsb-score" id="reflex-last-score">—</span>
+                                <span class="gsb-sep">/</span>
+                                <span class="gsb-best" id="reflex-high-score">—</span>
+                                <span class="gsb-trophy">🏆</span>
+                            </button>
                         </div>
-                        <div id="aim-scoreboard" style="display: none;">
-                            <span id="aim-high-score" class="snake-score">High Score: 0</span>
+                        <div id="aim-scoreboard" class="snake-scoreboard" style="display: none;">
+                            <button id="aim-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('aim')">
+                                <span class="gsb-score" id="aim-current-score">0</span>
+                                <span class="gsb-sep">/</span>
+                                <span class="gsb-best" id="aim-high-score">0</span>
+                                <span class="gsb-trophy">🏆</span>
+                            </button>
                         </div>
                         <div id="breakout-scoreboard" class="snake-scoreboard" style="display: none;">
-                            <span class="snake-score">Best: <span id="breakout-hiscore">0</span></span>
-                            <span class="snake-score">Sc: <span id="breakout-score">0</span></span>
-                            <span class="snake-score">Lv: <span id="breakout-level">1</span></span>
-                            <span id="breakout-lives" class="snake-score">❤️❤️❤️</span>
+                            <span class="snake-score gsb-aside">Lv <span id="breakout-level">1</span></span>
+                            <span id="breakout-lives" class="snake-score gsb-aside">❤️❤️❤️</span>
+                            <button id="breakout-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('breakout')">
+                                <span class="gsb-score" id="breakout-score">0</span>
+                                <span class="gsb-sep">/</span>
+                                <span class="gsb-best" id="breakout-hiscore">0</span>
+                                <span class="gsb-trophy">🏆</span>
+                            </button>
                         </div>
                         <div id="pool-scoreboard" class="snake-scoreboard" style="display: none;">
-                            <span class="snake-score">P1: <span id="pool-p1-score">0</span></span>
-                            <span class="snake-score">P2: <span id="pool-p2-score">0</span></span>
-                            <span class="snake-score" id="pool-turn-label">Turn: P1</span>
+                            <span class="snake-score gsb-aside"><span id="pool-p1-score">0</span>–<span id="pool-p2-score">0</span></span>
+                            <span class="snake-score gsb-aside" id="pool-turn-label">Turn: P1</span>
+                            <button id="pool-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('pool')">
+                                <span class="gsb-best" id="pool-wins">0</span>
+                                <span class="gsb-trophy">🏆</span>
+                            </button>
                         </div>
                         <div id="ludo-scoreboard" class="snake-scoreboard" style="display: none;">
-                            <span class="snake-score" id="ludo-mode-label">PvCPU</span>
-                            <span class="snake-score" id="ludo-home-label">🏠 0/4</span>
-                            <span class="snake-score" id="ludo-turn-label">Press Play</span>
+                            <span class="snake-score gsb-aside" id="ludo-mode-label">PvCPU</span>
+                            <span class="snake-score gsb-aside" id="ludo-home-label">🏠 0/4</span>
+                            <span class="snake-score gsb-aside" id="ludo-turn-label">Press Play</span>
+                            <button id="ludo-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('ludo')">
+                                <span class="gsb-best" id="ludo-wins">0</span>
+                                <span class="gsb-trophy">🏆</span>
+                            </button>
                         </div>
                         <div id="prayer-scoreboard" class="snake-scoreboard" style="display: none;">
                             <span class="snake-score">📿 Count: <span id="prayer-hdr-count">0</span></span>
@@ -16283,9 +18139,18 @@
                     
                     <!-- Snake Controls -->
                     <div id="snake-controls" class="snake-controls">
+                        <button id="snake-mode-btn" class="snake-btn" onclick="window.cycleSnakeModeBtn()" title="Walls are lethal">🧱 Walled</button>
                         <button id="snake-play-btn" class="snake-btn" onclick="window.snakePlayPause()">▶ Play</button>
                         <button class="snake-btn" onclick="window.resetSnake()">🔄 Reset</button>
+                        <button class="snake-btn" onclick="window.toggleSnakeSkinTrayBtn()" title="Snake skins">🎨</button>
                     </div>
+
+                    <!-- Snake Skin Tray (rendered by renderSnakeSkinTray) -->
+                    <div id="snake-skin-tray" class="snake-skin-tray" style="display:none;"></div>
+
+                    <!-- Per-game leaderboard, shown over whichever board is active.
+                         One element for all panels: only one game is ever visible. -->
+                    <div id="game-lb-overlay" class="game-lb-overlay" style="display:none;"></div>
                     
                     <!-- RefleX Controls -->
                     <div id="reflex-controls" class="snake-controls" style="display: none;">
@@ -16348,6 +18213,7 @@
                     <div id="snake-game-over" class="snake-game-over">
                         <h3>Game Over!</h3>
                         <p>Final Score: <span class="final-score">0</span></p>
+                        <p class="snake-go-sub"></p>
                         <p>Auto restarting...</p>
                     </div>
                 </div>
@@ -16570,6 +18436,14 @@
             }
         };
         window.resetSnake = resetSnakeGame;
+        window.cycleSnakeModeBtn = () => {
+            cycleSnakeMode();
+            updateSnakeModeButton();
+            toggleSnakeSkinTray(false);
+        };
+        window.toggleSnakeSkinTrayBtn = () => toggleSnakeSkinTray();
+        window.openGameLeaderboard = (game) => toggleGameLeaderboard(game);
+        window.closeGameLeaderboard = () => toggleGameLeaderboard(gameLbOpen || currentGame, false);
         window.addQuote = addCustomQuote;
         window.changeImageBox = changeImage;
         window.changeImageAspectRatio = changeAspectRatio;
@@ -16662,6 +18536,7 @@
                             aim: parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
                             reflex: (() => { const d = JSON.parse(localStorage.getItem('reflexHighScores') || '{}'); return (d?.screen?.best && d.screen.best !== Infinity && d.screen.best > 0) ? d.screen.best : 0; })()
                         },
+                        gameModeBests: collectGameModeBests(),
                         joinedAt: new Date().toISOString().split('T')[0],
                         lastSync: new Date().toISOString()
                     }];
@@ -16694,6 +18569,7 @@
                     aim: parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
                     reflex: (syncReflexBest && syncReflexBest !== Infinity && syncReflexBest > 0) ? syncReflexBest : 0
                 };
+                myEntry.gameModeBests = collectGameModeBests();
             }
             renderLeaderboardPanel();
             showXPNotification('✅ Leaderboard updated!', 'hourly');
@@ -16706,7 +18582,9 @@
             
             switch (gameKey) {
                 case 'snake':
-                    titleElement.textContent = '🐍 Snake Game';
+                    // Short: the header also carries a mode chip and the score
+                    // button, and "Snake Game" wrapped onto a second line.
+                    titleElement.textContent = '🐍 Snake';
                     break;
                 case 'flappy':
                     titleElement.textContent = '🐦 Flappy Bird';

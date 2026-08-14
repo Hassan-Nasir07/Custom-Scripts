@@ -356,6 +356,14 @@ function downsample(src, w, h, f) {
     return { buf: out, w: ow, h: oh };
 }
 
+// The rasterizer above is game-agnostic, so snake-dev/preview.js borrows it
+// rather than carrying a second copy. Top-level `return` is legal in CommonJS
+// (modules are function-wrapped), which keeps the CLI driver below untouched.
+if (require.main !== module) {
+    module.exports = { Raster, Ctx, encodePNG, downsample, parseColour, SS, DOWN };
+    return;
+}
+
 // ── Drive the real renderer ────────────────────────────────────────────
 // Canvas size is read out of ludo-core.js so this never drifts from the game.
 const coreSrc = fs.readFileSync(path.join(__dirname, 'ludo-core.js'), 'utf8');

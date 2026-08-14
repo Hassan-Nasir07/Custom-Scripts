@@ -215,8 +215,10 @@ ok('each has an icon and a name',
        .every(k => H.ACHIEVEMENTS[k].icon && H.ACHIEVEMENTS[k].name));
 ok('each has an XP value',
    ['ludoChamp', 'ludoFlawless', 'ludoHunter'].every(k => H.ACHIEVEMENT_XP[k] > 0));
+// 30 before Snake v2, which added six (snakeEndless, snakeWalled,
+// snakeGourmand, snakeCampaign, snakeConqueror, snakeLong).
 const total = Object.keys(H.ACHIEVEMENTS).length;
-ok('achievement grid total is 30', total === 30, 'got ' + total);
+ok('achievement grid total is 36', total === 36, 'got ' + total);
 
 head('Boot and play through the host');
 H.initLudoGame();

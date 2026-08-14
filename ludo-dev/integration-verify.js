@@ -152,22 +152,34 @@ ok('checkGameAchievements gates all three on vsCPU',
 ok('revalidateAchievements can restore ludoChamp', has("!has('ludoChamp')    && ludoWon >= 100"));
 
 head('Leaderboard and cloud sync');
-// Assert the relationship, not a magic number: a header cell, a row cell and a
-// slot in the colspan must appear or disappear together. Adding Ludo took the
-// game columns from 7 to 8, so colspan goes 11 -> 12.
-const FIXED_COLS = 4;                                   // rank, name, level, XP
+// Snake v2 moved per-game scores out of the main table and behind a game+mode
+// selector, so the eight emoji columns this used to count are gone. The
+// relationship still holds, it is just inverted: the main table carries the
+// five fixed cells and no game columns at all, and the colspan must agree.
 const th = (src.match(/<th title="[^"]+">/g) || []).length;
 const td = (src.match(/<td class="lb-score">/g) || []).length;
 const colspan = (src.match(/colspan="(\d+)" class="lb-empty"/) || [])[1];
-ok('8 game columns now that Ludo is in', th === 8, 'got ' + th);
-ok('header and row cell counts agree', th === td, th + ' headers vs ' + td + ' cells');
-ok('colspan equals fixed + game columns',
-   Number(colspan) === FIXED_COLS + th,
-   'colspan=' + colspan + ' but expected ' + (FIXED_COLS + th));
-ok('ludo column header present', has('<th title="Ludo">🎲</th>'));
-ok('ludo cell present', has('${fmt(gb.ludo)}'));
-ok('collectGameBests reports ludo',
+// Derive the width from the header rather than naming a number here — a
+// hardcoded count is how the colspan and the table drifted apart in the first
+// place, and an assertion that repeats the bug catches nothing.
+const thead = (src.match(/<thead><tr>[\s\S]*?<\/tr><\/thead>/) || [''])[0];
+// `<th[ >]` so the enclosing `<thead>` isn't counted as a column.
+const mainCols = (thead.match(/<th[ >]/g) || []).length;
+ok('no per-game columns left in the main table', th === 0 && td === 0,
+   th + ' headers, ' + td + ' cells');
+ok('the empty-state colspan matches the main table width',
+   mainCols > 0 && Number(colspan) === mainCols,
+   'colspan=' + colspan + ' but the header has ' + mainCols + ' columns');
+ok('ludo has a board in the selector',
+   /ludo:\s*\{[^}]*label:\s*'Ludo'/.test(src));
+// Hot-seat wins are never recorded (ludoSaveWins runs only under `if (vsCPU)`),
+// so Ludo's board is CPU-only and must NOT advertise a mode sub-selector.
+ok('the ludo board is single-mode, matching what ludoGamesWon means',
+   !/ludo:\s*\{[^}]*modes:/.test(src));
+ok('collectGameBests still reports ludo',
    /ludo:\s+parseInt\(localStorage\.getItem\('ludoGamesWon'/.test(src));
+ok('collectGameModeBests reports ludo:cpu',
+   /put\('ludo:cpu', localStorage\.getItem\('ludoGamesWon'\)\)/.test(src));
 ok('snapshot carries ludoRecord',
    /ludoRecord: JSON\.parse\(localStorage\.getItem\('ludoRecord'/.test(src));
 ok('restore raises ludoGamesWon', has("raise('ludoGamesWon',       gb.ludo)"));

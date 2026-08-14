@@ -16625,30 +16625,39 @@
                         <div style="font-size:0.85rem;font-weight:700;letter-spacing:0.3px;">Attendance Tracker Plus</div>
                         <div style="font-size:0.65rem;opacity:0.7;">by Hassan Nasir &middot; Core: Websoft Team</div>
                     </div>
-                    <span style="margin-left:auto;background:linear-gradient(135deg,#667eea,#764ba2);padding:2px 8px;border-radius:10px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;">v5.0</span>
+                    <span style="margin-left:auto;background:linear-gradient(135deg,#667eea,#764ba2);padding:2px 8px;border-radius:10px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;">v6.0</span>
                 </div>
                 <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0;"></div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;text-align:left;">
-                    <small>🎱 <strong>Pool</strong> — Spin physics, cushion, Competitive AI</small>
-                    <small>🐍 <strong>Snake</strong> — 60fps rendering, progressive speed</small>
-                    <small>🐦 <strong>Flappy</strong> — Dynamic gap & speed scaling per score</small>
-                    <small>🧱 <strong>Tetris</strong> — Ghost piece, wall kicks, level progression</small>
+                    <small>🐍 <strong>Snake</strong> — 3 modes, 12 stages, golden bite, 5 skins</small>
+                    <small>🎲 <strong>Ludo</strong> — Ludo Star rules, CPU tiers, 2–4P hot-seat</small>
+                    <small>🎱 <strong>Pool</strong> — Spin physics, cushions, CPU &amp; PvP</small>
+                    <small>🧱 <strong>Tetris</strong> — 7-bag + next piece, ghost, wall kicks</small>
+                    <small>🐦 <strong>Flappy</strong> — Dynamic gap &amp; speed scaling per score</small>
                     <small>🏓 <strong>Breakout</strong> — 11 powerups, multi-ball, combo system</small>
-                    <small>⚡ <strong>Reflex</strong> — Screen & target modes, reaction benchmarks</small>
-                    <small>🎯 <strong>Aim</strong> — Chaos mode, accuracy tracking, bullet holes</small>
+                    <small>⚡ <strong>RefleX</strong> — Screen &amp; target modes, false-start guard</small>
+                    <small>💥 <strong>Aim</strong> — Chaos mode, accuracy tracking, bullet holes</small>
                     <small>📿 <strong>Tasbih</strong> — Digital prayer counter with memory</small>
+                    <small>🏆 <strong>Leaderboard</strong> — Cloud ranks, per-game boards, badges</small>
                 </div>
                 <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0;"></div>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">
-                    <span style="background:rgba(102,126,234,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">⭐ XP & Levels</span>
+                <!-- width:0 + min-width:100% keeps this row out of the tooltip's
+                     max-content width, so the badges wrap to the width the game
+                     grid already sets instead of stretching the card. -->
+                <div style="display:flex;gap:6px 6px;flex-wrap:wrap;justify-content:center;width:0;min-width:100%;">
+                    <span style="background:rgba(102,126,234,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">⭐ XP &amp; Levels</span>
+                    <span style="background:rgba(255,71,87,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🏅 ${Object.keys(ACHIEVEMENTS).length} Achievements</span>
+                    <span style="background:rgba(0,206,201,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">☁️ Cloud Sync</span>
+                    <span style="background:rgba(46,213,115,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🛡️ XP Integrity</span>
+                    <span style="background:rgba(253,203,110,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🎨 Snake Skins</span>
                     <span style="background:rgba(118,75,162,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🖼️ PiP Mode</span>
-                    <span style="background:rgba(46,213,115,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🌗 Light/Dark</span>
+                    <span style="background:rgba(0,229,255,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🌗 Light / Dark / Cyberpunk</span>
+                    <span style="background:rgba(162,155,254,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">⏱️ 4h / 8h / 9h Shifts</span>
                     <span style="background:rgba(255,165,2,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">💬 Quotes</span>
-                    <span style="background:rgba(255,71,87,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🏆 Achievements</span>
                 </div>
                 <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0;"></div>
-                <div style="display:flex;justify-content:space-between;align-items:center;opacity:0.6;font-size:0.58rem;">
-                    <span>13 May 2026</span>
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;opacity:0.6;font-size:0.58rem;">
+                    <span>14 Aug 2026 &middot; build ${BUILD_LABEL}</span>
                     <span>💡 Click emoji → Game Mode</span>
                     <span>⚙️ → Settings</span>
                 </div>

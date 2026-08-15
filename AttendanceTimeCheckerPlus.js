@@ -15,7 +15,11 @@
     //   3. Compute the new token (see comment in sync.yml) and rotate the
     //      BUILD_TOKEN_CURRENT / BUILD_TOKEN_PREVIOUS repo secrets.
     const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
-    const BUILD_LABEL = 'v3';
+    // v4 — RefleX Target scoring repaired, per-record auto-sync, Ludo wins split
+    // by CPU difficulty. The seed is deliberately UNCHANGED: rotating it without
+    // also rotating BUILD_TOKEN_CURRENT in the bot repo would make every sync
+    // fail silently, and the label alone is what the update banner reads.
+    const BUILD_LABEL = 'v4';
     // ──────────────────────────────────────────────────────────────
 
     // Ordinal parse of a 'v<N>' label. Returns null for anything that doesn't fit
@@ -882,7 +886,18 @@
 
         // Ludo is CPU-only by construction: ludoSaveWins is called under
         // `if (vsCPU)`, so hot-seat wins have never been recorded anywhere.
+        // `ludo:cpu` stays the flat all-time total — older clients read it, and
+        // it is the only home for wins set before the difficulty split.
         put('ludo:cpu', localStorage.getItem('ludoGamesWon'));
+
+        // Per-tier wins. Read inline rather than through ludoLoadWinsByTier()
+        // because that lives in the Ludo engine block, which is only present
+        // once the panel has loaded — and collectGameModeBests runs on any sync.
+        let ludoTiers = {};
+        try { ludoTiers = JSON.parse(localStorage.getItem('ludoWinsByTier') || '{}') || {}; } catch (_) {}
+        put('ludo:easy',   ludoTiers.easy);
+        put('ludo:normal', ludoTiers.normal);
+        put('ludo:hard',   ludoTiers.hard);
 
         return out;
     }
@@ -1299,6 +1314,19 @@
             if (v > (parseInt(pool[m], 10) || 0)) { pool[m] = v; poolChanged = true; }
         });
         if (poolChanged) localStorage.setItem('poolWinsByMode', JSON.stringify(pool));
+
+        // Ludo's per-tier wins, same only-raise merge. The all-time total is
+        // restored separately via raise('ludoGamesWon', gb.ludo), and the two are
+        // independent on purpose: a tier count can never exceed the total, but
+        // the total can exceed the tiers by however many wins predate the split.
+        let ludoTiers = {};
+        try { ludoTiers = JSON.parse(localStorage.getItem('ludoWinsByTier') || '{}') || {}; } catch (_) {}
+        let ludoChanged = false;
+        ['easy', 'normal', 'hard'].forEach(t => {
+            const v = parseInt(gmb['ludo:' + t], 10) || 0;
+            if (v > (parseInt(ludoTiers[t], 10) || 0)) { ludoTiers[t] = v; ludoChanged = true; }
+        });
+        if (ludoChanged) localStorage.setItem('ludoWinsByTier', JSON.stringify(ludoTiers));
     }
 
     // Restore the current client's progress from the gist.
@@ -1556,9 +1584,16 @@
                     modes: { screen: 'Screen', target: 'Target' } },
         pool:     { icon: '🎱', label: 'Pool',     unit: 'wins',
                     modes: { cpu: 'vs CPU', pvp: 'Hot-seat' } },
-        // Ludo is single-mode on purpose: ludoSaveWins runs only under
-        // `if (vsCPU)`, so hot-seat wins have never been recorded at all.
-        ludo:     { icon: '🎲', label: 'Ludo',     unit: 'wins' }
+        // Ludo splits by CPU difficulty, not by game mode — hot-seat wins have
+        // never been recorded at all (`ludoSaveWins` runs only under `if (vsCPU)`),
+        // but a win against `easy` and a win against `hard` were being counted
+        // into the same total, and `easy` is a settings dropdown. `cpu` is the
+        // pre-split total: those wins are real but their difficulty was never
+        // recorded, so they rank on their own board rather than being assigned a
+        // tier that nobody measured.
+        ludo:     { icon: '🎲', label: 'Ludo',     unit: 'wins',
+                    modes: { hard: '🔥 Hard', normal: '⚔️ Normal', easy: '🌱 Easy',
+                             cpu: '📚 All-time' } }
     };
 
     // A player who hasn't run this build has no gameModeBests. Fall back to the
@@ -1671,23 +1706,63 @@
             if (game === 'snake')  return snakeMode;
             if (game === 'reflex') return reflexMode;
             if (game === 'pool')   return poolMode === 'pvp' ? 'pvp' : 'cpu';
+            // Ludo splits by CPU tier rather than by game mode. ludoCpuTier is
+            // locked at match start, which is also what decides where a win is
+            // filed — so the board shown is always the board being played for.
+            if (game === 'ludo')   return LB_BOARDS.ludo.modes[ludoCpuTier] ? ludoCpuTier : 'normal';
         } catch (_) {}
         return Object.keys(cfg.modes)[0];
+    }
+
+    // A board the player picked by hand. Cleared every time the overlay opens, so
+    // it lands on the mode being played and a stale pick can never outlive the
+    // moment it was made — the reason gameLbMode reads live state in the first
+    // place. Only the tab strip writes it.
+    let gameLbModeOverride = null;
+
+    function gameLbActiveMode(game) {
+        const cfg = LB_BOARDS[game];
+        if (!cfg || !cfg.modes) return null;
+        if (gameLbModeOverride && cfg.modes[gameLbModeOverride]) return gameLbModeOverride;
+        return gameLbMode(game);
+    }
+
+    // Ludo's four tiers are only reachable by changing a setting otherwise, which
+    // is a poor way to answer "how do I rank on hard?". The strip is generic, so
+    // Snake, RefleX and Pool get the same thing.
+    function gameLbTabsHtml(game, active) {
+        const cfg = LB_BOARDS[game];
+        if (!cfg || !cfg.modes) return '';
+        const live = gameLbMode(game);
+        return '<div class="game-lb-tabs">' + Object.keys(cfg.modes).map(m =>
+            '<button class="game-lb-tab' + (m === active ? ' is-active' : '') + '"' +
+            // The mode being played is marked, so switching tabs to compare can't
+            // leave you unsure which board your next win actually lands on.
+            ' title="' + escapeHtml(cfg.modes[m] + (m === live ? ' — playing now' : '')) + '"' +
+            ' onclick="window.setGameLeaderboardMode(\'' + m + '\')">' +
+            escapeHtml(cfg.modes[m]) + (m === live ? '<span class="game-lb-live">•</span>' : '') +
+            '</button>').join('') + '</div>';
     }
 
     function renderGameLeaderboard(game) {
         const box = document.getElementById('game-lb-overlay');
         const cfg = LB_BOARDS[game];
         if (!box || !cfg) return;
-        const mode = gameLbMode(game);
-        const modeLabel = mode && cfg.modes ? ' · ' + cfg.modes[mode] : '';
+        const mode = gameLbActiveMode(game);
         box.innerHTML =
             '<div class="game-lb-head">' +
-                '<span>🏆 ' + cfg.icon + ' ' + escapeHtml(cfg.label + modeLabel) + '</span>' +
+                '<span>🏆 ' + cfg.icon + ' ' + escapeHtml(cfg.label) + '</span>' +
                 (cfg.lowerIsBetter ? '<span class="game-lb-note">lower is better</span>' : '') +
                 '<button class="game-lb-close" onclick="window.closeGameLeaderboard()">✕</button>' +
             '</div>' +
-            '<div class="game-lb-body">' + lbBoardRowsHtml(game, mode) + '</div>';
+            gameLbTabsHtml(game, mode) +
+            '<div class="game-lb-body">' + lbBoardRowsHtml(game, mode) + '</div>' +
+            // Only Ludo carries a board whose numbers predate the split, so only
+            // Ludo needs to say so. Silently ranking unclassified wins beside
+            // classified ones is the confusion this whole change is undoing.
+            (game === 'ludo' && mode === 'cpu'
+                ? '<div class="game-lb-foot">every CPU win — older wins predate the difficulty split</div>'
+                : '');
     }
 
     function toggleGameLeaderboard(game, force) {
@@ -1700,6 +1775,9 @@
 
         // Snake's skin tray shares this corner of the panel.
         if (typeof toggleSnakeSkinTray === 'function') toggleSnakeSkinTray(false);
+        // Opening always lands on the mode being played, whatever was browsed
+        // last time.
+        gameLbModeOverride = null;
         renderGameLeaderboard(game);
 
         // The Leaderboard panel may never have been opened, in which case there
@@ -1727,7 +1805,10 @@
     function refreshGameScoreBtn(game) {
         try {
             if (game === 'ludo') {
-                updateGameScoreBtn('ludo', null, ludoLoadWins());
+                // The tier's own wins, because that is the board this button
+                // opens and the board the next win will land on. The all-time
+                // total stays reachable one tab away.
+                updateGameScoreBtn('ludo', null, ludoTierWins(gameLbMode('ludo')));
             } else if (game === 'pool') {
                 const byMode = loadPoolWinsByMode();
                 updateGameScoreBtn('pool', null, poolMode === 'pvp' ? byMode.pvp : byMode.cpu);
@@ -9921,11 +10002,29 @@
     // The board is entirely canvas-drawn, but the widget's game header expects a
     // scoreboard strip like every other game. Called only at state transitions,
     // never per frame — this writes to the DOM.
+    // The tier decides both the XP multiplier and, now, which leaderboard the
+    // win lands on — so it belongs on the scoreboard rather than only on the
+    // canvas chip. Icons are duplicated in the host's LB_BOARDS labels; the
+    // engine can't reach the host's tables, and two emoji is a cheaper coupling
+    // than a lookup that has to exist in the standalone harness too.
+    const LUDO_TIER_ICON = { easy: '🌱', normal: '⚔️', hard: '🔥' };
+
     function updateLudoScoreboard() {
         const modeEl = document.getElementById('ludo-mode-label');
         const homeEl = document.getElementById('ludo-home-label');
         const turnEl = document.getElementById('ludo-turn-label');
+        const tierEl = document.getElementById('ludo-tier-label');
         if (modeEl) modeEl.textContent = LUDO_MODE_LABEL[ludoMode] || 'Ludo';
+        if (tierEl) {
+            // Hot-seat has no CPU, so naming a tier there would be a number the
+            // player cannot act on next to a board it does not feed.
+            const vsCPU = ludoMode === 'cpu2';
+            tierEl.style.display = vsCPU ? '' : 'none';
+            if (vsCPU) {
+                const tier = LUDO_TIER_ICON[ludoCpuTier] ? ludoCpuTier : 'normal';
+                tierEl.textContent = LUDO_TIER_ICON[tier] + ' ' + tier;
+            }
+        }
         if (homeEl) homeEl.textContent = '🏠 ' + ludoTokensHome(LUDO_HUMAN_CI) + '/4';
         if (!turnEl) return;
         if (ludoPhase === 'over') {
@@ -10030,6 +10129,46 @@
         try { localStorage.setItem('ludoRecord', JSON.stringify(rec)); } catch (err) { /* quota */ }
     }
 
+    // Wins split by the tier the match was actually played at.
+    //
+    // ludoGamesWon is one flat total, so a hundred wins against `easy` and a
+    // hundred against `hard` rank identically on a shared board — and since
+    // ludoDifficulty is a settings dropdown, `easy` is a two-click route to the
+    // top of it. Splitting the count is what makes the board mean something.
+    //
+    // The tier recorded is ludoCpuTier, which is locked at match start, so
+    // changing the setting mid-match cannot reclassify a win that is already
+    // half-played. XP already scales the same way (×0.6 / ×1.0 / ×1.35), so the
+    // two now agree about what an easy win is worth.
+    //
+    // Deliberately NOT seeded from ludoGamesWon: those wins predate the split and
+    // their difficulty was never recorded anywhere. Inventing one would put
+    // fabricated numbers on a board that exists to stop exactly that. They stay
+    // in ludoGamesWon and rank on the All-time board instead.
+    function ludoLoadWinsByTier() {
+        const out = { easy: 0, normal: 0, hard: 0 };
+        try {
+            const raw = JSON.parse(localStorage.getItem('ludoWinsByTier') || 'null');
+            if (raw && typeof raw === 'object') {
+                LUDO_TIERS.forEach(t => { out[t] = parseInt(raw[t], 10) || 0; });
+            }
+        } catch (err) { /* corrupt storage reads as no wins, never as a throw */ }
+        return out;
+    }
+    function ludoSaveWinsByTier(byTier) {
+        try { localStorage.setItem('ludoWinsByTier', JSON.stringify(byTier)); }
+        catch (err) { /* quota */ }
+    }
+    // Guarded on the tier being a real one: an unrecognised value must not
+    // silently open a fourth bucket that nothing reads.
+    function ludoRecordTierWin(tier) {
+        if (LUDO_TIERS.indexOf(tier) === -1) return;
+        const byTier = ludoLoadWinsByTier();
+        byTier[tier]++;
+        ludoSaveWinsByTier(byTier);
+    }
+    function ludoTierWins(tier) { return ludoLoadWinsByTier()[tier] || 0; }
+
     // Idempotent: guarded on ludoAwarded so replaying the end state, or pressing
     // ▶ Play on a finished board, cannot pay out twice.
     function endLudoGame() {
@@ -10049,7 +10188,13 @@
 
         if (vsCPU) {
             const rec = ludoLoadRecord();
-            if (won) { rec.wins++; ludoSaveWins(ludoLoadWins() + 1); }
+            if (won) {
+                rec.wins++;
+                ludoSaveWins(ludoLoadWins() + 1);
+                // Same guard as the two lines above it: hot-seat never gets here,
+                // so a tier bucket can only ever be moved by a CPU match.
+                ludoRecordTierWin(ludoCpuTier);
+            }
             else rec.losses++;
             ludoSaveRecord(rec);
         }
@@ -14748,10 +14893,57 @@
                 padding: 0 2px;
             }
             .game-lb-close:hover { color: #fff; }
+            /* One tab per mode. Ludo's four difficulty boards are otherwise only
+               reachable by changing a setting, which is a poor way to answer
+               "how do I rank on hard?". Scrolls sideways rather than wrapping —
+               the overlay is ~300px and a wrapped second row eats the table. */
+            .game-lb-tabs {
+                display: flex;
+                gap: 4px;
+                padding: 6px 8px 0;
+                overflow-x: auto;
+                scrollbar-width: none;
+                flex-shrink: 0;
+            }
+            .game-lb-tabs::-webkit-scrollbar { display: none; }
+            .game-lb-tab {
+                flex: 0 0 auto;
+                padding: 3px 8px;
+                border-radius: 999px;
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                background: rgba(255, 255, 255, 0.05);
+                color: rgba(255, 255, 255, 0.6);
+                font-size: 0.62rem;
+                font-weight: 600;
+                cursor: pointer;
+                white-space: nowrap;
+            }
+            .game-lb-tab:hover { color: rgba(255, 255, 255, 0.9); }
+            .game-lb-tab.is-active {
+                background: rgba(108, 92, 231, 0.35);
+                border-color: rgba(162, 155, 254, 0.7);
+                color: #fff;
+            }
+            /* Marks the board the next win actually lands on, so switching tabs
+               to compare can't leave you unsure which one that is. */
+            .game-lb-live {
+                margin-left: 3px;
+                color: #55efc4;
+                font-size: 0.8em;
+                vertical-align: middle;
+            }
             .game-lb-body {
                 flex: 1;
                 overflow-y: auto;
                 padding: 4px 6px 8px;
+            }
+            .game-lb-foot {
+                flex-shrink: 0;
+                padding: 5px 10px 7px;
+                font-size: 0.58rem;
+                opacity: 0.45;
+                text-align: center;
+                border-top: 1px solid rgba(255, 255, 255, 0.08);
             }
             .game-lb-empty {
                 text-align: center;
@@ -16789,7 +16981,7 @@
                 </div>
                 <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0;"></div>
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;opacity:0.6;font-size:0.58rem;">
-                    <span>14 Aug 2026 &middot; build ${BUILD_LABEL}</span>
+                    <span>15 Aug 2026 &middot; build ${BUILD_LABEL}</span>
                     <span>💡 Click emoji → Game Mode</span>
                     <span>⚙️ → Settings</span>
                 </div>
@@ -18262,6 +18454,7 @@
                         </div>
                         <div id="ludo-scoreboard" class="snake-scoreboard" style="display: none;">
                             <span class="snake-score gsb-aside" id="ludo-mode-label">PvCPU</span>
+                            <span class="snake-score gsb-aside" id="ludo-tier-label">⚔️ normal</span>
                             <span class="snake-score gsb-aside" id="ludo-home-label">🏠 0/4</span>
                             <span class="snake-score gsb-aside" id="ludo-turn-label">Press Play</span>
                             <button id="ludo-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('ludo')">
@@ -18619,6 +18812,13 @@
         window.toggleSnakeSkinTrayBtn = () => toggleSnakeSkinTray();
         window.openGameLeaderboard = (game) => toggleGameLeaderboard(game);
         window.closeGameLeaderboard = () => toggleGameLeaderboard(gameLbOpen || currentGame, false);
+        window.setGameLeaderboardMode = (mode) => {
+            if (!gameLbOpen) return;
+            const cfg = LB_BOARDS[gameLbOpen];
+            if (!cfg || !cfg.modes || !cfg.modes[mode]) return;
+            gameLbModeOverride = mode;
+            renderGameLeaderboard(gameLbOpen);
+        };
         window.addQuote = addCustomQuote;
         window.changeImageBox = changeImage;
         window.changeImageAspectRatio = changeAspectRatio;

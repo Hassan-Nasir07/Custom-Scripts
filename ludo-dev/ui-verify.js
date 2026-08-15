@@ -790,6 +790,101 @@ head('XP and records');
        (L.initLudoGame(), L.cpuTier === 'normal'));
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+head('Wins split by difficulty');
+// ludoGamesWon is one flat total, so a hundred easy wins outranked a dozen hard
+// ones on a shared board — and easy is a settings dropdown. The split is what
+// makes the board mean something.
+{
+    const win = (tier) => {
+        const L = fresh();
+        L.ludoSetMode('cpu2');
+        L.startLudoGame();
+        L.cpuTier = tier;
+        for (let i = 0; i < 4; i++) L.place(0, i, 56);
+        L.placements.push(0);
+        L.endLudoGame();
+        return L;
+    };
+
+    const h = win('hard');
+    ok('a hard win lands in the hard bucket', h.ludoTierWins('hard') === 1);
+    ok('and in no other', h.ludoTierWins('easy') === 0 && h.ludoTierWins('normal') === 0);
+    ok('the all-time total still counts it', h.ludoLoadWins() === 1);
+
+    const e = win('easy');
+    ok('an easy win lands in the easy bucket', e.ludoTierWins('easy') === 1);
+    ok('and not in hard', e.ludoTierWins('hard') === 0);
+
+    // The buckets accumulate rather than overwrite, and one tier's count must
+    // never move another's.
+    const L = fresh();
+    L.ludoSetMode('cpu2');
+    ['normal', 'normal', 'hard'].forEach(t => {
+        L.startLudoGame();
+        L.cpuTier = t;
+        for (let i = 0; i < 4; i++) L.place(0, i, 56);
+        L.placements.push(0);
+        L.endLudoGame();
+    });
+    ok('repeat wins accumulate per tier',
+       L.ludoTierWins('normal') === 2 && L.ludoTierWins('hard') === 1,
+       JSON.stringify(L.ludoLoadWinsByTier()));
+    ok('the tiers sum to the all-time total for a fresh profile',
+       L.ludoLoadWins() === 3);
+}
+{
+    // A loss must not file anything, or the board would rank participation.
+    const L = fresh();
+    L.ludoSetMode('cpu2');
+    L.startLudoGame();
+    L.cpuTier = 'hard';
+    for (let i = 0; i < 4; i++) L.place(2, i, 56);
+    L.placements.push(2);
+    L.endLudoGame();
+    ok('a loss files no tier win', L.ludoTierWins('hard') === 0);
+    ok('and still records the loss', L.ludoLoadRecord().losses === 1);
+}
+{
+    // Hot-seat has never touched ludoGamesWon and must not reach the tiers
+    // either — there is no CPU, so there is no difficulty to file it under.
+    const L = fresh();
+    L.ludoSetMode('pvp2');
+    L.startLudoGame();
+    L.cpuTier = 'hard';
+    for (let i = 0; i < 4; i++) L.place(0, i, 56);
+    L.placements.push(0);
+    L.endLudoGame();
+    ok('hot-seat files no tier win',
+       L.ludoTierWins('hard') === 0 && L.ludoLoadWins() === 0);
+}
+{
+    // Wins set before the split have no recorded difficulty. Assigning them one
+    // would put fabricated numbers on the board this exists to make honest.
+    const L = fresh();
+    store.ludoGamesWon = '17';
+    ok('a legacy total is not backfilled into any tier',
+       L.ludoTierWins('easy') === 0 && L.ludoTierWins('normal') === 0 &&
+       L.ludoTierWins('hard') === 0, JSON.stringify(L.ludoLoadWinsByTier()));
+}
+{
+    const L = fresh();
+    store.ludoWinsByTier = '{{{ not json';
+    ok('corrupt tier storage reads as no wins rather than throwing',
+       L.ludoTierWins('hard') === 0);
+
+    store.ludoWinsByTier = JSON.stringify({ hard: 4, bogus: 99 });
+    ok('an unknown key in storage is ignored',
+       JSON.stringify(L.ludoLoadWinsByTier()) === JSON.stringify({ easy: 0, normal: 0, hard: 4 }));
+
+    // ludoCpuTier is always one of the three, but it is a plain variable and a
+    // future caller could pass anything. A junk tier must open no bucket.
+    L.ludoRecordTierWin('impossible');
+    L.ludoRecordTierWin(undefined);
+    ok('a junk tier opens no bucket',
+       JSON.stringify(L.ludoLoadWinsByTier()) === JSON.stringify({ easy: 0, normal: 0, hard: 4 }));
+}
+
 console.log(`\n${'═'.repeat(50)}`);
 console.log(`  ${pass} passed, ${fail} failed`);
 console.log(`${'═'.repeat(50)}\n`);

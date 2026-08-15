@@ -950,8 +950,29 @@ ok('the overlay reads the live mode for every multi-mode game',
 // Career-win games have no per-frame scoreboard function to hang off, and
 // Ludo's lives inside the byte-identical engine block and can't be edited.
 ok('win-count buttons are refreshed from outside the engine block',
-   /function refreshGameScoreBtn\(game\)[\s\S]{0,400}?ludoLoadWins\(\)[\s\S]{0,300}?loadPoolWinsByMode\(\)/.test(src));
+   /function refreshGameScoreBtn\(game\)[\s\S]{0,500}?ludoTierWins\([\s\S]{0,300}?loadPoolWinsByMode\(\)/.test(src));
+// The button opens a board; it has to show that board's number. Showing the
+// all-time total beside a per-tier ranking is how the two disagree.
+ok('the Ludo button counts the tier it opens, not every win ever',
+   /function refreshGameScoreBtn\(game\)[\s\S]{0,400}?ludoTierWins\(gameLbMode\('ludo'\)\)/.test(src));
 ok('and refreshed when a match ends', /refreshGameScoreBtn\(gameType\)/.test(src));
+
+// The overlay used to show exactly one board — whichever mode was being played.
+// Ludo's four difficulty boards would otherwise only be reachable by changing a
+// settings dropdown, which is a poor way to ask "how do I rank on hard?".
+ok('the overlay carries a tab per mode', has('function gameLbTabsHtml(game, active)') &&
+   has('window.setGameLeaderboardMode'));
+ok('the tabs are rendered above the table',
+   /function renderGameLeaderboard\(game\)[\s\S]{0,900}?gameLbTabsHtml\(game, mode\)[\s\S]{0,120}?lbBoardRowsHtml\(game, mode\)/.test(src));
+ok('only a real mode of the open game can be selected',
+   /setGameLeaderboardMode = \(mode\)[\s\S]{0,320}?cfg\.modes\[mode\][\s\S]{0,80}?return;/.test(src));
+// A hand-picked board is for comparing, not a preference. Left set, it would
+// quietly outlive the mode switch it was meant to survive — which is the exact
+// drift gameLbMode reads live state to avoid.
+ok('opening the overlay clears any hand-picked board',
+   /function toggleGameLeaderboard\([\s\S]{0,700}?gameLbModeOverride = null;[\s\S]{0,80}?renderGameLeaderboard\(game\)/.test(src));
+ok('the live board is marked so it is clear where a win lands',
+   has('game-lb-live') && /m === live \? ' — playing now' : ''/.test(src));
 // The old label pairs are what the button replaced.
 ok('the old "Best: …" label pairs are gone',
    !/textContent = 'Best: '/.test(src) && !has('High Score: 0'));
@@ -1097,17 +1118,28 @@ head('Leaderboard board values (behavioural)');
     // matches the mode they are playing.
     const modeFn = block('function gameLbMode(');
     if (!modeFn) { ok('gameLbMode could be lifted out', false); return; }
-    const mk = (snakeMode, reflexMode, poolMode) => new Function(
-        'snakeMode', 'reflexMode', 'poolMode',
-        boards + '\n' + modeFn + '\nreturn gameLbMode;')(snakeMode, reflexMode, poolMode);
+    const mk = (snakeMode, reflexMode, poolMode, ludoCpuTier) => new Function(
+        'snakeMode', 'reflexMode', 'poolMode', 'ludoCpuTier',
+        boards + '\n' + modeFn + '\nreturn gameLbMode;')(snakeMode, reflexMode, poolMode, ludoCpuTier);
 
-    const gm = mk('levels', 'target', 'pvp');
+    const gm = mk('levels', 'target', 'pvp', 'hard');
     ok('the snake board follows the mode being played', gm('snake') === 'levels');
     ok('the reflex board follows the mode being played', gm('reflex') === 'target');
     ok('the pool board follows the mode being played', gm('pool') === 'pvp');
-    ok('a mode-less game reports no mode', gm('tetris') === null && gm('ludo') === null);
+    ok('a mode-less game reports no mode', gm('tetris') === null);
     ok('an unknown game reports no mode', gm('nope') === null);
-    ok('pool collapses anything that is not pvp to cpu', mk('walled', 'screen', 'cpu')('pool') === 'cpu');
+    ok('pool collapses anything that is not pvp to cpu', mk('walled', 'screen', 'cpu', 'hard')('pool') === 'cpu');
+
+    // Ludo's board follows the CPU tier, which is also what decides where the
+    // win is filed — the two read the same variable so they cannot disagree.
+    ok('the ludo board follows the tier being played', gm('ludo') === 'hard');
+    ok('a tier the boards do not carry falls back rather than blanking',
+       mk('walled', 'screen', 'cpu', 'adaptive')('ludo') === 'normal' &&
+       mk('walled', 'screen', 'cpu', undefined)('ludo') === 'normal');
+    // 'cpu' is the pre-split all-time board. Nothing should ever *play* into it,
+    // so gameLbMode must never return it — it is reachable by tab only.
+    ok('the all-time board is never the live board',
+       ['easy', 'normal', 'hard'].every(t => mk('walled', 'screen', 'cpu', t)('ludo') !== 'cpu'));
 
     // A landing player has no gameModeBests at all; the backfill is what keeps
     // their board from reading empty.

@@ -25,7 +25,7 @@ Full rationale lives in the approved plan. This file tracks execution.
 | 11 | `gameModeBests` + pool mode split + all three call sites | ☑ |
 | 12 | Leaderboard main table trim + per-game boards | ☑ |
 | 13 | `snake-dev/snake-verify.js`; fix `integration-verify.js` + `host-smoke.js` | ☑ |
-| 14 | `BUILD_LABEL` v2 → v3 | ☑ |
+| 14 | `BUILD_LABEL` v2 → v3, then v3 → **v4** for the scoring round-trip pass | ☑ |
 | 15 | UI pass — continuous snake body, header, score button | ☑ |
 | 16 | Per-game scoreboards on all eight panels; panel stops stretching | ☑ |
 | 17 | Playability — stage label off the board, every arrow opens a run | ☑ |
@@ -149,6 +149,22 @@ turned out to be somewhere other than the leaderboard.
 - **A RefleX run with no recorded reaction could set a 0 ms record.** Both figures fall
   back to 0 and the board ranks ascending, so it would have sat at the top unbeatable.
   Guarded on `reflexReactionTimes.length`.
+
+### Cutting v4
+
+`BUILD_LABEL` is now `v4`. **`BUILD_SEED` is deliberately unchanged** — `BUILD_TOKEN`
+derives from the seed, not the label, so bumping the label alone cannot break a sync,
+while rotating the seed without also rotating `BUILD_TOKEN_CURRENT` in the bot repo would
+make every dispatch fail silently. The label is what the update banner reads, and that is
+all this bump is for.
+
+⚠️ **The banner will not fire until `sync.yml` starts stamping `latestBuild` again.** The
+gist has read `latestBuild: "v2"` since before v3 shipped, even though v3 clients have
+been syncing successfully for days — so the workflow is evidently not writing the field
+from `client_payload.build_label`. Until that is fixed, a v4 bump advertises nothing:
+clients on older builds keep syncing happily and never see the refresh prompt. Worth
+checking next time the bot repo is open, since it is the whole mechanism for retiring an
+old client.
 
 ---
 

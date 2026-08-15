@@ -1173,11 +1173,29 @@
     // The board is entirely canvas-drawn, but the widget's game header expects a
     // scoreboard strip like every other game. Called only at state transitions,
     // never per frame — this writes to the DOM.
+    // The tier decides both the XP multiplier and, now, which leaderboard the
+    // win lands on — so it belongs on the scoreboard rather than only on the
+    // canvas chip. Icons are duplicated in the host's LB_BOARDS labels; the
+    // engine can't reach the host's tables, and two emoji is a cheaper coupling
+    // than a lookup that has to exist in the standalone harness too.
+    const LUDO_TIER_ICON = { easy: '🌱', normal: '⚔️', hard: '🔥' };
+
     function updateLudoScoreboard() {
         const modeEl = document.getElementById('ludo-mode-label');
         const homeEl = document.getElementById('ludo-home-label');
         const turnEl = document.getElementById('ludo-turn-label');
+        const tierEl = document.getElementById('ludo-tier-label');
         if (modeEl) modeEl.textContent = LUDO_MODE_LABEL[ludoMode] || 'Ludo';
+        if (tierEl) {
+            // Hot-seat has no CPU, so naming a tier there would be a number the
+            // player cannot act on next to a board it does not feed.
+            const vsCPU = ludoMode === 'cpu2';
+            tierEl.style.display = vsCPU ? '' : 'none';
+            if (vsCPU) {
+                const tier = LUDO_TIER_ICON[ludoCpuTier] ? ludoCpuTier : 'normal';
+                tierEl.textContent = LUDO_TIER_ICON[tier] + ' ' + tier;
+            }
+        }
         if (homeEl) homeEl.textContent = '🏠 ' + ludoTokensHome(LUDO_HUMAN_CI) + '/4';
         if (!turnEl) return;
         if (ludoPhase === 'over') {
@@ -1282,6 +1300,46 @@
         try { localStorage.setItem('ludoRecord', JSON.stringify(rec)); } catch (err) { /* quota */ }
     }
 
+    // Wins split by the tier the match was actually played at.
+    //
+    // ludoGamesWon is one flat total, so a hundred wins against `easy` and a
+    // hundred against `hard` rank identically on a shared board — and since
+    // ludoDifficulty is a settings dropdown, `easy` is a two-click route to the
+    // top of it. Splitting the count is what makes the board mean something.
+    //
+    // The tier recorded is ludoCpuTier, which is locked at match start, so
+    // changing the setting mid-match cannot reclassify a win that is already
+    // half-played. XP already scales the same way (×0.6 / ×1.0 / ×1.35), so the
+    // two now agree about what an easy win is worth.
+    //
+    // Deliberately NOT seeded from ludoGamesWon: those wins predate the split and
+    // their difficulty was never recorded anywhere. Inventing one would put
+    // fabricated numbers on a board that exists to stop exactly that. They stay
+    // in ludoGamesWon and rank on the All-time board instead.
+    function ludoLoadWinsByTier() {
+        const out = { easy: 0, normal: 0, hard: 0 };
+        try {
+            const raw = JSON.parse(localStorage.getItem('ludoWinsByTier') || 'null');
+            if (raw && typeof raw === 'object') {
+                LUDO_TIERS.forEach(t => { out[t] = parseInt(raw[t], 10) || 0; });
+            }
+        } catch (err) { /* corrupt storage reads as no wins, never as a throw */ }
+        return out;
+    }
+    function ludoSaveWinsByTier(byTier) {
+        try { localStorage.setItem('ludoWinsByTier', JSON.stringify(byTier)); }
+        catch (err) { /* quota */ }
+    }
+    // Guarded on the tier being a real one: an unrecognised value must not
+    // silently open a fourth bucket that nothing reads.
+    function ludoRecordTierWin(tier) {
+        if (LUDO_TIERS.indexOf(tier) === -1) return;
+        const byTier = ludoLoadWinsByTier();
+        byTier[tier]++;
+        ludoSaveWinsByTier(byTier);
+    }
+    function ludoTierWins(tier) { return ludoLoadWinsByTier()[tier] || 0; }
+
     // Idempotent: guarded on ludoAwarded so replaying the end state, or pressing
     // ▶ Play on a finished board, cannot pay out twice.
     function endLudoGame() {
@@ -1301,7 +1359,13 @@
 
         if (vsCPU) {
             const rec = ludoLoadRecord();
-            if (won) { rec.wins++; ludoSaveWins(ludoLoadWins() + 1); }
+            if (won) {
+                rec.wins++;
+                ludoSaveWins(ludoLoadWins() + 1);
+                // Same guard as the two lines above it: hot-seat never gets here,
+                // so a tier bucket can only ever be moved by a CPU match.
+                ludoRecordTierWin(ludoCpuTier);
+            }
             else rec.losses++;
             ludoSaveRecord(rec);
         }

@@ -57,6 +57,7 @@ module.exports = function load(prefs) {
             initLudoGame, resetLudoGame, startLudoGame, cleanupLudoGame,
             cycleLudoModeAndReset, endLudoGame,
             ludoLoadWins, ludoLoadRecord, ludoSaveRecord,
+            ludoLoadWinsByTier, ludoSaveWinsByTier, ludoRecordTierWin, ludoTierWins,
             ludoDiceStats, ludoDiceReset, ludoLogRoll, ludoDiceSummary,
 
             get mode()       { return ludoMode; },

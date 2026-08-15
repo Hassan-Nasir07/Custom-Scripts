@@ -570,11 +570,15 @@ node ludo-dev/verify-all.js     # 648 assertions across 9 suites, non-zero exit 
 | `rules-verify.js` | Dice, legal moves, rule toggles, dice accumulation, pool spending, block rules, 400 self-play games | 121 |
 | `ai-verify.js` | Tiers, pinning a tier over the ladder, scorer, 600-game strength ordering | 50 |
 | `modes-verify.js` | Mode cycling, seats, turn order | 38 |
-| `ui-verify.js` | State machine, animation, clock, pointer input, die-choice popover, recap, dice audit log and its settings summary, anti-farm, XP | 139 |
+| `ui-verify.js` | State machine, animation, clock, pointer input, die-choice popover, recap, dice audit log and its settings summary, anti-farm, XP, per-tier win split | 153 |
 | `rotation-verify.js` | Board rotation — that it moves quadrants, chips, dice and hit-testing, and moves nothing else | 76 |
 | `render-smoke.js` | `ludoRender()` across all modes and steps | 10 |
-| `integration-verify.js` | Every wiring point in `AttendanceTimeCheckerPlus.js` incl. difficulty control and dice audit, plus engine parity | 70 |
+| `integration-verify.js` | Every wiring point in `AttendanceTimeCheckerPlus.js` incl. difficulty control, the per-tier win split and dice audit, plus engine parity | 78 |
 | `host-smoke.js` | **Executes the real userscript**: full PvCPU match, XP, achievements, cloud round-trip, both Max modals, rotation, both reported bugs | 66 |
+
+`node ludo-dev/verify-all.js` now runs **1,033 assertions across 10 suites** — the tenth
+is `snake-dev/snake-verify.js`, which owns the shared leaderboard surface Ludo's boards
+render through.
 
 Plus `node ludo-dev/preview.js out.png <scenario>` to render the board to a PNG, and
 `ludo-dev/ludo-harness.html` to actually play it. Verify there:
@@ -604,6 +608,14 @@ with the userscript loaded:
 - 🏆 Leaderboard → 🎲 column present, own row shows the CPU-win count, header/row
   cell counts match (12 columns), `🔄` sync succeeds without an anti-cheat warning
 - Set `ludoGamesWon`/`ludoRecord` to 0, sync, then restore from cloud → both come back
+- **Difficulty split:** pin ⚙️ → 🎲 Ludo CPU to `easy`, win a match, and confirm the win
+  lands on the Easy board and nowhere else (`localStorage.ludoWinsByTier`). Pin `hard`,
+  win again, confirm the two boards move independently and All-time counts both.
+- **Tier chip:** the scoreboard names the tier being played, and hides it in hot-seat.
+- **Board tabs:** all four Ludo boards reachable from the 🏆 overlay without leaving the
+  game; the green dot marks the one being played; closing and reopening returns to it.
+- **Legacy wins:** a profile with pre-split wins shows them on All-time and shows nothing
+  on the three tier boards — not a copy of the total on each.
 
 **Git-based safety net (new this session):** each phase is a checkpoint commit on
 `feat/ludo-game`. `git diff main...HEAD -- AttendanceTimeCheckerPlus.js` is the review
@@ -665,4 +677,6 @@ doesn't re-derive it from the code.
 | **2026-08-05** | **Syntax checking needs Node 14+, not the repo default** | `AttendanceTimeCheckerPlus.js` uses optional chaining and the default node here is 10.24, so `node --check` reports a bogus `SyntaxError` at line 713. Volta has 22.22.2; `host-smoke.js` re-execs itself into it automatically and skips loudly if no modern Node exists. |
 | **2026-08-05** | **A safe square can never form a block** | *Reported by the user, from harness play.* Blue's route home runs straight past Green's start (ring 26), which is a ★ safe square Green refills on every release. A pair there counted as a block, so from ring 24 **only a roll of 1 was ever legal** — Blue's tokens were stranded on Green's doorstep until they were captured, while the CPU moved freely. Safe squares are shared ground by definition (nothing can be captured on them), so `ludoBlockRings` now skips them entirely: landing and passage are both allowed. Blocks on ordinary squares are unchanged. Pinned by a regression test that walks a token over every ring position and asserts no dead ends. |
 | **2026-08-05** | **Destination ghost redrawn as a dashed coloured ring** | *Reported by the user.* The ghost was a translucent white disc with a white inner band — invisible on the white track squares, which is most of the board. It is now a light disc with a dashed ring in the mover's `deep` colour plus a solid centre pip, which reads on white track, coloured home columns and base panels alike, and cannot be mistaken for a real token. |
+| **2026-08-15** | **Wins are filed by CPU difficulty; `ludoGamesWon` stays the all-time total** | *Reported by the user: "it is not defined if the wins are from easy, normal or hard. Anyone can win easy and accumulate those on the leaderboard."* Correct, and it was the one number on the board with a settings dropdown attached — `ludoDifficulty` pins `easy`, and every win from then on counted the same as a win against `hard`, where the measured player win rate is 12–13% for a casual player. XP had scaled by tier since the beginning (×0.6 / ×1.0 / ×1.35); the leaderboard had not, so the two disagreed about what an easy win was worth. New `ludoWinsByTier` (`{easy, normal, hard}`) is written in `endLudoGame` under the same `if (vsCPU)` guard as `ludoGamesWon`, keyed on **`ludoCpuTier`** — locked at match start, so changing the setting mid-match cannot reclassify a win that is already half-played. `LB_BOARDS.ludo` gains four boards: the three tiers plus `cpu`, the pre-split all-time total. **Legacy wins are deliberately not backfilled into a tier** — their difficulty was never recorded anywhere, and inventing one would put fabricated numbers on the board this change exists to make trustworthy. They keep ranking on All-time, which says so in its footer. |
+| **2026-08-15** | **The in-game leaderboard overlay grew a mode tab strip** | Every board until now followed live game state (`gameLbMode`), which was right when the alternative was a stored preference that drifts. But Ludo's four boards are selected by a **settings dropdown**, so "how do I rank on hard?" meant leaving the game, changing difficulty, and coming back — and the answer would then be about a match you had not played. The strip is generic, so Snake's three, RefleX's two and Pool's two get it too. `gameLbModeOverride` is cleared every time the overlay opens, so a board browsed for comparison can never become a silent preference, and the live board keeps a green dot so it stays obvious where the next win actually lands. |
 | **2026-08-04** | **`preview.js` — a from-scratch software rasterizer** | No `canvas`/`playwright`/`puppeteer` available and Node is 10.24, so the board could not otherwise be *seen*. It implements enough Canvas2D (transforms, arc/arcTo/ellipse paths, nonzero fill, strokes, gradients, a 3×5 bitmap font) to render real `ludoRender()` output to a PNG. Caught the turn-ring/frame collision and the muddy dim colours, neither of which any assertion would have found. |

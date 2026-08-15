@@ -173,13 +173,36 @@ ok('the empty-state colspan matches the main table width',
 ok('ludo has a board in the selector',
    /ludo:\s*\{[^}]*label:\s*'Ludo'/.test(src));
 // Hot-seat wins are never recorded (ludoSaveWins runs only under `if (vsCPU)`),
-// so Ludo's board is CPU-only and must NOT advertise a mode sub-selector.
-ok('the ludo board is single-mode, matching what ludoGamesWon means',
-   !/ludo:\s*\{[^}]*modes:/.test(src));
+// so the split is by CPU difficulty, not by game mode — a `pvp` board would
+// advertise a number that can never move.
+ok('the ludo board splits by difficulty, not by game mode',
+   /ludo:\s*\{[\s\S]{0,240}?modes:\s*\{[^}]*hard:[^}]*normal:[^}]*easy:/.test(src));
+ok('hot-seat is not offered as a ludo board',
+   !/ludo:\s*\{[\s\S]{0,320}?modes:\s*\{[^}]*pvp:/.test(src));
+ok('the pre-split total keeps a board of its own',
+   /ludo:\s*\{[\s\S]{0,320}?modes:\s*\{[^}]*cpu:/.test(src));
 ok('collectGameBests still reports ludo',
    /ludo:\s+parseInt\(localStorage\.getItem\('ludoGamesWon'/.test(src));
 ok('collectGameModeBests reports ludo:cpu',
    /put\('ludo:cpu', localStorage\.getItem\('ludoGamesWon'\)\)/.test(src));
+ok('collectGameModeBests reports every tier',
+   ['easy', 'normal', 'hard'].every(t =>
+       new RegExp("put\\('ludo:" + t + "',\\s+ludoTiers\\." + t).test(src)));
+// A tier count is meaningless without the tier being recorded at match end, and
+// it has to be the tier locked at match start — not whatever the setting says by
+// the time the match finishes.
+ok('a CPU win is filed under the tier it was played at',
+   /if \(won\) \{[\s\S]{0,320}?ludoRecordTierWin\(ludoCpuTier\)/.test(src));
+ok('and only a CPU win — hot-seat cannot move a tier bucket',
+   /if \(vsCPU\) \{[\s\S]{0,400}?ludoRecordTierWin\(/.test(src));
+ok('an unrecognised tier opens no bucket',
+   /function ludoRecordTierWin\(tier\) \{\s*if \(LUDO_TIERS\.indexOf\(tier\) === -1\) return;/.test(src));
+// The pre-split wins have no recorded difficulty. Seeding them into a tier would
+// put fabricated numbers on the board this change exists to make trustworthy.
+ok('legacy wins are not backfilled into a tier',
+   !/ludoWinsByTier[\s\S]{0,200}?ludoGamesWon/.test(src));
+ok('restore merges the tiers upward only',
+   /ludoWinsByTier[\s\S]{0,400}?if \(v > \(parseInt\(ludoTiers\[t\], 10\) \|\| 0\)\)/.test(src));
 ok('snapshot carries ludoRecord',
    /ludoRecord: JSON\.parse\(localStorage\.getItem\('ludoRecord'/.test(src));
 ok('restore raises ludoGamesWon', has("raise('ludoGamesWon',       gb.ludo)"));

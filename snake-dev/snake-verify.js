@@ -1329,6 +1329,22 @@ ok('updateGameScoreBtn re-renders an open board',
 ok('a run with no reactions cannot set a 0ms record',
    /function finishReflexGame\(\)[\s\S]{0,1400}?if \(reflexReactionTimes\.length > 0\)/.test(src));
 
+head('Streak invariant');
+
+// longestStreak is a high-water mark of consecutiveDays, so it can never be the
+// smaller of the two. Both places that SET consecutiveDays to 1 — a user's first
+// day and a streak reset — used to skip the raise, which is why six registry
+// records read "current 1, longest 0".
+ok('the high-water mark has one raiser', has('function raiseLongestStreak()'));
+ok('a first-ever day raises it',
+   /if \(!userXP\.lastAttendanceDate\) \{[\s\S]{0,400}?consecutiveDays = 1;\s*\n\s*raiseLongestStreak\(\)/.test(src));
+ok('and so does the reset path',
+   /hadStreakReset = true;[\s\S]{0,600}?raiseLongestStreak\(\)/.test(src));
+// The restore copies both fields independently, so a violating cloud record
+// would otherwise be carried straight back in and kept.
+ok('a cloud restore self-heals it, like the level state beside it',
+   /reconcileLevelState\('cloud restore'\)[\s\S]{0,500}?raiseLongestStreak\(\)/.test(src));
+
 head('Score sync');
 
 // A personal best that never leaves localStorage is invisible to everyone else.

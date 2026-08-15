@@ -150,6 +150,15 @@ turned out to be somewhere other than the leaderboard.
   back to 0 and the board ranks ascending, so it would have sat at the top unbeatable.
   Guarded on `reflexReactionTimes.length`.
 
+- **`longestStreak` could sit below `consecutiveDays`.** Found by auditing the live
+  registry, not by playing: six records read "current streak 1, longest streak 0". The
+  raise lived only inside `calculateStreak`'s increment branch, and both of the paths that
+  *set* the streak to 1 — a user's first day, and a reset — skipped it. So a new user
+  showed a longest streak of zero until their second day. One `raiseLongestStreak()` now
+  serves every path, including the cloud restore, which copies the two fields
+  independently and would otherwise carry a violating record straight back in — the same
+  self-healing argument as `reconcileLevelState` sitting next to it.
+
 ### Cutting v4
 
 `BUILD_LABEL` is now `v4`. **`BUILD_SEED` is deliberately unchanged** — `BUILD_TOKEN`

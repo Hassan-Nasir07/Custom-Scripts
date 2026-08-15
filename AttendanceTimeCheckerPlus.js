@@ -1150,6 +1150,12 @@
         // Re-derive level/currentXP from totalXP so every restore self-heals.
         reconcileLevelState('cloud restore');
 
+        // Same reasoning one field over: consecutiveDays and longestStreak are
+        // copied independently above, so a record where the high-water mark is
+        // below the current streak — which the old calculateStreak produced on a
+        // user's first day — would be carried back in and kept forever.
+        raiseLongestStreak();
+
         saveUserXP(userXP);
 
         // Rehydrate game bests (only raise, never lower — keeps any new local PRs)
@@ -10816,6 +10822,7 @@
             // Note: totalWorkDays is NOT incremented here. It only ticks up once the
             // user actually completes a full shift (see checkAchievements).
             userXP.consecutiveDays = 1;
+            raiseLongestStreak();
             userXP.lastAttendanceDate = today;
             return;
         }
@@ -10844,9 +10851,6 @@
         if (skippedWorkDays === 0) {
             // Consecutive work day (weekend gap is forgiven)
             userXP.consecutiveDays++;
-            if (userXP.consecutiveDays > userXP.longestStreak) {
-                userXP.longestStreak = userXP.consecutiveDays;
-            }
         } else {
             // Missed at least one real work day — streak resets.
             // Flag the reset so 'comeback' achievement can fire once a new streak rebuilds.
@@ -10854,7 +10858,21 @@
             userXP.hadStreakReset = true;
         }
 
+        // Raised on every path rather than only inside the increment branch. The
+        // two places that *set* consecutiveDays to 1 — the first day a user is
+        // ever seen, and a reset — used to leave longestStreak alone, so a brand
+        // new user showed "current 1, longest 0" and stayed that way until their
+        // second day. Six records in the registry are still sitting in that state.
+        raiseLongestStreak();
+
         userXP.lastAttendanceDate = today;
+    }
+
+    // longestStreak is a high-water mark of consecutiveDays, so it can never be
+    // the smaller of the two.
+    function raiseLongestStreak() {
+        const cur = userXP.consecutiveDays || 0;
+        if (cur > (userXP.longestStreak || 0)) userXP.longestStreak = cur;
     }
     
     function checkMilestones(currentHour) {

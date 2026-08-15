@@ -507,16 +507,41 @@
         }
     })();
 
-    function loadReflexHighScores() {
-        const saved = localStorage.getItem('reflexHighScores');
-        return saved ? JSON.parse(saved) : {
-            screen: { best: Infinity, avg: Infinity },
-            target: { best: Infinity, avg: Infinity }
-        };
+    // Infinity does not survive JSON — JSON.stringify(Infinity) is the string
+    // "null". The unset sentinel was Infinity, so the first time this blob was
+    // persisted (which happens on the first Screen-mode record) every mode that
+    // had not scored yet came back as { best: null, avg: null }. finishReflexGame
+    // then asks `time < stored`, and `x < null` coerces to `x < 0` — false for
+    // every real reaction time. Target mode could therefore never record a score
+    // again, which is exactly what the gist shows: target has been
+    // {"avg":null,"best":null} across every revision despite being played.
+    //
+    // Normalising on the way in fixes it for every blob already in the wild,
+    // including the ones restored from the gist, without a migration.
+    function _reflexModeScores(raw) {
+        const n = v => (typeof v === 'number' && isFinite(v) && v > 0) ? v : Infinity;
+        const src = (raw && typeof raw === 'object') ? raw : {};
+        return { best: n(src.best), avg: n(src.avg) };
     }
-    
+
+    function loadReflexHighScores() {
+        let raw = null;
+        try { raw = JSON.parse(localStorage.getItem('reflexHighScores') || 'null'); } catch (_) {}
+        if (!raw || typeof raw !== 'object') raw = {};
+        return { screen: _reflexModeScores(raw.screen), target: _reflexModeScores(raw.target) };
+    }
+
     function saveReflexHighScores(scores) {
-        localStorage.setItem('reflexHighScores', JSON.stringify(scores));
+        // Written as an explicit null rather than an Infinity that silently
+        // becomes one, so the shape in localStorage and in the gist means the
+        // same thing to every reader: null = this mode has never scored.
+        const num = v => (typeof v === 'number' && isFinite(v) && v > 0) ? v : null;
+        const out = {};
+        ['screen', 'target'].forEach(m => {
+            const s = (scores && scores[m]) || {};
+            out[m] = { best: num(s.best), avg: num(s.avg) };
+        });
+        localStorage.setItem('reflexHighScores', JSON.stringify(out));
     }
     
     // AimTrainer Game Storage
@@ -817,13 +842,27 @@
         const out = {};
         const put = (k, v) => { const n = parseInt(v, 10) || 0; if (n > 0) out[k] = n; };
 
-        let snakeModes = {};
-        try { snakeModes = JSON.parse(localStorage.getItem('snakeHighScores') || '{}') || {}; } catch (_) {}
+        let snakeModes = null;
+        try { snakeModes = JSON.parse(localStorage.getItem('snakeHighScores') || 'null'); } catch (_) {}
+        if (!snakeModes || typeof snakeModes !== 'object') {
+            // The same trap loadPoolWinsByMode() was written to avoid, and Snake
+            // had it too: snakeHighScores is only written once the Snake panel
+            // has been opened on this build, so reading it raw emits a
+            // gameModeBests with no snake keys at all — and lbBoardValue treats a
+            // present gameModeBests as authoritative, so the gameBests.snake
+            // fallback never fires and the player vanishes from the Snake board.
+            // The pre-v2 game had lethal edges, so the legacy scalar belongs to
+            // Walled, matching what snakeLoadHighScores() migrates it to.
+            snakeModes = { walled: parseInt(localStorage.getItem('snakeHighScore') || '0', 10) || 0 };
+        }
         put('snake:endless', snakeModes.endless);
         put('snake:walled',  snakeModes.walled);
         put('snake:levels',  snakeModes.levels);
         put('snake:levelsStage', localStorage.getItem('snakeLevelsBest'));
 
+        // Mirrors loadReflexHighScores()' normalisation: a mode that has never
+        // scored is null here (Infinity does not survive JSON), and null is not
+        // a score. Emitting it would put a 0 on an ascending board.
         let reflex = {};
         try { reflex = JSON.parse(localStorage.getItem('reflexHighScores') || '{}') || {}; } catch (_) {}
         ['screen', 'target'].forEach(m => {
@@ -1041,6 +1080,32 @@
         }
     }
 
+    // A personal best is only real once it is in the gist, and nothing used to
+    // push it there: every game commits its record to localStorage and stops, so
+    // a mode could sit at a genuine local high and simply be absent from the
+    // board everyone else reads until the player happened to press 🔄.
+    //
+    // Debounced, because a death is usually followed straight by another game.
+    // Re-armed rather than dropped when the anti-cheat cooldown would bite —
+    // syncMyScore() returns silently in that case, which is precisely how a
+    // record goes missing.
+    let lbScoreSyncTimer = null;
+    const LB_SCORE_SYNC_DEBOUNCE_MS = 8000;
+
+    function queueScoreSync() {
+        if (!lbRegistered || isBlocked(lbClientId)) return;
+        if (lbScoreSyncTimer) { clearTimeout(lbScoreSyncTimer); lbScoreSyncTimer = null; }
+
+        const sinceLast = Date.now() - lbLastLocalSyncMs;
+        const wait = Math.max(LB_SCORE_SYNC_DEBOUNCE_MS,
+                              AC_SYNC_COOLDOWN_MS - sinceLast + 1000);
+
+        lbScoreSyncTimer = setTimeout(() => {
+            lbScoreSyncTimer = null;
+            try { Promise.resolve(syncMyScore()).catch(() => {}); } catch (_) {}
+        }, wait);
+    }
+
     // Overlay a registry player record onto local storage (XP + game bests).
     // Returns true on success. Designed to be safe: only writes when source values look valid.
     function applyPlayerRecordToLocal(rec) {
@@ -1093,35 +1158,43 @@
         // which is the hole REFLEX_RESET_FLAG had to be retrofitted to close.
         applySnakeModeBests(rec.gameModeBests);
 
-        // Reflex — merge from gameBests.reflex (legacy) AND rec.reflexHighScores (new full blob)
+        // Reflex restores from three sources, merged into one blob and only ever
+        // lowered — RefleX ranks ascending, so better means smaller:
+        //   gameBests.reflex        legacy scalar, speaks for Screen only
+        //   gameModeBests['reflex:*'] per-mode, what the boards actually rank on
+        //   reflexHighScores        the full blob, best AND avg per mode
+        // The middle source used to be write-only: collectGameModeBests emitted
+        // reflex:target but nothing ever read it back, so a Target record could
+        // reach the gist and still not survive a restore onto a fresh browser.
         // GUARD: If the reset flag is set, skip reflex restoration entirely to prevent
         // the gist from re-infecting localStorage with pre-patch exploited scores.
         const _reflexResetActive = !!localStorage.getItem(REFLEX_RESET_FLAG);
         if (!_reflexResetActive) {
-          if (typeof gb.reflex === 'number' && gb.reflex > 0 && isFinite(gb.reflex)) {
-            const reflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
-            if (!reflexData.screen || typeof reflexData.screen.best !== 'number' || gb.reflex < reflexData.screen.best) {
-                reflexData.screen = reflexData.screen || { best: Infinity, avg: Infinity };
-                reflexData.screen.best = gb.reflex;
-                localStorage.setItem('reflexHighScores', JSON.stringify(reflexData));
-            }
+          const localReflex = loadReflexHighScores();
+          const lowerReflex = (mode, field, v) => {
+              if (typeof v !== 'number' || !isFinite(v) || v <= 0) return;
+              if (v < localReflex[mode][field]) localReflex[mode][field] = v;
+          };
+
+          lowerReflex('screen', 'best', gb.reflex);
+
+          const recModes = rec.gameModeBests;
+          if (recModes && typeof recModes === 'object') {
+              ['screen', 'target'].forEach(mode => {
+                  lowerReflex(mode, 'best', parseInt(recModes['reflex:' + mode], 10) || 0);
+              });
           }
-          // Full reflex blob (screen + target) — overwrites if source is better
+
           if (rec.reflexHighScores && typeof rec.reflexHighScores === 'object') {
-            const localReflex = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
-            ['screen', 'target'].forEach(mode => {
-                const src = rec.reflexHighScores[mode];
-                if (!src) return;
-                if (!localReflex[mode]) localReflex[mode] = { best: Infinity, avg: Infinity };
-                if (typeof src.best === 'number' && src.best > 0 && src.best < (localReflex[mode].best || Infinity)) {
-                    localReflex[mode].best = src.best;
-                }
-                if (typeof src.avg === 'number' && src.avg > 0 && src.avg < (localReflex[mode].avg || Infinity)) {
-                    localReflex[mode].avg = src.avg;
-                }
-            });
-            localStorage.setItem('reflexHighScores', JSON.stringify(localReflex));
+              ['screen', 'target'].forEach(mode => {
+                  const src = rec.reflexHighScores[mode];
+                  if (!src || typeof src !== 'object') return;
+                  lowerReflex(mode, 'best', src.best);
+                  lowerReflex(mode, 'avg',  src.avg);
+              });
           }
+
+          saveReflexHighScores(localReflex);
         }
 
         // Prayer counter (only raise)
@@ -1493,6 +1566,18 @@
     // day one, and show nothing for the modes it can't speak to.
     const LB_PRIMARY_MODE = { snake: 'walled', reflex: 'screen', pool: 'cpu', ludo: 'cpu' };
 
+    // RefleX is the one game whose per-mode figures are synced in their own
+    // right, independently of gameModeBests: buildPlayerSnapshot has always sent
+    // the whole reflexHighScores blob, and it is keyed by mode. So unlike the
+    // snake scalar it can answer for Target without guessing, and there is no
+    // reason for a record that carries it to read as "no score".
+    function lbReflexBlobBest(player, mode) {
+        const blob = player.reflexHighScores;
+        if (!blob || typeof blob !== 'object') return 0;
+        const v = blob[mode] && blob[mode].best;
+        return (typeof v === 'number' && isFinite(v) && v > 0) ? v : 0;
+    }
+
     function lbBoardValue(player, game, mode) {
         const primary = LB_PRIMARY_MODE[game];
         const gb = player.gameBests || {};
@@ -1500,14 +1585,27 @@
         // Games with no mode dimension at all only ever live in gameBests.
         if (!mode && !primary) return parseInt(gb[game], 10) || 0;
 
+        const key = mode || primary;
         const gmb = player.gameModeBests;
+
+        // Merged rather than preferred, and for RefleX better means smaller. A
+        // pre-v2 record can hold a genuine Target best in the blob and nothing in
+        // gameModeBests; a v2 record can hold the reverse.
+        if (game === 'reflex') {
+            const fromModes = (gmb && typeof gmb === 'object')
+                ? (parseInt(gmb['reflex:' + key], 10) || 0) : 0;
+            const fromBlob = lbReflexBlobBest(player, key);
+            if (fromModes && fromBlob) return Math.min(fromModes, fromBlob);
+            if (fromModes || fromBlob) return fromModes || fromBlob;
+        }
+
         // A record that carries gameModeBests is authoritative for every mode of
         // that game. Falling back per-mode would print one mode's score under
         // another's heading — a v2 player who has only played Levels would show
         // their Levels score under Walled, because the legacy scalar is the max
         // across modes.
         if (gmb && typeof gmb === 'object') {
-            return parseInt(gmb[game + ':' + (mode || primary)], 10) || 0;
+            return parseInt(gmb[game + ':' + key], 10) || 0;
         }
 
         // Pre-v2 record: the legacy scalar only speaks for the primary mode.
@@ -6694,22 +6792,30 @@
             : 0;
         const bestTime = reflexReactionTimes.length > 0 ? Math.min(...reflexReactionTimes) : 0;
         
-        // Check and update high scores
+        // Check and update high scores. loadReflexHighScores() normalises the
+        // never-scored sentinel back to Infinity, so a mode whose stored value
+        // round-tripped through JSON as null can beat it again.
         const highScores = loadReflexHighScores();
         let newHighScore = false;
-        
-        if (avgTime < highScores[reflexMode].avg) {
-            highScores[reflexMode].avg = avgTime;
-            newHighScore = true;
+
+        // A finished run with no recorded reaction leaves both figures at 0, and
+        // RefleX ranks ascending — storing that would plant an unbeatable 0 ms
+        // record at the top of the board.
+        if (reflexReactionTimes.length > 0) {
+            if (avgTime > 0 && avgTime < highScores[reflexMode].avg) {
+                highScores[reflexMode].avg = avgTime;
+                newHighScore = true;
+            }
+            if (bestTime > 0 && bestTime < highScores[reflexMode].best) {
+                highScores[reflexMode].best = bestTime;
+                newHighScore = true;
+            }
         }
-        if (bestTime < highScores[reflexMode].best) {
-            highScores[reflexMode].best = bestTime;
-            newHighScore = true;
-        }
-        
+
         if (newHighScore) {
             saveReflexHighScores(highScores);
             updateReflexScoreDisplay();
+            queueScoreSync();
         }
         
         // Award XP based on performance
@@ -6737,10 +6843,14 @@
             reflexTimeoutRef = null;
         }
         
+        // The run's live figure is gone, so the score button has to be told —
+        // otherwise it keeps showing the last run's best next to a board that
+        // has been reset out from under it.
+        updateReflexScoreDisplay();
         updateReflexDisplay();
         hideReflexResults();
     }
-    
+
     function startReflexGame() {
         resetReflexGame();
         reflexGameStarted = true;
@@ -6763,6 +6873,12 @@
         if (reflexGameStarted) return; // Can't change mode during game
         
         reflexMode = reflexMode === 'screen' ? 'target' : 'screen';
+        // updateReflexDisplay() only repaints the play area. The mode chip, the
+        // best/current button and the leaderboard overlay all live behind
+        // updateReflexScoreDisplay(), so without this the header kept naming the
+        // previous mode and an open board kept ranking it — the title said
+        // Target while the chip and the scores underneath were still Screen.
+        updateReflexScoreDisplay();
         updateReflexDisplay();
     }
     
@@ -10053,6 +10169,15 @@
         if (gameLbOpen) toggleGameLeaderboard(gameLbOpen, false);
         switch (currentGame) {
             case 'snake':
+                // Death is a 1.4s animation and the run is only committed when it
+                // finishes, in snakeFinalizeDeath. Tearing the loop down inside
+                // that window threw the whole run away — the mode high score and
+                // the XP both — and the window is easy to hit: die, switch panel.
+                // A backgrounded tab makes it wider still, since rAF stops and the
+                // animation never reaches its end on its own. Commit first, then
+                // tear down. snakeFinalizeDeath cancels the frame itself and arms
+                // the restart timer that the next lines clear.
+                if (snakeDying) { try { snakeFinalizeDeath(); } catch (_) {} }
                 if (snakeGameRunning) {
                     snakeGameRunning = false;
                     snakeGamePaused = false;
@@ -11271,6 +11396,13 @@
             refreshGameScoreBtn(gameType);
             updateXPDisplay();
             showXPNotification(message, 'game');
+            // Every game writes its record to localStorage before calling this,
+            // so this is the one point that knows a personal best just landed and
+            // has the storage to prove it. Without it a record only reached the
+            // gist if the player happened to press 🔄 afterwards — which is why a
+            // mode could be a genuine local best and still be absent from the
+            // board everyone else sees.
+            if (performance && performance.isHighScore) queueScoreSync();
         }
     }
     

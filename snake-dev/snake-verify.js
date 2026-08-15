@@ -834,9 +834,15 @@ ok('the unprefixed gameOver() is gone', !/function gameOver\(\)/.test(src));
 head('Host integration — lifecycle');
 
 ok('cleanupCurrentGame cancels the restart timer',
-   /case 'snake':[\s\S]{0,900}?clearTimeout\(snakeRestartTimer\)/.test(src));
+   /case 'snake':[\s\S]{0,1600}?clearTimeout\(snakeRestartTimer\)/.test(src));
 ok('cleanupCurrentGame detaches both listeners',
-   /case 'snake':[\s\S]{0,1000}?removeEventListener\('keydown', handleSnakeKeyPress\)[\s\S]{0,200}?removeEventListener\('visibilitychange', handleSnakeVisibility\)/.test(src));
+   /case 'snake':[\s\S]{0,1800}?removeEventListener\('keydown', handleSnakeKeyPress\)[\s\S]{0,200}?removeEventListener\('visibilitychange', handleSnakeVisibility\)/.test(src));
+// The run is committed in snakeFinalizeDeath, 1.4s after the death that earned
+// it. Cancelling the frame without finalising threw the score and the XP away —
+// die, switch panel, and the record never existed. It has to happen before the
+// teardown clears snakeDying, and before the restart timer it arms is cleared.
+ok('cleanupCurrentGame commits a run that was still dying',
+   /case 'snake':[\s\S]{0,900}?if \(snakeDying\) \{[^}]*snakeFinalizeDeath\(\)[\s\S]{0,600}?snakeGameRunning = false[\s\S]{0,600}?clearTimeout\(snakeRestartTimer\)/.test(src));
 ok('initCurrentGame still has a snake case',
    /case 'snake':[\s\S]{0,200}?initSnakeGame\(\)/.test(src));
 ok('all snake window bridges defined',
@@ -1010,12 +1016,13 @@ head('Leaderboard board values (behavioural)');
 
     const boards  = block('const LB_BOARDS = ');
     const primary = block('const LB_PRIMARY_MODE = ');
+    const blobFn  = block('function lbReflexBlobBest(');
     const fn      = block('function lbBoardValue(');
-    if (!boards || !primary || !fn) {
+    if (!boards || !primary || !blobFn || !fn) {
         ok('lbBoardValue could be lifted out of the host', false, 'block not found');
         return;
     }
-    const lbBoardValue = new Function(boards + '\n' + primary + '\n' + fn +
+    const lbBoardValue = new Function(boards + '\n' + primary + '\n' + blobFn + '\n' + fn +
                                       '\nreturn lbBoardValue;')();
 
     // A v2 player who has only ever played Levels. Their legacy scalar is the
@@ -1055,6 +1062,36 @@ head('Leaderboard board values (behavioural)');
     ok('an empty record reads as no score, not NaN',
        lbBoardValue({}, 'snake', 'walled') === 0 &&
        lbBoardValue({}, 'tetris', null) === 0);
+
+    // RefleX is the one game whose per-mode figures are synced in their own
+    // right — buildPlayerSnapshot has always sent the whole reflexHighScores
+    // blob. Reading only gameModeBests made a real Target best invisible: there
+    // is a record in the live gist holding target.best = 640 that ranked nowhere.
+    const blobOnly = {
+        gameBests: { reflex: 0 },
+        reflexHighScores: { screen: { best: null, avg: null }, target: { best: 640, avg: 1375 } }
+    };
+    ok('a Target best carried only in the blob still ranks',
+       lbBoardValue(blobOnly, 'reflex', 'target') === 640,
+       'got ' + lbBoardValue(blobOnly, 'reflex', 'target'));
+    ok('a null mode in the blob is no score, not zero-beats-everything',
+       lbBoardValue(blobOnly, 'reflex', 'screen') === 0);
+
+    // Infinity does not survive JSON, so an untouched mode arrives as null.
+    const nulled = {
+        gameBests: { reflex: 305 },
+        gameModeBests: { 'reflex:screen': 305 },
+        reflexHighScores: { screen: { best: 305, avg: 327 }, target: { best: null, avg: null } }
+    };
+    ok('a nulled mode does not fabricate a record', lbBoardValue(nulled, 'reflex', 'target') === 0);
+
+    // RefleX ranks ascending, so merging the two sources means taking the smaller.
+    const both = {
+        gameModeBests: { 'reflex:target': 300 },
+        reflexHighScores: { target: { best: 240, avg: 400 } }
+    };
+    ok('the two RefleX sources merge to the better time',
+       lbBoardValue(both, 'reflex', 'target') === 240);
 
     // gameLbMode reads live game state, so the board a player opens always
     // matches the mode they are playing.
@@ -1117,6 +1154,15 @@ head('gameModeBests collection (behavioural)');
     ok('pool:cpu is emitted without the Pool panel ever being opened',
        fresh['pool:cpu'] === 47, JSON.stringify(fresh));
     ok('ludo:cpu is emitted from the legacy counter', fresh['ludo:cpu'] === 9);
+    // Snake had the same trap as Pool and nobody had noticed: snakeHighScores is
+    // only written once the Snake panel has been opened on this build, so a
+    // player who upgraded and synced after a game of Pool emitted a
+    // gameModeBests with no snake key at all — and that record is authoritative,
+    // so their real score fell off the Snake board entirely.
+    ok('snake:walled is emitted without the Snake panel ever being opened',
+       fresh['snake:walled'] === 37, JSON.stringify(fresh));
+    ok('the legacy backfill claims no mode it cannot speak for',
+       fresh['snake:endless'] === undefined && fresh['snake:levels'] === undefined);
 
     const played = run({
         poolWinsByMode: '{"cpu":12,"pvp":3}',
@@ -1133,12 +1179,136 @@ head('gameModeBests collection (behavioural)');
     ok('the pool split is collected',
        played['pool:cpu'] === 12 && played['pool:pvp'] === 3);
 
+    // A mode that has never scored is stored as null, because Infinity does not
+    // survive JSON.stringify. Emitting that as a figure would plant a 0 at the
+    // top of an ascending board.
+    const halfPlayed = run({
+        reflexHighScores: '{"screen":{"best":305,"avg":327},"target":{"best":null,"avg":null}}'
+    });
+    ok('a nulled RefleX mode is not emitted as a score',
+       halfPlayed['reflex:screen'] === 305 && halfPlayed['reflex:target'] === undefined,
+       JSON.stringify(halfPlayed));
+
     // Zero is absent rather than present-and-zero, so lbBoardValue's
     // parseInt(undefined) || 0 and a real 0 mean the same thing downstream.
     const empty = run({});
     ok('an untouched profile emits nothing rather than zeroes',
        Object.keys(empty).length === 0, JSON.stringify(empty));
 })();
+
+head('RefleX per-mode storage (behavioural)');
+
+// The bug this section exists for: Infinity was the never-scored sentinel, and
+// JSON.stringify(Infinity) is "null". So the first save — which happens the
+// first time Screen sets a record — wrote target as null, and every subsequent
+// run asked `time < null`, which coerces to `time < 0` and is false for every
+// real reaction. Target mode could never score again. The live gist still shows
+// it: target has been {"avg":null,"best":null} across every revision.
+(function reflexStorageChecks() {
+    function block(start) {
+        const at = src.indexOf(start);
+        if (at === -1) return null;
+        let depth = 0, i = src.indexOf('{', at);
+        for (; i < src.length; i++) {
+            if (src[i] === '{') depth++;
+            else if (src[i] === '}') { depth--; if (depth === 0) break; }
+        }
+        return src.slice(at, i + 1);
+    }
+
+    const norm = block('function _reflexModeScores(');
+    const load = block('function loadReflexHighScores(');
+    const save = block('function saveReflexHighScores(');
+    if (!norm || !load || !save) {
+        ok('the RefleX storage pair could be lifted out of the host', false, 'block not found');
+        return;
+    }
+
+    const mk = store => {
+        const ls = {
+            _s: Object.assign({}, store),
+            getItem(k) { return Object.prototype.hasOwnProperty.call(this._s, k) ? this._s[k] : null; },
+            setItem(k, v) { this._s[k] = String(v); }
+        };
+        const api = new Function('localStorage',
+            norm + '\n' + load + '\n' + save +
+            '\nreturn { load: loadReflexHighScores, save: saveReflexHighScores, ls: localStorage };')(ls);
+        return api;
+    };
+
+    // Exactly the blob sitting in the gist for a player who has played Screen
+    // and then tried Target.
+    const live = mk({ reflexHighScores: '{"screen":{"avg":327,"best":305},"target":{"avg":null,"best":null}}' });
+    const loaded = live.load();
+    ok('a nulled mode loads as the never-scored sentinel, not as null',
+       loaded.target.best === Infinity && loaded.target.avg === Infinity,
+       JSON.stringify(loaded.target));
+    ok('a real stored figure survives the normalisation',
+       loaded.screen.best === 305 && loaded.screen.avg === 327);
+
+    // The comparison finishReflexGame makes. Against null this was false for
+    // every possible time.
+    ok('a Target run can beat the never-scored sentinel', 427 < loaded.target.best);
+
+    loaded.target.best = 427;
+    loaded.target.avg  = 541;
+    live.save(loaded);
+    const back = live.load();
+    ok('a Target record survives the save/load round trip',
+       back.target.best === 427 && back.target.avg === 541,
+       JSON.stringify(back.target));
+    // Saving must not disturb the mode that was not played.
+    ok('saving Target leaves Screen alone',
+       back.screen.best === 305 && back.screen.avg === 327);
+
+    // A second, better run still lowers it; a worse one does not.
+    ok('a better Target time beats the stored record', 300 < back.target.best);
+    ok('a worse Target time does not', !(500 < back.target.best));
+
+    const virgin = mk({});
+    const v = virgin.load();
+    ok('an absent blob loads as both modes never-scored',
+       v.screen.best === Infinity && v.target.best === Infinity);
+    virgin.save(v);
+    ok('saving an untouched blob writes nulls rather than dropping the shape',
+       JSON.parse(virgin.ls.getItem('reflexHighScores')).target.best === null);
+
+    // Garbage in storage must not throw the panel open — this runs inside
+    // initReflexGame, before anything is on screen to show an error in.
+    const junk = mk({ reflexHighScores: '{not json' });
+    ok('unparseable storage falls back to never-scored rather than throwing',
+       junk.load().screen.best === Infinity);
+})();
+
+head('RefleX host wiring');
+
+// The reported symptom: the title said "Target Mode" while the chip beneath it
+// and the board behind the score button were still Screen. updateReflexDisplay()
+// only repaints the play area — the chip, the button and the overlay all hang
+// off updateReflexScoreDisplay().
+ok('switching RefleX mode refreshes the chip, button and open board',
+   /function toggleReflexMode\(\)[\s\S]{0,700}?updateReflexScoreDisplay\(\)/.test(src));
+ok('the RefleX score button feeds the shared overlay',
+   /function updateReflexScoreDisplay\(\)[\s\S]{0,900}?updateGameScoreBtn\('reflex'/.test(src));
+ok('updateGameScoreBtn re-renders an open board',
+   /function updateGameScoreBtn\([\s\S]{0,1400}?refreshGameLeaderboard\(game\)/.test(src));
+// A finished run with no recorded reaction leaves both figures at 0, and RefleX
+// ranks ascending — storing that would plant an unbeatable 0ms at the top.
+ok('a run with no reactions cannot set a 0ms record',
+   /function finishReflexGame\(\)[\s\S]{0,1400}?if \(reflexReactionTimes\.length > 0\)/.test(src));
+
+head('Score sync');
+
+// A personal best that never leaves localStorage is invisible to everyone else.
+ok('queueScoreSync exists and is debounced', has('function queueScoreSync()') &&
+   has('LB_SCORE_SYNC_DEBOUNCE_MS'));
+ok('a new record queues a sync', /performance\.isHighScore\) queueScoreSync\(\)/.test(src));
+ok('the queue respects the anti-cheat cooldown rather than firing into it',
+   /function queueScoreSync\(\)[\s\S]{0,700}?AC_SYNC_COOLDOWN_MS/.test(src));
+// gameModeBests was write-only for RefleX: collectGameModeBests emitted
+// reflex:target and nothing ever read it back into localStorage.
+ok('a restore reads reflex per-mode bests back out of gameModeBests',
+   /_reflexResetActive[\s\S]{0,1400}?recModes\['reflex:' \+ mode\]/.test(src));
 
 console.log('\n' + '='.repeat(52));
 console.log('  ' + pass + ' passed, ' + fail + ' failed');

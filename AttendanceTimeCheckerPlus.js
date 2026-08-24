@@ -14023,6 +14023,7 @@
                 }
             }
 
+            /* ═══ CYBERPUNK HUD THEME — generated from cyber-dev/cyber-theme.css, do not edit here ═══ */
             /* ============================================================
                CYBERPUNK HUD THEME (rebrand of "Sci-Fi Retro Futuristic")
                — Always uses neon-on-dark tokens since BG is user-controlled
@@ -14638,6 +14639,7 @@
                 -webkit-background-clip: text !important;
                 -webkit-text-fill-color: transparent !important;
             }
+            /* ═══ END CYBERPUNK HUD THEME ═══ */
             
             /* Borderless PiP Window - Hide Browser Chrome */
             @media (display-mode: picture-in-picture) {

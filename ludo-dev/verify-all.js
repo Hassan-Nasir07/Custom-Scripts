@@ -17,6 +17,9 @@ const SUITES = [
     // Snake ships as its own module pair under snake-dev/ with the same
     // reinsert + byte-identity contract, so its suite runs from here too.
     ['Snake',          '../snake-dev/snake-verify.js'],
+    // Same contract again for the Cyberpunk HUD theme: CSS + two JS modules
+    // under cyber-dev/, spliced by sentinel and asserted byte-identical.
+    ['Cyberpunk HUD',  '../cyber-dev/cyber-verify.js'],
 ];
 
 const results = [];

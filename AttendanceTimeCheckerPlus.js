@@ -19,7 +19,7 @@
     // by CPU difficulty. The seed is deliberately UNCHANGED: rotating it without
     // also rotating BUILD_TOKEN_CURRENT in the bot repo would make every sync
     // fail silently, and the label alone is what the update banner reads.
-    const BUILD_LABEL = 'v4';
+    const BUILD_LABEL = 'v5';
     // ──────────────────────────────────────────────────────────────
 
     // Ordinal parse of a 'v<N>' label. Returns null for anything that doesn't fit
@@ -351,6 +351,19 @@
         cyberAccent: '#fff200',
         cyberHighlight: '#00e5ff',
         cyberPanelTint: '#00e5ff',  // tint for inner glass panels (table, side containers)
+        // Legibility swatches. Deliberately NOT derived from cyberAccent or
+        // either background: a dark Accent used to drag the type down with it,
+        // leaving dark text on a dark panel with no control that could undo
+        // it. These three are the only things that colour type, bloom and
+        // frames, and nothing else feeds them. See CYBER_TOKENS.
+        cyberText: '#fff200',       // all type
+        cyberGlow: '#fff200',       // every bloom / glow / drop-shadow
+        cyberBorder: '#fff200',     // frames, corner brackets, grid, scanlines
+        cyberGlowIntensity: 0.6,    // 0–1 multiplier on every glow
+        // 'rounded' | 'chamfered' | 'notched' — see CYBER_PANEL_SHAPES
+        cyberPanelShape: 'rounded',
+        // 'off' | 'system' | 'mic' | 'sim'. Never auto-prompts; see cyber-audio.
+        cyberAudioSource: 'off',
         cyberBgImage: '',       // URL for custom background image
         cyberBgOpacity: 0.15    // 0–1 opacity for background image overlay
     };
@@ -11973,16 +11986,8 @@
                 opacity: 0;
                 transition: opacity 0.3s ease;
             }
-            .attendance-summary.retro-theme .stat-card::before {
-                background: linear-gradient(
-                    90deg,
-                    transparent,
-                    var(--rt-cyber-hl),
-                    var(--rt-accent),
-                    var(--rt-cyber-panel),
-                    transparent
-                ) !important;
-            }
+            /* .retro-theme .stat-card::before now lives in the CYBERPUNK HUD
+               THEME block, with the rest of the theme. */
             
             .stat-card:hover::before {
                 opacity: 1;
@@ -14025,63 +14030,314 @@
 
             /* ═══ CYBERPUNK HUD THEME — generated from cyber-dev/cyber-theme.css, do not edit here ═══ */
             /* ============================================================
-               CYBERPUNK HUD THEME (rebrand of "Sci-Fi Retro Futuristic")
-               — Always uses neon-on-dark tokens since BG is user-controlled
-                 and defaults to dark (#07091a). OS light/dark irrelevant.
-               — Inspired by Cyberpunk 2077 menu / HUD bracket interfaces
+               CYBERPUNK HUD THEME
+               — Always neon-on-dark: BG is user-controlled and defaults to
+                 dark (#07091a), so OS light/dark is irrelevant here.
+               — Generated from cyber-dev/cyber-theme.css. Do not edit the
+                 copy in the userscript; run node cyber-dev/reinsert.js.
+
+               THE TOKEN CONTRACT — read this before changing a colour.
+
+               Three groups of user-set tokens, and NO token in one group is
+               ever derived from a token in another:
+
+                 STRUCTURE   --rt-bg-1  --rt-bg-2
+                 ACCENTS     --rt-accent  --rt-cyber-hl  --rt-cyber-panel
+                 LEGIBILITY  --rt-text  --rt-glow-color  --rt-border-color
+
+               Every dim/soft variant derives from its OWN parent by opacity
+               alone — never by mixing in another hue.
+
+               This exists because linking type to Accent or BG is what made
+               the theme's yellow unchangeable: picking a dark Accent would
+               put dark text on a dark background with no way back. So:
+
+                 ALL TYPE   -> var(--rt-text) / var(--rt-text-dim)
+                 ALL BLOOM  -> var(--rt-glow) / rgba(var(--rt-glow-rgb), a)
+                 ALL FRAMES -> var(--rt-border) / var(--rt-border-strong)
+
+               Accent / Highlight / Panel colour fills, frames, brackets and
+               rails — the things that stay legible whatever hue you pick.
+               They must not be the only thing carrying a piece of text.
                ============================================================ */
 
-            /* Neon-on-dark tokens (always active — cyberpunk BG is always dark) */
             .retro-theme {
+                /* -- STRUCTURE (user-set) -- */
                 --rt-bg-1: #07091a;
                 --rt-bg-2: #11142b;
                 --rt-panel: rgba(8, 10, 26, 0.78);
                 --rt-panel-strong: rgba(8, 10, 26, 0.92);
-                --rt-text: #fff200;            /* signature cyberpunk yellow */
-                --rt-text-dim: rgba(255, 242, 0, 0.72);
+
+                /* -- ACCENTS (user-set) -- */
                 --rt-accent: #fff200;
                 --rt-accent-rgb: 255, 242, 0;
+                /* Highlight + Panel default to cyan until applyPreferences()
+                   writes them. Without these two pairs, every rule that
+                   consumes them would resolve to an invalid value. */
+                --rt-cyber-hl: var(--rt-cyan, #00e5ff);
+                --rt-cyber-hl-rgb: var(--rt-cyan-rgb, 0, 229, 255);
+                --rt-cyber-panel: var(--rt-cyan, #00e5ff);
+                --rt-cyber-panel-rgb: var(--rt-cyan-rgb, 0, 229, 255);
+
+                /* -- LEGIBILITY (user-set, independent of everything above) -- */
+                --rt-text: #fff200;
+                --rt-text-rgb: 255, 242, 0;
+                --rt-glow-color: #fff200;
+                --rt-glow-rgb: 255, 242, 0;
+                --rt-border-color: #fff200;
+                --rt-border-rgb: 255, 242, 0;
+
+                /* -- Fixed signal hues: status only, never load-bearing for text -- */
                 --rt-cyan: #00e5ff;
                 --rt-cyan-rgb: 0, 229, 255;
                 --rt-magenta: #ff2a6d;
                 --rt-magenta-rgb: 255, 42, 109;
                 --rt-lime: #05ffa1;
                 --rt-lime-rgb: 5, 255, 161;
-                --rt-border: rgba(255, 242, 0, 0.32);
-                --rt-border-strong: rgba(255, 242, 0, 0.7);
-                --rt-grid: rgba(255, 242, 0, 0.06);
-                --rt-glow: 0 0 18px rgba(255, 242, 0, 0.35);
-                --rt-scanline: rgba(0, 229, 255, 0.04);
+
+                /* -- DERIVED: opacity off their own parent, no cross-hue mixing -- */
+                --rt-text-dim: rgba(var(--rt-text-rgb), 0.72);
+                --rt-text-faint: rgba(var(--rt-text-rgb), 0.45);
+                --rt-border: rgba(var(--rt-border-rgb), 0.32);
+                --rt-border-strong: rgba(var(--rt-border-rgb), 0.70);
+                --rt-grid: rgba(var(--rt-border-rgb), 0.06);
+                --rt-glow-mul: 0.6;
+                --rt-glow: 0 0 18px rgba(var(--rt-glow-rgb), calc(0.58 * var(--rt-glow-mul)));
+                --rt-glow-soft: 0 0 9px rgba(var(--rt-glow-rgb), calc(0.40 * var(--rt-glow-mul)));
+                --rt-scanline: rgba(var(--rt-border-rgb), 0.05);
+
+                /* -- RUNTIME: written per frame by the analyser (cyber-audio.js) -- */
+                --rt-beat: 0;
             }
 
-            /* Shared HUD clip-path with notched corners (top-left + bottom-right) */
-            .retro-theme {
+            /* ============================================================
+               PANEL SHAPE — set by userPreferences.cyberPanelShape via the
+               .rt-shape-* class on #total-time-summary.
+
+               clip-path clips overflow AND box-shadow, so it is applied only
+               to elements with nothing escaping their box: stat cards, the
+               table, the completion chip, buttons, the EQ rail. The outer
+               container and the side panels keep border-radius only — they
+               hold tooltips (z-index 9999), game canvases, trays and
+               popovers, and clipping those is how the original theme ended
+               up with two dead "clip-path: none !important" resets.
+               ============================================================ */
+
+            .retro-theme,
+            .retro-theme.rt-shape-rounded {
+                --rt-radius: 14px;
+                --rt-radius-sm: 10px;
+                --rt-cut: 0px;
+                --rt-clip: none;
+                --rt-bk-inset: 7px;
+            }
+
+            .retro-theme.rt-shape-chamfered {
+                --rt-radius: 4px;
+                --rt-radius-sm: 3px;
+                --rt-cut: 16px;
                 --rt-clip: polygon(
-                    14px 0,
-                    100% 0,
-                    100% calc(100% - 14px),
-                    calc(100% - 14px) 100%,
-                    0 100%,
-                    0 14px
+                    var(--rt-cut) 0,
+                    calc(100% - var(--rt-cut)) 0,
+                    100% var(--rt-cut),
+                    100% calc(100% - var(--rt-cut)),
+                    calc(100% - var(--rt-cut)) 100%,
+                    var(--rt-cut) 100%,
+                    0 calc(100% - var(--rt-cut)),
+                    0 var(--rt-cut)
                 );
+                --rt-bk-inset: 4px;
             }
 
-            /* ---- Main container ---- */
+            .retro-theme.rt-shape-notched {
+                --rt-radius: 2px;
+                --rt-radius-sm: 2px;
+                --rt-cut: 14px;
+                --rt-clip: polygon(
+                    var(--rt-cut) 0,
+                    100% 0,
+                    100% calc(100% - var(--rt-cut)),
+                    calc(100% - var(--rt-cut)) 100%,
+                    0 100%,
+                    0 var(--rt-cut)
+                );
+                --rt-bk-inset: 4px;
+            }
+
+            /* ============================================================
+               CORNER BRACKETS — eight background layers, zero extra DOM.
+
+               ::before and ::after are already spoken for on nearly every
+               panel (top rail, scanlines, shimmer bar, sweep), so brackets
+               are composed as background layers instead. That also means
+               they are identical under all three panel shapes, and they
+               compose under the glass tint rather than replacing it.
+
+               Usage:  background: var(--rt-brackets), <the panel tint>;
+               ============================================================ */
+
+            .retro-theme {
+                --rt-bk-len: 13px;
+                --rt-bk-w: 2px;
+                --rt-bk-c: rgba(var(--rt-border-rgb), 0.85);
+                --rt-brackets:
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        left var(--rt-bk-inset) top var(--rt-bk-inset) /
+                        var(--rt-bk-len) var(--rt-bk-w) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        left var(--rt-bk-inset) top var(--rt-bk-inset) /
+                        var(--rt-bk-w) var(--rt-bk-len) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        right var(--rt-bk-inset) top var(--rt-bk-inset) /
+                        var(--rt-bk-len) var(--rt-bk-w) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        right var(--rt-bk-inset) top var(--rt-bk-inset) /
+                        var(--rt-bk-w) var(--rt-bk-len) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        left var(--rt-bk-inset) bottom var(--rt-bk-inset) /
+                        var(--rt-bk-len) var(--rt-bk-w) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        left var(--rt-bk-inset) bottom var(--rt-bk-inset) /
+                        var(--rt-bk-w) var(--rt-bk-len) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        right var(--rt-bk-inset) bottom var(--rt-bk-inset) /
+                        var(--rt-bk-len) var(--rt-bk-w) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        right var(--rt-bk-inset) bottom var(--rt-bk-inset) /
+                        var(--rt-bk-w) var(--rt-bk-len) no-repeat;
+
+                /* Faint hex lattice + circuit traces, for panel backdrops. */
+                --rt-hex:
+                    repeating-linear-gradient(60deg,
+                        var(--rt-grid) 0 1px, transparent 1px 22px),
+                    repeating-linear-gradient(-60deg,
+                        var(--rt-grid) 0 1px, transparent 1px 22px),
+                    repeating-linear-gradient(0deg,
+                        var(--rt-grid) 0 1px, transparent 1px 19px);
+            }
+
+            /* ============================================================
+               KEYFRAMES — all rt-prefixed so they cannot collide with the
+               shared glassmorphic set.
+
+               Every one animates transform, opacity, filter or
+               background-position ONLY. Nothing here animates box-shadow:
+               an animated box-shadow overrides the static declaration
+               outright, which is exactly how the old "neonPulse 5s" made
+               all four declared layers of the stat-card shadow invisible.
+               ============================================================ */
+
+            @keyframes rtRailFlow {
+                0%   { background-position: 0% 50%; }
+                100% { background-position: 300% 50%; }
+            }
+
+            @keyframes rtScanDrift {
+                0%   { transform: translateY(0); }
+                100% { transform: translateY(4px); }
+            }
+
+            /* A bright band crossing a panel top-to-bottom, like a sensor
+               refreshing. transform-only so it never triggers layout. */
+            @keyframes rtPanelSweep {
+                0%       { transform: translateY(-110%); opacity: 0; }
+                8%       { opacity: 0.85; }
+                55%      { opacity: 0.55; }
+                100%     { transform: translateY(360%); opacity: 0; }
+            }
+
+            /* Replaces the inherited glass cardShimmer, which animated
+               "left" and therefore triggered layout every frame. */
+            @keyframes rtCardShimmer {
+                0%   { transform: translateX(-100%); }
+                100% { transform: translateX(220%); }
+            }
+
+            @keyframes rtMeterSweep {
+                0%   { transform: translateX(-120%); }
+                100% { transform: translateX(280%); }
+            }
+
+            /* Chromatic aberration on the title: mostly still, with brief
+               bursts, so it reads as a signal fault rather than a wobble. */
+            @keyframes rtGlitch {
+                0%, 88%, 100% {
+                    transform: translate(0, 0) skewX(0deg);
+                    opacity: 1;
+                }
+                89% { transform: translate(-2px, 1px) skewX(-1.4deg); opacity: 0.92; }
+                91% { transform: translate(2px, -1px) skewX(1.2deg); }
+                93% { transform: translate(-1px, 0) skewX(0deg); opacity: 1; }
+                95% { transform: translate(1px, 1px) skewX(0.8deg); opacity: 0.96; }
+                97% { transform: translate(0, 0) skewX(0deg); opacity: 1; }
+            }
+
+            @keyframes rtGhostL {
+                0%, 88%, 100% { transform: translate(0, 0); opacity: 0; }
+                89%           { transform: translate(-3px, 0); opacity: 0.75; }
+                93%           { transform: translate(-2px, 1px); opacity: 0.5; }
+                97%           { transform: translate(0, 0); opacity: 0; }
+            }
+
+            @keyframes rtGhostR {
+                0%, 88%, 100% { transform: translate(0, 0); opacity: 0; }
+                89%           { transform: translate(3px, 0); opacity: 0.75; }
+                93%           { transform: translate(2px, -1px); opacity: 0.5; }
+                97%           { transform: translate(0, 0); opacity: 0; }
+            }
+
+            /* Panel boot-in: a scan-reveal, applied by adding .rt-booting and
+               removed on animationend so it can re-trigger. */
+            @keyframes rtBoot {
+                0% {
+                    opacity: 0;
+                    transform: translateY(6px) scaleY(0.94);
+                    filter: brightness(2.4) saturate(0.2);
+                }
+                40% { opacity: 1; filter: brightness(1.5) saturate(0.7); }
+                100% {
+                    opacity: 1;
+                    transform: translateY(0) scaleY(1);
+                    filter: none;
+                }
+            }
+
+            @keyframes rtBracketBreathe {
+                0%, 100% { opacity: 0.55; }
+                50%      { opacity: 1; }
+            }
+
+            @keyframes rtTicker {
+                0%   { transform: translateX(0); }
+                100% { transform: translateX(-50%); }
+            }
+
+            /* ============================================================
+               MAIN CONTAINER
+               ============================================================ */
+
             .attendance-summary.retro-theme {
                 background:
+                    var(--rt-hex),
                     linear-gradient(135deg, var(--rt-bg-1) 0%, var(--rt-bg-2) 100%) !important;
                 color: var(--rt-text) !important;
                 border: 1px solid var(--rt-border-strong) !important;
-                border-radius: 4px !important;
+                border-radius: var(--rt-radius) !important;
                 box-shadow:
-                    0 8px 32px rgba(0, 0, 0, 0.12),
+                    0 8px 32px rgba(0, 0, 0, 0.45),
                     inset 0 0 0 1px var(--rt-border),
+                    inset 0 0 80px rgba(var(--rt-glow-rgb), calc(0.05 * var(--rt-glow-mul))),
                     var(--rt-glow) !important;
                 position: relative;
                 overflow: hidden;
+                /* Beat coupling. filter composites with the declared
+                   box-shadow instead of replacing it. */
+                filter: drop-shadow(0 0 calc(3px + 13px * var(--rt-beat))
+                        rgba(var(--rt-glow-rgb), calc(0.30 * var(--rt-glow-mul) * var(--rt-beat))));
+                transition: filter 90ms linear;
             }
 
-            /* Top accent bar — animated RGB flow */
+            /* Top rail — flowing accents plus a hotter core on the beat. */
             .attendance-summary.retro-theme::before {
                 background: linear-gradient(
                     90deg,
@@ -14093,17 +14349,19 @@
                     transparent 100%
                 ) !important;
                 background-size: 300% 100% !important;
-                height: 3px !important;
-                animation: rgbFlowBacklight 4s linear infinite !important;
-                z-index: 2;
+                height: calc(3px + 2px * var(--rt-beat)) !important;
+                animation: rtRailFlow 4s linear infinite !important;
+                filter: drop-shadow(0 0 calc(3px + 9px * var(--rt-beat))
+                        rgba(var(--rt-glow-rgb), calc(0.7 * var(--rt-glow-mul))));
+                z-index: 3;
                 opacity: 1;
             }
 
-            /* Background scanlines overlay (subtle CRT feel — no grid tiles) */
+            /* CRT layer: scanlines + corner vignette, drifting. */
             .attendance-summary.retro-theme::after {
                 content: '';
                 position: absolute;
-                inset: 0;
+                inset: -4px 0 0 0;
                 background:
                     repeating-linear-gradient(
                         0deg,
@@ -14111,14 +14369,41 @@
                         transparent 1px,
                         transparent 3px,
                         var(--rt-scanline) 4px
+                    ),
+                    radial-gradient(
+                        130% 100% at 50% 50%,
+                        transparent 52%,
+                        rgba(0, 0, 0, 0.42) 100%
                     );
-                animation: scanlines 10s linear infinite;
+                animation: rtScanDrift 1.1s steps(4, end) infinite;
                 pointer-events: none;
-                z-index: 0;
-                opacity: 0.55;
+                z-index: 4;
+                opacity: 0.62;
             }
 
-            /* User background image overlay (set via JS inline style on a pseudo-like div) */
+            /* Bottom index rail — the counterpart to ::before, as a
+               background layer since both pseudo-elements are taken. */
+            .attendance-summary.retro-theme .main-attendance-content::after {
+                content: '';
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: -6px;
+                height: 1px;
+                background: linear-gradient(
+                    90deg,
+                    transparent,
+                    rgba(var(--rt-border-rgb), 0.5) 20%,
+                    var(--rt-cyber-hl) 50%,
+                    rgba(var(--rt-border-rgb), 0.5) 80%,
+                    transparent
+                );
+                background-size: 300% 100%;
+                animation: rtRailFlow 6s linear infinite reverse;
+                pointer-events: none;
+            }
+
+            /* User background image overlay (JS sets the url + opacity). */
             .attendance-summary.retro-theme .cyber-bg-image {
                 position: absolute;
                 inset: 0;
@@ -14141,56 +14426,167 @@
                 z-index: 1;
             }
 
-            /* Center panel sits above side panels so the tooltip is never clipped */
+            /* Centre column above the side panels so the tooltip is never clipped. */
             .attendance-summary.retro-theme .main-attendance-content {
                 position: relative;
                 z-index: 2;
             }
 
-            /* Developer-info & tooltip must stack above all panels */
             .attendance-summary.retro-theme .developer-info {
                 position: relative;
                 z-index: 10;
             }
 
             .attendance-summary.retro-theme .developer-info:hover {
-                z-index: 10;
+                z-index: 1000;
             }
 
             .attendance-summary.retro-theme .developer-tooltip {
                 z-index: 9999 !important;
             }
 
-            /* ---- Title ---- */
+            /* Boot-in scan reveal. The class is added on theme apply and on
+               Game Mode toggle, then removed on animationend. */
+            .attendance-summary.retro-theme.rt-booting .modern-table,
+            .attendance-summary.retro-theme.rt-booting .stat-card,
+            .attendance-summary.retro-theme.rt-booting .progress-bar,
+            .attendance-summary.retro-theme.rt-booting .snake-game-container,
+            .attendance-summary.retro-theme.rt-booting .quotes-container,
+            .attendance-summary.retro-theme.rt-booting .xp-container,
+            .attendance-summary.retro-theme.rt-booting .image-box-container {
+                animation: rtBoot 520ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+            }
+
+            .attendance-summary.retro-theme.rt-booting .stat-card:nth-of-type(2) {
+                animation-delay: 70ms;
+            }
+
+            .attendance-summary.retro-theme.rt-booting .stat-card:nth-of-type(3) {
+                animation-delay: 140ms;
+            }
+
+            /* ============================================================
+               TITLE — glitch / RGB split
+               The ghosts are drawn with text-shadow on two pseudo-elements
+               that copy the text via a data attribute set in JS; where that
+               attribute is absent the title still renders normally.
+               ============================================================ */
+
             .attendance-summary.retro-theme .summary-title {
                 font-family: 'Orbitron', sans-serif !important;
                 font-weight: 800 !important;
                 letter-spacing: 0.18em !important;
                 text-transform: uppercase !important;
-                color: var(--rt-accent) !important;
+                color: var(--rt-text) !important;
                 background: none !important;
                 -webkit-background-clip: unset !important;
-                -webkit-text-fill-color: var(--rt-accent) !important;
+                -webkit-text-fill-color: var(--rt-text) !important;
+                background-clip: unset !important;
                 text-shadow:
-                    0 0 1px var(--rt-accent),
+                    0 0 1px var(--rt-text),
                     var(--rt-glow) !important;
+                position: relative;
+                animation: rtGlitch 7s steps(1, end) infinite !important;
+            }
+
+            .attendance-summary.retro-theme .summary-title::before,
+            .attendance-summary.retro-theme .summary-title::after {
+                content: attr(data-rt-text);
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+                -webkit-text-fill-color: currentColor;
+                background: none;
+                text-shadow: none;
+                opacity: 0;
+            }
+
+            .attendance-summary.retro-theme .summary-title::before {
+                color: var(--rt-cyan);
+                animation: rtGhostL 7s steps(1, end) infinite;
+            }
+
+            .attendance-summary.retro-theme .summary-title::after {
+                color: var(--rt-magenta);
+                animation: rtGhostR 7s steps(1, end) infinite;
             }
 
             .attendance-summary.retro-theme .emoji-display {
-                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25)) drop-shadow(0 0 8px rgba(var(--rt-accent-rgb), 0.45)) !important;
+                filter:
+                    drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25))
+                    drop-shadow(0 0 calc(6px + 8px * var(--rt-beat))
+                        rgba(var(--rt-glow-rgb), calc(0.7 * var(--rt-glow-mul)))) !important;
             }
 
-            /* ---- Table ---- */
+            /* ============================================================
+               HUD CHROME — mono micro-labels. Decorative only: they carry no
+               information the user needs, so they are safe to render in the
+               dim text tone.
+               ============================================================ */
+
+            .attendance-summary.retro-theme .rt-chip {
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.58rem;
+                letter-spacing: 0.16em;
+                text-transform: uppercase;
+                color: var(--rt-text-faint);
+                border: 1px solid rgba(var(--rt-border-rgb), 0.28);
+                border-radius: 2px;
+                padding: 1px 5px;
+                white-space: nowrap;
+                user-select: none;
+                pointer-events: none;
+            }
+
+            .attendance-summary.retro-theme .rt-chip.is-ok {
+                color: rgba(var(--rt-lime-rgb), 0.85);
+                border-color: rgba(var(--rt-lime-rgb), 0.35);
+            }
+
+            .attendance-summary.retro-theme .rt-chip.is-warn {
+                color: rgba(var(--rt-magenta-rgb), 0.9);
+                border-color: rgba(var(--rt-magenta-rgb), 0.4);
+            }
+
+            /* Thin index rail down the left edge of a panel. */
+            .attendance-summary.retro-theme .rt-railed {
+                border-left: 1px solid rgba(var(--rt-border-rgb), 0.22) !important;
+                background-image:
+                    repeating-linear-gradient(
+                        180deg,
+                        rgba(var(--rt-border-rgb), 0.5) 0 1px,
+                        transparent 1px 9px
+                    );
+                background-repeat: no-repeat;
+                background-size: 3px 100%;
+                background-position: left 2px top 0;
+            }
+
+            /* ============================================================
+               TABLE
+               (one rule only — the original carried a duplicate declared
+               later that silently reset radius 2px to 10px and cancelled
+               its own clip-path)
+               ============================================================ */
+
             .attendance-summary.retro-theme .modern-table {
-                background: var(--rt-panel) !important;
-                border: 1px solid var(--rt-border) !important;
-                border-radius: 2px !important;
+                background:
+                    var(--rt-brackets),
+                    linear-gradient(135deg,
+                        rgba(var(--rt-cyber-panel-rgb), 0.10),
+                        rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
+                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
+                border-radius: var(--rt-radius-sm) !important;
                 clip-path: var(--rt-clip);
+                backdrop-filter: blur(14px) saturate(140%) !important;
+                -webkit-backdrop-filter: blur(14px) saturate(140%) !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.08),
-                    0 4px 16px rgba(0, 0, 0, 0.08) !important;
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
+                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
+                    0 8px 32px rgba(0, 0, 0, 0.28),
+                    0 2px 6px rgba(0, 0, 0, 0.10) !important;
+                position: relative;
+                overflow: hidden;
             }
 
             .attendance-summary.retro-theme .modern-table thead {
@@ -14207,8 +14603,8 @@
                 font-weight: 700 !important;
                 letter-spacing: 0.14em !important;
                 text-transform: uppercase !important;
-                color: var(--rt-accent) !important;
-                text-shadow: var(--rt-glow) !important;
+                color: var(--rt-text) !important;
+                text-shadow: var(--rt-glow-soft) !important;
                 font-size: 0.72rem !important;
             }
 
@@ -14218,133 +14614,163 @@
                 border-bottom: 1px solid var(--rt-border) !important;
             }
 
-            /* ---- Stat cards — Glassmorphic 3D HUD panels ---- */
+            /* ============================================================
+               STAT CARDS
+
+               The old rule carried "animation: neonPulse 5s ... !important",
+               which animates box-shadow. An animated property beats the
+               static declaration, so all four declared shadow layers here
+               and every per-card shadow below never rendered, and the pulse
+               ignored the user's colours entirely. The breathing glow is now
+               a filter, which composites on top instead of replacing.
+               ============================================================ */
+
             .attendance-summary.retro-theme .stat-card {
-                background: rgba(var(--rt-accent-rgb), 0.04) !important;
+                background:
+                    var(--rt-brackets),
+                    rgba(var(--rt-accent-rgb), 0.05) !important;
                 border: 1px solid rgba(var(--rt-accent-rgb), 0.22) !important;
-                border-radius: 8px !important;
+                border-radius: var(--rt-radius-sm) !important;
+                clip-path: var(--rt-clip);
                 box-shadow:
                     inset 0 1px 0 rgba(255, 255, 255, 0.06),
                     inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.08),
-                    0 8px 32px rgba(0, 0, 0, 0.18),
+                    0 8px 32px rgba(0, 0, 0, 0.28),
                     0 2px 6px rgba(0, 0, 0, 0.12) !important;
                 backdrop-filter: blur(14px) saturate(130%);
                 -webkit-backdrop-filter: blur(14px) saturate(130%);
-                animation: neonPulse 5s ease-in-out infinite !important;
                 position: relative !important;
+                overflow: hidden;
                 transform: perspective(600px) rotateX(1deg);
-                transition: transform 0.3s ease, box-shadow 0.3s ease;
+                transition: transform 0.3s ease, box-shadow 0.3s ease, filter 90ms linear;
+                filter: drop-shadow(0 0 calc(2px + 10px * var(--rt-beat))
+                        rgba(var(--rt-glow-rgb), calc(0.34 * var(--rt-glow-mul) * var(--rt-beat))));
             }
+
             .attendance-summary.retro-theme .stat-card:hover {
                 transform: perspective(600px) rotateX(0deg) translateY(-2px);
                 box-shadow:
                     inset 0 1px 0 rgba(255, 255, 255, 0.09),
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.14),
-                    0 12px 40px rgba(0, 0, 0, 0.25),
+                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.16),
+                    0 12px 40px rgba(0, 0, 0, 0.35),
                     0 4px 12px rgba(0, 0, 0, 0.15) !important;
             }
 
-            /* Corner HUD bracket marker */
+            /* Hover shimmer — retargeted off the glass keyframe, which
+               animated "left" and so triggered layout on every frame. */
+            .attendance-summary.retro-theme .stat-card::before {
+                left: 0 !important;
+                width: 45% !important;
+                height: 2px !important;
+                background: linear-gradient(
+                    90deg,
+                    transparent,
+                    var(--rt-cyber-hl),
+                    var(--rt-accent),
+                    var(--rt-cyber-panel),
+                    transparent
+                ) !important;
+                animation: rtCardShimmer 1.6s ease-in-out infinite !important;
+                transform: translateX(-100%);
+                z-index: 2;
+                /* The base glass rule sets opacity:0 and reveals this only on
+                   hover, which is why the shimmer read as "not animating".
+                   Always visible here, brighter on hover. */
+                opacity: 0.55 !important;
+            }
+
+            .attendance-summary.retro-theme .stat-card:hover::before {
+                opacity: 1 !important;
+            }
+
+            /* Sensor sweep — a band crossing the card, always running. */
             .attendance-summary.retro-theme .stat-card::after {
                 content: '';
                 position: absolute;
-                top: 6px;
-                right: 10px;
-                width: 10px;
-                height: 10px;
-                background: var(--card-accent, var(--rt-accent));
-                clip-path: polygon(0 0, 100% 0, 100% 30%, 30% 30%, 30% 100%, 0 100%);
-                opacity: 0.85;
+                inset: 0 0 auto 0;
+                height: 34%;
+                background: linear-gradient(
+                    180deg,
+                    transparent,
+                    rgba(var(--rt-cyber-hl-rgb), 0.13),
+                    transparent
+                );
+                clip-path: none;
+                animation: rtPanelSweep 5.5s ease-in-out infinite;
                 pointer-events: none;
+                z-index: 1;
+                opacity: 0;
             }
 
+            .attendance-summary.retro-theme .stat-card:nth-of-type(2)::after {
+                animation-delay: 1.8s;
+            }
+
+            .attendance-summary.retro-theme .stat-card:nth-of-type(3)::after {
+                animation-delay: 3.6s;
+            }
+
+            /* Per-card identity lives in the frame and bracket, never in the
+               type — a dark Highlight must not be able to hide a number. */
             .attendance-summary.retro-theme .stat-card.worked-time-card {
-                --card-accent: var(--rt-cyber-hl);
-                --card-accent-rgb: var(--rt-cyber-hl-rgb);
-                background: rgba(var(--rt-cyber-hl-rgb), 0.06) !important;
+                --rt-bk-c: rgba(var(--rt-cyber-hl-rgb), 0.9);
                 border-color: rgba(var(--rt-cyber-hl-rgb), 0.35) !important;
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-cyber-hl-rgb), 0.12),
-                    0 8px 32px rgba(var(--rt-cyber-hl-rgb), 0.10),
-                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
             }
 
             .attendance-summary.retro-theme .stat-card.remaining-time-card {
-                --card-accent: var(--rt-accent);
-                --card-accent-rgb: var(--rt-accent-rgb);
-                background: rgba(var(--rt-accent-rgb), 0.06) !important;
+                --rt-bk-c: rgba(var(--rt-accent-rgb), 0.9);
                 border-color: rgba(var(--rt-accent-rgb), 0.35) !important;
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.12),
-                    0 8px 32px rgba(var(--rt-accent-rgb), 0.10),
-                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
             }
 
             .attendance-summary.retro-theme .stat-card.completion-time-card {
-                --card-accent: var(--rt-cyber-panel);
-                --card-accent-rgb: var(--rt-cyber-panel-rgb);
-                background: rgba(var(--rt-cyber-panel-rgb), 0.06) !important;
+                --rt-bk-c: rgba(var(--rt-cyber-panel-rgb), 0.9);
                 border-color: rgba(var(--rt-cyber-panel-rgb), 0.35) !important;
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
-                    0 8px 32px rgba(var(--rt-cyber-panel-rgb), 0.10),
-                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
             }
 
             .attendance-summary.retro-theme .stat-label {
-                color: var(--card-accent, var(--rt-cyber-hl)) !important;
-                opacity: 0.85;
+                color: var(--rt-text-dim) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 font-weight: 700 !important;
                 letter-spacing: 0.18em !important;
                 text-transform: uppercase !important;
                 text-shadow: none !important;
+                position: relative;
+                z-index: 2;
             }
 
-            .attendance-summary.retro-theme .stat-value {
-                color: var(--card-accent, var(--rt-accent)) !important;
+            .attendance-summary.retro-theme .stat-value,
+            .attendance-summary.retro-theme .worked-time,
+            .attendance-summary.retro-theme .remaining-time,
+            .attendance-summary.retro-theme .completion-time {
+                color: var(--rt-text) !important;
                 font-family: 'Share Tech Mono', monospace !important;
                 font-weight: 700 !important;
                 letter-spacing: 0.04em !important;
                 text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 12px rgba(var(--rt-accent-rgb), 0.35) !important;
+                    0 1px 0 rgba(0, 0, 0, 0.35),
+                    var(--rt-glow) !important;
+                position: relative;
+                z-index: 2;
             }
 
-            .attendance-summary.retro-theme .worked-time {
-                color: var(--rt-cyber-hl) !important;
-                text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 14px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
-            }
+            /* ============================================================
+               PROGRESS BAR — segmented tick meter
+               ============================================================ */
 
-            .attendance-summary.retro-theme .remaining-time {
-                color: var(--rt-accent) !important;
-                text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 14px rgba(var(--rt-accent-rgb), 0.45) !important;
-            }
-
-            .attendance-summary.retro-theme .completion-time {
-                color: var(--rt-cyber-panel) !important;
-                text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 14px rgba(var(--rt-cyber-panel-rgb), 0.45) !important;
-            }
-
-            /* ---- Progress bar ---- */
             .attendance-summary.retro-theme .progress-bar {
-                background: linear-gradient(135deg,
-                    rgba(var(--rt-cyber-panel-rgb), 0.10),
-                    rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
+                background:
+                    var(--rt-brackets),
+                    linear-gradient(135deg,
+                        rgba(var(--rt-cyber-panel-rgb), 0.10),
+                        rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
                 border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
-                border-radius: 6px !important;
+                border-radius: var(--rt-radius-sm) !important;
+                --rt-bk-inset: 3px;
+                --rt-bk-len: 8px;
                 backdrop-filter: blur(8px) saturate(130%) !important;
                 -webkit-backdrop-filter: blur(8px) saturate(130%) !important;
-                box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.12) !important;
+                box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+                overflow: hidden;
             }
 
             .attendance-summary.retro-theme .progress-fill {
@@ -14356,43 +14782,126 @@
                     var(--rt-cyber-hl)
                 ) !important;
                 background-size: 300% 100% !important;
-                animation: rgbFlowBacklight 3s linear infinite !important;
+                animation: rtRailFlow 3s linear infinite !important;
                 box-shadow:
-                    0 0 10px rgba(var(--rt-accent-rgb), 0.5),
+                    0 0 10px rgba(var(--rt-glow-rgb), calc(0.8 * var(--rt-glow-mul))),
                     inset 0 0 6px rgba(255, 255, 255, 0.25) !important;
                 position: relative;
                 overflow: hidden;
+                /* Tick segments — no extra DOM. */
+                -webkit-mask-image: repeating-linear-gradient(
+                    90deg, #000 0 6px, transparent 6px 9px);
+                mask-image: repeating-linear-gradient(
+                    90deg, #000 0 6px, transparent 6px 9px);
             }
 
             .attendance-summary.retro-theme .progress-fill::after {
                 content: '' !important;
                 position: absolute !important;
                 top: 0 !important;
-                left: -100% !important;
-                width: 60% !important;
+                left: 0 !important;
+                width: 55% !important;
                 height: 100% !important;
                 background: linear-gradient(
                     90deg,
                     transparent,
-                    rgba(255, 255, 255, 0.4),
+                    rgba(255, 255, 255, 0.45),
                     transparent
                 ) !important;
-                animation: progressShimmer 2s ease-in-out infinite !important;
+                transform: translateX(-120%);
+                animation: rtMeterSweep 2s ease-in-out infinite !important;
             }
 
-            /* ---- Buttons / chips ---- */
+            /* ============================================================
+               AUDIO SPECTRUM RAIL
+               Lives inside .main-attendance-content so Game Mode keeps it —
+               Game Mode collapses .left-panel and .right-panel only.
+               ============================================================ */
+
+            .attendance-summary:not(.retro-theme) .cyber-eq-wrap {
+                display: none !important;
+            }
+
+            .attendance-summary.retro-theme .cyber-eq-wrap {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin: 8px 0 10px;
+                padding: 4px 8px;
+                position: relative;
+                z-index: 2;
+                background:
+                    var(--rt-brackets),
+                    linear-gradient(135deg,
+                        rgba(var(--rt-cyber-panel-rgb), 0.09),
+                        rgba(var(--rt-cyber-panel-rgb), 0.03));
+                border: 1px solid rgba(var(--rt-border-rgb), 0.24);
+                border-radius: var(--rt-radius-sm);
+                clip-path: var(--rt-clip);
+                --rt-bk-inset: 3px;
+                --rt-bk-len: 9px;
+            }
+
+            .attendance-summary.retro-theme #cyber-eq {
+                display: block;
+                flex: 1 1 auto;
+                width: 100%;
+                height: 26px;
+                image-rendering: pixelated;
+                filter: drop-shadow(0 0 calc(2px + 7px * var(--rt-beat))
+                        rgba(var(--rt-glow-rgb), calc(0.55 * var(--rt-glow-mul))));
+            }
+
+            .attendance-summary.retro-theme .cyber-eq-btn {
+                flex: 0 0 auto;
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.6rem;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: var(--rt-text);
+                background: rgba(var(--rt-cyber-panel-rgb), 0.14);
+                border: 1px solid rgba(var(--rt-border-rgb), 0.4);
+                border-radius: 2px;
+                padding: 3px 7px;
+                cursor: pointer;
+                transition: background 0.15s ease, box-shadow 0.15s ease;
+            }
+
+            .attendance-summary.retro-theme .cyber-eq-btn:hover {
+                background: rgba(var(--rt-accent-rgb), 0.2);
+                box-shadow: 0 0 10px rgba(var(--rt-glow-rgb), calc(0.5 * var(--rt-glow-mul)));
+            }
+
+            .attendance-summary.retro-theme .cyber-eq-btn.is-live {
+                border-color: rgba(var(--rt-lime-rgb), 0.6);
+                color: rgba(var(--rt-lime-rgb), 0.95);
+            }
+
+            .attendance-summary.retro-theme .cyber-eq-btn.is-sim {
+                border-color: rgba(var(--rt-magenta-rgb), 0.5);
+                color: rgba(var(--rt-magenta-rgb), 0.95);
+            }
+
+            /* ============================================================
+               BUTTONS / CHIPS
+               Outlined, not filled. A filled button needs dark type on a
+               bright fill, which breaks the moment someone picks a dark
+               Highlight — the exact failure this rework exists to remove.
+               ============================================================ */
+
             .attendance-summary.retro-theme .developer-info,
             .attendance-summary.retro-theme .settings-button {
                 background: linear-gradient(135deg,
                     rgba(var(--rt-cyber-panel-rgb), 0.14),
                     rgba(var(--rt-cyber-panel-rgb), 0.06)) !important;
                 border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.32) !important;
-                color: var(--rt-accent) !important;
+                border-radius: var(--rt-radius-sm) !important;
+                color: var(--rt-text) !important;
                 backdrop-filter: blur(10px) saturate(130%) !important;
                 -webkit-backdrop-filter: blur(10px) saturate(130%) !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.15),
-                    0 2px 6px rgba(0, 0, 0, 0.1) !important;
+                    inset 0 0 0 1px rgba(var(--rt-border-rgb), 0.15),
+                    0 2px 6px rgba(0, 0, 0, 0.25) !important;
             }
 
             .attendance-summary.retro-theme .developer-info:hover,
@@ -14400,9 +14909,8 @@
                 background: rgba(var(--rt-accent-rgb), 0.15) !important;
                 color: var(--rt-text) !important;
                 box-shadow:
-                    inset 0 0 0 1px var(--rt-accent),
-                    0 4px 12px rgba(var(--rt-accent-rgb), 0.35) !important;
-                z-index: 1000;
+                    inset 0 0 0 1px var(--rt-border-strong),
+                    0 4px 12px rgba(var(--rt-glow-rgb), calc(0.6 * var(--rt-glow-mul))) !important;
             }
 
             .attendance-summary.retro-theme .pip-button {
@@ -14412,16 +14920,18 @@
                     rgba(var(--rt-accent-rgb), 0.18)
                 ) !important;
                 border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.32) !important;
+                border-radius: var(--rt-radius-sm) !important;
                 color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 font-weight: 700 !important;
                 letter-spacing: 0.1em !important;
                 text-transform: uppercase !important;
+                text-shadow: var(--rt-glow-soft) !important;
                 backdrop-filter: blur(10px) saturate(130%) !important;
                 -webkit-backdrop-filter: blur(10px) saturate(130%) !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.2),
-                    0 2px 8px rgba(0, 0, 0, 0.12) !important;
+                    inset 0 0 0 1px rgba(var(--rt-border-rgb), 0.2),
+                    0 2px 8px rgba(0, 0, 0, 0.25) !important;
             }
 
             .attendance-summary.retro-theme .pip-button:hover {
@@ -14431,38 +14941,60 @@
                     rgba(var(--rt-accent-rgb), 0.35)
                 ) !important;
                 box-shadow:
-                    inset 0 0 0 1px var(--rt-accent),
-                    0 6px 18px rgba(var(--rt-accent-rgb), 0.35) !important;
+                    inset 0 0 0 1px var(--rt-border-strong),
+                    0 6px 18px rgba(var(--rt-glow-rgb), calc(0.6 * var(--rt-glow-mul))) !important;
             }
 
-            /* ---- Completion message ---- */
+            /* ============================================================
+               COMPLETION MESSAGE
+               ============================================================ */
+
             .attendance-summary.retro-theme .completion-message {
                 background: linear-gradient(
                     135deg,
                     rgba(var(--rt-cyber-panel-rgb), 0.18),
                     rgba(var(--rt-cyber-hl-rgb), 0.18)
                 ) !important;
-                border: 1px solid var(--rt-cyber-panel) !important;
-                border-radius: 2px !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: var(--rt-radius-sm) !important;
                 clip-path: var(--rt-clip);
-                color: var(--rt-cyber-panel) !important;
+                color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 font-weight: 700 !important;
                 letter-spacing: 0.06em !important;
                 text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 12px rgba(var(--rt-cyber-panel-rgb), 0.5) !important;
+                    0 1px 0 rgba(0, 0, 0, 0.35),
+                    var(--rt-glow) !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.2),
-                    0 4px 14px rgba(var(--rt-cyber-panel-rgb), 0.18) !important;
+                    inset 0 0 0 1px rgba(var(--rt-border-rgb), 0.2),
+                    0 4px 14px rgba(var(--rt-glow-rgb), calc(0.35 * var(--rt-glow-mul))) !important;
             }
 
-            /* ---- Side panels (snake/quotes/xp/image) inherit HUD tokens ---- */
+            /* ============================================================
+               SIDE PANELS
+               border-radius only, never clip-path: these hold game canvases,
+               trays, popovers and the achievements grid.
+               ============================================================ */
+
             .attendance-summary.retro-theme .snake-game-container,
             .attendance-summary.retro-theme .quotes-container,
             .attendance-summary.retro-theme .xp-container,
             .attendance-summary.retro-theme .image-box-container {
+                background:
+                    var(--rt-brackets),
+                    linear-gradient(135deg,
+                        rgba(var(--rt-cyber-panel-rgb), 0.10),
+                        rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
+                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
+                border-radius: var(--rt-radius) !important;
                 color: var(--rt-text);
+                backdrop-filter: blur(14px) saturate(140%);
+                -webkit-backdrop-filter: blur(14px) saturate(140%);
+                box-shadow:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
+                    0 8px 32px rgba(0, 0, 0, 0.28),
+                    0 2px 6px rgba(0, 0, 0, 0.10) !important;
                 position: relative;
                 z-index: 1;
             }
@@ -14471,174 +15003,190 @@
             .attendance-summary.retro-theme .quotes-title,
             .attendance-summary.retro-theme .xp-title,
             .attendance-summary.retro-theme .image-box-title {
-                color: var(--rt-accent) !important;
+                color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 letter-spacing: 0.12em !important;
                 text-transform: uppercase !important;
+                text-shadow: var(--rt-glow-soft) !important;
             }
 
-            /* Ensure all secondary text inside retro-theme panels stays visible */
             .attendance-summary.retro-theme .snake-score {
                 color: var(--rt-text-dim) !important;
             }
+
             .attendance-summary.retro-theme .snake-canvas {
                 background: rgba(var(--rt-cyber-panel-rgb), 0.05) !important;
+                border-radius: var(--rt-radius-sm) !important;
             }
 
-            /* ---- User-customizable HUD color overrides ----
-               Fallback chain ensures legacy styling if --rt-cyber-hl isn't set yet. */
-            .attendance-summary.retro-theme {
-                --rt-cyber-hl: var(--rt-cyan, #00e5ff);
-                --rt-cyber-hl-rgb: var(--rt-cyan-rgb, 0, 229, 255);
-                --rt-cyber-panel: var(--rt-cyan, #00e5ff);
-                --rt-cyber-panel-rgb: var(--rt-cyan-rgb, 0, 229, 255);
-            }
+            /* ============================================================
+               XP / QUOTES / IMAGE PANELS
+               (these were hardcoded glassmorphic purple)
+               ============================================================ */
 
-            /* Modern table — glassmorphic with user panel tint */
-            .attendance-summary.retro-theme .modern-table {
-                background: linear-gradient(135deg,
-                    rgba(var(--rt-cyber-panel-rgb), 0.10),
-                    rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
-                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
-                border-radius: 10px !important;
-                clip-path: none !important;
-                backdrop-filter: blur(14px) saturate(140%) !important;
-                -webkit-backdrop-filter: blur(14px) saturate(140%) !important;
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
-                    0 8px 32px rgba(0, 0, 0, 0.18),
-                    0 2px 6px rgba(0, 0, 0, 0.10) !important;
-            }
-
-            /* Side panels — glassmorphic with user panel tint */
-            .attendance-summary.retro-theme .snake-game-container,
-            .attendance-summary.retro-theme .quotes-container,
-            .attendance-summary.retro-theme .xp-container,
-            .attendance-summary.retro-theme .image-box-container {
-                background: linear-gradient(135deg,
-                    rgba(var(--rt-cyber-panel-rgb), 0.10),
-                    rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
-                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
-                border-radius: 10px !important;
-                clip-path: none !important;
-                backdrop-filter: blur(14px) saturate(140%);
-                -webkit-backdrop-filter: blur(14px) saturate(140%);
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
-                    0 8px 32px rgba(0, 0, 0, 0.18),
-                    0 2px 6px rgba(0, 0, 0, 0.10) !important;
-            }
-
-            /* XP progress fill (was hardcoded purple) */
             .attendance-summary.retro-theme .xp-progress-fill {
                 background: linear-gradient(90deg,
                     var(--rt-cyber-hl) 0%,
                     var(--rt-accent) 50%,
                     var(--rt-cyber-hl) 100%) !important;
-                box-shadow: 0 0 12px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
+                box-shadow: 0 0 12px rgba(var(--rt-glow-rgb),
+                    calc(0.75 * var(--rt-glow-mul))) !important;
+                -webkit-mask-image: repeating-linear-gradient(
+                    90deg, #000 0 5px, transparent 5px 7px);
+                mask-image: repeating-linear-gradient(
+                    90deg, #000 0 5px, transparent 5px 7px);
             }
 
-            /* XP stat values (was hardcoded #6c5ce7 / #a29bfe purple) */
             .attendance-summary.retro-theme .xp-stat-value {
-                color: var(--rt-cyber-hl) !important;
+                color: var(--rt-text) !important;
+                text-shadow: var(--rt-glow-soft) !important;
             }
+
             .attendance-summary.retro-theme .xp-stat-label {
-                color: var(--rt-accent) !important;
-                opacity: 0.9;
+                color: var(--rt-text-dim) !important;
             }
+
             .attendance-summary.retro-theme .xp-info {
                 color: var(--rt-text-dim) !important;
             }
 
-            /* Quotes text — dynamic cyber colors */
             .attendance-summary.retro-theme .quote-text {
                 color: var(--rt-text) !important;
             }
+
             .attendance-summary.retro-theme .quote-author {
-                color: var(--rt-cyber-hl) !important;
-                opacity: 0.8;
+                color: var(--rt-text-dim) !important;
             }
+
             .attendance-summary.retro-theme .quote-add-btn {
                 background: rgba(var(--rt-cyber-panel-rgb), 0.12) !important;
-                border-color: rgba(var(--rt-cyber-panel-rgb), 0.3) !important;
-                color: var(--rt-accent) !important;
+                border-color: rgba(var(--rt-border-rgb), 0.3) !important;
+                border-radius: var(--rt-radius-sm) !important;
+                color: var(--rt-text) !important;
             }
 
-            /* Level badge (was hardcoded purple) */
             .attendance-summary.retro-theme .level-badge {
-                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
-                color: var(--rt-bg-1) !important;
-                box-shadow: 0 0 14px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
+                background: rgba(var(--rt-cyber-hl-rgb), 0.16) !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: var(--rt-radius-sm) !important;
+                color: var(--rt-text) !important;
+                text-shadow: var(--rt-glow-soft) !important;
+                box-shadow: 0 0 14px rgba(var(--rt-glow-rgb),
+                    calc(0.5 * var(--rt-glow-mul))) !important;
             }
 
-            /* View-all achievements button (was glassmorphic purple rgba) */
             .attendance-summary.retro-theme .xp-achievements-view-all {
                 background: linear-gradient(135deg,
                     rgba(var(--rt-cyber-hl-rgb), 0.22),
                     rgba(var(--rt-accent-rgb), 0.22)) !important;
-                border: 1px solid var(--rt-cyber-hl) !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: var(--rt-radius-sm) !important;
                 color: var(--rt-text) !important;
             }
+
             .attendance-summary.retro-theme .xp-achievements-view-all:hover {
                 background: linear-gradient(135deg,
                     rgba(var(--rt-cyber-hl-rgb), 0.45),
                     rgba(var(--rt-accent-rgb), 0.45)) !important;
-                box-shadow: 0 4px 14px rgba(var(--rt-cyber-hl-rgb), 0.4) !important;
+                box-shadow: 0 4px 14px rgba(var(--rt-glow-rgb),
+                    calc(0.6 * var(--rt-glow-mul))) !important;
             }
 
-            /* Aspect-ratio buttons (used aurora gradient) */
             .attendance-summary.retro-theme .aspect-ratio-btn {
                 background: var(--rt-panel) !important;
                 border: 1px solid var(--rt-border) !important;
+                border-radius: var(--rt-radius-sm) !important;
                 color: var(--rt-text) !important;
             }
+
             .attendance-summary.retro-theme .aspect-ratio-btn.active {
-                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
-                border-color: var(--rt-cyber-hl) !important;
-                color: var(--rt-bg-1) !important;
-                box-shadow: 0 4px 12px rgba(var(--rt-cyber-hl-rgb), 0.4) !important;
+                background: rgba(var(--rt-cyber-hl-rgb), 0.24) !important;
+                border-color: var(--rt-border-strong) !important;
+                color: var(--rt-text) !important;
+                box-shadow: 0 0 12px rgba(var(--rt-glow-rgb),
+                    calc(0.55 * var(--rt-glow-mul))) !important;
             }
 
-            /* Game switch tabs (aurora gradient on active) */
+            /* ============================================================
+               GAME CONTROLS
+               ============================================================ */
+
             .attendance-summary.retro-theme .game-switch-btn {
                 background: rgba(var(--rt-cyber-panel-rgb), 0.10) !important;
                 border-color: rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
+                border-radius: var(--rt-radius-sm) !important;
                 color: var(--rt-text-dim) !important;
             }
+
             .attendance-summary.retro-theme .game-switch-btn:hover {
                 background: rgba(var(--rt-cyber-hl-rgb), 0.18) !important;
-                border-color: var(--rt-cyber-hl) !important;
+                border-color: var(--rt-border-strong) !important;
                 color: var(--rt-text) !important;
             }
+
             .attendance-summary.retro-theme .game-switch-btn.active {
-                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
-                border-color: var(--rt-cyber-hl) !important;
-                color: var(--rt-bg-1) !important;
+                background: rgba(var(--rt-cyber-hl-rgb), 0.28) !important;
+                border-color: var(--rt-border-strong) !important;
+                color: var(--rt-text) !important;
+                box-shadow:
+                    inset 0 0 0 1px rgba(var(--rt-border-rgb), 0.4),
+                    0 0 12px rgba(var(--rt-glow-rgb), calc(0.5 * var(--rt-glow-mul))) !important;
             }
 
-            /* Snake / generic game-control buttons (Play / Reset / PvCPU / Max) */
             .attendance-summary.retro-theme .snake-btn {
-                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
-                color: var(--rt-bg-1) !important;
-                border: 1px solid var(--rt-cyber-hl) !important;
-            }
-            .attendance-summary.retro-theme .snake-btn:hover {
-                box-shadow: 0 4px 14px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
-                filter: brightness(1.1);
+                background: linear-gradient(135deg,
+                    rgba(var(--rt-cyber-hl-rgb), 0.22),
+                    rgba(var(--rt-accent-rgb), 0.18)) !important;
+                color: var(--rt-text) !important;
+                border: 1px solid rgba(var(--rt-border-rgb), 0.45) !important;
+                border-radius: var(--rt-radius-sm) !important;
+                text-shadow: var(--rt-glow-soft) !important;
             }
 
-            /* Settings modal elements follow cyberpunk colors */
+            .attendance-summary.retro-theme .snake-btn:hover {
+                background: linear-gradient(135deg,
+                    rgba(var(--rt-cyber-hl-rgb), 0.4),
+                    rgba(var(--rt-accent-rgb), 0.32)) !important;
+                box-shadow: 0 4px 14px rgba(var(--rt-glow-rgb),
+                    calc(0.65 * var(--rt-glow-mul))) !important;
+                filter: brightness(1.08);
+            }
+
+            /* ============================================================
+               SETTINGS MODAL — body-level, so it reads the vars mirrored
+               onto documentElement by applyPreferences().
+               ============================================================ */
+
             body:has(.retro-theme) .close-modal-button {
-                background: linear-gradient(135deg, var(--rt-cyber-hl, #00e5ff), var(--rt-accent, #fff200)) !important;
-                color: var(--rt-bg-1, #07091a) !important;
+                background: rgba(var(--rt-cyber-hl-rgb, 0, 229, 255), 0.2) !important;
+                border: 1px solid var(--rt-border-strong, rgba(255, 242, 0, 0.7)) !important;
+                color: var(--rt-text, #fff200) !important;
             }
+
             body:has(.retro-theme) .settings-title {
-                background: linear-gradient(135deg, var(--rt-cyber-hl, #00e5ff), var(--rt-accent, #fff200)) !important;
-                -webkit-background-clip: text !important;
-                -webkit-text-fill-color: transparent !important;
+                background: none !important;
+                -webkit-background-clip: unset !important;
+                background-clip: unset !important;
+                -webkit-text-fill-color: var(--rt-text, #fff200) !important;
+                color: var(--rt-text, #fff200) !important;
+                text-shadow: 0 0 12px rgba(var(--rt-glow-rgb, 255, 242, 0), 0.5) !important;
             }
+
+            /* Contrast guard readout in the Cyberpunk Colors row. It warns;
+               it never silently corrects a deliberate choice. */
+            .cyber-contrast-chip {
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.66rem;
+                letter-spacing: 0.06em;
+                padding: 2px 7px;
+                border-radius: 3px;
+                border: 1px solid currentColor;
+                white-space: nowrap;
+            }
+
+            .cyber-contrast-chip.is-pass { color: #05ffa1; }
+            .cyber-contrast-chip.is-warn { color: #ffb300; }
+            .cyber-contrast-chip.is-fail { color: #ff2a6d; }
             /* ═══ END CYBERPUNK HUD THEME ═══ */
             
             /* Borderless PiP Window - Hide Browser Chrome */
@@ -17119,7 +17667,46 @@
                         <input type="color" data-pref="cyberPanelTint" value="${userPreferences.cyberPanelTint || '#00e5ff'}">
                         <span>Panel</span>
                     </label>
+                    <label title="Text — every piece of type. Independent of Accent and both backgrounds, on purpose.">
+                        <input type="color" data-pref="cyberText" value="${userPreferences.cyberText || '#fff200'}">
+                        <span>Text</span>
+                    </label>
+                    <label title="Glow — every bloom and drop-shadow">
+                        <input type="color" data-pref="cyberGlow" value="${userPreferences.cyberGlow || '#fff200'}">
+                        <span>Glow</span>
+                    </label>
+                    <label title="Border — frames, corner brackets, grid and scanlines">
+                        <input type="color" data-pref="cyberBorder" value="${userPreferences.cyberBorder || '#fff200'}">
+                        <span>Border</span>
+                    </label>
                 </div>
+            </div>
+            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                <span class="settings-option-label">💡 Glow Intensity</span>
+                <div class="cyber-bg-controls">
+                    <span class="cyber-contrast-chip is-pass" id="cyber-contrast-chip">Text vs BG</span>
+                    <label class="cyber-bg-opacity-label">
+                        <input type="range" min="0" max="100" value="${Math.round((userPreferences.cyberGlowIntensity ?? 0.6) * 100)}" id="cyber-glow-slider">
+                        <span id="cyber-glow-value">${Math.round((userPreferences.cyberGlowIntensity ?? 0.6) * 100)}%</span>
+                    </label>
+                </div>
+            </div>
+            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                <span class="settings-option-label">📐 Panel Shape</span>
+                <select class="settings-select" data-pref="cyberPanelShape">
+                    <option value="rounded" ${(userPreferences.cyberPanelShape || 'rounded') === 'rounded' ? 'selected' : ''}>Rounded</option>
+                    <option value="chamfered" ${userPreferences.cyberPanelShape === 'chamfered' ? 'selected' : ''}>Chamfered</option>
+                    <option value="notched" ${userPreferences.cyberPanelShape === 'notched' ? 'selected' : ''}>Notched HUD</option>
+                </select>
+            </div>
+            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                <span class="settings-option-label">🎵 Audio Visualizer <small style="opacity:0.6;font-size:0.75rem;">System audio needs a click on the rail</small></span>
+                <select class="settings-select" data-pref="cyberAudioSource">
+                    <option value="off" ${(userPreferences.cyberAudioSource || 'off') === 'off' ? 'selected' : ''}>Off</option>
+                    <option value="system" ${userPreferences.cyberAudioSource === 'system' ? 'selected' : ''}>System audio</option>
+                    <option value="mic" ${userPreferences.cyberAudioSource === 'mic' ? 'selected' : ''}>Microphone</option>
+                    <option value="sim" ${userPreferences.cyberAudioSource === 'sim' ? 'selected' : ''}>Procedural</option>
+                </select>
             </div>
             <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
                 <span class="settings-option-label">🖼️ Background Image</span>
@@ -17265,14 +17852,35 @@
                 const pref = this.getAttribute('data-pref');
                 userPreferences[pref] = this.value;
                 applyPreferences(); // live preview while sliding
+                updateCyberContrastChip(modal);
             });
             picker.addEventListener('change', function() {
                 const pref = this.getAttribute('data-pref');
                 userPreferences[pref] = this.value;
                 savePreferences();
                 applyPreferences();
+                updateCyberContrastChip(modal);
             });
         });
+
+        // Glow intensity. Its own listener rather than the generic one because
+        // it is a 0-100 range standing in for a 0-1 multiplier.
+        const glowSlider = modal.querySelector('#cyber-glow-slider');
+        if (glowSlider) {
+            const onGlow = function (save) {
+                const pct = parseInt(glowSlider.value, 10);
+                userPreferences.cyberGlowIntensity = (isNaN(pct) ? 60 : pct) / 100;
+                const out = modal.querySelector('#cyber-glow-value');
+                if (out) out.textContent = Math.round(userPreferences.cyberGlowIntensity * 100) + '%';
+                if (save) savePreferences();
+                applyPreferences();
+            };
+            glowSlider.addEventListener('input', function () { onGlow(false); });
+            glowSlider.addEventListener('change', function () { onGlow(true); });
+        }
+
+        // Seed the contrast readout for whatever the stored palette already is.
+        updateCyberContrastChip(modal);
 
         // Background image controls
         const bgChangeBtn = modal.querySelector('#cyber-bg-change-btn');
@@ -17329,6 +17937,721 @@
         });
     }
     
+    // ═══ CYBERPUNK HUD — generated from cyber-dev/cyber-hud.js, do not edit here ═══
+    // ============================================================
+    // CYBERPUNK HUD — tokens, panel shape, contrast guard, boot-in
+    //
+    // Generated from cyber-dev/cyber-hud.js. Do not edit the copy in the
+    // userscript; edit here and run node cyber-dev/reinsert.js.
+    //
+    // This is an indented block of the userscript's IIFE body and has no
+    // exports of its own — cyber-dev/load.js wraps it in a Function to make
+    // the same source both drop-in-able and testable, the trick ludo-dev/
+    // and snake-dev/ use.
+    //
+    // Function declarations hoist within the IIFE, so applyPreferences() can
+    // call into here regardless of where this block lands in the file.
+    // ============================================================
+
+    // The three panel geometries. Anything not in this list falls back to
+    // 'rounded' rather than leaving the container with no shape class at all,
+    // which would drop --rt-radius and --rt-clip entirely.
+    const CYBER_PANEL_SHAPES = ['rounded', 'chamfered', 'notched'];
+
+    // ------------------------------------------------------------------
+    // The token map: pref name -> the CSS custom properties it drives.
+    //
+    // ONE list, used for both writing and teardown. The original theme kept
+    // those as two hand-maintained lists, and the write list had grown six
+    // entries past the teardown list — which is how --rt-text and friends
+    // ended up permanently yellow no matter what the Accent picker said.
+    // Deriving both directions from this array makes them impossible to
+    // desynchronise.
+    //
+    // 'rgb' emits a second "<name>-rgb" property holding "r, g, b" for use
+    // inside rgba(var(--x-rgb), a).
+    // ------------------------------------------------------------------
+    const CYBER_TOKENS = [
+        // -- STRUCTURE --
+        { pref: 'cyberBgPrimary',   varName: '--rt-bg-1',        fallback: '#07091a' },
+        { pref: 'cyberBgSecondary', varName: '--rt-bg-2',        fallback: '#11142b' },
+        // -- ACCENTS --
+        { pref: 'cyberAccent',      varName: '--rt-accent',      fallback: '#fff200', rgb: true },
+        { pref: 'cyberHighlight',   varName: '--rt-cyber-hl',    fallback: '#00e5ff', rgb: true },
+        { pref: 'cyberPanelTint',   varName: '--rt-cyber-panel', fallback: '#00e5ff', rgb: true },
+        // -- LEGIBILITY: independent of everything above, by design. Linking
+        //    any of these to an accent or a background is what put dark text
+        //    on a dark panel with no control that could undo it.
+        { pref: 'cyberText',        varName: '--rt-text',         fallback: '#fff200', rgb: true },
+        { pref: 'cyberGlow',        varName: '--rt-glow-color',   fallback: '#fff200', rgb: true },
+        { pref: 'cyberBorder',      varName: '--rt-border-color', fallback: '#fff200', rgb: true }
+    ];
+
+    // Every property name this subsystem may have written, for teardown.
+    // Derived, never typed out by hand.
+    function cyberTokenVarNames() {
+        const names = [];
+        CYBER_TOKENS.forEach(function (t) {
+            names.push(t.varName);
+            if (t.rgb) names.push(t.varName + '-rgb');
+        });
+        names.push('--rt-glow-mul');
+        names.push('--rt-beat');
+        return names;
+    }
+
+    // Writes the whole token set onto one element. Used for the widget, for
+    // documentElement (so body-level modal rules resolve) and for the PiP
+    // clone, which is why it takes the element rather than assuming one.
+    function applyCyberTokens(el) {
+        if (!el || !el.style) return;
+        CYBER_TOKENS.forEach(function (t) {
+            const hex = userPreferences[t.pref] || t.fallback;
+            el.style.setProperty(t.varName, hex);
+            if (t.rgb) el.style.setProperty(t.varName + '-rgb', hexToRgbStr(hex));
+        });
+        const mul = userPreferences.cyberGlowIntensity;
+        el.style.setProperty('--rt-glow-mul', String(mul === undefined ? 0.6 : mul));
+    }
+
+    // Removes every property applyCyberTokens could have set. Anything left
+    // behind here bleeds into the Glassmorphic theme, where these tokens have
+    // no meaning but still win over the stylesheet.
+    function clearCyberTokens(el) {
+        if (!el || !el.style) return;
+        cyberTokenVarNames().forEach(function (p) { el.style.removeProperty(p); });
+    }
+
+    // ------------------------------------------------------------------
+    // Panel shape
+    // ------------------------------------------------------------------
+    function cyberPanelShape() {
+        const s = userPreferences.cyberPanelShape;
+        return CYBER_PANEL_SHAPES.indexOf(s) === -1 ? 'rounded' : s;
+    }
+
+    function applyCyberShape(el) {
+        if (!el || !el.classList) return;
+        CYBER_PANEL_SHAPES.forEach(function (s) { el.classList.remove('rt-shape-' + s); });
+        el.classList.add('rt-shape-' + cyberPanelShape());
+    }
+
+    function clearCyberShape(el) {
+        if (!el || !el.classList) return;
+        CYBER_PANEL_SHAPES.forEach(function (s) { el.classList.remove('rt-shape-' + s); });
+    }
+
+    // ------------------------------------------------------------------
+    // Contrast guard
+    //
+    // Warns, never corrects. Silently overriding a colour the user chose on
+    // purpose is worse than showing them it fails — they may be mid-way
+    // through picking a palette, and an auto-correction would fight them.
+    // ------------------------------------------------------------------
+
+    // WCAG relative luminance. Reuses hexToRgbStr for the channel parse so
+    // there is exactly one hex reader in the file.
+    function relativeLuminance(hex) {
+        const parts = hexToRgbStr(hex).split(',').map(function (n) {
+            const c = parseInt(n, 10) / 255;
+            return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * parts[0] + 0.7152 * parts[1] + 0.0722 * parts[2];
+    }
+
+    function contrastRatio(hexA, hexB) {
+        const a = relativeLuminance(hexA);
+        const b = relativeLuminance(hexB);
+        const hi = Math.max(a, b);
+        const lo = Math.min(a, b);
+        return (hi + 0.05) / (lo + 0.05);
+    }
+
+    // Text is checked against the darker of the two background stops, since
+    // that is the worst case anywhere on the gradient.
+    function cyberTextContrast() {
+        const text = userPreferences.cyberText || '#fff200';
+        const bg1 = userPreferences.cyberBgPrimary || '#07091a';
+        const bg2 = userPreferences.cyberBgSecondary || '#11142b';
+        return Math.min(contrastRatio(text, bg1), contrastRatio(text, bg2));
+    }
+
+    // Repaints the chip in the Cyberpunk Colors row. No-op when the settings
+    // modal is closed.
+    function updateCyberContrastChip(root) {
+        const scope = root || document;
+        const chip = scope.querySelector('.cyber-contrast-chip');
+        if (!chip) return;
+        const ratio = cyberTextContrast();
+        const shown = (Math.round(ratio * 10) / 10).toFixed(1);
+        let cls = 'is-pass';
+        let note = 'AA';
+        if (ratio < 3) { cls = 'is-fail'; note = 'too low'; }
+        else if (ratio < 4.5) { cls = 'is-warn'; note = 'large text only'; }
+        chip.className = 'cyber-contrast-chip ' + cls;
+        chip.textContent = 'Text vs BG ' + shown + ':1 · ' + note;
+        chip.title = 'WCAG contrast of the Text swatch against the darker background stop. ' +
+                     'This is a warning only — nothing is changed for you.';
+    }
+
+    // ------------------------------------------------------------------
+    // Title glitch ghosts
+    //
+    // The two RGB-split ghosts are pseudo-elements using content:
+    // attr(data-rt-text), so the text has to be mirrored onto the attribute.
+    // Without it the ghosts render empty and the title simply looks normal,
+    // which is the correct degradation.
+    // ------------------------------------------------------------------
+    function updateCyberTitleGhosts(container) {
+        const root = container || document.getElementById('total-time-summary');
+        if (!root) return;
+        const title = root.querySelector('.summary-title');
+        if (!title) return;
+        // textContent, not innerHTML: the ghosts are decorative and must never
+        // be able to reproduce markup.
+        const text = (title.textContent || '').trim();
+        if (text) title.setAttribute('data-rt-text', text);
+        else title.removeAttribute('data-rt-text');
+    }
+
+    // ------------------------------------------------------------------
+    // Boot-in scan reveal
+    //
+    // The class has to come off again or the animation can never replay —
+    // re-adding a class that is already present does not restart a CSS
+    // animation.
+    // ------------------------------------------------------------------
+    let cyberBootTimer = null;
+
+    function triggerCyberBoot(container) {
+        const root = container || document.getElementById('total-time-summary');
+        if (!root || !root.classList.contains('retro-theme')) return;
+        root.classList.remove('rt-booting');
+        // Force a reflow so removing and re-adding in the same frame still
+        // restarts the animation.
+        void root.offsetWidth;
+        root.classList.add('rt-booting');
+        if (cyberBootTimer) clearTimeout(cyberBootTimer);
+        // Longest stagger (140ms) + duration (520ms), plus a small margin.
+        cyberBootTimer = setTimeout(function () {
+            root.classList.remove('rt-booting');
+            cyberBootTimer = null;
+        }, 760);
+    }
+
+    // ------------------------------------------------------------------
+    // The whole Cyberpunk presentation pass, in one call.
+    // applyPreferences() delegates here so there is a single place that knows
+    // what "apply the cyberpunk theme" means.
+    // ------------------------------------------------------------------
+    function applyCyberpunkTheme(container) {
+        if (!container) return;
+        applyCyberTokens(container);
+        applyCyberShape(container);
+        updateCyberTitleGhosts(container);
+
+        // Mirror onto the document root so body-level modal rules
+        // (body:has(.retro-theme) ...) can resolve the same tokens.
+        applyCyberTokens(document.documentElement);
+
+        // Mirror onto the PiP clone so the pickers apply live there too.
+        if (typeof isPipActive !== 'undefined' && isPipActive && pipWindow && !pipWindow.closed) {
+            const pipEl = pipWindow.document.querySelector('.pip-window-content.retro-theme');
+            if (pipEl) {
+                applyCyberTokens(pipEl);
+                applyCyberShape(pipEl);
+            }
+            const bg1 = userPreferences.cyberBgPrimary || '#07091a';
+            const bg2 = userPreferences.cyberBgSecondary || '#11142b';
+            pipWindow.document.body.style.background =
+                'linear-gradient(135deg, ' + bg1 + ' 0%, ' + bg2 + ' 100%)';
+        }
+    }
+
+    function clearCyberpunkTheme(container) {
+        if (container) {
+            clearCyberTokens(container);
+            clearCyberShape(container);
+            container.classList.remove('rt-booting');
+            const title = container.querySelector('.summary-title');
+            if (title) title.removeAttribute('data-rt-text');
+        }
+        clearCyberTokens(document.documentElement);
+        if (cyberBootTimer) { clearTimeout(cyberBootTimer); cyberBootTimer = null; }
+    }
+    // ═══ END CYBERPUNK HUD ═══
+
+    // ═══ CYBERPUNK AUDIO — generated from cyber-dev/cyber-audio.js, do not edit here ═══
+    // ============================================================
+    // CYBERPUNK AUDIO — spectrum rail and the --rt-beat coupling
+    //
+    // Generated from cyber-dev/cyber-audio.js. Do not edit the copy in the
+    // userscript; edit here and run node cyber-dev/reinsert.js.
+    //
+    // WHAT A BROWSER CAN AND CANNOT DO HERE, because the limits shape all of
+    // the code below:
+    //
+    //   There is no system-loopback tap in the Web Audio API. The ONLY way to
+    //   analyse "whatever is playing on this machine" is
+    //   getDisplayMedia({ audio: true }), which:
+    //     - requires a user gesture, every session;
+    //     - shows the share picker, and on Windows only actually carries
+    //       system output when the user ticks "Also share system audio";
+    //     - requires a video constraint (audio-only getDisplayMedia is not
+    //       allowed), so the video track is stopped and dropped immediately;
+    //     - leaves a "sharing your screen" banner up while it runs.
+    //
+    //   So the rail is tiered, and NOTHING here ever requests a permission
+    //   without a click:
+    //     system -> real system output      (share picker)
+    //     mic    -> speakers, ambiently     (one prompt, persists)
+    //     sim    -> procedural              (no permission at all)
+    //
+    // The button cycles OFF -> SYS -> MIC -> SIM -> OFF. A declined grant
+    // does NOT auto-escalate to the next tier: firing a microphone prompt
+    // immediately after someone cancelled a screen-share prompt is a second
+    // surprise, so the tier is marked failed and the next click moves on.
+    // ============================================================
+
+    const CYBER_EQ_BARS = 32;
+    const CYBER_EQ_SOURCES = ['off', 'system', 'mic', 'sim'];
+
+    let cyberAudioCtx = null;
+    let cyberAnalyser = null;
+    let cyberFreqData = null;
+    let cyberStream = null;
+    let cyberStreamNode = null;
+    let cyberEqRaf = null;
+    let cyberEqLastFrame = 0;
+    let cyberEqCanvas = null;
+    let cyberEqCssW = 0;
+    let cyberEqCssH = 0;
+
+    // Beat detection state.
+    let cyberBassAvg = 0;
+    let cyberBeat = 0;
+    let cyberBeatWritten = -1;
+
+    // Peak-hold per bar, so the rail reads as a meter rather than a blur.
+    let cyberPeaks = new Array(CYBER_EQ_BARS).fill(0);
+
+    // 'off' | 'system' | 'mic' | 'sim'; plus whether the last grant failed.
+    let cyberEqMode = 'off';
+    let cyberEqFailed = false;
+
+    function cyberEqSource() {
+        const s = userPreferences.cyberAudioSource;
+        return CYBER_EQ_SOURCES.indexOf(s) === -1 ? 'off' : s;
+    }
+
+    // ------------------------------------------------------------------
+    // Source acquisition
+    // ------------------------------------------------------------------
+
+    function cyberMakeContext() {
+        if (cyberAudioCtx) return cyberAudioCtx;
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (!Ctor) return null;
+        cyberAudioCtx = new Ctor();
+        cyberAnalyser = cyberAudioCtx.createAnalyser();
+        cyberAnalyser.fftSize = 512;
+        cyberAnalyser.smoothingTimeConstant = 0.72;
+        cyberFreqData = new Uint8Array(cyberAnalyser.frequencyBinCount);
+        return cyberAudioCtx;
+    }
+
+    // Wires a MediaStream into the analyser. Deliberately does NOT connect to
+    // destination — routing captured system audio back to the speakers would
+    // feed back.
+    function cyberAttachStream(stream) {
+        if (!cyberMakeContext()) return false;
+        cyberDetachStream();
+        cyberStream = stream;
+        cyberStreamNode = cyberAudioCtx.createMediaStreamSource(stream);
+        cyberStreamNode.connect(cyberAnalyser);
+
+        // The user can end a screen-share from Chrome's own banner, which we
+        // only learn about through the track. Without this the rail would sit
+        // at zero forever and look broken.
+        stream.getTracks().forEach(function (t) {
+            t.addEventListener('ended', function () {
+                if (cyberStream === stream) cyberEqFallbackToSim('share ended');
+            });
+        });
+        if ('oninactive' in stream) {
+            stream.oninactive = function () {
+                if (cyberStream === stream) cyberEqFallbackToSim('stream inactive');
+            };
+        }
+        return true;
+    }
+
+    function cyberDetachStream() {
+        if (cyberStreamNode) {
+            try { cyberStreamNode.disconnect(); } catch (e) { /* already gone */ }
+            cyberStreamNode = null;
+        }
+        if (cyberStream) {
+            cyberStream.getTracks().forEach(function (t) {
+                try { t.stop(); } catch (e) { /* already stopped */ }
+            });
+            cyberStream = null;
+        }
+    }
+
+    function cyberEqFallbackToSim(why) {
+        cyberDetachStream();
+        cyberEqMode = 'sim';
+        cyberEqFailed = false;
+        userPreferences.cyberAudioSource = 'sim';
+        savePreferences();
+        cyberEqUpdateButton();
+        if (why) console.info('[CyberEQ] ' + why + ' — falling back to the procedural rail.');
+    }
+
+    async function cyberEqConnectSystem() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) return false;
+        // A video constraint is mandatory: getDisplayMedia rejects audio-only.
+        // The track is stopped the moment we have the stream, so no frames are
+        // ever read, but the audio track stays live.
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+            video: { width: 1, height: 1, frameRate: 1 },
+            audio: {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false
+            }
+        });
+        const audio = stream.getAudioTracks();
+        if (!audio.length) {
+            // The user shared a surface but left "share system audio" unticked.
+            stream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
+            throw new Error('no audio track — "Also share system audio" was not ticked');
+        }
+        stream.getVideoTracks().forEach(function (t) {
+            try { t.stop(); } catch (e) {}
+            try { stream.removeTrack(t); } catch (e) {}
+        });
+        return cyberAttachStream(stream);
+    }
+
+    async function cyberEqConnectMic() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+        // These three must be off. Left on, the browser gates and levels the
+        // signal for speech, and the analyser sees a flattened version of the
+        // music rather than the music.
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false
+            }
+        });
+        return cyberAttachStream(stream);
+    }
+
+    // Advances one tier. Called from the rail button and nowhere else, so the
+    // gesture requirement is satisfied by construction.
+    async function cyberEqCycle() {
+        const order = CYBER_EQ_SOURCES;
+        const from = cyberEqFailed ? cyberEqMode : cyberEqSource();
+        const next = order[(order.indexOf(from) + 1) % order.length];
+
+        cyberDetachStream();
+        cyberEqFailed = false;
+        cyberEqMode = next;
+        userPreferences.cyberAudioSource = next;
+        savePreferences();
+        cyberEqUpdateButton();
+
+        if (next === 'off') { cyberEqStopLoop(); cyberEqClearBeat(); return; }
+
+        if (next === 'sim') { cyberEqStartLoop(); return; }
+
+        try {
+            if (cyberMakeContext() && cyberAudioCtx.state === 'suspended') {
+                await cyberAudioCtx.resume();
+            }
+            const ok = next === 'system' ? await cyberEqConnectSystem() : await cyberEqConnectMic();
+            if (!ok) throw new Error('capture unavailable in this browser');
+            cyberEqFailed = false;
+        } catch (err) {
+            // Cancelling the picker is a normal outcome, not an error worth
+            // shouting about. Mark the tier failed so the next click moves on.
+            cyberEqFailed = true;
+            console.info('[CyberEQ] ' + next + ' unavailable: ' + (err && err.message ? err.message : err));
+        }
+        cyberEqUpdateButton();
+        cyberEqStartLoop();
+    }
+
+    // Restores the saved source on load. Never prompts: 'system' always waits
+    // for a click, and 'mic' resumes only if the permission is already granted.
+    async function cyberEqAutoResume() {
+        const want = cyberEqSource();
+        if (want === 'off') return;
+        cyberEqMode = want;
+
+        if (want === 'sim') { cyberEqStartLoop(); cyberEqUpdateButton(); return; }
+
+        if (want === 'system') {
+            // No gesture at load, and the picker cannot be opened without one.
+            cyberEqFailed = true;
+            cyberEqUpdateButton();
+            cyberEqStartLoop();
+            return;
+        }
+
+        let granted = false;
+        try {
+            if (navigator.permissions && navigator.permissions.query) {
+                const st = await navigator.permissions.query({ name: 'microphone' });
+                granted = st && st.state === 'granted';
+            }
+        } catch (e) { granted = false; }
+
+        if (!granted) {
+            cyberEqFailed = true;
+            cyberEqUpdateButton();
+            cyberEqStartLoop();
+            return;
+        }
+        try {
+            cyberMakeContext();
+            await cyberEqConnectMic();
+        } catch (e) {
+            cyberEqFailed = true;
+        }
+        cyberEqUpdateButton();
+        cyberEqStartLoop();
+    }
+
+    // ------------------------------------------------------------------
+    // The rail
+    // ------------------------------------------------------------------
+
+    function cyberEqUpdateButton() {
+        const btn = document.getElementById('cyber-eq-btn');
+        if (!btn) return;
+        const label = { off: 'OFF', system: 'SYS', mic: 'MIC', sim: 'SIM' };
+        const mode = cyberEqFailed ? cyberEqMode : cyberEqSource();
+        btn.textContent = (cyberEqFailed ? '! ' : '') + (label[mode] || 'OFF');
+        btn.classList.toggle('is-live', !cyberEqFailed && (mode === 'system' || mode === 'mic'));
+        btn.classList.toggle('is-sim', !cyberEqFailed && mode === 'sim');
+        btn.title = cyberEqFailed
+            ? mode + ' is not connected — click to try the next source'
+            : 'Audio source: ' + mode + ' — click to cycle (system / mic / procedural / off)';
+    }
+
+    function cyberEqClearBeat() {
+        const root = document.getElementById('total-time-summary');
+        if (root) root.style.setProperty('--rt-beat', '0');
+        cyberBeat = 0;
+        cyberBeatWritten = -1;
+    }
+
+    // Procedural spectrum: no audio, no permission, and it must never look
+    // like a dead rail. Deterministic in t so it does not jitter.
+    function cyberSimBar(i, t) {
+        const p = i / CYBER_EQ_BARS;
+        const a = Math.sin(t * 0.0021 + i * 0.55) * 0.5 + 0.5;
+        const b = Math.sin(t * 0.0009 - i * 0.31) * 0.5 + 0.5;
+        const c = Math.sin(t * 0.0043 + i * 1.7) * 0.5 + 0.5;
+        // Tilted so the lows sit higher than the highs, like real music.
+        const tilt = 1 - p * 0.55;
+        return Math.max(0, Math.min(1, (a * 0.5 + b * 0.32 + c * 0.18) * tilt));
+    }
+
+    function cyberEqReadBars(t) {
+        const bars = new Array(CYBER_EQ_BARS);
+        const live = cyberAnalyser && cyberStream;
+        if (!live) {
+            for (let i = 0; i < CYBER_EQ_BARS; i++) bars[i] = cyberSimBar(i, t);
+            return bars;
+        }
+        cyberAnalyser.getByteFrequencyData(cyberFreqData);
+        const n = cyberFreqData.length;
+        // Roughly logarithmic binning: an even split would spend most of the
+        // rail on inaudible high frequencies and look almost flat.
+        for (let i = 0; i < CYBER_EQ_BARS; i++) {
+            const lo = Math.floor(Math.pow(i / CYBER_EQ_BARS, 2) * (n - 1));
+            const hi = Math.max(lo + 1, Math.floor(Math.pow((i + 1) / CYBER_EQ_BARS, 2) * (n - 1)));
+            let sum = 0;
+            for (let k = lo; k < hi; k++) sum += cyberFreqData[k];
+            bars[i] = (sum / (hi - lo)) / 255;
+        }
+        return bars;
+    }
+
+    // Bass energy against a rolling average. An absolute threshold would
+    // never suit both a quiet mic and a hot system capture.
+    function cyberEqUpdateBeat(bars) {
+        let bass = 0;
+        for (let i = 0; i < 6; i++) bass += bars[i];
+        bass /= 6;
+        cyberBassAvg = cyberBassAvg * 0.94 + bass * 0.06;
+        const rel = cyberBassAvg > 0.001 ? (bass / cyberBassAvg) - 1 : 0;
+        const target = Math.max(0, Math.min(1, rel * 1.3));
+        // Fast attack, slow release, so a kick reads as a hit not a wobble.
+        cyberBeat = target > cyberBeat ? target : cyberBeat * 0.86 + target * 0.14;
+
+        const root = document.getElementById('total-time-summary');
+        if (!root) return;
+        // Writing a custom property invalidates style for the subtree, so only
+        // write when it actually moved.
+        const q = Math.round(cyberBeat * 50) / 50;
+        if (q !== cyberBeatWritten) {
+            root.style.setProperty('--rt-beat', String(q));
+            cyberBeatWritten = q;
+        }
+    }
+
+    function cyberEqResize() {
+        const cv = cyberEqCanvas;
+        if (!cv) return false;
+        const w = cv.clientWidth;
+        const h = cv.clientHeight;
+        if (!w || !h) return false;
+        if (w === cyberEqCssW && h === cyberEqCssH) return true;
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        cv.width = Math.round(w * dpr);
+        cv.height = Math.round(h * dpr);
+        cyberEqCssW = w;
+        cyberEqCssH = h;
+        return true;
+    }
+
+    function cyberEqPaint(bars) {
+        const cv = cyberEqCanvas;
+        if (!cv) return;
+        const ctx = cv.getContext('2d');
+        if (!ctx) return;
+        const W = cv.width;
+        const H = cv.height;
+        ctx.clearRect(0, 0, W, H);
+
+        // Colours come from the live tokens, so the rail follows the same
+        // swatches as the rest of the HUD instead of hardcoding a palette.
+        const cs = getComputedStyle(cv);
+        const cLow = (cs.getPropertyValue('--rt-cyber-hl') || '#00e5ff').trim();
+        const cMid = (cs.getPropertyValue('--rt-accent') || '#fff200').trim();
+        const cHigh = (cs.getPropertyValue('--rt-cyber-panel') || '#00e5ff').trim();
+        const cPeak = (cs.getPropertyValue('--rt-glow-color') || '#fff200').trim();
+        const cGrid = (cs.getPropertyValue('--rt-grid') || 'rgba(255,242,0,0.06)').trim();
+
+        const grad = ctx.createLinearGradient(0, 0, W, 0);
+        grad.addColorStop(0, cLow);
+        grad.addColorStop(0.5, cMid);
+        grad.addColorStop(1, cHigh);
+
+        // Baseline
+        ctx.fillStyle = cGrid;
+        ctx.fillRect(0, H - 1, W, 1);
+
+        const slot = W / CYBER_EQ_BARS;
+        const barW = Math.max(1, slot * 0.62);
+        const pad = (slot - barW) / 2;
+
+        ctx.fillStyle = grad;
+        for (let i = 0; i < CYBER_EQ_BARS; i++) {
+            const v = Math.max(0, Math.min(1, bars[i]));
+            const h = Math.max(1, v * (H - 3));
+            ctx.fillRect(i * slot + pad, H - h, barW, h);
+
+            // Peak hold, decaying.
+            cyberPeaks[i] = v > cyberPeaks[i] ? v : cyberPeaks[i] * 0.955;
+            const ph = Math.max(1, cyberPeaks[i] * (H - 3));
+            ctx.fillStyle = cPeak;
+            ctx.fillRect(i * slot + pad, Math.max(0, H - ph - 2), barW, 1.5);
+            ctx.fillStyle = grad;
+        }
+    }
+
+    function cyberEqFrame(ts) {
+        cyberEqRaf = requestAnimationFrame(cyberEqFrame);
+
+        // Share the widget's existing FPS cap rather than adding a second
+        // uncapped loop next to the games.
+        const interval = typeof getFrameInterval === 'function' ? getFrameInterval() : 16.67;
+        if (ts - cyberEqLastFrame < interval) return;
+        cyberEqLastFrame = ts;
+
+        if (!cyberEqCanvas || !cyberEqCanvas.isConnected) {
+            cyberEqCanvas = document.getElementById('cyber-eq');
+            cyberEqCssW = 0;
+            if (!cyberEqCanvas) return;
+        }
+        if (!cyberEqResize()) return;
+
+        const bars = cyberEqReadBars(ts);
+        cyberEqUpdateBeat(bars);
+        cyberEqPaint(bars);
+    }
+
+    function cyberEqStartLoop() {
+        if (cyberEqRaf !== null) return;
+        cyberEqCanvas = document.getElementById('cyber-eq');
+        cyberEqCssW = 0;
+        cyberEqLastFrame = 0;
+        cyberEqRaf = requestAnimationFrame(cyberEqFrame);
+    }
+
+    function cyberEqStopLoop() {
+        if (cyberEqRaf !== null) {
+            cancelAnimationFrame(cyberEqRaf);
+            cyberEqRaf = null;
+        }
+    }
+
+    // renderFullContent() rebuilds the widget's markup, so a listener bound
+    // directly to the button is orphaned on the next render and the rail goes
+    // dead with no visible cause. Delegated from document instead: bound once,
+    // survives every re-render.
+    let cyberEqBound = false;
+    let cyberEqResumed = false;
+
+    function initCyberEq() {
+        if (!cyberEqBound) {
+            cyberEqBound = true;
+            document.addEventListener('click', function (e) {
+                const btn = e.target && e.target.closest ? e.target.closest('#cyber-eq-btn') : null;
+                if (!btn) return;
+                e.preventDefault();
+                e.stopPropagation();
+                cyberEqCycle();
+            });
+        }
+        cyberEqUpdateButton();
+        // Restore the saved source exactly once per page. Never prompts:
+        // 'system' waits for a click, 'mic' only resumes on an existing grant.
+        if (!cyberEqResumed) {
+            cyberEqResumed = true;
+            cyberEqAutoResume();
+        } else if (cyberEqSource() !== 'off') {
+            cyberEqStartLoop();
+        }
+    }
+
+    // Full teardown. A capture stream that outlives a theme switch shows the
+    // user a permanent screen-share banner for a rail that is no longer on
+    // screen, so this must run on every exit path.
+    function cleanupCyberAudio() {
+        cyberEqStopLoop();
+        cyberDetachStream();
+        if (cyberAudioCtx) {
+            try { cyberAudioCtx.close(); } catch (e) { /* already closed */ }
+            cyberAudioCtx = null;
+            cyberAnalyser = null;
+            cyberFreqData = null;
+        }
+        cyberPeaks = new Array(CYBER_EQ_BARS).fill(0);
+        cyberBassAvg = 0;
+        cyberEqCanvas = null;
+        cyberEqCssW = 0;
+        cyberEqClearBeat();
+    }
+    // ═══ END CYBERPUNK AUDIO ═══
+
     // Apply user preferences
     function applyPreferences() {
         const container = document.getElementById('total-time-summary');
@@ -17336,42 +18659,21 @@
         
         // Apply display theme
         if (userPreferences.displayTheme === 'retro-futuristic') {
+            // Captured before the class goes on: the boot-in reveal should
+            // fire when the theme is switched INTO, not on every colour-slider
+            // move, and applyPreferences() runs on each of those.
+            const enteringRetro = !container.classList.contains('retro-theme');
             container.classList.add('retro-theme');
-            // Apply user-customizable Cyberpunk HUD colors via CSS custom properties
-            const bg1 = userPreferences.cyberBgPrimary   || '#07091a';
-            const bg2 = userPreferences.cyberBgSecondary || '#11142b';
-            const acc = userPreferences.cyberAccent      || '#fff200';
-            const hl  = userPreferences.cyberHighlight   || '#00e5ff';
-            const pnl = userPreferences.cyberPanelTint   || '#00e5ff';
-            container.style.setProperty('--rt-bg-1', bg1);
-            container.style.setProperty('--rt-bg-2', bg2);
-            container.style.setProperty('--rt-accent', acc);
-            container.style.setProperty('--rt-accent-rgb', hexToRgbStr(acc));
-            container.style.setProperty('--rt-cyber-hl', hl);
-            container.style.setProperty('--rt-cyber-hl-rgb', hexToRgbStr(hl));
-            container.style.setProperty('--rt-cyber-panel', pnl);
-            container.style.setProperty('--rt-cyber-panel-rgb', hexToRgbStr(pnl));
-            // Also expose vars at document root so body-level modals can use them
-            document.documentElement.style.setProperty('--rt-cyber-hl', hl);
-            document.documentElement.style.setProperty('--rt-accent', acc);
-            document.documentElement.style.setProperty('--rt-bg-1', bg1);
 
-            // Mirror custom CSS vars onto PiP window so color pickers apply live
-            if (isPipActive && pipWindow && !pipWindow.closed) {
-                const pipEl = pipWindow.document.querySelector('.pip-window-content.retro-theme');
-                if (pipEl) {
-                    pipEl.style.setProperty('--rt-bg-1', bg1);
-                    pipEl.style.setProperty('--rt-bg-2', bg2);
-                    pipEl.style.setProperty('--rt-accent', acc);
-                    pipEl.style.setProperty('--rt-accent-rgb', hexToRgbStr(acc));
-                    pipEl.style.setProperty('--rt-cyber-hl', hl);
-                    pipEl.style.setProperty('--rt-cyber-hl-rgb', hexToRgbStr(hl));
-                    pipEl.style.setProperty('--rt-cyber-panel', pnl);
-                    pipEl.style.setProperty('--rt-cyber-panel-rgb', hexToRgbStr(pnl));
-                }
-                // Also update PiP body gradient
-                pipWindow.document.body.style.background = `linear-gradient(135deg, ${bg1} 0%, ${bg2} 100%)`;
-            }
+            // Tokens, panel shape, title ghosts and the PiP/root mirrors all
+            // live in cyber-dev/cyber-hud.js so that one place knows what
+            // "apply the cyberpunk theme" means, and so the write list and the
+            // teardown list are derived from a single array instead of being
+            // maintained by hand — which is how six tokens drifted out of the
+            // teardown list and made the yellow unchangeable.
+            applyCyberpunkTheme(container);
+            initCyberEq();
+            if (enteringRetro) triggerCyberBoot(container);
 
             // Background image overlay
             let bgEl = container.querySelector('.cyber-bg-image');
@@ -17388,9 +18690,13 @@
             }
         } else {
             container.classList.remove('retro-theme');
-            // Clear inline overrides so glassmorphic theme isn't affected
-            ['--rt-bg-1','--rt-bg-2','--rt-accent','--rt-accent-rgb','--rt-cyber-hl','--rt-cyber-hl-rgb','--rt-cyber-panel','--rt-cyber-panel-rgb']
-                .forEach(p => { container.style.removeProperty(p); document.documentElement.style.removeProperty(p); });
+            // Clears every property CYBER_TOKENS could have written, on both
+            // the container and documentElement. Anything left behind has no
+            // meaning under Glassmorphic but still wins over the stylesheet.
+            clearCyberpunkTheme(container);
+            // A capture stream outliving the theme switch would leave the user
+            // a permanent screen-share banner for a rail that is gone.
+            cleanupCyberAudio();
             // Remove background image overlay if switching away
             const bgEl = container.querySelector('.cyber-bg-image');
             if (bgEl) bgEl.remove();
@@ -18344,6 +19650,10 @@
         const progressBarHTML = `
             <div class="progress-bar">
                 <div class="progress-fill" style="width: ${progress}%"></div>
+            </div>
+            <div class="cyber-eq-wrap">
+                <canvas id="cyber-eq" aria-hidden="true"></canvas>
+                <button type="button" class="cyber-eq-btn" id="cyber-eq-btn">OFF</button>
             </div>
         `;
 

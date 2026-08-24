@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cyberpunk HUD harness</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;800&family=Share+Tech+Mono&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+<!-- The real theme. Not a copy: this is the exact file reinsert.js splices into
+     the userscript, so anything wrong here is wrong there. -->
+<link rel="stylesheet" href="cyber-theme.css">
+
+<style>
+  /* ────────────────────────────────────────────────────────────────
+     HOST BASE — the handful of glassmorphic rules the Cyberpunk theme
+     overrides rather than replaces. Without these the theme's
+     pseudo-elements have no content/position to inherit and the layout
+     collapses, so the harness would be lying about how it renders.
+     Kept deliberately minimal: everything else is the theme's own.
+     ──────────────────────────────────────────────────────────────── */
+  .attendance-summary {
+    position: relative; padding: 22px; border-radius: 24px;
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #fff; color: #2d3436; overflow: hidden;
+  }
+  .attendance-summary::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0;
+    height: 2px; z-index: 2;
+  }
+  .summary-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .emoji-display { font-size: 2rem; }
+  .summary-title { font-size: 1.4rem; margin: 0; font-weight: 700; }
+  .modern-table { width: 100%; border-collapse: collapse; margin: 0 0 14px; font-size: .82rem; }
+  .modern-table th, .modern-table td { padding: 9px 11px; text-align: left; }
+  .progress-bar { height: 12px; margin: 0 0 4px; position: relative; overflow: hidden; border-radius: 6px; }
+  .progress-fill { height: 100%; border-radius: inherit; }
+  .time-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 14px 0; }
+  .stat-card { padding: 14px; border-radius: 20px; position: relative; overflow: hidden; }
+  .stat-card::before {
+    content: ''; position: absolute; top: 0; left: -100%;
+    width: 100%; height: 3px; opacity: 0; transition: opacity .3s ease;
+  }
+  .stat-label { display: block; font-size: .6rem; margin-bottom: 6px; }
+  .stat-value { font-size: 1.35rem; }
+  .completion-message { padding: 10px 14px; margin-top: 10px; text-align: center; }
+  .main-attendance-content { position: relative; }
+  .attendance-body { display: flex; gap: 16px; align-items: flex-start; }
+  .left-panel, .right-panel { width: 240px; flex: 0 0 240px; display: flex; flex-direction: column; gap: 14px; }
+  .main-attendance-content { flex: 1 1 auto; min-width: 0; }
+  .snake-game-container, .quotes-container, .xp-container, .image-box-container { padding: 13px; border-radius: 16px; }
+  .snake-game-title, .quotes-title, .xp-title, .image-box-title { font-size: .72rem; margin: 0 0 9px; font-weight: 700; }
+  .snake-canvas { display: block; width: 100%; height: 120px; }
+  .xp-progress-bar { height: 9px; background: rgba(255,255,255,.08); border-radius: 5px; overflow: hidden; margin: 8px 0; }
+  .xp-progress-fill { height: 100%; }
+  .xp-stat-label { font-size: .6rem; display: block; }
+  .xp-stat-value { font-size: 1rem; font-weight: 700; }
+  .quote-text { font-style: italic; font-size: .8rem; }
+  .quote-author { font-size: .72rem; display: block; margin-top: 6px; }
+  .level-badge { padding: 3px 9px; font-size: .68rem; border-radius: 9px; }
+  .snake-btn, .game-switch-btn, .quote-add-btn, .aspect-ratio-btn, .xp-achievements-view-all {
+    font: inherit; font-size: .7rem; padding: 6px 9px; cursor: pointer; border: 1px solid transparent; border-radius: 8px;
+  }
+  .game-controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 9px; }
+  .game-switch-row { display: flex; gap: 5px; margin-bottom: 9px; flex-wrap: wrap; }
+  .developer-info, .settings-button, .pip-button {
+    font: inherit; font-size: .7rem; padding: 7px 11px; cursor: pointer;
+    border: 1px solid transparent; border-radius: 12px; display: inline-block;
+  }
+  .bottom-bar { display: flex; gap: 9px; justify-content: center; margin-top: 14px; }
+
+  /* ────────────────────────────────────────────────────────────────
+     HARNESS CHROME — never inside .attendance-summary, so it cannot be
+     confused with the thing under test.
+     ──────────────────────────────────────────────────────────────── */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 22px; background: #0a0a12; color: #e8ecff;
+    font: 13px/1.55 'Inter', system-ui, sans-serif;
+    display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap;
+  }
+  .stage { flex: 1 1 720px; min-width: 620px; }
+  .rig { width: 320px; flex: 0 0 320px; background: #14142a; border: 1px solid #2a2a4a;
+         border-radius: 12px; padding: 15px; position: sticky; top: 22px; }
+  .rig h1 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+            color: #8b91c0; margin: 0 0 12px; font-weight: 600; }
+  .rig h2 { font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+            color: #6e74a0; margin: 16px 0 7px; font-weight: 600; }
+  .swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+  .swatches label { display: flex; flex-direction: column; align-items: center; gap: 3px;
+                    font-size: 9.5px; color: #9aa0c8; letter-spacing: .04em; }
+  .swatches input[type=color] { width: 100%; height: 30px; border: 1px solid #3a3a5e;
+                                border-radius: 5px; background: none; cursor: pointer; padding: 0; }
+  .rig select, .rig input[type=range] { width: 100%; font: inherit; font-size: 12px; }
+  .rig select { background: #1e1e3a; color: #e8ecff; border: 1px solid #3a3a5e;
+                border-radius: 6px; padding: 6px 7px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+  .row span.k { flex: 0 0 78px; color: #8b91c0; font-size: 11px; }
+  .presets { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  .presets button { font: inherit; font-size: 10.5px; padding: 6px 4px; cursor: pointer;
+                    background: #1e1e3a; color: #cfd4f5; border: 1px solid #3a3a5e; border-radius: 5px; }
+  .presets button:hover { border-color: #6c5cff; }
+  .note { font-size: 10.5px; color: #6e74a0; line-height: 1.5; margin-top: 12px;
+          border-top: 1px solid #2a2a4a; padding-top: 10px; }
+  .note b { color: #9aa0c8; }
+  .readout { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: #7de3c0;
+             background: #0d0d1c; border: 1px solid #2a2a4a; border-radius: 6px;
+             padding: 7px 8px; margin-top: 9px; white-space: pre-wrap; }
+  .bg-toggle { display: flex; gap: 5px; margin-top: 9px; }
+  .bg-toggle button { flex: 1; font: inherit; font-size: 10.5px; padding: 5px; cursor: pointer;
+                      background: #1e1e3a; color: #cfd4f5; border: 1px solid #3a3a5e; border-radius: 5px; }
+  .bg-toggle button.on { border-color: #6c5cff; background: #2a2450; }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <!-- The widget, with the same class names and nesting the userscript emits. -->
+  <div id="total-time-summary" class="attendance-summary retro-theme">
+    <div class="attendance-body">
+
+      <div class="left-panel">
+        <div class="snake-game-container">
+          <div class="snake-game-title">◉ 8-Ball Pool</div>
+          <div class="game-switch-row">
+            <button class="game-switch-btn active">◉</button>
+            <button class="game-switch-btn">▦</button>
+            <button class="game-switch-btn">✦</button>
+            <button class="game-switch-btn">⬢</button>
+          </div>
+          <canvas class="snake-canvas"></canvas>
+          <div class="game-controls">
+            <button class="snake-btn">PvCPU</button>
+            <button class="snake-btn">Play</button>
+            <button class="snake-btn">Reset</button>
+            <button class="snake-btn">Max</button>
+          </div>
+        </div>
+        <div class="quotes-container">
+          <div class="quotes-title">💬 Daily Motivation</div>
+          <div class="quote-text">"Do not lose hope, nor be sad."</div>
+          <span class="quote-author">— Qur'an 3:139</span>
+          <div style="margin-top:9px"><button class="quote-add-btn">+ Add Quote</button></div>
+        </div>
+      </div>
+
+      <div class="main-attendance-content">
+        <div class="summary-header">
+          <span class="emoji-display">😌</span>
+          <h2 class="summary-title">Attendance Summary</h2>
+        </div>
+
+        <table class="modern-table">
+          <thead>
+            <tr><th>#</th><th>Check-In</th><th>Check-Out</th><th>Worked Time</th><th>Break</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td>08:00:36</td><td>Current</td><td>04:11:46</td><td>—</td></tr>
+            <tr><td>2</td><td>13:12:04</td><td>17:40:11</td><td>04:28:07</td><td>00:19:22</td></tr>
+          </tbody>
+        </table>
+
+        <div class="progress-bar"><div class="progress-fill" style="width:52%"></div></div>
+
+        <!-- The EQ rail. Inside .main-attendance-content on purpose: Game Mode
+             collapses .left-panel and .right-panel only, so the rail survives it. -->
+        <div class="cyber-eq-wrap">
+          <canvas id="cyber-eq" aria-hidden="true"></canvas>
+          <button type="button" class="cyber-eq-btn" id="cyber-eq-btn">OFF</button>
+        </div>
+
+        <div class="time-stats">
+          <div class="stat-card worked-time-card">
+            <span class="stat-label">Total Worked</span>
+            <span class="stat-value worked-time">04:11:46</span>
+          </div>
+          <div class="stat-card remaining-time-card">
+            <span class="stat-label">Remaining</span>
+            <span class="stat-value remaining-time">03:48:14</span>
+          </div>
+          <div class="stat-card completion-time-card">
+            <span class="stat-label">Complete At</span>
+            <span class="stat-value completion-time">4:00:36 PM</span>
+          </div>
+        </div>
+
+        <div class="completion-message">Shift complete — 8h logged</div>
+
+        <div class="bottom-bar">
+          <span class="developer-info">⚙</span>
+          <span class="pip-button">▣ Float</span>
+          <span class="settings-button">ℹ</span>
+        </div>
+      </div>
+
+      <div class="right-panel">
+        <div class="xp-container">
+          <div class="xp-title">★ Work Rewards <span class="level-badge">Level 20</span></div>
+          <div class="xp-progress-bar"><div class="xp-progress-fill" style="width:22%"></div></div>
+          <div class="row" style="justify-content:space-between">
+            <span class="xp-stat-label">2947 XP</span>
+            <span class="xp-stat-label">10733 to next</span>
+          </div>
+          <div class="row" style="justify-content:space-between;margin-top:10px">
+            <span><span class="xp-stat-label">Total XP</span><span class="xp-stat-value">83502</span></span>
+            <span><span class="xp-stat-label">Today</span><span class="xp-stat-value">4h</span></span>
+          </div>
+          <div style="margin-top:10px"><button class="xp-achievements-view-all">View All (25/36)</button></div>
+        </div>
+        <div class="image-box-container">
+          <div class="image-box-title">🖼 Image</div>
+          <div class="row">
+            <button class="aspect-ratio-btn active">◻</button>
+            <button class="aspect-ratio-btn">▬</button>
+            <button class="aspect-ratio-btn">▭</button>
+            <button class="aspect-ratio-btn">▯</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="rig">
+  <h1>Cyberpunk HUD rig</h1>
+
+  <h2>Colours</h2>
+  <div class="swatches" id="swatches"></div>
+
+  <h2>Glow intensity</h2>
+  <div class="row">
+    <input type="range" min="0" max="100" value="60" id="glow">
+    <span class="k" style="flex:0 0 34px;text-align:right" id="glowOut">60%</span>
+  </div>
+  <span class="cyber-contrast-chip is-pass" id="cyber-contrast-chip">Text vs BG</span>
+
+  <h2>Panel shape</h2>
+  <select id="shape">
+    <option value="rounded">Rounded</option>
+    <option value="chamfered">Chamfered</option>
+    <option value="notched">Notched HUD</option>
+  </select>
+
+  <h2>Audio visualizer</h2>
+  <select id="audio">
+    <option value="off">Off</option>
+    <option value="system">System audio</option>
+    <option value="mic">Microphone</option>
+    <option value="sim">Procedural</option>
+  </select>
+
+  <h2>Palettes</h2>
+  <div class="presets" id="presets"></div>
+
+  <h2>Checks</h2>
+  <div class="bg-toggle">
+    <button id="btnBoot">Boot-in</button>
+    <button id="btnGameMode">Game Mode</button>
+  </div>
+  <div class="readout" id="readout"></div>
+
+  <div class="note">
+    <b>This loads the real files.</b> <code>cyber-theme.css</code>,
+    <code>cyber-hud.js</code> and <code>cyber-audio.js</code> are the exact
+    sources <code>reinsert.js</code> splices into the userscript — not copies.
+    <br><br>
+    <b>System audio</b> needs a click on the rail's own button, and on Windows
+    only carries sound if you tick <i>"Also share system audio"</i> in Chrome's
+    share picker. Cancelling is normal: the tier is marked <code>!</code> and the
+    next click moves on to mic, then to the procedural rail.
+    <br><br>
+    <b>The reported bug:</b> set <i>Accent</i> to grey and leave <i>Text</i>
+    yellow. The type must stay yellow.
+  </div>
+</div>
+
+<script>
+/* Stubs the two modules expect from the userscript's IIFE scope. Defined before
+   the module scripts load, because they reference these at call time. */
+const PREF_KEY = 'cyberHarnessPrefs';
+var userPreferences = Object.assign({
+    displayTheme: 'retro-futuristic',
+    cyberBgPrimary: '#07091a',
+    cyberBgSecondary: '#11142b',
+    cyberAccent: '#fff200',
+    cyberHighlight: '#00e5ff',
+    cyberPanelTint: '#00e5ff',
+    cyberText: '#fff200',
+    cyberGlow: '#fff200',
+    cyberBorder: '#fff200',
+    cyberGlowIntensity: 0.6,
+    cyberPanelShape: 'rounded',
+    cyberAudioSource: 'off',
+    gameFps: 60
+}, JSON.parse(localStorage.getItem(PREF_KEY) || '{}'));
+
+var isPipActive = false;
+var pipWindow = null;
+function savePreferences() { localStorage.setItem(PREF_KEY, JSON.stringify(userPreferences)); }
+function getFrameInterval() { return Number(userPreferences.gameFps) === 30 ? 33.33 : 16.67; }
+function hexToRgbStr(hex) {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+    if (!m) return '0, 0, 0';
+    return parseInt(m[1], 16) + ', ' + parseInt(m[2], 16) + ', ' + parseInt(m[3], 16);
+}
+</script>
+
+<!-- The real modules. They are indented IIFE-body fragments with no top-level
+     return, so a classic script tag evaluates them exactly as the userscript
+     does — no duplication, no drift. -->
+<script src="cyber-hud.js"></script>
+<script src="cyber-audio.js"></script>
+
+<script>
+const SWATCHES = [
+    ['cyberBgPrimary',   'BG 1'],
+    ['cyberBgSecondary', 'BG 2'],
+    ['cyberAccent',      'Accent'],
+    ['cyberHighlight',   'Highlt'],
+    ['cyberPanelTint',   'Panel'],
+    ['cyberText',        'Text'],
+    ['cyberGlow',        'Glow'],
+    ['cyberBorder',      'Border']
+];
+
+const PALETTES = {
+    'Yellow / Cyan': { cyberBgPrimary:'#07091a', cyberBgSecondary:'#11142b', cyberAccent:'#fff200',
+                       cyberHighlight:'#00e5ff', cyberPanelTint:'#00e5ff',
+                       cyberText:'#fff200', cyberGlow:'#fff200', cyberBorder:'#fff200' },
+    'Blade Amber':   { cyberBgPrimary:'#0b0705', cyberBgSecondary:'#1c1209', cyberAccent:'#ffa227',
+                       cyberHighlight:'#ffd08a', cyberPanelTint:'#c9741f',
+                       cyberText:'#ffcf9b', cyberGlow:'#ff8c1a', cyberBorder:'#e2872b' },
+    'Magenta Noir':  { cyberBgPrimary:'#0a0512', cyberBgSecondary:'#170a26', cyberAccent:'#ff2a6d',
+                       cyberHighlight:'#d16bff', cyberPanelTint:'#8a2be2',
+                       cyberText:'#ffd6e8', cyberGlow:'#ff2a6d', cyberBorder:'#ff5c94' },
+    'Acid Green':    { cyberBgPrimary:'#04100a', cyberBgSecondary:'#082114', cyberAccent:'#05ffa1',
+                       cyberHighlight:'#b4ff3a', cyberPanelTint:'#00c98a',
+                       cyberText:'#c8ffe6', cyberGlow:'#05ffa1', cyberBorder:'#3affb0' },
+    'Ghost Mono':    { cyberBgPrimary:'#0c0c0f', cyberBgSecondary:'#16161c', cyberAccent:'#9aa4b8',
+                       cyberHighlight:'#e6ebf5', cyberPanelTint:'#6b7488',
+                       cyberText:'#eef2fa', cyberGlow:'#c3ccdd', cyberBorder:'#7d879c' },
+    // Deliberately broken, to prove the guard fires rather than the theme
+    // silently becoming unreadable.
+    'Dark-on-dark ✗':{ cyberBgPrimary:'#07091a', cyberBgSecondary:'#11142b', cyberAccent:'#1a1a2e',
+                       cyberHighlight:'#20204a', cyberPanelTint:'#1a1a3a',
+                       cyberText:'#0d0d1a', cyberGlow:'#101024', cyberBorder:'#15152c' }
+};
+
+const widget = document.getElementById('total-time-summary');
+
+function repaint() {
+    applyCyberpunkTheme(widget);
+    updateCyberContrastChip(document);
+    document.getElementById('glowOut').textContent =
+        Math.round(userPreferences.cyberGlowIntensity * 100) + '%';
+    const cs = getComputedStyle(widget);
+    document.getElementById('readout').textContent =
+        'shape   ' + cyberPanelShape() + '\n' +
+        'radius  ' + cs.getPropertyValue('--rt-radius').trim() + '\n' +
+        'clip    ' + (cs.getPropertyValue('--rt-clip').trim().slice(0, 22) || 'none') + '\n' +
+        'contrast ' + cyberTextContrast().toFixed(2) + ':1\n' +
+        'audio   ' + cyberEqSource() + '\n' +
+        'beat    ' + (cs.getPropertyValue('--rt-beat').trim() || '0');
+    savePreferences();
+}
+
+// Swatches
+const sw = document.getElementById('swatches');
+SWATCHES.forEach(function (s) {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.value = userPreferences[s[0]];
+    input.dataset.pref = s[0];
+    input.addEventListener('input', function () {
+        userPreferences[s[0]] = this.value;
+        repaint();
+    });
+    label.appendChild(input);
+    const cap = document.createElement('span');
+    cap.textContent = s[1];
+    label.appendChild(cap);
+    sw.appendChild(label);
+});
+
+function syncSwatches() {
+    sw.querySelectorAll('input[type=color]').forEach(function (i) {
+        i.value = userPreferences[i.dataset.pref];
+    });
+}
+
+// Glow
+const glow = document.getElementById('glow');
+glow.value = Math.round(userPreferences.cyberGlowIntensity * 100);
+glow.addEventListener('input', function () {
+    userPreferences.cyberGlowIntensity = parseInt(this.value, 10) / 100;
+    repaint();
+});
+
+// Shape
+const shape = document.getElementById('shape');
+shape.value = cyberPanelShape();
+shape.addEventListener('change', function () {
+    userPreferences.cyberPanelShape = this.value;
+    repaint();
+});
+
+// Audio — the select mirrors the setting; the rail's own button does the
+// granting, exactly as in the widget.
+const audio = document.getElementById('audio');
+audio.value = cyberEqSource();
+audio.addEventListener('change', function () {
+    userPreferences.cyberAudioSource = this.value;
+    savePreferences();
+    cleanupCyberAudio();
+    initCyberEq();
+    repaint();
+});
+
+// Palettes
+const presets = document.getElementById('presets');
+Object.keys(PALETTES).forEach(function (name) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.addEventListener('click', function () {
+        Object.assign(userPreferences, PALETTES[name]);
+        syncSwatches();
+        repaint();
+    });
+    presets.appendChild(b);
+});
+
+document.getElementById('btnBoot').addEventListener('click', function () {
+    triggerCyberBoot(widget);
+});
+document.getElementById('btnGameMode').addEventListener('click', function () {
+    const on = widget.classList.toggle('gm-off');
+    document.querySelectorAll('.left-panel, .right-panel').forEach(function (p) {
+        p.style.display = on ? 'none' : '';
+    });
+    this.classList.toggle('on', on);
+    triggerCyberBoot(widget);
+});
+
+initCyberEq();
+repaint();
+// Keep the readout's beat value live without re-running the whole repaint.
+setInterval(function () {
+    const cs = getComputedStyle(widget);
+    const r = document.getElementById('readout');
+    r.textContent = r.textContent.replace(/beat    .*/, 'beat    ' +
+        (cs.getPropertyValue('--rt-beat').trim() || '0'));
+}, 200);
+</script>
+</body>
+</html>

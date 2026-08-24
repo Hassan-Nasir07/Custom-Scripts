@@ -1,61 +1,312 @@
             /* ============================================================
-               CYBERPUNK HUD THEME (rebrand of "Sci-Fi Retro Futuristic")
-               — Always uses neon-on-dark tokens since BG is user-controlled
-                 and defaults to dark (#07091a). OS light/dark irrelevant.
-               — Inspired by Cyberpunk 2077 menu / HUD bracket interfaces
+               CYBERPUNK HUD THEME
+               — Always neon-on-dark: BG is user-controlled and defaults to
+                 dark (#07091a), so OS light/dark is irrelevant here.
+               — Generated from cyber-dev/cyber-theme.css. Do not edit the
+                 copy in the userscript; run node cyber-dev/reinsert.js.
+
+               THE TOKEN CONTRACT — read this before changing a colour.
+
+               Three groups of user-set tokens, and NO token in one group is
+               ever derived from a token in another:
+
+                 STRUCTURE   --rt-bg-1  --rt-bg-2
+                 ACCENTS     --rt-accent  --rt-cyber-hl  --rt-cyber-panel
+                 LEGIBILITY  --rt-text  --rt-glow-color  --rt-border-color
+
+               Every dim/soft variant derives from its OWN parent by opacity
+               alone — never by mixing in another hue.
+
+               This exists because linking type to Accent or BG is what made
+               the theme's yellow unchangeable: picking a dark Accent would
+               put dark text on a dark background with no way back. So:
+
+                 ALL TYPE   -> var(--rt-text) / var(--rt-text-dim)
+                 ALL BLOOM  -> var(--rt-glow) / rgba(var(--rt-glow-rgb), a)
+                 ALL FRAMES -> var(--rt-border) / var(--rt-border-strong)
+
+               Accent / Highlight / Panel colour fills, frames, brackets and
+               rails — the things that stay legible whatever hue you pick.
+               They must not be the only thing carrying a piece of text.
                ============================================================ */
 
-            /* Neon-on-dark tokens (always active — cyberpunk BG is always dark) */
             .retro-theme {
+                /* -- STRUCTURE (user-set) -- */
                 --rt-bg-1: #07091a;
                 --rt-bg-2: #11142b;
                 --rt-panel: rgba(8, 10, 26, 0.78);
                 --rt-panel-strong: rgba(8, 10, 26, 0.92);
-                --rt-text: #fff200;            /* signature cyberpunk yellow */
-                --rt-text-dim: rgba(255, 242, 0, 0.72);
+
+                /* -- ACCENTS (user-set) -- */
                 --rt-accent: #fff200;
                 --rt-accent-rgb: 255, 242, 0;
+                /* Highlight + Panel default to cyan until applyPreferences()
+                   writes them. Without these two pairs, every rule that
+                   consumes them would resolve to an invalid value. */
+                --rt-cyber-hl: var(--rt-cyan, #00e5ff);
+                --rt-cyber-hl-rgb: var(--rt-cyan-rgb, 0, 229, 255);
+                --rt-cyber-panel: var(--rt-cyan, #00e5ff);
+                --rt-cyber-panel-rgb: var(--rt-cyan-rgb, 0, 229, 255);
+
+                /* -- LEGIBILITY (user-set, independent of everything above) -- */
+                --rt-text: #fff200;
+                --rt-text-rgb: 255, 242, 0;
+                --rt-glow-color: #fff200;
+                --rt-glow-rgb: 255, 242, 0;
+                --rt-border-color: #fff200;
+                --rt-border-rgb: 255, 242, 0;
+
+                /* -- Fixed signal hues: status only, never load-bearing for text -- */
                 --rt-cyan: #00e5ff;
                 --rt-cyan-rgb: 0, 229, 255;
                 --rt-magenta: #ff2a6d;
                 --rt-magenta-rgb: 255, 42, 109;
                 --rt-lime: #05ffa1;
                 --rt-lime-rgb: 5, 255, 161;
-                --rt-border: rgba(255, 242, 0, 0.32);
-                --rt-border-strong: rgba(255, 242, 0, 0.7);
-                --rt-grid: rgba(255, 242, 0, 0.06);
-                --rt-glow: 0 0 18px rgba(255, 242, 0, 0.35);
-                --rt-scanline: rgba(0, 229, 255, 0.04);
+
+                /* -- DERIVED: opacity off their own parent, no cross-hue mixing -- */
+                --rt-text-dim: rgba(var(--rt-text-rgb), 0.72);
+                --rt-text-faint: rgba(var(--rt-text-rgb), 0.45);
+                --rt-border: rgba(var(--rt-border-rgb), 0.32);
+                --rt-border-strong: rgba(var(--rt-border-rgb), 0.70);
+                --rt-grid: rgba(var(--rt-border-rgb), 0.06);
+                --rt-glow-mul: 0.6;
+                --rt-glow: 0 0 18px rgba(var(--rt-glow-rgb), calc(0.58 * var(--rt-glow-mul)));
+                --rt-glow-soft: 0 0 9px rgba(var(--rt-glow-rgb), calc(0.40 * var(--rt-glow-mul)));
+                --rt-scanline: rgba(var(--rt-border-rgb), 0.05);
+
+                /* -- RUNTIME: written per frame by the analyser (cyber-audio.js) -- */
+                --rt-beat: 0;
             }
 
-            /* Shared HUD clip-path with notched corners (top-left + bottom-right) */
-            .retro-theme {
+            /* ============================================================
+               PANEL SHAPE — set by userPreferences.cyberPanelShape via the
+               .rt-shape-* class on #total-time-summary.
+
+               clip-path clips overflow AND box-shadow, so it is applied only
+               to elements with nothing escaping their box: stat cards, the
+               table, the completion chip, buttons, the EQ rail. The outer
+               container and the side panels keep border-radius only — they
+               hold tooltips (z-index 9999), game canvases, trays and
+               popovers, and clipping those is how the original theme ended
+               up with two dead "clip-path: none !important" resets.
+               ============================================================ */
+
+            .retro-theme,
+            .retro-theme.rt-shape-rounded {
+                --rt-radius: 14px;
+                --rt-radius-sm: 10px;
+                --rt-cut: 0px;
+                --rt-clip: none;
+                --rt-bk-inset: 7px;
+            }
+
+            .retro-theme.rt-shape-chamfered {
+                --rt-radius: 4px;
+                --rt-radius-sm: 3px;
+                --rt-cut: 16px;
                 --rt-clip: polygon(
-                    14px 0,
-                    100% 0,
-                    100% calc(100% - 14px),
-                    calc(100% - 14px) 100%,
-                    0 100%,
-                    0 14px
+                    var(--rt-cut) 0,
+                    calc(100% - var(--rt-cut)) 0,
+                    100% var(--rt-cut),
+                    100% calc(100% - var(--rt-cut)),
+                    calc(100% - var(--rt-cut)) 100%,
+                    var(--rt-cut) 100%,
+                    0 calc(100% - var(--rt-cut)),
+                    0 var(--rt-cut)
                 );
+                --rt-bk-inset: 4px;
             }
 
-            /* ---- Main container ---- */
+            .retro-theme.rt-shape-notched {
+                --rt-radius: 2px;
+                --rt-radius-sm: 2px;
+                --rt-cut: 14px;
+                --rt-clip: polygon(
+                    var(--rt-cut) 0,
+                    100% 0,
+                    100% calc(100% - var(--rt-cut)),
+                    calc(100% - var(--rt-cut)) 100%,
+                    0 100%,
+                    0 var(--rt-cut)
+                );
+                --rt-bk-inset: 4px;
+            }
+
+            /* ============================================================
+               CORNER BRACKETS — eight background layers, zero extra DOM.
+
+               ::before and ::after are already spoken for on nearly every
+               panel (top rail, scanlines, shimmer bar, sweep), so brackets
+               are composed as background layers instead. That also means
+               they are identical under all three panel shapes, and they
+               compose under the glass tint rather than replacing it.
+
+               Usage:  background: var(--rt-brackets), <the panel tint>;
+               ============================================================ */
+
+            .retro-theme {
+                --rt-bk-len: 13px;
+                --rt-bk-w: 2px;
+                --rt-bk-c: rgba(var(--rt-border-rgb), 0.85);
+                --rt-brackets:
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        left var(--rt-bk-inset) top var(--rt-bk-inset) /
+                        var(--rt-bk-len) var(--rt-bk-w) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        left var(--rt-bk-inset) top var(--rt-bk-inset) /
+                        var(--rt-bk-w) var(--rt-bk-len) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        right var(--rt-bk-inset) top var(--rt-bk-inset) /
+                        var(--rt-bk-len) var(--rt-bk-w) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        right var(--rt-bk-inset) top var(--rt-bk-inset) /
+                        var(--rt-bk-w) var(--rt-bk-len) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        left var(--rt-bk-inset) bottom var(--rt-bk-inset) /
+                        var(--rt-bk-len) var(--rt-bk-w) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        left var(--rt-bk-inset) bottom var(--rt-bk-inset) /
+                        var(--rt-bk-w) var(--rt-bk-len) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        right var(--rt-bk-inset) bottom var(--rt-bk-inset) /
+                        var(--rt-bk-len) var(--rt-bk-w) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        right var(--rt-bk-inset) bottom var(--rt-bk-inset) /
+                        var(--rt-bk-w) var(--rt-bk-len) no-repeat;
+
+                /* Faint hex lattice + circuit traces, for panel backdrops. */
+                --rt-hex:
+                    repeating-linear-gradient(60deg,
+                        var(--rt-grid) 0 1px, transparent 1px 22px),
+                    repeating-linear-gradient(-60deg,
+                        var(--rt-grid) 0 1px, transparent 1px 22px),
+                    repeating-linear-gradient(0deg,
+                        var(--rt-grid) 0 1px, transparent 1px 19px);
+            }
+
+            /* ============================================================
+               KEYFRAMES — all rt-prefixed so they cannot collide with the
+               shared glassmorphic set.
+
+               Every one animates transform, opacity, filter or
+               background-position ONLY. Nothing here animates box-shadow:
+               an animated box-shadow overrides the static declaration
+               outright, which is exactly how the old "neonPulse 5s" made
+               all four declared layers of the stat-card shadow invisible.
+               ============================================================ */
+
+            @keyframes rtRailFlow {
+                0%   { background-position: 0% 50%; }
+                100% { background-position: 300% 50%; }
+            }
+
+            @keyframes rtScanDrift {
+                0%   { transform: translateY(0); }
+                100% { transform: translateY(4px); }
+            }
+
+            /* A bright band crossing a panel top-to-bottom, like a sensor
+               refreshing. transform-only so it never triggers layout. */
+            @keyframes rtPanelSweep {
+                0%       { transform: translateY(-110%); opacity: 0; }
+                8%       { opacity: 0.85; }
+                55%      { opacity: 0.55; }
+                100%     { transform: translateY(360%); opacity: 0; }
+            }
+
+            /* Replaces the inherited glass cardShimmer, which animated
+               "left" and therefore triggered layout every frame. */
+            @keyframes rtCardShimmer {
+                0%   { transform: translateX(-100%); }
+                100% { transform: translateX(220%); }
+            }
+
+            @keyframes rtMeterSweep {
+                0%   { transform: translateX(-120%); }
+                100% { transform: translateX(280%); }
+            }
+
+            /* Chromatic aberration on the title: mostly still, with brief
+               bursts, so it reads as a signal fault rather than a wobble. */
+            @keyframes rtGlitch {
+                0%, 88%, 100% {
+                    transform: translate(0, 0) skewX(0deg);
+                    opacity: 1;
+                }
+                89% { transform: translate(-2px, 1px) skewX(-1.4deg); opacity: 0.92; }
+                91% { transform: translate(2px, -1px) skewX(1.2deg); }
+                93% { transform: translate(-1px, 0) skewX(0deg); opacity: 1; }
+                95% { transform: translate(1px, 1px) skewX(0.8deg); opacity: 0.96; }
+                97% { transform: translate(0, 0) skewX(0deg); opacity: 1; }
+            }
+
+            @keyframes rtGhostL {
+                0%, 88%, 100% { transform: translate(0, 0); opacity: 0; }
+                89%           { transform: translate(-3px, 0); opacity: 0.75; }
+                93%           { transform: translate(-2px, 1px); opacity: 0.5; }
+                97%           { transform: translate(0, 0); opacity: 0; }
+            }
+
+            @keyframes rtGhostR {
+                0%, 88%, 100% { transform: translate(0, 0); opacity: 0; }
+                89%           { transform: translate(3px, 0); opacity: 0.75; }
+                93%           { transform: translate(2px, -1px); opacity: 0.5; }
+                97%           { transform: translate(0, 0); opacity: 0; }
+            }
+
+            /* Panel boot-in: a scan-reveal, applied by adding .rt-booting and
+               removed on animationend so it can re-trigger. */
+            @keyframes rtBoot {
+                0% {
+                    opacity: 0;
+                    transform: translateY(6px) scaleY(0.94);
+                    filter: brightness(2.4) saturate(0.2);
+                }
+                40% { opacity: 1; filter: brightness(1.5) saturate(0.7); }
+                100% {
+                    opacity: 1;
+                    transform: translateY(0) scaleY(1);
+                    filter: none;
+                }
+            }
+
+            @keyframes rtBracketBreathe {
+                0%, 100% { opacity: 0.55; }
+                50%      { opacity: 1; }
+            }
+
+            @keyframes rtTicker {
+                0%   { transform: translateX(0); }
+                100% { transform: translateX(-50%); }
+            }
+
+            /* ============================================================
+               MAIN CONTAINER
+               ============================================================ */
+
             .attendance-summary.retro-theme {
                 background:
+                    var(--rt-hex),
                     linear-gradient(135deg, var(--rt-bg-1) 0%, var(--rt-bg-2) 100%) !important;
                 color: var(--rt-text) !important;
                 border: 1px solid var(--rt-border-strong) !important;
-                border-radius: 4px !important;
+                border-radius: var(--rt-radius) !important;
                 box-shadow:
-                    0 8px 32px rgba(0, 0, 0, 0.12),
+                    0 8px 32px rgba(0, 0, 0, 0.45),
                     inset 0 0 0 1px var(--rt-border),
+                    inset 0 0 80px rgba(var(--rt-glow-rgb), calc(0.05 * var(--rt-glow-mul))),
                     var(--rt-glow) !important;
                 position: relative;
                 overflow: hidden;
+                /* Beat coupling. filter composites with the declared
+                   box-shadow instead of replacing it. */
+                filter: drop-shadow(0 0 calc(3px + 13px * var(--rt-beat))
+                        rgba(var(--rt-glow-rgb), calc(0.30 * var(--rt-glow-mul) * var(--rt-beat))));
+                transition: filter 90ms linear;
             }
 
-            /* Top accent bar — animated RGB flow */
+            /* Top rail — flowing accents plus a hotter core on the beat. */
             .attendance-summary.retro-theme::before {
                 background: linear-gradient(
                     90deg,
@@ -67,17 +318,19 @@
                     transparent 100%
                 ) !important;
                 background-size: 300% 100% !important;
-                height: 3px !important;
-                animation: rgbFlowBacklight 4s linear infinite !important;
-                z-index: 2;
+                height: calc(3px + 2px * var(--rt-beat)) !important;
+                animation: rtRailFlow 4s linear infinite !important;
+                filter: drop-shadow(0 0 calc(3px + 9px * var(--rt-beat))
+                        rgba(var(--rt-glow-rgb), calc(0.7 * var(--rt-glow-mul))));
+                z-index: 3;
                 opacity: 1;
             }
 
-            /* Background scanlines overlay (subtle CRT feel — no grid tiles) */
+            /* CRT layer: scanlines + corner vignette, drifting. */
             .attendance-summary.retro-theme::after {
                 content: '';
                 position: absolute;
-                inset: 0;
+                inset: -4px 0 0 0;
                 background:
                     repeating-linear-gradient(
                         0deg,
@@ -85,14 +338,41 @@
                         transparent 1px,
                         transparent 3px,
                         var(--rt-scanline) 4px
+                    ),
+                    radial-gradient(
+                        130% 100% at 50% 50%,
+                        transparent 52%,
+                        rgba(0, 0, 0, 0.42) 100%
                     );
-                animation: scanlines 10s linear infinite;
+                animation: rtScanDrift 1.1s steps(4, end) infinite;
                 pointer-events: none;
-                z-index: 0;
-                opacity: 0.55;
+                z-index: 4;
+                opacity: 0.62;
             }
 
-            /* User background image overlay (set via JS inline style on a pseudo-like div) */
+            /* Bottom index rail — the counterpart to ::before, as a
+               background layer since both pseudo-elements are taken. */
+            .attendance-summary.retro-theme .main-attendance-content::after {
+                content: '';
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: -6px;
+                height: 1px;
+                background: linear-gradient(
+                    90deg,
+                    transparent,
+                    rgba(var(--rt-border-rgb), 0.5) 20%,
+                    var(--rt-cyber-hl) 50%,
+                    rgba(var(--rt-border-rgb), 0.5) 80%,
+                    transparent
+                );
+                background-size: 300% 100%;
+                animation: rtRailFlow 6s linear infinite reverse;
+                pointer-events: none;
+            }
+
+            /* User background image overlay (JS sets the url + opacity). */
             .attendance-summary.retro-theme .cyber-bg-image {
                 position: absolute;
                 inset: 0;
@@ -115,56 +395,167 @@
                 z-index: 1;
             }
 
-            /* Center panel sits above side panels so the tooltip is never clipped */
+            /* Centre column above the side panels so the tooltip is never clipped. */
             .attendance-summary.retro-theme .main-attendance-content {
                 position: relative;
                 z-index: 2;
             }
 
-            /* Developer-info & tooltip must stack above all panels */
             .attendance-summary.retro-theme .developer-info {
                 position: relative;
                 z-index: 10;
             }
 
             .attendance-summary.retro-theme .developer-info:hover {
-                z-index: 10;
+                z-index: 1000;
             }
 
             .attendance-summary.retro-theme .developer-tooltip {
                 z-index: 9999 !important;
             }
 
-            /* ---- Title ---- */
+            /* Boot-in scan reveal. The class is added on theme apply and on
+               Game Mode toggle, then removed on animationend. */
+            .attendance-summary.retro-theme.rt-booting .modern-table,
+            .attendance-summary.retro-theme.rt-booting .stat-card,
+            .attendance-summary.retro-theme.rt-booting .progress-bar,
+            .attendance-summary.retro-theme.rt-booting .snake-game-container,
+            .attendance-summary.retro-theme.rt-booting .quotes-container,
+            .attendance-summary.retro-theme.rt-booting .xp-container,
+            .attendance-summary.retro-theme.rt-booting .image-box-container {
+                animation: rtBoot 520ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+            }
+
+            .attendance-summary.retro-theme.rt-booting .stat-card:nth-of-type(2) {
+                animation-delay: 70ms;
+            }
+
+            .attendance-summary.retro-theme.rt-booting .stat-card:nth-of-type(3) {
+                animation-delay: 140ms;
+            }
+
+            /* ============================================================
+               TITLE — glitch / RGB split
+               The ghosts are drawn with text-shadow on two pseudo-elements
+               that copy the text via a data attribute set in JS; where that
+               attribute is absent the title still renders normally.
+               ============================================================ */
+
             .attendance-summary.retro-theme .summary-title {
                 font-family: 'Orbitron', sans-serif !important;
                 font-weight: 800 !important;
                 letter-spacing: 0.18em !important;
                 text-transform: uppercase !important;
-                color: var(--rt-accent) !important;
+                color: var(--rt-text) !important;
                 background: none !important;
                 -webkit-background-clip: unset !important;
-                -webkit-text-fill-color: var(--rt-accent) !important;
+                -webkit-text-fill-color: var(--rt-text) !important;
+                background-clip: unset !important;
                 text-shadow:
-                    0 0 1px var(--rt-accent),
+                    0 0 1px var(--rt-text),
                     var(--rt-glow) !important;
+                position: relative;
+                animation: rtGlitch 7s steps(1, end) infinite !important;
+            }
+
+            .attendance-summary.retro-theme .summary-title::before,
+            .attendance-summary.retro-theme .summary-title::after {
+                content: attr(data-rt-text);
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+                -webkit-text-fill-color: currentColor;
+                background: none;
+                text-shadow: none;
+                opacity: 0;
+            }
+
+            .attendance-summary.retro-theme .summary-title::before {
+                color: var(--rt-cyan);
+                animation: rtGhostL 7s steps(1, end) infinite;
+            }
+
+            .attendance-summary.retro-theme .summary-title::after {
+                color: var(--rt-magenta);
+                animation: rtGhostR 7s steps(1, end) infinite;
             }
 
             .attendance-summary.retro-theme .emoji-display {
-                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25)) drop-shadow(0 0 8px rgba(var(--rt-accent-rgb), 0.45)) !important;
+                filter:
+                    drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25))
+                    drop-shadow(0 0 calc(6px + 8px * var(--rt-beat))
+                        rgba(var(--rt-glow-rgb), calc(0.7 * var(--rt-glow-mul)))) !important;
             }
 
-            /* ---- Table ---- */
+            /* ============================================================
+               HUD CHROME — mono micro-labels. Decorative only: they carry no
+               information the user needs, so they are safe to render in the
+               dim text tone.
+               ============================================================ */
+
+            .attendance-summary.retro-theme .rt-chip {
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.58rem;
+                letter-spacing: 0.16em;
+                text-transform: uppercase;
+                color: var(--rt-text-faint);
+                border: 1px solid rgba(var(--rt-border-rgb), 0.28);
+                border-radius: 2px;
+                padding: 1px 5px;
+                white-space: nowrap;
+                user-select: none;
+                pointer-events: none;
+            }
+
+            .attendance-summary.retro-theme .rt-chip.is-ok {
+                color: rgba(var(--rt-lime-rgb), 0.85);
+                border-color: rgba(var(--rt-lime-rgb), 0.35);
+            }
+
+            .attendance-summary.retro-theme .rt-chip.is-warn {
+                color: rgba(var(--rt-magenta-rgb), 0.9);
+                border-color: rgba(var(--rt-magenta-rgb), 0.4);
+            }
+
+            /* Thin index rail down the left edge of a panel. */
+            .attendance-summary.retro-theme .rt-railed {
+                border-left: 1px solid rgba(var(--rt-border-rgb), 0.22) !important;
+                background-image:
+                    repeating-linear-gradient(
+                        180deg,
+                        rgba(var(--rt-border-rgb), 0.5) 0 1px,
+                        transparent 1px 9px
+                    );
+                background-repeat: no-repeat;
+                background-size: 3px 100%;
+                background-position: left 2px top 0;
+            }
+
+            /* ============================================================
+               TABLE
+               (one rule only — the original carried a duplicate declared
+               later that silently reset radius 2px to 10px and cancelled
+               its own clip-path)
+               ============================================================ */
+
             .attendance-summary.retro-theme .modern-table {
-                background: var(--rt-panel) !important;
-                border: 1px solid var(--rt-border) !important;
-                border-radius: 2px !important;
+                background:
+                    var(--rt-brackets),
+                    linear-gradient(135deg,
+                        rgba(var(--rt-cyber-panel-rgb), 0.10),
+                        rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
+                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
+                border-radius: var(--rt-radius-sm) !important;
                 clip-path: var(--rt-clip);
+                backdrop-filter: blur(14px) saturate(140%) !important;
+                -webkit-backdrop-filter: blur(14px) saturate(140%) !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.08),
-                    0 4px 16px rgba(0, 0, 0, 0.08) !important;
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
+                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
+                    0 8px 32px rgba(0, 0, 0, 0.28),
+                    0 2px 6px rgba(0, 0, 0, 0.10) !important;
+                position: relative;
+                overflow: hidden;
             }
 
             .attendance-summary.retro-theme .modern-table thead {
@@ -181,8 +572,8 @@
                 font-weight: 700 !important;
                 letter-spacing: 0.14em !important;
                 text-transform: uppercase !important;
-                color: var(--rt-accent) !important;
-                text-shadow: var(--rt-glow) !important;
+                color: var(--rt-text) !important;
+                text-shadow: var(--rt-glow-soft) !important;
                 font-size: 0.72rem !important;
             }
 
@@ -192,133 +583,163 @@
                 border-bottom: 1px solid var(--rt-border) !important;
             }
 
-            /* ---- Stat cards — Glassmorphic 3D HUD panels ---- */
+            /* ============================================================
+               STAT CARDS
+
+               The old rule carried "animation: neonPulse 5s ... !important",
+               which animates box-shadow. An animated property beats the
+               static declaration, so all four declared shadow layers here
+               and every per-card shadow below never rendered, and the pulse
+               ignored the user's colours entirely. The breathing glow is now
+               a filter, which composites on top instead of replacing.
+               ============================================================ */
+
             .attendance-summary.retro-theme .stat-card {
-                background: rgba(var(--rt-accent-rgb), 0.04) !important;
+                background:
+                    var(--rt-brackets),
+                    rgba(var(--rt-accent-rgb), 0.05) !important;
                 border: 1px solid rgba(var(--rt-accent-rgb), 0.22) !important;
-                border-radius: 8px !important;
+                border-radius: var(--rt-radius-sm) !important;
+                clip-path: var(--rt-clip);
                 box-shadow:
                     inset 0 1px 0 rgba(255, 255, 255, 0.06),
                     inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.08),
-                    0 8px 32px rgba(0, 0, 0, 0.18),
+                    0 8px 32px rgba(0, 0, 0, 0.28),
                     0 2px 6px rgba(0, 0, 0, 0.12) !important;
                 backdrop-filter: blur(14px) saturate(130%);
                 -webkit-backdrop-filter: blur(14px) saturate(130%);
-                animation: neonPulse 5s ease-in-out infinite !important;
                 position: relative !important;
+                overflow: hidden;
                 transform: perspective(600px) rotateX(1deg);
-                transition: transform 0.3s ease, box-shadow 0.3s ease;
+                transition: transform 0.3s ease, box-shadow 0.3s ease, filter 90ms linear;
+                filter: drop-shadow(0 0 calc(2px + 10px * var(--rt-beat))
+                        rgba(var(--rt-glow-rgb), calc(0.34 * var(--rt-glow-mul) * var(--rt-beat))));
             }
+
             .attendance-summary.retro-theme .stat-card:hover {
                 transform: perspective(600px) rotateX(0deg) translateY(-2px);
                 box-shadow:
                     inset 0 1px 0 rgba(255, 255, 255, 0.09),
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.14),
-                    0 12px 40px rgba(0, 0, 0, 0.25),
+                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.16),
+                    0 12px 40px rgba(0, 0, 0, 0.35),
                     0 4px 12px rgba(0, 0, 0, 0.15) !important;
             }
 
-            /* Corner HUD bracket marker */
+            /* Hover shimmer — retargeted off the glass keyframe, which
+               animated "left" and so triggered layout on every frame. */
+            .attendance-summary.retro-theme .stat-card::before {
+                left: 0 !important;
+                width: 45% !important;
+                height: 2px !important;
+                background: linear-gradient(
+                    90deg,
+                    transparent,
+                    var(--rt-cyber-hl),
+                    var(--rt-accent),
+                    var(--rt-cyber-panel),
+                    transparent
+                ) !important;
+                animation: rtCardShimmer 1.6s ease-in-out infinite !important;
+                transform: translateX(-100%);
+                z-index: 2;
+                /* The base glass rule sets opacity:0 and reveals this only on
+                   hover, which is why the shimmer read as "not animating".
+                   Always visible here, brighter on hover. */
+                opacity: 0.55 !important;
+            }
+
+            .attendance-summary.retro-theme .stat-card:hover::before {
+                opacity: 1 !important;
+            }
+
+            /* Sensor sweep — a band crossing the card, always running. */
             .attendance-summary.retro-theme .stat-card::after {
                 content: '';
                 position: absolute;
-                top: 6px;
-                right: 10px;
-                width: 10px;
-                height: 10px;
-                background: var(--card-accent, var(--rt-accent));
-                clip-path: polygon(0 0, 100% 0, 100% 30%, 30% 30%, 30% 100%, 0 100%);
-                opacity: 0.85;
+                inset: 0 0 auto 0;
+                height: 34%;
+                background: linear-gradient(
+                    180deg,
+                    transparent,
+                    rgba(var(--rt-cyber-hl-rgb), 0.13),
+                    transparent
+                );
+                clip-path: none;
+                animation: rtPanelSweep 5.5s ease-in-out infinite;
                 pointer-events: none;
+                z-index: 1;
+                opacity: 0;
             }
 
+            .attendance-summary.retro-theme .stat-card:nth-of-type(2)::after {
+                animation-delay: 1.8s;
+            }
+
+            .attendance-summary.retro-theme .stat-card:nth-of-type(3)::after {
+                animation-delay: 3.6s;
+            }
+
+            /* Per-card identity lives in the frame and bracket, never in the
+               type — a dark Highlight must not be able to hide a number. */
             .attendance-summary.retro-theme .stat-card.worked-time-card {
-                --card-accent: var(--rt-cyber-hl);
-                --card-accent-rgb: var(--rt-cyber-hl-rgb);
-                background: rgba(var(--rt-cyber-hl-rgb), 0.06) !important;
+                --rt-bk-c: rgba(var(--rt-cyber-hl-rgb), 0.9);
                 border-color: rgba(var(--rt-cyber-hl-rgb), 0.35) !important;
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-cyber-hl-rgb), 0.12),
-                    0 8px 32px rgba(var(--rt-cyber-hl-rgb), 0.10),
-                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
             }
 
             .attendance-summary.retro-theme .stat-card.remaining-time-card {
-                --card-accent: var(--rt-accent);
-                --card-accent-rgb: var(--rt-accent-rgb);
-                background: rgba(var(--rt-accent-rgb), 0.06) !important;
+                --rt-bk-c: rgba(var(--rt-accent-rgb), 0.9);
                 border-color: rgba(var(--rt-accent-rgb), 0.35) !important;
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.12),
-                    0 8px 32px rgba(var(--rt-accent-rgb), 0.10),
-                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
             }
 
             .attendance-summary.retro-theme .stat-card.completion-time-card {
-                --card-accent: var(--rt-cyber-panel);
-                --card-accent-rgb: var(--rt-cyber-panel-rgb);
-                background: rgba(var(--rt-cyber-panel-rgb), 0.06) !important;
+                --rt-bk-c: rgba(var(--rt-cyber-panel-rgb), 0.9);
                 border-color: rgba(var(--rt-cyber-panel-rgb), 0.35) !important;
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
-                    0 8px 32px rgba(var(--rt-cyber-panel-rgb), 0.10),
-                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
             }
 
             .attendance-summary.retro-theme .stat-label {
-                color: var(--card-accent, var(--rt-cyber-hl)) !important;
-                opacity: 0.85;
+                color: var(--rt-text-dim) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 font-weight: 700 !important;
                 letter-spacing: 0.18em !important;
                 text-transform: uppercase !important;
                 text-shadow: none !important;
+                position: relative;
+                z-index: 2;
             }
 
-            .attendance-summary.retro-theme .stat-value {
-                color: var(--card-accent, var(--rt-accent)) !important;
+            .attendance-summary.retro-theme .stat-value,
+            .attendance-summary.retro-theme .worked-time,
+            .attendance-summary.retro-theme .remaining-time,
+            .attendance-summary.retro-theme .completion-time {
+                color: var(--rt-text) !important;
                 font-family: 'Share Tech Mono', monospace !important;
                 font-weight: 700 !important;
                 letter-spacing: 0.04em !important;
                 text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 12px rgba(var(--rt-accent-rgb), 0.35) !important;
+                    0 1px 0 rgba(0, 0, 0, 0.35),
+                    var(--rt-glow) !important;
+                position: relative;
+                z-index: 2;
             }
 
-            .attendance-summary.retro-theme .worked-time {
-                color: var(--rt-cyber-hl) !important;
-                text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 14px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
-            }
+            /* ============================================================
+               PROGRESS BAR — segmented tick meter
+               ============================================================ */
 
-            .attendance-summary.retro-theme .remaining-time {
-                color: var(--rt-accent) !important;
-                text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 14px rgba(var(--rt-accent-rgb), 0.45) !important;
-            }
-
-            .attendance-summary.retro-theme .completion-time {
-                color: var(--rt-cyber-panel) !important;
-                text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 14px rgba(var(--rt-cyber-panel-rgb), 0.45) !important;
-            }
-
-            /* ---- Progress bar ---- */
             .attendance-summary.retro-theme .progress-bar {
-                background: linear-gradient(135deg,
-                    rgba(var(--rt-cyber-panel-rgb), 0.10),
-                    rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
+                background:
+                    var(--rt-brackets),
+                    linear-gradient(135deg,
+                        rgba(var(--rt-cyber-panel-rgb), 0.10),
+                        rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
                 border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
-                border-radius: 6px !important;
+                border-radius: var(--rt-radius-sm) !important;
+                --rt-bk-inset: 3px;
+                --rt-bk-len: 8px;
                 backdrop-filter: blur(8px) saturate(130%) !important;
                 -webkit-backdrop-filter: blur(8px) saturate(130%) !important;
-                box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.12) !important;
+                box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+                overflow: hidden;
             }
 
             .attendance-summary.retro-theme .progress-fill {
@@ -330,43 +751,126 @@
                     var(--rt-cyber-hl)
                 ) !important;
                 background-size: 300% 100% !important;
-                animation: rgbFlowBacklight 3s linear infinite !important;
+                animation: rtRailFlow 3s linear infinite !important;
                 box-shadow:
-                    0 0 10px rgba(var(--rt-accent-rgb), 0.5),
+                    0 0 10px rgba(var(--rt-glow-rgb), calc(0.8 * var(--rt-glow-mul))),
                     inset 0 0 6px rgba(255, 255, 255, 0.25) !important;
                 position: relative;
                 overflow: hidden;
+                /* Tick segments — no extra DOM. */
+                -webkit-mask-image: repeating-linear-gradient(
+                    90deg, #000 0 6px, transparent 6px 9px);
+                mask-image: repeating-linear-gradient(
+                    90deg, #000 0 6px, transparent 6px 9px);
             }
 
             .attendance-summary.retro-theme .progress-fill::after {
                 content: '' !important;
                 position: absolute !important;
                 top: 0 !important;
-                left: -100% !important;
-                width: 60% !important;
+                left: 0 !important;
+                width: 55% !important;
                 height: 100% !important;
                 background: linear-gradient(
                     90deg,
                     transparent,
-                    rgba(255, 255, 255, 0.4),
+                    rgba(255, 255, 255, 0.45),
                     transparent
                 ) !important;
-                animation: progressShimmer 2s ease-in-out infinite !important;
+                transform: translateX(-120%);
+                animation: rtMeterSweep 2s ease-in-out infinite !important;
             }
 
-            /* ---- Buttons / chips ---- */
+            /* ============================================================
+               AUDIO SPECTRUM RAIL
+               Lives inside .main-attendance-content so Game Mode keeps it —
+               Game Mode collapses .left-panel and .right-panel only.
+               ============================================================ */
+
+            .attendance-summary:not(.retro-theme) .cyber-eq-wrap {
+                display: none !important;
+            }
+
+            .attendance-summary.retro-theme .cyber-eq-wrap {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin: 8px 0 10px;
+                padding: 4px 8px;
+                position: relative;
+                z-index: 2;
+                background:
+                    var(--rt-brackets),
+                    linear-gradient(135deg,
+                        rgba(var(--rt-cyber-panel-rgb), 0.09),
+                        rgba(var(--rt-cyber-panel-rgb), 0.03));
+                border: 1px solid rgba(var(--rt-border-rgb), 0.24);
+                border-radius: var(--rt-radius-sm);
+                clip-path: var(--rt-clip);
+                --rt-bk-inset: 3px;
+                --rt-bk-len: 9px;
+            }
+
+            .attendance-summary.retro-theme #cyber-eq {
+                display: block;
+                flex: 1 1 auto;
+                width: 100%;
+                height: 26px;
+                image-rendering: pixelated;
+                filter: drop-shadow(0 0 calc(2px + 7px * var(--rt-beat))
+                        rgba(var(--rt-glow-rgb), calc(0.55 * var(--rt-glow-mul))));
+            }
+
+            .attendance-summary.retro-theme .cyber-eq-btn {
+                flex: 0 0 auto;
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.6rem;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: var(--rt-text);
+                background: rgba(var(--rt-cyber-panel-rgb), 0.14);
+                border: 1px solid rgba(var(--rt-border-rgb), 0.4);
+                border-radius: 2px;
+                padding: 3px 7px;
+                cursor: pointer;
+                transition: background 0.15s ease, box-shadow 0.15s ease;
+            }
+
+            .attendance-summary.retro-theme .cyber-eq-btn:hover {
+                background: rgba(var(--rt-accent-rgb), 0.2);
+                box-shadow: 0 0 10px rgba(var(--rt-glow-rgb), calc(0.5 * var(--rt-glow-mul)));
+            }
+
+            .attendance-summary.retro-theme .cyber-eq-btn.is-live {
+                border-color: rgba(var(--rt-lime-rgb), 0.6);
+                color: rgba(var(--rt-lime-rgb), 0.95);
+            }
+
+            .attendance-summary.retro-theme .cyber-eq-btn.is-sim {
+                border-color: rgba(var(--rt-magenta-rgb), 0.5);
+                color: rgba(var(--rt-magenta-rgb), 0.95);
+            }
+
+            /* ============================================================
+               BUTTONS / CHIPS
+               Outlined, not filled. A filled button needs dark type on a
+               bright fill, which breaks the moment someone picks a dark
+               Highlight — the exact failure this rework exists to remove.
+               ============================================================ */
+
             .attendance-summary.retro-theme .developer-info,
             .attendance-summary.retro-theme .settings-button {
                 background: linear-gradient(135deg,
                     rgba(var(--rt-cyber-panel-rgb), 0.14),
                     rgba(var(--rt-cyber-panel-rgb), 0.06)) !important;
                 border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.32) !important;
-                color: var(--rt-accent) !important;
+                border-radius: var(--rt-radius-sm) !important;
+                color: var(--rt-text) !important;
                 backdrop-filter: blur(10px) saturate(130%) !important;
                 -webkit-backdrop-filter: blur(10px) saturate(130%) !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.15),
-                    0 2px 6px rgba(0, 0, 0, 0.1) !important;
+                    inset 0 0 0 1px rgba(var(--rt-border-rgb), 0.15),
+                    0 2px 6px rgba(0, 0, 0, 0.25) !important;
             }
 
             .attendance-summary.retro-theme .developer-info:hover,
@@ -374,9 +878,8 @@
                 background: rgba(var(--rt-accent-rgb), 0.15) !important;
                 color: var(--rt-text) !important;
                 box-shadow:
-                    inset 0 0 0 1px var(--rt-accent),
-                    0 4px 12px rgba(var(--rt-accent-rgb), 0.35) !important;
-                z-index: 1000;
+                    inset 0 0 0 1px var(--rt-border-strong),
+                    0 4px 12px rgba(var(--rt-glow-rgb), calc(0.6 * var(--rt-glow-mul))) !important;
             }
 
             .attendance-summary.retro-theme .pip-button {
@@ -386,16 +889,18 @@
                     rgba(var(--rt-accent-rgb), 0.18)
                 ) !important;
                 border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.32) !important;
+                border-radius: var(--rt-radius-sm) !important;
                 color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 font-weight: 700 !important;
                 letter-spacing: 0.1em !important;
                 text-transform: uppercase !important;
+                text-shadow: var(--rt-glow-soft) !important;
                 backdrop-filter: blur(10px) saturate(130%) !important;
                 -webkit-backdrop-filter: blur(10px) saturate(130%) !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.2),
-                    0 2px 8px rgba(0, 0, 0, 0.12) !important;
+                    inset 0 0 0 1px rgba(var(--rt-border-rgb), 0.2),
+                    0 2px 8px rgba(0, 0, 0, 0.25) !important;
             }
 
             .attendance-summary.retro-theme .pip-button:hover {
@@ -405,38 +910,60 @@
                     rgba(var(--rt-accent-rgb), 0.35)
                 ) !important;
                 box-shadow:
-                    inset 0 0 0 1px var(--rt-accent),
-                    0 6px 18px rgba(var(--rt-accent-rgb), 0.35) !important;
+                    inset 0 0 0 1px var(--rt-border-strong),
+                    0 6px 18px rgba(var(--rt-glow-rgb), calc(0.6 * var(--rt-glow-mul))) !important;
             }
 
-            /* ---- Completion message ---- */
+            /* ============================================================
+               COMPLETION MESSAGE
+               ============================================================ */
+
             .attendance-summary.retro-theme .completion-message {
                 background: linear-gradient(
                     135deg,
                     rgba(var(--rt-cyber-panel-rgb), 0.18),
                     rgba(var(--rt-cyber-hl-rgb), 0.18)
                 ) !important;
-                border: 1px solid var(--rt-cyber-panel) !important;
-                border-radius: 2px !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: var(--rt-radius-sm) !important;
                 clip-path: var(--rt-clip);
-                color: var(--rt-cyber-panel) !important;
+                color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 font-weight: 700 !important;
                 letter-spacing: 0.06em !important;
                 text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 12px rgba(var(--rt-cyber-panel-rgb), 0.5) !important;
+                    0 1px 0 rgba(0, 0, 0, 0.35),
+                    var(--rt-glow) !important;
                 box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.2),
-                    0 4px 14px rgba(var(--rt-cyber-panel-rgb), 0.18) !important;
+                    inset 0 0 0 1px rgba(var(--rt-border-rgb), 0.2),
+                    0 4px 14px rgba(var(--rt-glow-rgb), calc(0.35 * var(--rt-glow-mul))) !important;
             }
 
-            /* ---- Side panels (snake/quotes/xp/image) inherit HUD tokens ---- */
+            /* ============================================================
+               SIDE PANELS
+               border-radius only, never clip-path: these hold game canvases,
+               trays, popovers and the achievements grid.
+               ============================================================ */
+
             .attendance-summary.retro-theme .snake-game-container,
             .attendance-summary.retro-theme .quotes-container,
             .attendance-summary.retro-theme .xp-container,
             .attendance-summary.retro-theme .image-box-container {
+                background:
+                    var(--rt-brackets),
+                    linear-gradient(135deg,
+                        rgba(var(--rt-cyber-panel-rgb), 0.10),
+                        rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
+                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
+                border-radius: var(--rt-radius) !important;
                 color: var(--rt-text);
+                backdrop-filter: blur(14px) saturate(140%);
+                -webkit-backdrop-filter: blur(14px) saturate(140%);
+                box-shadow:
+                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
+                    0 8px 32px rgba(0, 0, 0, 0.28),
+                    0 2px 6px rgba(0, 0, 0, 0.10) !important;
                 position: relative;
                 z-index: 1;
             }
@@ -445,171 +972,187 @@
             .attendance-summary.retro-theme .quotes-title,
             .attendance-summary.retro-theme .xp-title,
             .attendance-summary.retro-theme .image-box-title {
-                color: var(--rt-accent) !important;
+                color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 letter-spacing: 0.12em !important;
                 text-transform: uppercase !important;
+                text-shadow: var(--rt-glow-soft) !important;
             }
 
-            /* Ensure all secondary text inside retro-theme panels stays visible */
             .attendance-summary.retro-theme .snake-score {
                 color: var(--rt-text-dim) !important;
             }
+
             .attendance-summary.retro-theme .snake-canvas {
                 background: rgba(var(--rt-cyber-panel-rgb), 0.05) !important;
+                border-radius: var(--rt-radius-sm) !important;
             }
 
-            /* ---- User-customizable HUD color overrides ----
-               Fallback chain ensures legacy styling if --rt-cyber-hl isn't set yet. */
-            .attendance-summary.retro-theme {
-                --rt-cyber-hl: var(--rt-cyan, #00e5ff);
-                --rt-cyber-hl-rgb: var(--rt-cyan-rgb, 0, 229, 255);
-                --rt-cyber-panel: var(--rt-cyan, #00e5ff);
-                --rt-cyber-panel-rgb: var(--rt-cyan-rgb, 0, 229, 255);
-            }
+            /* ============================================================
+               XP / QUOTES / IMAGE PANELS
+               (these were hardcoded glassmorphic purple)
+               ============================================================ */
 
-            /* Modern table — glassmorphic with user panel tint */
-            .attendance-summary.retro-theme .modern-table {
-                background: linear-gradient(135deg,
-                    rgba(var(--rt-cyber-panel-rgb), 0.10),
-                    rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
-                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
-                border-radius: 10px !important;
-                clip-path: none !important;
-                backdrop-filter: blur(14px) saturate(140%) !important;
-                -webkit-backdrop-filter: blur(14px) saturate(140%) !important;
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
-                    0 8px 32px rgba(0, 0, 0, 0.18),
-                    0 2px 6px rgba(0, 0, 0, 0.10) !important;
-            }
-
-            /* Side panels — glassmorphic with user panel tint */
-            .attendance-summary.retro-theme .snake-game-container,
-            .attendance-summary.retro-theme .quotes-container,
-            .attendance-summary.retro-theme .xp-container,
-            .attendance-summary.retro-theme .image-box-container {
-                background: linear-gradient(135deg,
-                    rgba(var(--rt-cyber-panel-rgb), 0.10),
-                    rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
-                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
-                border-radius: 10px !important;
-                clip-path: none !important;
-                backdrop-filter: blur(14px) saturate(140%);
-                -webkit-backdrop-filter: blur(14px) saturate(140%);
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
-                    0 8px 32px rgba(0, 0, 0, 0.18),
-                    0 2px 6px rgba(0, 0, 0, 0.10) !important;
-            }
-
-            /* XP progress fill (was hardcoded purple) */
             .attendance-summary.retro-theme .xp-progress-fill {
                 background: linear-gradient(90deg,
                     var(--rt-cyber-hl) 0%,
                     var(--rt-accent) 50%,
                     var(--rt-cyber-hl) 100%) !important;
-                box-shadow: 0 0 12px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
+                box-shadow: 0 0 12px rgba(var(--rt-glow-rgb),
+                    calc(0.75 * var(--rt-glow-mul))) !important;
+                -webkit-mask-image: repeating-linear-gradient(
+                    90deg, #000 0 5px, transparent 5px 7px);
+                mask-image: repeating-linear-gradient(
+                    90deg, #000 0 5px, transparent 5px 7px);
             }
 
-            /* XP stat values (was hardcoded #6c5ce7 / #a29bfe purple) */
             .attendance-summary.retro-theme .xp-stat-value {
-                color: var(--rt-cyber-hl) !important;
+                color: var(--rt-text) !important;
+                text-shadow: var(--rt-glow-soft) !important;
             }
+
             .attendance-summary.retro-theme .xp-stat-label {
-                color: var(--rt-accent) !important;
-                opacity: 0.9;
+                color: var(--rt-text-dim) !important;
             }
+
             .attendance-summary.retro-theme .xp-info {
                 color: var(--rt-text-dim) !important;
             }
 
-            /* Quotes text — dynamic cyber colors */
             .attendance-summary.retro-theme .quote-text {
                 color: var(--rt-text) !important;
             }
+
             .attendance-summary.retro-theme .quote-author {
-                color: var(--rt-cyber-hl) !important;
-                opacity: 0.8;
+                color: var(--rt-text-dim) !important;
             }
+
             .attendance-summary.retro-theme .quote-add-btn {
                 background: rgba(var(--rt-cyber-panel-rgb), 0.12) !important;
-                border-color: rgba(var(--rt-cyber-panel-rgb), 0.3) !important;
-                color: var(--rt-accent) !important;
+                border-color: rgba(var(--rt-border-rgb), 0.3) !important;
+                border-radius: var(--rt-radius-sm) !important;
+                color: var(--rt-text) !important;
             }
 
-            /* Level badge (was hardcoded purple) */
             .attendance-summary.retro-theme .level-badge {
-                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
-                color: var(--rt-bg-1) !important;
-                box-shadow: 0 0 14px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
+                background: rgba(var(--rt-cyber-hl-rgb), 0.16) !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: var(--rt-radius-sm) !important;
+                color: var(--rt-text) !important;
+                text-shadow: var(--rt-glow-soft) !important;
+                box-shadow: 0 0 14px rgba(var(--rt-glow-rgb),
+                    calc(0.5 * var(--rt-glow-mul))) !important;
             }
 
-            /* View-all achievements button (was glassmorphic purple rgba) */
             .attendance-summary.retro-theme .xp-achievements-view-all {
                 background: linear-gradient(135deg,
                     rgba(var(--rt-cyber-hl-rgb), 0.22),
                     rgba(var(--rt-accent-rgb), 0.22)) !important;
-                border: 1px solid var(--rt-cyber-hl) !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: var(--rt-radius-sm) !important;
                 color: var(--rt-text) !important;
             }
+
             .attendance-summary.retro-theme .xp-achievements-view-all:hover {
                 background: linear-gradient(135deg,
                     rgba(var(--rt-cyber-hl-rgb), 0.45),
                     rgba(var(--rt-accent-rgb), 0.45)) !important;
-                box-shadow: 0 4px 14px rgba(var(--rt-cyber-hl-rgb), 0.4) !important;
+                box-shadow: 0 4px 14px rgba(var(--rt-glow-rgb),
+                    calc(0.6 * var(--rt-glow-mul))) !important;
             }
 
-            /* Aspect-ratio buttons (used aurora gradient) */
             .attendance-summary.retro-theme .aspect-ratio-btn {
                 background: var(--rt-panel) !important;
                 border: 1px solid var(--rt-border) !important;
+                border-radius: var(--rt-radius-sm) !important;
                 color: var(--rt-text) !important;
             }
+
             .attendance-summary.retro-theme .aspect-ratio-btn.active {
-                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
-                border-color: var(--rt-cyber-hl) !important;
-                color: var(--rt-bg-1) !important;
-                box-shadow: 0 4px 12px rgba(var(--rt-cyber-hl-rgb), 0.4) !important;
+                background: rgba(var(--rt-cyber-hl-rgb), 0.24) !important;
+                border-color: var(--rt-border-strong) !important;
+                color: var(--rt-text) !important;
+                box-shadow: 0 0 12px rgba(var(--rt-glow-rgb),
+                    calc(0.55 * var(--rt-glow-mul))) !important;
             }
 
-            /* Game switch tabs (aurora gradient on active) */
+            /* ============================================================
+               GAME CONTROLS
+               ============================================================ */
+
             .attendance-summary.retro-theme .game-switch-btn {
                 background: rgba(var(--rt-cyber-panel-rgb), 0.10) !important;
                 border-color: rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
+                border-radius: var(--rt-radius-sm) !important;
                 color: var(--rt-text-dim) !important;
             }
+
             .attendance-summary.retro-theme .game-switch-btn:hover {
                 background: rgba(var(--rt-cyber-hl-rgb), 0.18) !important;
-                border-color: var(--rt-cyber-hl) !important;
+                border-color: var(--rt-border-strong) !important;
                 color: var(--rt-text) !important;
             }
+
             .attendance-summary.retro-theme .game-switch-btn.active {
-                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
-                border-color: var(--rt-cyber-hl) !important;
-                color: var(--rt-bg-1) !important;
+                background: rgba(var(--rt-cyber-hl-rgb), 0.28) !important;
+                border-color: var(--rt-border-strong) !important;
+                color: var(--rt-text) !important;
+                box-shadow:
+                    inset 0 0 0 1px rgba(var(--rt-border-rgb), 0.4),
+                    0 0 12px rgba(var(--rt-glow-rgb), calc(0.5 * var(--rt-glow-mul))) !important;
             }
 
-            /* Snake / generic game-control buttons (Play / Reset / PvCPU / Max) */
             .attendance-summary.retro-theme .snake-btn {
-                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
-                color: var(--rt-bg-1) !important;
-                border: 1px solid var(--rt-cyber-hl) !important;
-            }
-            .attendance-summary.retro-theme .snake-btn:hover {
-                box-shadow: 0 4px 14px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
-                filter: brightness(1.1);
+                background: linear-gradient(135deg,
+                    rgba(var(--rt-cyber-hl-rgb), 0.22),
+                    rgba(var(--rt-accent-rgb), 0.18)) !important;
+                color: var(--rt-text) !important;
+                border: 1px solid rgba(var(--rt-border-rgb), 0.45) !important;
+                border-radius: var(--rt-radius-sm) !important;
+                text-shadow: var(--rt-glow-soft) !important;
             }
 
-            /* Settings modal elements follow cyberpunk colors */
+            .attendance-summary.retro-theme .snake-btn:hover {
+                background: linear-gradient(135deg,
+                    rgba(var(--rt-cyber-hl-rgb), 0.4),
+                    rgba(var(--rt-accent-rgb), 0.32)) !important;
+                box-shadow: 0 4px 14px rgba(var(--rt-glow-rgb),
+                    calc(0.65 * var(--rt-glow-mul))) !important;
+                filter: brightness(1.08);
+            }
+
+            /* ============================================================
+               SETTINGS MODAL — body-level, so it reads the vars mirrored
+               onto documentElement by applyPreferences().
+               ============================================================ */
+
             body:has(.retro-theme) .close-modal-button {
-                background: linear-gradient(135deg, var(--rt-cyber-hl, #00e5ff), var(--rt-accent, #fff200)) !important;
-                color: var(--rt-bg-1, #07091a) !important;
+                background: rgba(var(--rt-cyber-hl-rgb, 0, 229, 255), 0.2) !important;
+                border: 1px solid var(--rt-border-strong, rgba(255, 242, 0, 0.7)) !important;
+                color: var(--rt-text, #fff200) !important;
             }
+
             body:has(.retro-theme) .settings-title {
-                background: linear-gradient(135deg, var(--rt-cyber-hl, #00e5ff), var(--rt-accent, #fff200)) !important;
-                -webkit-background-clip: text !important;
-                -webkit-text-fill-color: transparent !important;
+                background: none !important;
+                -webkit-background-clip: unset !important;
+                background-clip: unset !important;
+                -webkit-text-fill-color: var(--rt-text, #fff200) !important;
+                color: var(--rt-text, #fff200) !important;
+                text-shadow: 0 0 12px rgba(var(--rt-glow-rgb, 255, 242, 0), 0.5) !important;
             }
+
+            /* Contrast guard readout in the Cyberpunk Colors row. It warns;
+               it never silently corrects a deliberate choice. */
+            .cyber-contrast-chip {
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.66rem;
+                letter-spacing: 0.06em;
+                padding: 2px 7px;
+                border-radius: 3px;
+                border: 1px solid currentColor;
+                white-space: nowrap;
+            }
+
+            .cyber-contrast-chip.is-pass { color: #05ffa1; }
+            .cyber-contrast-chip.is-warn { color: #ffb300; }
+            .cyber-contrast-chip.is-fail { color: #ff2a6d; }

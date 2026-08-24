@@ -4,26 +4,32 @@ Live checklist for the Cyberpunk HUD (`displayTheme: 'retro-futuristic'`) rework
 independent colour-token model so the signature yellow is finally changeable, a selectable
 panel geometry, a rebuilt animation layer, four new HUD motif groups, and a
 system-audio-reactive spectrum rail that drives the whole frame's pulse.
-
+reference site: https://www.magnific.com/free-photos-vectors/cyberpunk-ui
+Visit to take inspiration.
 Full rationale lives in the approved plan. This file tracks execution.
 
 ---
 
-## Status — in progress
+## Status — code complete, pending visual + portal verification
 
 | # | Step | State |
 |---|---|---|
 | 1 | `CYBERPUNK_HUD_PLAN.md` tracking file | ☑ |
-| 2 | Extract theme to `cyber-dev/` + `reinsert.js` + byte-identity assertion | ☐ |
-| 3 | Bug fixes that block the new features | ☐ |
-| 4 | Token model + Text/Glow/Border swatches + contrast guard | ☐ |
-| 5 | Panel Shape setting (Rounded / Chamfered / Notched) | ☐ |
-| 6 | Motifs — frame+shimmer, brackets+chrome, glitch+boot-in, meters+backdrop | ☐ |
-| 7 | Audio visualizer — tiered System → Mic → Procedural, `--rt-beat` | ☐ |
-| 8 | `cyber-verify.js` + register in `ludo-dev/verify-all.js` | ☐ |
-| 9 | Visual pass in `cyber-harness.html` | ☐ |
-| — | `BUILD_LABEL` v4 → **v5** | ☐ |
+| 2 | Extract theme to `cyber-dev/` + `reinsert.js` + byte-identity assertion | ☑ |
+| 3 | Bug fixes that block the new features | ☑ |
+| 4 | Token model + Text/Glow/Border swatches + contrast guard | ☑ |
+| 5 | Panel Shape setting (Rounded / Chamfered / Notched) | ☑ |
+| 6 | Motifs — frame+shimmer, brackets+chrome, glitch+boot-in, meters+backdrop | ☑ |
+| 7 | Audio visualizer — tiered System → Mic → Procedural, `--rt-beat` | ☑ |
+| 8 | `cyber-verify.js` + register in `ludo-dev/verify-all.js` | ☑ |
+| 9 | `cyber-harness.html` built; **visual pass still needs a human** | ☐ |
+| — | `BUILD_LABEL` v4 → **v5** | ☑ |
 | — | **Portal verification** (see below) | ☐ |
+| — | **Reference screenshots** — see the note below; blocked on assets | ☐ |
+
+`node ludo-dev/verify-all.js` → **1258 assertions passed, 0 failed** across 11 suites
+(221 of them the new Cyberpunk suite). Needs the Volta Node 22 image, not the default
+Node 10 — see `cyber-dev/README.md`.
 
 ---
 
@@ -71,16 +77,25 @@ the CSS was read closely.
 
 ### Reference material — a limitation worth recording
 
-The linked reference (`magnific.com/free-photos-vectors/cyberpunk-ui`) returns **403** to
-automated fetches, and `stellae.design`, `designmd.app`, `dev.to`, `daisyui` and `vecteezy`
-all fail TLS verification behind this machine's intercepting proxy. Those screens were never
-retrieved. The visual design is authored from the cyberpunk HUD idiom directly, cross-checked
-against the motif vocabulary search results corroborate: clipped corners, angular brackets,
+**The linked reference could not be retrieved, and this is not a tooling gap that trying
+harder fixes.** What was attempted:
+
+| Attempt | Result |
+|---|---|
+| `magnific.com/free-photos-vectors/cyberpunk-ui` | **403** — `<title>That request didn't go through. Our security filter flagged something.</title>` |
+| Same URL with a full Chrome 131 User-Agent + `Sec-Fetch-*` headers via curl | **403**, identical. Not a UA check — a server-side bot filter. |
+| `freepik.com` equivalents (same platform), `magnific.com/.../cyberpunk-hud-elements` | **403** |
+| `stellae.design`, `designmd.app`, `dev.to`, `trends.daisyui.com`, `vecteezy.com` | TLS failure — `unable to verify the first certificate`, an intercepting proxy on this machine |
+
+Getting past a site's security filter is not something to push on further, so the visual
+design is authored from the cyberpunk HUD idiom directly, cross-checked against the motif
+vocabulary that web-search snippets corroborate: clipped corners, angular brackets,
 segmented bars, CRT scanlines, chromatic aberration, monospace data readouts, and neon held
 to 15% surface coverage or less on near-black.
 
-**If exact fidelity to those specific screens matters, drop PNGs into `cyber-dev/ref/` and
-the visual pass gets redone against them.**
+**To design against those specific screens, the assets have to come in by hand** — paste the
+screenshots into the conversation, or drop PNGs into `cyber-dev/ref/`. Either way the visual
+pass gets redone against them. Everything else in this rework is independent of that.
 
 ---
 
@@ -142,7 +157,35 @@ The harness renders CSS honestly but cannot prove any of these; they need the re
 
 ## Bugs found during implementation and review
 
-*(to be filled as they surface — the three above are the pre-existing ones the rework fixes)*
+The three above are the pre-existing defects the rework fixes. These four surfaced while
+building it, and each now has an assertion.
+
+- **Folding the token blocks together silently dropped the Highlight/Panel defaults.** The
+  original declared `--rt-cyber-hl`/`--rt-cyber-panel` in a *second*, later `.retro-theme`
+  block that only existed to provide cyan fallbacks. Consolidating the tokens into one
+  place lost it, and because an unset `var()` makes the whole declaration invalid rather
+  than throwing, every rule consuming those four properties would have rendered unstyled
+  until `applyPreferences()` happened to run. Restored inside the main block, with the
+  reason written next to it. `cyber-verify.js` now asserts every `var()` consumed in the
+  theme is declared in the theme.
+- **The card shimmer was never "not animating" — it was animating invisibly.** The base
+  glassmorphic `.stat-card::before` sets `opacity: 0` and reveals it only on `:hover`, and
+  the Cyberpunk override changed just the gradient colours. So the reported symptom had
+  nothing to do with the keyframe: it ran the whole time, at zero opacity. It is now
+  visible at `0.55` and brightens to `1` on hover. Worth recording because the obvious fix
+  — adding an animation — would have changed nothing.
+- **A directly-bound EQ button would have been orphaned on every re-render.**
+  `renderFullContent()` rebuilds the widget's markup, so a listener attached to
+  `#cyber-eq-btn` dies the next time the widget redraws and the rail goes dead with no
+  visible cause and nothing in the console. Delegated from `document` instead: bound once,
+  survives every render.
+- **`clip-path` cannot go on the container or the side panels**, which is *why* the
+  original had two dead `clip-path: none !important` resets. It clips overflow and
+  box-shadow both, and those elements hold the developer tooltip (z-index 9999), game
+  canvases, the skin tray and popovers. The panel-shape setting therefore applies
+  `clip-path` only to elements with nothing escaping their box, and expresses the shape on
+  the container and side panels through `--rt-radius` alone. Removing the resets without
+  understanding them would have clipped the tooltip.
 
 ---
 

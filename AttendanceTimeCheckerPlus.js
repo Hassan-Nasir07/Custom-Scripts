@@ -315,7 +315,6 @@
     
     // User preferences for hyper-personalization
     let userPreferences = {
-        theme: 'vibrant', // 'vibrant' or 'subdued'
         neumorphicDepth: true,
         fluidGradients: true,
         emojiSet: 'fun', // 'fun', 'professional'
@@ -12586,7 +12585,7 @@
                 text-align: center !important;
                 background: linear-gradient(135deg, var(--rt-bg-1) 0%, var(--rt-bg-2) 100%) !important;
                 border: 1px solid var(--rt-border-strong) !important;
-                border-radius: 2px !important;
+                border-radius: var(--rt-radius-sm, 2px) !important;
                 clip-path: var(--rt-clip);
                 padding: 8px 16px !important;
                 backdrop-filter: none !important;
@@ -12599,7 +12598,12 @@
                 cursor: pointer !important;
                 position: relative !important;
                 overflow: hidden !important;
-                animation: neonGlowPulse 4s ease-in-out infinite !important;
+                /* Was "neonGlowPulse", which animates box-shadow and border-color
+                   from hardcoded cyan/magenta/green — so the box-shadow declared
+                   three lines up never rendered and the glow ignored the user's
+                   swatches. rtGlowBreathe animates filter only, so it composites
+                   over the declaration and follows the Glow tokens. */
+                animation: rtGlowBreathe 4s ease-in-out infinite !important;
             }
 
             .compact-mode.retro-theme .pip-compact-display::before {
@@ -12636,12 +12640,12 @@
                 font-family: 'Share Tech Mono', 'Orbitron', monospace !important;
                 font-size: 1.2rem !important;
                 font-weight: 700 !important;
-                color: var(--rt-accent) !important;
+                color: var(--rt-text) !important;
                 margin: 2px 0 0 0 !important;
                 line-height: 1.1 !important;
                 text-shadow:
                     0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 12px rgba(var(--rt-accent-rgb), 0.45) !important;
+                    var(--rt-glow) !important;
                 letter-spacing: 0.08em !important;
                 position: relative !important;
                 z-index: 1 !important;
@@ -14299,6 +14303,24 @@
                     opacity: 1;
                     transform: translateY(0) scaleY(1);
                     filter: none;
+                }
+            }
+
+            /* Used by the compact-PiP display, which lives outside this block
+               but still belongs to this theme. It previously ran
+               "neonGlowPulse", which animates box-shadow AND border-color from
+               hardcoded cyan/magenta/green — so its own declared shadow never
+               rendered and its glow ignored the user's swatches entirely. This
+               animates filter only, so it composites over the declaration
+               instead of replacing it, and it reads the Glow tokens. */
+            @keyframes rtGlowBreathe {
+                0%, 100% {
+                    filter: drop-shadow(0 0 4px
+                        rgba(var(--rt-glow-rgb), calc(0.30 * var(--rt-glow-mul))));
+                }
+                50% {
+                    filter: drop-shadow(0 0 14px
+                        rgba(var(--rt-glow-rgb), calc(0.65 * var(--rt-glow-mul))));
                 }
             }
 

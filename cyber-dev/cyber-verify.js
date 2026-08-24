@@ -206,6 +206,37 @@ ok(applyFn.indexOf('triggerCyberBoot(container)') !== -1,
 ok(/const enteringRetro = !container\.classList\.contains\('retro-theme'\)/.test(applyFn),
    'the boot-in only fires on entering the theme, not on every colour-slider move');
 
+// File-wide, not just inside the managed block: the compact-PiP Cyberpunk rules
+// live outside cyber-dev/ but belong to this theme, and they carried the same
+// box-shadow-animation defect. Any keyframe a .retro-theme rule runs must not
+// animate box-shadow, wherever that keyframe is declared.
+const hostCss = host.replace(/\/\*[\s\S]*?\*\//g, '');
+const retroAnims = new Set();
+(hostCss.match(/([^{}]+)\{([^{}]*)\}/g) || []).forEach(function (rule) {
+    const brace = rule.indexOf('{');
+    // :not(.retro-theme) is how nearly every Glassmorphic rule is written, so a
+    // naive search for ".retro-theme" in the selector matches the exact rules
+    // this check must ignore. Strip the negations first.
+    const selector = rule.slice(0, brace).replace(/:not\([^)]*\)/g, '');
+    if (selector.indexOf('.retro-theme') === -1) return;
+    (rule.slice(brace).match(/animation:\s*([a-zA-Z0-9_-]+)/g) || []).forEach(function (a) {
+        const name = a.replace(/animation:\s*/, '');
+        // "animation: none" is a reset, not a keyframe reference.
+        if (name !== 'none') retroAnims.add(name);
+    });
+});
+ok(retroAnims.size > 0, 'found the animations the Cyberpunk rules run',
+   [...retroAnims].join(', '));
+retroAnims.forEach(function (name) {
+    const kfRe = new RegExp('@keyframes\\s+' + name + '\\s*\\{(?:[^{}]|\\{[^{}]*\\})*\\}');
+    const body = (hostCss.match(kfRe) || [''])[0];
+    ok(body.length > 0, 'keyframe ' + name + ' is declared somewhere in the file');
+    ok(body.indexOf('box-shadow') === -1,
+       'keyframe ' + name + ', run by a .retro-theme rule, does not animate box-shadow');
+});
+ok(!retroAnims.has('neonGlowPulse'),
+   'the compact-PiP display no longer runs neonGlowPulse (hardcoded colours, animated box-shadow)');
+
 ok(host.indexOf('id="cyber-eq"') !== -1, 'the EQ canvas is rendered');
 ok(host.indexOf('id="cyber-eq-btn"') !== -1, 'the EQ source button is rendered');
 const pbHtml = (host.match(/const progressBarHTML = `[\s\S]*?`;/) || [''])[0];

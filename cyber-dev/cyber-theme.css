@@ -271,6 +271,24 @@
                 }
             }
 
+            /* Used by the compact-PiP display, which lives outside this block
+               but still belongs to this theme. It previously ran
+               "neonGlowPulse", which animates box-shadow AND border-color from
+               hardcoded cyan/magenta/green — so its own declared shadow never
+               rendered and its glow ignored the user's swatches entirely. This
+               animates filter only, so it composites over the declaration
+               instead of replacing it, and it reads the Glow tokens. */
+            @keyframes rtGlowBreathe {
+                0%, 100% {
+                    filter: drop-shadow(0 0 4px
+                        rgba(var(--rt-glow-rgb), calc(0.30 * var(--rt-glow-mul))));
+                }
+                50% {
+                    filter: drop-shadow(0 0 14px
+                        rgba(var(--rt-glow-rgb), calc(0.65 * var(--rt-glow-mul))));
+                }
+            }
+
             @keyframes rtBracketBreathe {
                 0%, 100% { opacity: 0.55; }
                 50%      { opacity: 1; }

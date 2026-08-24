@@ -179,6 +179,21 @@ building it, and each now has an assertion.
   `#cyber-eq-btn` dies the next time the widget redraws and the rail goes dead with no
   visible cause and nothing in the console. Delegated from `document` instead: bound once,
   survives every render.
+- **The compact-PiP display carried the *same* box-shadow bug.** Found while checking the
+  loose ends: `.compact-mode.retro-theme .pip-compact-display` ran
+  `animation: neonGlowPulse 4s … !important`, which animates `box-shadow` *and*
+  `border-color` from hardcoded `#00f0ff` / `#ff00ff` / `#00ff41`. So its own declared
+  shadow — which correctly used `--rt-glow` and `--rt-accent-rgb` — never rendered, and its
+  glow ignored every swatch. That block lives outside `cyber-dev/`, so the fix went in
+  place: a new `rtGlowBreathe` keyframe that animates `filter` only, plus the compact clock
+  repointed from `--rt-accent` to `--rt-text` and its radius onto `--rt-radius-sm`. The
+  assertion for this is deliberately **file-wide** rather than scoped to the managed block:
+  it collects every animation any `.retro-theme` rule runs, anywhere in the 19k lines, and
+  checks none of those keyframes touches `box-shadow`. Writing that check also turned up
+  that `:not(.retro-theme)` — how nearly every Glassmorphic rule is written — makes a naive
+  selector search match precisely the rules it must ignore; the negations are stripped
+  first, or `auroraGlow` reads as a Cyberpunk regression when it is the aurora look working
+  as intended.
 - **`clip-path` cannot go on the container or the side panels**, which is *why* the
   original had two dead `clip-path: none !important` resets. It clips overflow and
   box-shadow both, and those elements hold the developer tooltip (z-index 9999), game

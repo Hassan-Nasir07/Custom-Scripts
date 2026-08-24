@@ -153,11 +153,68 @@ ok((decls['--rt-glow'] || []).every(v => v.indexOf('--rt-glow-rgb') !== -1),
 // keeps its own identity. Brackets are decoration and never carry text, so an
 // accent-derived bracket cannot hide information. The DEFAULT still comes from
 // the Border swatch, and the real frame tokens above stay independent.
-ok((decls['--rt-bk-c'] || []).some(v => v.indexOf('--rt-border-rgb') !== -1),
+ok((decls['--rt-bk-c'] || []).some(v => /--rt-border-(color|rgb)/.test(v)),
    '--rt-bk-c defaults to the Border swatch');
-const bkOverrides = (decls['--rt-bk-c'] || []).filter(v => v.indexOf('--rt-border-rgb') === -1);
+const bkOverrides = (decls['--rt-bk-c'] || []).filter(v => !/--rt-border-(color|rgb)/.test(v));
 eq(bkOverrides.length, 3,
    'exactly three per-card bracket retints (decorative, never load-bearing for text)');
+
+// ── KNOCKED-OUT TYPE ────────────────────────────────────────────────
+// Solid plates with inverted glyphs are what give the theme real mass rather
+// than only outline and glow. They are also the one place type sits on a fill,
+// so the direction is restricted: a --rt-text plate carrying --rt-bg-1 glyphs
+// is legibility-safe by the same guarantee the contrast chip measures, because
+// it is that exact pair with the roles swapped. An ACCENT plate carrying text
+// is never allowed — a dark Highlight would hide the label with no warning and
+// no control that could undo it.
+const KNOCKOUT_OK = ['--rt-text', '--rt-lime'];
+
+// Elements whose plate is declared on an ancestor rule rather than their own —
+// th sits on thead's fill. Named explicitly, and the check follows the mapping
+// and asserts the ANCESTOR's fill, so this is a redirection, not an exemption.
+const PLATE_FROM_PARENT = {
+    '.attendance-summary.retro-theme .modern-table th':
+        '.attendance-summary.retro-theme .modern-table thead'
+};
+function plateFor(sel, ownBg) {
+    const parent = PLATE_FROM_PARENT[sel];
+    if (!parent) return ownBg;
+    const i = cssCode.indexOf(parent);
+    if (i === -1) return ownBg;
+    const body = cssCode.slice(i, cssCode.indexOf('}', i));
+    return (body.match(/background(?:-color)?:[^;]+;/g) || []).join(' ');
+}
+
+const knockoutRules = (cssCode.match(/([^{}]+)\{([^{}]*)\}/g) || [])
+    .filter(r => /color:\s*var\(--rt-bg-1\)/.test(r.slice(r.indexOf('{'))));
+ok(knockoutRules.length > 0, 'the theme uses knocked-out type at all',
+   'got ' + knockoutRules.length);
+knockoutRules.forEach(function (rule) {
+    const sel = rule.slice(0, rule.indexOf('{')).trim().replace(/\s+/g, ' ');
+    const body = rule.slice(rule.indexOf('{'));
+    const own = (body.match(/background(?:-color)?:[^;]+;/g) || []).join(' ');
+    const bg = plateFor(sel, own);
+    const short = sel.slice(0, 56);
+    ok(KNOCKOUT_OK.some(t => bg.indexOf(t) !== -1),
+       'knocked-out rule "' + short + '" sits on a --rt-text or --rt-lime plate');
+    ok(!FORBIDDEN.some(x => bg.indexOf(x) !== -1),
+       'knocked-out rule "' + short + '" does not sit on an accent or background plate');
+});
+
+// ── the hazard hatching, which is what a generic sci-fi HUD never has ──
+ok((decls['--rt-hazard'] || []).length > 0, '--rt-hazard is declared');
+ok((decls['--rt-hazard'] || []).every(v => /repeating-linear-gradient\(\s*45deg/.test(v)),
+   'the hazard hatching runs at 45 degrees');
+ok((decls['--rt-hazard'] || []).every(v => v.indexOf('--rt-border-color') !== -1),
+   '--rt-hazard follows the Border swatch');
+ok(/var\(--rt-hazard/.test(cssCode.replace(/--rt-hazard(-dim)?:/g, '')),
+   'the hazard hatching is actually consumed, not just declared');
+ok((decls['--rt-outline'] || []).length > 0,
+   '--rt-outline is declared (clip-path removes the border along a cut edge)');
+ok((decls['--rt-outline'] || []).every(v => (v.match(/drop-shadow/g) || []).length === 4),
+   '--rt-outline is four drop-shadows, one per direction');
+ok(/filter:[^;]*var\(--rt-outline\)/.test(cssCode),
+   'clipped panels draw their silhouette back with --rt-outline');
 
 // ══════════════════════════════════════════════════════════════════
 group('D. regressions that were live before the rework');
@@ -175,6 +232,25 @@ ok(!/animation:[^;]*\b(cardShimmer|progressShimmer)\b/.test(cssCode),
    'no rule still uses the layout-triggering glass shimmer keyframes');
 ok(cssCode.indexOf('clip-path: none !important') === -1,
    'the two dead "clip-path: none !important" resets are gone');
+// A filter on an ancestor becomes the containing block for position:fixed
+// descendants, and the widget has two — #aim-results and .lb-ach-popover —
+// which would both start positioning against the widget instead of the
+// viewport. So the container couples the beat through box-shadow instead.
+const containerRule = (cssCode.match(
+    /\.attendance-summary\.retro-theme\s*\{[^}]*\}/) || [''])[0];
+ok(containerRule.length > 0, 'the container rule was found');
+ok(!/(^|[^-])filter:/.test(containerRule),
+   'the container declares no filter (it would reparent #aim-results and .lb-ach-popover)');
+ok(/--rt-beat/.test(containerRule),
+   'the container still couples the beat, through box-shadow');
+// Same hazard for the side panels, which hold #aim-results directly.
+const sidePanelRule = (cssCode.match(
+    /\.attendance-summary\.retro-theme \.snake-game-container,[\s\S]*?\}/) || [''])[0];
+ok(sidePanelRule.length > 0, 'the side-panel rule was found');
+ok(!/(^|[^-])filter:\s*var\(--rt-outline\)/.test(sidePanelRule),
+   'the side panels declare no outline filter (they contain the fixed-position game results)');
+ok(!/clip-path/.test(sidePanelRule),
+   'the side panels are never clipped (game canvases, trays and popovers escape their box)');
 const tableRules = (cssCode.match(/\.attendance-summary\.retro-theme \.modern-table\s*\{/g) || []).length;
 eq(tableRules, 1, 'exactly one .modern-table base rule (the duplicate reset radius and cancelled its own clip)');
 ok(/animation:\s*rtCardShimmer/.test(cssCode), 'the card shimmer runs a transform-only keyframe');
@@ -237,6 +313,21 @@ retroAnims.forEach(function (name) {
 ok(!retroAnims.has('neonGlowPulse'),
    'the compact-PiP display no longer runs neonGlowPulse (hardcoded colours, animated box-shadow)');
 
+// Greeble carries real values in HUD dress, not invented serial numbers: a
+// timesheet widget covered in fake codes is clutter, the same data in mono is
+// characterful. Assert it is wired to something real.
+ok(host.indexOf('rt-hud-rail') !== -1, 'the HUD greeble rail is rendered');
+const railHtml = (host.match(/<div class="rt-hud-rail"[\s\S]*?<\/div>/) || [''])[0];
+ok(railHtml.indexOf('BUILD') !== -1 && railHtml.indexOf('BUILD_LABEL') !== -1,
+   'the rail shows the real build label');
+ok(/LOAD \$\{Math\.round\(progress\)\}%/.test(railHtml),
+   'the rail shows the real shift progress');
+ok(railHtml.indexOf('shiftCode') !== -1, 'the rail shows the real shift length');
+ok(railHtml.indexOf('aria-hidden="true"') !== -1,
+   'the greeble is hidden from assistive tech (it is decoration)');
+ok(/\.rt-hud-rail[^{]*\{[^}]*pointer-events:\s*none/.test(cssCode),
+   'the greeble is pointer-transparent');
+
 ok(host.indexOf('id="cyber-eq"') !== -1, 'the EQ canvas is rendered');
 ok(host.indexOf('id="cyber-eq-btn"') !== -1, 'the EQ source button is rendered');
 const pbHtml = (host.match(/const progressBarHTML = `[\s\S]*?`;/) || [''])[0];
@@ -272,8 +363,11 @@ try {
 if (m) {
     // -- panel shape --
     group('G. panel shape');
-    eq(JSON.stringify(m.CYBER_PANEL_SHAPES), JSON.stringify(['rounded', 'chamfered', 'notched']),
-       'CYBER_PANEL_SHAPES is the documented triple');
+    eq(JSON.stringify(m.CYBER_PANEL_SHAPES),
+       JSON.stringify(['notched', 'chamfered', 'stepped', 'rounded']),
+       'CYBER_PANEL_SHAPES is the documented roster, asymmetric shapes first');
+    eq(m.CYBER_PANEL_SHAPES[0], 'notched',
+       'the shipped shape is the asymmetric one — symmetry is most of what reads as sci-fi');
     m.CYBER_PANEL_SHAPES.forEach(function (s) {
         const re = new RegExp('\\.rt-shape-' + s + '\\s*\\{[^}]*--rt-radius');
         ok(re.test(cssCode), '.rt-shape-' + s + ' declares --rt-radius');
@@ -288,13 +382,28 @@ if (m) {
     ok(m.container.classList.contains('rt-shape-chamfered'), 'applyCyberShape sets the chosen shape');
     ok(!m.container.classList.contains('rt-shape-rounded'), 'applyCyberShape clears the previous shape');
     global.userPreferences.cyberPanelShape = 'nonsense';
-    eq(m.cyberPanelShape(), 'rounded', 'an unknown shape falls back to rounded, never to no shape at all');
+    eq(m.cyberPanelShape(), 'notched',
+       'an unknown shape falls back to notched, never to no shape at all');
     m.applyCyberShape(m.container);
-    ok(m.container.classList.contains('rt-shape-rounded'), 'the fallback shape is actually applied');
+    ok(m.container.classList.contains('rt-shape-notched'), 'the fallback shape is actually applied');
+    // The fallback must match what the bare .retro-theme block declares, or an
+    // unknown value renders with one shape's tokens and no shape's class.
+    const bareShape = (cssCode.match(
+        /\.retro-theme,\s*\.retro-theme\.rt-shape-([a-z]+)\s*\{/) || [])[1];
+    eq(bareShape, m.cyberPanelShape(),
+       'the bare .retro-theme token block declares the same shape as the JS fallback');
+    // Each silhouette must be genuinely different, or the setting is cosmetic.
+    const clipShapes = m.CYBER_PANEL_SHAPES.map(function (sh) {
+        const i = cssCode.indexOf('.rt-shape-' + sh);
+        const body = cssCode.slice(i, cssCode.indexOf('}', i));
+        return (body.match(/--rt-clip:\s*([^;]+);/) || [])[1];
+    });
+    eq(new Set(clipShapes).size, m.CYBER_PANEL_SHAPES.length,
+       'every shape has a distinct --rt-clip silhouette');
     m.clearCyberShape(m.container);
     eq(m.CYBER_PANEL_SHAPES.filter(s => m.container.classList.contains('rt-shape-' + s)).length, 0,
        'clearCyberShape removes every shape class');
-    global.userPreferences.cyberPanelShape = 'rounded';
+    global.userPreferences.cyberPanelShape = 'notched';
 
     // -- tokens: write / teardown mirror --
     group('H. token write and teardown mirror');
@@ -352,7 +461,8 @@ if (m) {
     ok(/cyberText:\s*'#fff200'/.test(prefsLiteral), 'cyberText defaults to the existing yellow');
     ok(/cyberGlow:\s*'#fff200'/.test(prefsLiteral), 'cyberGlow defaults to the existing yellow');
     ok(/cyberBorder:\s*'#fff200'/.test(prefsLiteral), 'cyberBorder defaults to the existing yellow');
-    ok(/cyberPanelShape:\s*'rounded'/.test(prefsLiteral), 'cyberPanelShape defaults to rounded');
+    ok(/cyberPanelShape:\s*'notched'/.test(prefsLiteral),
+       'cyberPanelShape defaults to notched (the asymmetric shape)');
     ok(/cyberAudioSource:\s*'off'/.test(prefsLiteral), 'the visualizer is off until asked for');
 
     // Every picker in the settings row must correspond to a real pref.

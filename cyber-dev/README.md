@@ -43,7 +43,7 @@ testable, the trick `ludo-dev/` uses.
 | `load.js` | Evaluates both JS modules against a stub DOM and returns their internals. Its stub `style` object records every `setProperty`/`removeProperty`, which is what lets the suite assert the token write list and the teardown list are the same list. |
 | `cyber-verify.js` | Static audit of the host wiring + headless module checks. |
 | `cyber-harness.html` | The visual authority. See below. |
-| `ref/` | Drop reference PNGs here; the visual pass gets redone against them. |
+| `ref/` | The reference sheets the visual language is authored against. Read them before changing how anything looks. |
 
 **There is no `preview.js`.** `ludo-dev/preview.js` is a canvas software rasterizer — it
 cannot render DOM or CSS, so the trick Snake and Ludo use to judge their art in a PNG does
@@ -116,6 +116,35 @@ The one exception, asserted rather than assumed: `--rt-bk-c`, the corner-bracket
 retinted per stat card so each panel keeps its identity. Brackets are decoration and never
 carry text, so an accent-derived bracket cannot hide information.
 
+## The visual language
+
+Authored against `ref/`. The first pass of this theme was rejected as *"sci-fi, not
+cyberpunk-ish"*, which was correct, so what separates the two is written down here rather
+than left to taste. In order of how much each contributes:
+
+1. **Asymmetry.** Not one frame in the reference is a rounded rectangle. Step notches cut
+   from a *single* corner, opposite-corner diagonals, terraced two-jump corners. Symmetry
+   is most of what makes a HUD read as clean sci-fi. This is why `notched` — a right-angle
+   step cut out of one corner — is the shipped default and `rounded` is just the escape
+   hatch.
+2. **45° hazard hatching** on container edges, meter tracks and tabs. `--rt-hazard`,
+   `--rt-hazard-dim`. The single most cyberpunk motif, and the one a generic sci-fi HUD
+   never has.
+3. **Solid plates with knocked-out glyphs.** Title, table header, stat labels, level badge,
+   every active control. Outline-and-glow alone has no mass, and mass is what stops it
+   looking like a wireframe.
+4. **Flat.** No `backdrop-filter`, no glass, near-zero mid-tones. `--rt-glow` is a 7px halo,
+   not 18px: a small hard halo reads as a lit filament, a wide soft one reads as fog.
+5. **Greeble** — `.rt-hud-rail`, mono codes, tick rows. It shows *real* values (shift length,
+   progress, build label) in HUD dress. A timesheet widget covered in invented serial
+   numbers is clutter; the same data in mono is characterful.
+6. **Schematic terminal dots** at two of the bracket ends. Two, not four — four reads as a
+   border.
+
+`clip-path` removes the border along a cut edge, which leaves the silhouette unfinished.
+`--rt-outline` draws it back with four 1px `drop-shadow`s that follow the clip exactly, so
+one token outlines every shape without needing a wrapper element.
+
 ## Things not to break
 
 - **Defaults must not change the look.** `cyberText`/`cyberGlow`/`cyberBorder` default to
@@ -134,6 +163,16 @@ carry text, so an accent-derived bracket cannot hide information.
   up with two dead `clip-path: none !important` resets cancelling its own chamfer.
 - **The EQ rail must stay in `.main-attendance-content`.** Game Mode collapses
   `.left-panel` and `.right-panel`; anything in the centre column survives it.
+- **No `filter` on the container or the side panels.** A filter on an ancestor becomes the
+  containing block for `position: fixed` descendants, and the widget has two:
+  `#aim-results` and `.lb-ach-popover`. Both would start positioning against the widget
+  instead of the viewport. The container couples the beat through `box-shadow` instead — a
+  plain declaration re-resolving off `--rt-beat`, not an animation, so it overrides nothing.
+  `--rt-outline` goes only on panels with no fixed descendants; the suite asserts this.
+- **Knocked-out type runs one direction only.** A `--rt-text` plate carrying `--rt-bg-1`
+  glyphs is safe by the same guarantee the contrast chip measures — that exact pair with the
+  roles swapped. An **accent** plate carrying text is never allowed: a dark Highlight would
+  hide the label with no warning and nothing that could undo it.
 - **Nothing may request a permission without a click.** There is no gesture at page load,
   so `cyberEqAutoResume()` never opens the share picker and only reconnects the mic when
   the permission is *already* granted. A declined tier does not auto-escalate — firing a

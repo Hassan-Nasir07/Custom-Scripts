@@ -13,10 +13,15 @@
     // call into here regardless of where this block lands in the file.
     // ============================================================
 
-    // The three panel geometries. Anything not in this list falls back to
-    // 'rounded' rather than leaving the container with no shape class at all,
-    // which would drop --rt-radius and --rt-clip entirely.
-    const CYBER_PANEL_SHAPES = ['rounded', 'chamfered', 'notched'];
+    // The four panel geometries, most-cyberpunk first. Anything not in this
+    // list falls back to 'notched' rather than leaving the container with no
+    // shape class at all, which would drop --rt-radius and --rt-clip.
+    //
+    // 'notched' is the default because it is the asymmetric one: a right-angle
+    // step cut out of a single corner. Symmetry is most of what makes a HUD
+    // read as clean sci-fi instead of cyberpunk, so the soft option is kept
+    // but is no longer what ships.
+    const CYBER_PANEL_SHAPES = ['notched', 'chamfered', 'stepped', 'rounded'];
 
     // ------------------------------------------------------------------
     // The token map: pref name -> the CSS custom properties it drives.
@@ -87,7 +92,10 @@
     // ------------------------------------------------------------------
     function cyberPanelShape() {
         const s = userPreferences.cyberPanelShape;
-        return CYBER_PANEL_SHAPES.indexOf(s) === -1 ? 'rounded' : s;
+        // Must match the shape the bare .retro-theme token block declares, or
+        // an unknown value would render with tokens from one shape and a class
+        // from none.
+        return CYBER_PANEL_SHAPES.indexOf(s) === -1 ? 'notched' : s;
     }
 
     function applyCyberShape(el) {

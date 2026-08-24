@@ -158,6 +158,15 @@
           </tbody>
         </table>
 
+        <div class="rt-hud-rail" aria-hidden="true">
+          <span class="rt-code is-block">SHIFT 8H</span>
+          <span class="rt-code">LOAD 52%</span>
+          <span class="rt-hazard-strip"></span>
+          <span class="rt-ticks"></span>
+          <span class="rt-code is-live">&#9679; LIVE</span>
+          <span class="rt-code">BUILD v5</span>
+        </div>
+
         <div class="progress-bar"><div class="progress-fill" style="width:52%"></div></div>
 
         <!-- The EQ rail. Inside .main-attendance-content on purpose: Game Mode
@@ -235,9 +244,10 @@
 
   <h2>Panel shape</h2>
   <select id="shape">
-    <option value="rounded">Rounded</option>
-    <option value="chamfered">Chamfered</option>
-    <option value="notched">Notched HUD</option>
+    <option value="notched">Notched — step cut</option>
+    <option value="chamfered">Chamfered — cut corners</option>
+    <option value="stepped">Stepped — terraced</option>
+    <option value="rounded">Rounded — soft</option>
   </select>
 
   <h2>Audio visualizer</h2>
@@ -288,7 +298,7 @@ var userPreferences = Object.assign({
     cyberGlow: '#fff200',
     cyberBorder: '#fff200',
     cyberGlowIntensity: 0.6,
-    cyberPanelShape: 'rounded',
+    cyberPanelShape: 'notched',
     cyberAudioSource: 'off',
     gameFps: 60
 }, JSON.parse(localStorage.getItem(PREF_KEY) || '{}'));

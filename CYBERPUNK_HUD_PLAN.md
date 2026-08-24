@@ -23,12 +23,13 @@ Full rationale lives in the approved plan. This file tracks execution.
 | 7 | Audio visualizer — tiered System → Mic → Procedural, `--rt-beat` | ☑ |
 | 8 | `cyber-verify.js` + register in `ludo-dev/verify-all.js` | ☑ |
 | 9 | `cyber-harness.html` built; **visual pass still needs a human** | ☐ |
+| 10 | **Pass 2 — sci-fi → cyberpunk**, against `cyber-dev/ref/` (see below) | ☑ |
 | — | `BUILD_LABEL` v4 → **v5** | ☑ |
 | — | **Portal verification** (see below) | ☐ |
-| — | **Reference screenshots** — see the note below; blocked on assets | ☐ |
+| — | **Reference screenshots** — supplied in `cyber-dev/ref/` | ☑ |
 
-`node ludo-dev/verify-all.js` → **1258 assertions passed, 0 failed** across 11 suites
-(221 of them the new Cyberpunk suite). Needs the Volta Node 22 image, not the default
+`node ludo-dev/verify-all.js` → **1343 assertions passed, 0 failed** across 11 suites
+(306 of them the new Cyberpunk suite). Needs the Volta Node 22 image, not the default
 Node 10 — see `cyber-dev/README.md`.
 
 ---
@@ -77,7 +78,15 @@ the CSS was read closely.
 
 ### Reference material — a limitation worth recording
 
-**The linked reference could not be retrieved, and this is not a tooling gap that trying
+**RESOLVED — the reference is now in `cyber-dev/ref/`**, supplied by hand as three
+screenshots. Everything below is kept as the record of why it had to be done that way.
+
+The Magnific MCP server (`https://mcp.magnific.com`) was added to VS Code, but a session
+picks up MCP servers at start, so it is not reachable from the conversation that was already
+running. Worth retrying in a fresh session if more assets are ever needed; the local
+screenshots made it unnecessary here.
+
+**The linked reference could not be retrieved, and that was not a tooling gap that trying
 harder fixes.** What was attempted:
 
 | Attempt | Result |
@@ -93,9 +102,45 @@ vocabulary that web-search snippets corroborate: clipped corners, angular bracke
 segmented bars, CRT scanlines, chromatic aberration, monospace data readouts, and neon held
 to 15% surface coverage or less on near-black.
 
-**To design against those specific screens, the assets have to come in by hand** — paste the
-screenshots into the conversation, or drop PNGs into `cyber-dev/ref/`. Either way the visual
-pass gets redone against them. Everything else in this rework is independent of that.
+---
+
+## Pass 2 — "it's sci-fi, not cyberpunk-ish"
+
+The first pass was rejected on exactly that, and the reference screenshots make the gap
+obvious. Recorded because it is a distinction that is easy to feel and hard to name, and the
+next person to touch this will need it.
+
+**What pass 1 was:** soft rounded glass plates, uniform 1px borders, wide gentle bloom,
+`backdrop-filter` everywhere, symmetric L-brackets on all four corners. That is clean
+futurism — a starship console. It is *not* the reference.
+
+**What actually separates the two,** in order of how much each contributes:
+
+| # | Cyberpunk | What pass 1 did |
+|---|---|---|
+| 1 | **Asymmetric silhouettes.** Not one frame in the reference is a rounded rectangle — step notches cut from a *single* corner, opposite-corner diagonals, terraced two-jump corners. | Symmetric rounded rectangles. Symmetry is most of the sci-fi read. |
+| 2 | **45° hazard hatching** on edges, meter tracks, tabs. | None at all. |
+| 3 | **Solid plates with knocked-out glyphs** — real mass on screen. | All outline and glow, no mass. |
+| 4 | **Flat.** No glass, no blur, near-zero mid-tones. Hard colour on hard black. | `backdrop-filter: blur(14px) saturate(140%)` on every panel. |
+| 5 | **Greeble** — mono codes, tick rows, segment counters. | A `.rt-chip` class that nothing rendered. |
+| 6 | **Schematic connector dots** at bracket ends. | Plain L-brackets. |
+
+**What changed:** four asymmetric shapes with `notched` (a right-angle step cut out of one
+corner) as the shipped default; `--rt-hazard` / `--rt-hazard-dim` / `--rt-chevron` tokens
+consumed on the container edge, table header, meter tracks and stat-card tabs; knocked-out
+plates for the title, table header, stat labels, level badge and every active control; all
+`backdrop-filter` removed in favour of flat `--rt-panel`; a `.rt-hud-rail` of greeble; two
+radial-gradient terminal dots added to `--rt-brackets`; and `--rt-glow` tightened from an
+18px halo to 7px, because a small hard halo reads as a lit filament and a wide soft one reads
+as fog.
+
+**The one new invariant this created.** Knocked-out type is the only place type sits on a
+fill, so the direction is restricted: a `--rt-text` plate carrying `--rt-bg-1` glyphs is safe
+by the same guarantee the contrast chip already measures — it is that exact pair with the
+roles swapped. An **accent** plate carrying text is never allowed, because a dark Highlight
+would hide the label with no warning and no control that could undo it. `cyber-verify.js`
+finds every rule that sets `color: var(--rt-bg-1)` and checks what it sits on, following a
+named mapping for the one case where the plate is on an ancestor (`th` on `thead`).
 
 ---
 
@@ -179,6 +224,17 @@ building it, and each now has an assertion.
   `#cyber-eq-btn` dies the next time the widget redraws and the rail goes dead with no
   visible cause and nothing in the console. Delegated from `document` instead: bound once,
   survives every render.
+- **A `filter` on the container would have broken two position:fixed elements.** Pass 1 put
+  `filter: drop-shadow(...)` on `.attendance-summary.retro-theme` to couple the beat glow. A
+  filter on an ancestor becomes the containing block for `position: fixed` descendants, and
+  the widget has two — `#aim-results` (the Aim Trainer results panel) and `.lb-ach-popover`
+  (the leaderboard achievement popover). Both would have started positioning against the
+  widget instead of the viewport. Nothing in the test suite could have caught it and nothing
+  in the CSS looks wrong; it was found by grepping for `position: fixed` inside the widget
+  subtree before adding more filters. The container now couples the beat through
+  `box-shadow` instead — a plain declaration re-resolving off `--rt-beat`, not an animation,
+  so it overrides nothing. `--rt-outline` filters are applied only to panels with no fixed
+  descendants, and `cyber-verify.js` asserts the container and the side panels carry none.
 - **The compact-PiP display carried the *same* box-shadow bug.** Found while checking the
   loose ends: `.compact-mode.retro-theme .pip-compact-display` ran
   `animation: neonGlowPulse 4s … !important`, which animates `box-shadow` *and*

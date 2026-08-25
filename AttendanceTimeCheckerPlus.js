@@ -1,6 +1,6 @@
 (function() {
     'use strict';
-    
+
     // ENHANCED ATTENDANCE TIME CHECKER 2026
     // ─── Build Identity ───────────────────────────────────────────
     // BUILD_SEED is a per-release nonce. The actual sync-acceptance token is
@@ -15,11 +15,14 @@
     //   3. Compute the new token (see comment in sync.yml) and rotate the
     //      BUILD_TOKEN_CURRENT / BUILD_TOKEN_PREVIOUS repo secrets.
     const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
-    // v4 — RefleX Target scoring repaired, per-record auto-sync, Ludo wins split
-    // by CPU difficulty. The seed is deliberately UNCHANGED: rotating it without
-    // also rotating BUILD_TOKEN_CURRENT in the bot repo would make every sync
-    // fail silently, and the label alone is what the update banner reads.
-    const BUILD_LABEL = 'v4';
+    // v8 — completion message now names the actual shift length (4h/8h/9h
+    // users all saw "8-hour shift" before); Game Mode OFF genuinely shrinks
+    // the Cyberpunk widget now (a nowrap ticker was blowing out its
+    // width:fit-content); "professional" emoji style replaced with "none".
+    // The seed is deliberately UNCHANGED: rotating it without also rotating
+    // BUILD_TOKEN_CURRENT in the bot repo would make every sync fail
+    // silently, and the label alone is what the update banner reads.
+    const BUILD_LABEL = 'v8';
     // ──────────────────────────────────────────────────────────────
 
     // Ordinal parse of a 'v<N>' label. Returns null for anything that doesn't fit
@@ -48,41 +51,47 @@
     const targetUrl = "https://globalportal.mtbc.com/#/time-absence/attendence-record";
 
     if (currentUrl !== targetUrl) {
-        return; 
+        return;
     }
 
     // Emoji progression for GenZ vibes 😎
+    //
+    // 'professional' (the 🔴🟠🟡🟢🔵 traffic light) is gone — nobody used it,
+    // and it needed its own carve-out everywhere emoji were themed (see the
+    // Cyberpunk tint's now-removed data-emoji-set="professional" opt-out:
+    // tinting a set whose whole meaning IS its hue would have deleted the
+    // signal outright). 'none' replaces it as the third option, for anyone
+    // who wants the widget to just not show a mood glyph at all.
     const emojiSets = {
-        fun: ['😭', '😖', '😟', '😓', '😌', '🙂', '☺️', '😄'],
-        professional: ['🔴', '🟠', '🟡', '🟡', '🟢', '🟢', '🔵', '🔵']
+        fun: ['😭', '😖', '😟', '😓', '😌', '🙂', '☺️', '😄']
     };
-    
+
     const runningEmoji = '🏃💨'; // shift end to shift + 30 min
     const clownEmoji = '🫵🤡'; // After shift + 30 min (go home!)
-    
+
     // Global variables for performance optimization
     let lastTotalWorkedTime = -1; // Track if we need to re-render
     let isFirstRender = true; // Track first render
     let animationFrameId = null; // For requestAnimationFrame
     let pipWindow = null; // Picture-in-Picture window reference
     let isPipActive = false; // Track PiP status
-    
+
     // Feature initialization flags to prevent re-initialization
     let featuresInitialized = false;
-    
+
     // XP system ready flag — prevents awardXP from running before loadUserXP() has been called,
     // which would overwrite saved data with default values and reset progress to Level 1.
     let xpSystemReady = false;
-    
+
     // Snake's state, storage helpers and render timestamp all live in the
     // SNAKE ENGINE block below, so the copy there stays byte-identical to
     // snake-dev/. Nothing outside that block reads them before initSnakeGame()
     // runs, which is the first thing the featuresInitialized bootstrap does.
-    
+
     // MULTI-GAME SYSTEM VARIABLES
     let currentGame = 'snake'; // 'snake' | 'reflex' | 'aim'
     let gameAreaElement = null;
-    
+
     // REFLEX GAME VARIABLES
     let reflexGameStarted = false;
     let reflexGameFinished = false;
@@ -99,15 +108,15 @@
     // Anti-cheat tunables for RefleX
     const REFLEX_CLICK_DEBOUNCE_MS = 80; // ignore back-to-back clicks within this window (spam clicker)
     const REFLEX_FALSE_START_LIMIT = 3;  // hard fail the game after this many false starts
-    
+
     // RefleX target state
     let reflexShowTarget = false;
     let reflexTargetPosition = { x: 0, y: 0 };
     let reflexTargetColor = '#ef4444';
-    
+
     // RefleX timeout reference
     let reflexTimeoutRef = null;
-    
+
     // RefleX game modes configuration
     const reflexGameModes = {
         screen: {
@@ -129,7 +138,7 @@
             targets: true
         }
     };
-    
+
     // AIM TRAINER GAME VARIABLES
     let aimGameStarted = false;
     let aimGameFinished = false;
@@ -140,11 +149,11 @@
     let aimShots = 0;
     let aimHits = 0;
     let aimBulletHoles = [];
-    
+
     // AimTrainer timer reference
     let aimTimerRef = null;
     let aimRenderFrameId = null;
-    
+
     // AimTrainer chaos mode configuration
     const aimChaosMode = {
         name: 'Chaos Mode',
@@ -155,7 +164,7 @@
         targetSpeed: 800,
         timeLimit: 30
     };
-    
+
     // FLAPPY BIRD GAME VARIABLES
     let flappyCanvas, flappyCtx;
     let flappyGameRunning = false;
@@ -208,13 +217,13 @@
     let currentQuoteIndex = 0;
     let quoteInterval = null;
     let quotesInitialized = false; // Track if quotes system is already set up
-    
+
     // XP SYSTEM VARIABLES
-    let userXP = { 
-        level: 1, 
-        currentXP: 0, 
-        totalXP: 0, 
-        lastHourTracked: -1, 
+    let userXP = {
+        level: 1,
+        currentXP: 0,
+        totalXP: 0,
+        lastHourTracked: -1,
         todayHours: 0,
         consecutiveDays: 0,
         totalWorkDays: 0,
@@ -247,7 +256,7 @@
         6: { xp: 40, label: '6-Hour Almost There' },
         8: { xp: 50, label: '8-Hour Full Day' }
     };
-    
+
     // Achievement Definitions (work-life-balance friendly — weekends are sacred 🙅)
     // Each achievement requires actual user action — no freebies.
     const ACHIEVEMENTS = {
@@ -300,11 +309,11 @@
         meditative:   { icon: '🤲', name: 'Devoted',           desc: 'Reach 1000 on the prayer counter' },
         teamPlayer:   { icon: '🤝', name: 'Team Player',       desc: 'Join the leaderboard' }
     };
-    
+
     // IMAGE BOX VARIABLES
     let currentImageURL = '';
     let currentAspectRatio = '16:9'; // Default: Widescreen ratio
-    
+
     // Aspect ratio configurations
     const aspectRatios = {
         '1:1': { name: 'Square', icon: '◻', paddingBottom: '100%', use: 'Profile pics, badges' },
@@ -312,13 +321,12 @@
         '4:3': { name: 'Classic', icon: '▭', paddingBottom: '75%', use: 'Old monitors, photos' },
         '9:16': { name: 'Portrait', icon: '▯', paddingBottom: '177.78%', use: 'Phone screens, stories' }
     };
-    
+
     // User preferences for hyper-personalization
     let userPreferences = {
-        theme: 'vibrant', // 'vibrant' or 'subdued'
         neumorphicDepth: true,
         fluidGradients: true,
-        emojiSet: 'fun', // 'fun', 'professional'
+        emojiSet: 'fun', // 'fun', 'none'
         displayTheme: 'glassmorphic', // 'glassmorphic' or 'retro-futuristic'
         gameModeHidden: true, // true = Game Mode ON (panels visible); false = Game Mode OFF (panels hidden, widget shrinks)
         shiftDuration: '8h', // '4h' = short leave, '8h' = standard, '9h' = overtime
@@ -351,6 +359,21 @@
         cyberAccent: '#fff200',
         cyberHighlight: '#00e5ff',
         cyberPanelTint: '#00e5ff',  // tint for inner glass panels (table, side containers)
+        // Legibility swatches. Deliberately NOT derived from cyberAccent or
+        // either background: a dark Accent used to drag the type down with it,
+        // leaving dark text on a dark panel with no control that could undo
+        // it. These three are the only things that colour type, bloom and
+        // frames, and nothing else feeds them. See CYBER_TOKENS.
+        cyberText: '#fff200',       // all type
+        cyberGlow: '#fff200',       // every bloom / glow / drop-shadow
+        cyberBorder: '#fff200',     // frames, corner brackets, grid, scanlines
+        cyberGlowIntensity: 0.6,    // 0–1 multiplier on every glow
+        // 'notched' | 'chamfered' | 'stepped' | 'rounded' — see CYBER_PANEL_SHAPES.
+        // Defaults to the asymmetric one: symmetry is most of what made the
+        // first pass read as clean sci-fi rather than cyberpunk.
+        cyberPanelShape: 'notched',
+        // 'off' | 'system' | 'mic' | 'sim'. Never auto-prompts; see cyber-audio.
+        cyberAudioSource: 'off',
         cyberBgImage: '',       // URL for custom background image
         cyberBgOpacity: 0.15    // 0–1 opacity for background image overlay
     };
@@ -387,7 +410,7 @@
     let poolLastLogicMs = 0;
     let poolAccumulator = 0;
     let tetrisLastFrameMs = 0;
-    
+
     // Load saved preferences
     function loadPreferences() {
         const saved = localStorage.getItem('attendancePrefs');
@@ -395,17 +418,17 @@
             userPreferences = { ...userPreferences, ...JSON.parse(saved) };
         }
     }
-    
+
     // Save preferences
     function savePreferences() {
         localStorage.setItem('attendancePrefs', JSON.stringify(userPreferences));
     }
-    
+
     // ====================================
     // LOCALSTORAGE MANAGEMENT
     // ====================================
-    
-    // Quotes Storage  
+
+    // Quotes Storage
     function loadQuotes() {
         const saved = localStorage.getItem('customQuotes');
         const defaultQuotes = [
@@ -413,11 +436,11 @@
         ];
         return saved ? JSON.parse(saved) : defaultQuotes;
     }
-    
+
     function saveQuotes(quotes) {
         localStorage.setItem('customQuotes', JSON.stringify(quotes));
     }
-    
+
     // XP System Storage
     function loadUserXP() {
         const saved = localStorage.getItem('userXP');
@@ -462,31 +485,31 @@
             milestonesReached: []
         };
     }
-    
+
     function saveUserXP(xpData) {
         localStorage.setItem('userXP', JSON.stringify(xpData));
         // Update integrity hash so the next sync can verify this was a legitimate save
         try { _saveXPIntegrity(); } catch(_) {}
     }
-    
+
     // Image URL Storage
     function loadImageURL() {
         return localStorage.getItem('customImageURL') || '';
     }
-    
+
     function saveImageURL(url) {
         localStorage.setItem('customImageURL', url);
     }
-    
+
     // Aspect Ratio Storage
     function loadAspectRatio() {
         return localStorage.getItem('customImageAspectRatio') || '16:9';
     }
-    
+
     function saveAspectRatio(ratio) {
         localStorage.setItem('customImageAspectRatio', ratio);
     }
-    
+
     // RefleX Game Storage
     // One-time migration: wipe RefleX high scores invalidated by the anti-cheat
     // hardening patch (v2026-05-25, re-run 05-26 to clear gist→localStorage re-infection).
@@ -547,17 +570,17 @@
         });
         localStorage.setItem('reflexHighScores', JSON.stringify(out));
     }
-    
+
     // AimTrainer Game Storage
     function loadAimHighScore() {
         const saved = localStorage.getItem('aimChaosHighScore');
         return saved ? parseInt(saved) : 0;
     }
-    
+
     function saveAimHighScore(score) {
         localStorage.setItem('aimChaosHighScore', score.toString());
     }
-    
+
     // Flappy Bird Storage
     function loadFlappyHighScore() {
         const saved = localStorage.getItem('flappyHighScore');
@@ -1881,6 +1904,10 @@
                 return a ? `<span class="lb-ach-emoji" title="${escapeHtml(a.name)}">${a.icon}</span>` : '';
             }).join('')
             : '<span class="lb-ach-empty">No achievements yet</span>';
+        // Same shape as the achievements modal: a.icon comes from data, set
+        // fresh on every hover, so the sweep call belongs here, not at
+        // ensureLbAchPopover()'s one-time element creation above.
+        cyberSweepEmoji(pop);
         pop.style.display = 'flex';
 
         const rect = badge.getBoundingClientRect();
@@ -2331,7 +2358,7 @@
         // Tick powerup timers and handle expiration
         const prevSlowTimer = brkPU.slowTimer;
         const prevFastTimer = brkPU.fastTimer;
-        
+
         const timerKeys = ['expandTimer','shrinkTimer','slowTimer','fastTimer',
                            'stickyTimer','laserTimer','fireballTimer','throughTimer','explodeTimer'];
         timerKeys.forEach(k => { if (brkPU[k] > 0) brkPU[k]--; });
@@ -2763,7 +2790,6 @@
         const rect = breakoutCanvas.getBoundingClientRect();
         breakoutMouseX = e.touches[0].clientX - rect.left;
     }
-
 
     // ====================================
     // 8-BALL POOL GAME LOGIC
@@ -6705,81 +6731,81 @@
         resetSnakeGame();
     }
     // ═══ END SNAKE ENGINE ═══
-    
+
     // REFLEX GAME LOGIC
-    
+
     function initReflexGame() {
         gameAreaElement = document.getElementById('multi-game-area');
         if (!gameAreaElement) return;
-        
+
         // Load high scores
         const highScores = loadReflexHighScores();
         updateReflexScoreDisplay();
         updateReflexDisplay();
     }
-    
+
     function generateReflexTargetPosition() {
         if (!gameAreaElement) return { x: 200, y: 200 };
-        
+
         const rect = gameAreaElement.getBoundingClientRect();
         const targetSize = 60;
         const margin = Math.max(targetSize / 2 + 20, 50);
-        
+
         const availableWidth = Math.max(rect.width - margin * 2, 100);
         const availableHeight = Math.max(rect.height - margin * 2, 100);
-        
+
         const minX = margin;
         const maxX = rect.width - margin;
         const minY = margin;
         const maxY = rect.height - margin;
-        
+
         let position = {
             x: Math.random() * availableWidth + margin,
             y: Math.random() * availableHeight + margin
         };
-        
+
         // Bounds validation
         position.x = Math.max(minX, Math.min(maxX, position.x));
         position.y = Math.max(minY, Math.min(maxY, position.y));
-        
+
         return position;
     }
-    
+
     function generateReflexTargetColor() {
         const colors = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6'];
         return colors[Math.floor(Math.random() * colors.length)];
     }
-    
+
     function startReflexRound(roundNum) {
         const config = reflexGameModes[reflexMode];
         const nextRound = roundNum || reflexCurrentRound + 1;
-        
+
         if (nextRound > config.rounds) {
             finishReflexGame();
             return;
         }
-        
+
         reflexCurrentRound = nextRound;
         reflexIsWaiting = true;
         reflexCanClick = false;
         reflexShowTarget = false;
-        
+
         updateReflexDisplay();
-        
+
         const delay = Math.random() * (config.maxDelay - config.minDelay) + config.minDelay;
-        
+
         reflexTimeoutRef = setTimeout(() => {
             reflexStartTime = Date.now();
             reflexGoReadyMs = reflexStartTime;
             reflexCanClick = true;
             reflexIsWaiting = false;
-            
+
             if (config.targets) {
                 reflexTargetPosition = generateReflexTargetPosition();
                 reflexTargetColor = generateReflexTargetColor();
                 reflexShowTarget = true;
             }
-            
+
             updateReflexDisplay();
         }, delay);
     }
@@ -6861,24 +6887,24 @@
         updateReflexDisplay();
         setTimeout(() => { startReflexRound(); }, 300);
     }
-    
+
     function finishReflexGame() {
         reflexGameStarted = false;
         reflexGameFinished = true;
         reflexCanClick = false;
         reflexShowTarget = false;
-        
+
         if (reflexTimeoutRef) {
             clearTimeout(reflexTimeoutRef);
             reflexTimeoutRef = null;
         }
-        
+
         // Calculate statistics
         const avgTime = reflexReactionTimes.length > 0
             ? Math.round(reflexReactionTimes.reduce((a, b) => a + b, 0) / reflexReactionTimes.length)
             : 0;
         const bestTime = reflexReactionTimes.length > 0 ? Math.min(...reflexReactionTimes) : 0;
-        
+
         // Check and update high scores. loadReflexHighScores() normalises the
         // never-scored sentinel back to Infinity, so a mode whose stored value
         // round-tripped through JSON as null can beat it again.
@@ -6904,14 +6930,14 @@
             updateReflexScoreDisplay();
             queueScoreSync();
         }
-        
+
         // Award XP based on performance
         awardGameXP('reflex', { avgTime, bestTime, falseStarts: reflexFalseStarts, isHighScore: newHighScore });
-        
+
         updateReflexDisplay();
         showReflexResults(avgTime, bestTime, newHighScore);
     }
-    
+
     function resetReflexGame() {
         reflexGameStarted = false;
         reflexGameFinished = false;
@@ -6924,12 +6950,12 @@
         reflexShowTarget = false;
         reflexLastClickMs = 0;
         reflexGoReadyMs = 0;
-        
+
         if (reflexTimeoutRef) {
             clearTimeout(reflexTimeoutRef);
             reflexTimeoutRef = null;
         }
-        
+
         // The run's live figure is gone, so the score button has to be told —
         // otherwise it keeps showing the last run's best next to a board that
         // has been reset out from under it.
@@ -6945,20 +6971,20 @@
         reflexReactionTimes = [];
         reflexCurrentRound = 0;
         reflexFalseStarts = 0;
-        
+
         // Ensure click listener is attached
         if (gameAreaElement) {
             gameAreaElement.removeEventListener('click', handleReflexClick);
             gameAreaElement.addEventListener('click', handleReflexClick);
         }
-        
+
         updateReflexDisplay();
         startReflexRound(1);
     }
-    
+
     function toggleReflexMode() {
         if (reflexGameStarted) return; // Can't change mode during game
-        
+
         reflexMode = reflexMode === 'screen' ? 'target' : 'screen';
         // updateReflexDisplay() only repaints the play area. The mode chip, the
         // best/current button and the leaderboard overlay all live behind
@@ -6968,23 +6994,23 @@
         updateReflexScoreDisplay();
         updateReflexDisplay();
     }
-    
+
     function updateReflexDisplay() {
         if (!gameAreaElement) return;
-        
+
         const config = reflexGameModes[reflexMode];
-        
+
         // Update game area appearance based on state
         gameAreaElement.className = 'multi-game-area reflex-game-area';
         gameAreaElement.style.pointerEvents = 'auto'; // Ensure clicks work
-        
+
         // Set crosshair cursor for Target mode
         if (config.targets) {
             gameAreaElement.style.cursor = 'crosshair';
         } else {
             gameAreaElement.style.cursor = 'pointer';
         }
-        
+
         if (reflexIsWaiting) {
             gameAreaElement.classList.add('reflex-waiting-state');
             gameAreaElement.style.background = 'linear-gradient(135deg, #dc2626, #991b1b)';
@@ -6994,10 +7020,10 @@
         } else {
             gameAreaElement.style.background = 'rgba(0, 0, 0, 0.3)';
         }
-        
+
         // Clear previous content
         gameAreaElement.innerHTML = '';
-        
+
         // Show instructions or state text
         const stateText = document.createElement('div');
         stateText.style.cssText = `
@@ -7013,7 +7039,7 @@
             pointer-events: none;
             z-index: 10;
         `;
-        
+
         if (!reflexGameStarted) {
             stateText.textContent = `Click "Play" to start ${config.name}`;
             stateText.style.fontSize = '1.5rem';
@@ -7029,9 +7055,9 @@
             stateText.style.top = '20px';
             stateText.style.transform = 'translateX(-50%)';
         }
-        
+
         gameAreaElement.appendChild(stateText);
-        
+
         // Show target if in target mode and can click
         if (reflexShowTarget && config.targets && reflexCanClick) {
             const target = document.createElement('div');
@@ -7054,20 +7080,20 @@
             `;
             gameAreaElement.appendChild(target);
         }
-        
+
         // Update stats display
         updateReflexStatsDisplay();
     }
-    
+
     function updateReflexStatsDisplay() {
         const statsElement = document.getElementById('reflex-stats');
         if (!statsElement) return;
-        
+
         const config = reflexGameModes[reflexMode];
         const avgTime = reflexReactionTimes.length > 0
             ? Math.round(reflexReactionTimes.reduce((a, b) => a + b, 0) / reflexReactionTimes.length)
             : 0;
-        
+
         statsElement.innerHTML = `
             <div style="display: flex; justify-content: space-around; padding: 8px; font-size: 0.875rem;">
                 <div><strong>Round:</strong> ${reflexCurrentRound}/${config.rounds}</div>
@@ -7076,7 +7102,7 @@
             </div>
         `;
     }
-    
+
     // Shows only the mode being played. The old label carried both modes' bests
     // at once, which is two numbers the player can't act on and one they can.
     function updateReflexScoreDisplay() {
@@ -7093,11 +7119,11 @@
         const cur = reflexReactionTimes.length ? Math.min(...reflexReactionTimes) : null;
         updateGameScoreBtn('reflex', cur, best, 'ms');
     }
-    
+
     function showReflexResults(avgTime, bestTime, isNewHighScore) {
         const resultsElement = document.getElementById('reflex-results');
         if (!resultsElement) return;
-        
+
         resultsElement.innerHTML = `
             <div style="text-align: center;">
                 <h3 style="margin-bottom: 16px; color: #10b981;">${isNewHighScore ? '🎉 New High Score!' : 'Game Complete!'}</h3>
@@ -7112,7 +7138,7 @@
             </div>
         `;
         resultsElement.classList.add('active');
-        
+
         // Add click handler for Play Again button
         const playAgainBtn = document.getElementById('reflex-play-again-btn');
         if (playAgainBtn) {
@@ -7123,20 +7149,20 @@
             };
         }
     }
-    
+
     function hideReflexResults() {
         const resultsElement = document.getElementById('reflex-results');
         if (resultsElement) {
             resultsElement.classList.remove('active');
         }
     }
-    
+
     // AIM TRAINER CHAOS MODE LOGIC
-    
+
     function initAimTrainerGame() {
         gameAreaElement = document.getElementById('multi-game-area');
         if (!gameAreaElement) return;
-        
+
         // Reset game state
         aimGameStarted = false;
         aimGameFinished = false;
@@ -7147,33 +7173,33 @@
         aimShots = 0;
         aimHits = 0;
         aimBulletHoles = [];
-        
+
         // Load high score
         const highScore = loadAimHighScore();
         updateAimScoreDisplay();
         renderAimGame();
     }
-    
+
     function generateAimTargetPosition() {
         if (!gameAreaElement) return { x: 200, y: 200 };
-        
+
         const rect = gameAreaElement.getBoundingClientRect();
         const targetSize = aimChaosMode.targetSize;
         const margin = targetSize / 2 + 20;
-        
+
         const minX = margin;
         const maxX = rect.width - margin;
         const minY = margin;
         const maxY = rect.height - margin;
-        
+
         let position = {
             x: Math.random() * (maxX - minX) + minX,
             y: Math.random() * (maxY - minY) + minY
         };
-        
+
         return position;
     }
-    
+
     function createAimTarget() {
         const position = generateAimTargetPosition();
         return {
@@ -7184,7 +7210,7 @@
             createdAt: Date.now()
         };
     }
-    
+
     function spawnMultipleTargets(count) {
         const newTargets = [];
         for (let i = 0; i < count; i++) {
@@ -7196,12 +7222,12 @@
         aimTargets = newTargets;
         // Render will be called by the function that spawns targets
     }
-    
+
     function handleAimTargetHit(targetId, clickX, clickY) {
         aimScore += 10;
         aimHits++;
         aimShots++;
-        
+
         // Add green bullet hole
         aimBulletHoles.push({
             id: Date.now() + Math.random(),
@@ -7210,26 +7236,26 @@
             type: 'hit',
             createdAt: Date.now()
         });
-        
+
         // Remove hit target and spawn new one
         aimTargets = aimTargets.filter(target => target.id !== targetId);
         aimTargets.push(createAimTarget());
-        
+
         // Update accuracy
         aimAccuracy = aimShots > 0 ? Math.round((aimHits / aimShots) * 100) : 0;
-        
+
         // Clean up old bullet holes (keep last 20)
         if (aimBulletHoles.length > 20) {
             aimBulletHoles = aimBulletHoles.slice(-20);
         }
-        
+
         updateAimStatsDisplay();
         renderAimGame(); // Render on state change
     }
-    
+
     function handleAimMissedShot(clickX, clickY) {
         aimShots++;
-        
+
         // Add gray bullet hole
         aimBulletHoles.push({
             id: Date.now() + Math.random(),
@@ -7238,34 +7264,34 @@
             type: 'miss',
             createdAt: Date.now()
         });
-        
+
         // Update accuracy
         aimAccuracy = aimShots > 0 ? Math.round((aimHits / aimShots) * 100) : 0;
-        
+
         // Clean up old bullet holes
         if (aimBulletHoles.length > 20) {
             aimBulletHoles = aimBulletHoles.slice(-20);
         }
-        
+
         updateAimStatsDisplay();
         renderAimGame(); // Render on state change
     }
-    
+
     function handleAimClick(event) {
         if (!aimGameStarted || aimGameFinished) return;
-        
+
         const rect = gameAreaElement.getBoundingClientRect();
         const clickX = event.clientX - rect.left;
         const clickY = event.clientY - rect.top;
-        
+
         let targetHit = false;
-        
+
         // Check all targets for hit
         for (const target of aimTargets) {
             const distance = Math.sqrt(
                 Math.pow(clickX - target.x, 2) + Math.pow(clickY - target.y, 2)
             );
-            
+
             // Hit detection with 5px tolerance
             if (distance <= (target.size / 2) + 5) {
                 handleAimTargetHit(target.id, clickX, clickY);
@@ -7273,54 +7299,54 @@
                 break;
             }
         }
-        
+
         // Record miss if no target hit
         if (!targetHit) {
             handleAimMissedShot(clickX, clickY);
         }
     }
-    
+
     function updateAimTimer() {
         if (!aimGameStarted || aimGameFinished) return;
-        
+
         aimTimer--;
-        
+
         if (aimTimer <= 0) {
             finishAimGame();
         }
-        
+
         updateAimStatsDisplay();
     }
-    
+
     function finishAimGame() {
         aimGameStarted = false;
         aimGameFinished = true;
-        
+
         if (aimTimerRef) {
             clearInterval(aimTimerRef);
             aimTimerRef = null;
         }
-        
+
         if (aimRenderFrameId) {
             cancelAnimationFrame(aimRenderFrameId);
             aimRenderFrameId = null;
         }
-        
+
         // Check high score
         const highScore = loadAimHighScore();
         const isNewHighScore = aimScore > highScore;
-        
+
         if (isNewHighScore) {
             saveAimHighScore(aimScore);
             updateAimScoreDisplay();
         }
-        
+
         // Award XP based on score
         awardGameXP('aim', { score: aimScore, accuracy: aimAccuracy, hits: aimHits, isHighScore: isNewHighScore });
-        
+
         showAimResults(isNewHighScore);
     }
-    
+
     function resetAimGame() {
         aimGameStarted = false;
         aimGameFinished = false;
@@ -7331,16 +7357,16 @@
         aimShots = 0;
         aimHits = 0;
         aimBulletHoles = [];
-        
+
         if (aimTimerRef) {
             clearInterval(aimTimerRef);
             aimTimerRef = null;
         }
-        
+
         hideAimResults();
         renderAimGame(); // Update DOM to show instructions screen
     }
-    
+
     function startAimGame() {
         // Clear previous state
         aimGameStarted = true;
@@ -7352,38 +7378,38 @@
         aimShots = 0;
         aimHits = 0;
         aimBulletHoles = [];
-        
+
         // Clear any existing timers
         if (aimTimerRef) {
             clearInterval(aimTimerRef);
             aimTimerRef = null;
         }
-        
+
         // Ensure click listener is attached
         if (gameAreaElement) {
             gameAreaElement.removeEventListener('click', handleAimClick);
             gameAreaElement.addEventListener('click', handleAimClick);
         }
-        
+
         // Spawn initial targets
         spawnMultipleTargets(aimChaosMode.targetCount);
-        
+
         // Start timer
         aimTimerRef = setInterval(updateAimTimer, 1000);
-        
+
         // Initial render
         renderAimGame();
-        
+
         updateAimStatsDisplay();
     }
-    
+
     function renderAimGame() {
         if (!gameAreaElement) return;
-        
+
         gameAreaElement.className = 'multi-game-area aim-game-area';
         gameAreaElement.style.background = 'rgba(0, 0, 0, 0.3)';
         gameAreaElement.style.cursor = 'crosshair';
-        
+
         if (!aimGameStarted) {
             // Clear everything when not started
             gameAreaElement.innerHTML = '';
@@ -7404,13 +7430,13 @@
             gameAreaElement.appendChild(instructionText);
             return;
         }
-        
+
         // Game is started - remove instruction text if it exists
         const instructionText = gameAreaElement.querySelector('.aim-instruction-text');
         if (instructionText) {
             instructionText.remove();
         }
-        
+
         // During gameplay: only update elements that changed
         // Remove bullet holes that don't exist anymore (keep only elements with matching IDs)
         const existingHoles = gameAreaElement.querySelectorAll('.bullet-hole');
@@ -7421,7 +7447,7 @@
                 holeEl.remove();
             }
         });
-        
+
         // Add new bullet holes
         aimBulletHoles.forEach(hole => {
             const existingHole = gameAreaElement.querySelector(`[data-hole-id="${hole.id}"]`);
@@ -7436,8 +7462,8 @@
                     width: 12px;
                     height: 12px;
                     border-radius: 50%;
-                    background: ${hole.type === 'hit' 
-                        ? 'radial-gradient(circle, #10b981, transparent)' 
+                    background: ${hole.type === 'hit'
+                        ? 'radial-gradient(circle, #10b981, transparent)'
                         : 'radial-gradient(circle, #6b7280, transparent)'};
                     pointer-events: none;
                     opacity: 0.7;
@@ -7447,7 +7473,7 @@
                 gameAreaElement.appendChild(holeElement);
             }
         });
-        
+
         // Remove targets that no longer exist
         const existingTargets = gameAreaElement.querySelectorAll('.aim-target');
         existingTargets.forEach(targetEl => {
@@ -7457,7 +7483,7 @@
                 targetEl.remove();
             }
         });
-        
+
         // Add new targets (only create DOM element once per target)
         aimTargets.forEach(target => {
             const existingTarget = gameAreaElement.querySelector(`[data-target-id="${target.id}"]`);
@@ -7485,7 +7511,7 @@
             }
         });
     }
-    
+
     function updateAimStatsDisplay() {
         // Use direct DOM updates like quotes banner to prevent blinking
         const timerElement = document.getElementById('aim-timer-display');
@@ -7493,22 +7519,22 @@
         const accuracyElement = document.getElementById('aim-accuracy-display');
         const hitsElement = document.getElementById('aim-hits-display');
         const shotsElement = document.getElementById('aim-shots-display');
-        
+
         if (timerElement) timerElement.textContent = aimTimer;
         if (scoreElement) scoreElement.textContent = aimScore;
         if (accuracyElement) accuracyElement.textContent = aimAccuracy;
         if (hitsElement) hitsElement.textContent = aimHits;
         if (shotsElement) shotsElement.textContent = aimShots;
     }
-    
+
     function updateAimScoreDisplay() {
         updateGameScoreBtn('aim', aimScore, loadAimHighScore());
     }
-    
+
     function showAimResults(isNewHighScore) {
         const resultsElement = document.getElementById('aim-results');
         if (!resultsElement) return;
-        
+
         resultsElement.innerHTML = `
             <div style="text-align: center;">
                 <h3 style="margin-bottom: 16px; color: #ef4444;">${isNewHighScore ? '🎉 New High Score!' : 'Game Complete!'}</h3>
@@ -7522,7 +7548,7 @@
                 </button>
             </div>        `;
         resultsElement.classList.add('active');
-        
+
         // Add click handler for Play Again button
         const playAgainBtn = document.getElementById('aim-play-again-btn');
         if (playAgainBtn) {
@@ -7533,14 +7559,14 @@
             };
         }
     }
-    
+
     function hideAimResults() {
         const resultsElement = document.getElementById('aim-results');
         if (resultsElement) {
             resultsElement.classList.remove('active');
         }
     }
-    
+
     // FLAPPY BIRD GAME LOGIC
     function initFlappyGame() {
         flappyCanvas = document.getElementById('flappy-canvas');
@@ -10296,24 +10322,24 @@
     }
 
     // GAME SWITCHING SYSTEM
-    
+
     function switchToGame(gameKey) {
         if (currentGame === gameKey) return;
-        
+
         // Cleanup current game
         cleanupCurrentGame();
-        
+
         // Update current game
         currentGame = gameKey;
-        
+
         // Initialize new game
         initCurrentGame();
-        
+
         // Update UI
         updateGameSwitcher();
         updateGameControls();
     }
-    
+
     function cleanupCurrentGame() {
         // The leaderboard overlay is shared across panels, so it has to close
         // on any switch or it would hang over the next game's board.
@@ -10344,13 +10370,13 @@
                 document.removeEventListener('visibilitychange', handleSnakeVisibility);
                 toggleSnakeSkinTray(false);
                 break;
-                
+
             case 'reflex':
                 if (reflexTimeoutRef) { clearTimeout(reflexTimeoutRef); reflexTimeoutRef = null; }
                 if (gameAreaElement) gameAreaElement.removeEventListener('click', handleReflexClick);
                 resetReflexGame();
                 break;
-                
+
             case 'aim':
                 if (aimTimerRef) { clearInterval(aimTimerRef); aimTimerRef = null; }
                 if (aimRenderFrameId) { cancelAnimationFrame(aimRenderFrameId); aimRenderFrameId = null; }
@@ -10405,7 +10431,7 @@
                 break;
         }
     }
-    
+
     function initCurrentGame() {
         const snakeCv = document.getElementById('snake-canvas');
         const flappyCv = document.getElementById('flappy-canvas');
@@ -10427,13 +10453,13 @@
                 if (snakeCv) snakeCv.style.display = 'block';
                 initSnakeGame();
                 break;
-                
+
             case 'reflex':
                 if (gameArea) gameArea.style.display = 'block';
                 initReflexGame();
                 updateReflexDisplay();
                 break;
-                
+
             case 'aim':
                 if (gameArea) gameArea.style.display = 'block';
                 initAimTrainerGame();
@@ -10487,7 +10513,7 @@
             }
         }
     }
-    
+
     function updateGameSwitcher() {
         const ids = ['snake', 'reflex', 'aim', 'flappy', 'tetris', 'breakout', 'pool', 'ludo', 'prayer', 'leaderboard'];
         ids.forEach(id => {
@@ -10495,13 +10521,13 @@
             if (btn) btn.classList.toggle('active', currentGame === id);
         });
     }
-    
+
     function updateGameControls() {
         const ctrlIds = ['snake-controls', 'reflex-controls', 'aim-controls', 'flappy-controls', 'tetris-controls', 'breakout-controls', 'pool-controls', 'ludo-controls', 'prayer-controls', 'leaderboard-controls'];
         const statIds = ['snake-scoreboard', 'reflex-scoreboard', 'reflex-stats', 'aim-scoreboard', 'aim-stats', 'flappy-scoreboard', 'tetris-scoreboard', 'breakout-scoreboard', 'pool-scoreboard', 'ludo-scoreboard', 'prayer-scoreboard', 'leaderboard-scoreboard'];
         ctrlIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
         statIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
-        
+
         switch (currentGame) {
             case 'snake':
                 { const c = document.getElementById('snake-controls'); if (c) c.style.display = 'flex'; }
@@ -10549,39 +10575,39 @@
                 break;
         }
     }
-    
+
     // QUOTES SYSTEM LOGIC
-    
+
     function initQuotesSystem() {
         // Prevent re-initialization to avoid resetting animations
         if (quotesInitialized) return;
-        
+
         quotesArray = loadQuotes();
         displayCurrentQuote(true); // Skip animation on first load
         startQuoteCycling();
-        
+
         quotesInitialized = true;
     }
-    
+
     function displayCurrentQuote(skipAnimation = false) {
         const quoteTextElement = document.getElementById('quote-text');
         const quoteAuthorElement = document.getElementById('quote-author');
-        
+
         if (!quoteTextElement || quotesArray.length === 0) return;
-        
+
         const quote = quotesArray[currentQuoteIndex];
-        
+
         if (!skipAnimation) {
             // Use CSS class for smooth transition without resetting animations
             quoteTextElement.classList.add('fade-out');
-            
+
             setTimeout(() => {
                 // Update content
                 quoteTextElement.textContent = `"${quote.text}"`;
                 if (quoteAuthorElement) {
                     quoteAuthorElement.textContent = `— ${quote.author}`;
                 }
-                
+
                 // Remove fade-out class to trigger fade-in via CSS
                 quoteTextElement.classList.remove('fade-out');
             }, 300); // Reduced from 600ms for snappier transitions
@@ -10591,38 +10617,38 @@
             if (quoteAuthorElement) {
                 quoteAuthorElement.textContent = `— ${quote.author}`;
             }
-            // Ensure element is visible immediately 
+            // Ensure element is visible immediately
             quoteTextElement.style.opacity = '1';
         }
     }
-    
+
     function startQuoteCycling() {
         if (quoteInterval) clearInterval(quoteInterval);
-        
+
         quoteInterval = setInterval(() => {
             currentQuoteIndex = (currentQuoteIndex + 1) % quotesArray.length;
             displayCurrentQuote();
         }, 6000);
     }
-    
+
     function addCustomQuote() {
         const quoteText = prompt('Enter your motivational quote:');
         if (!quoteText || quoteText.trim() === '') return;
-        
+
         const quoteAuthor = prompt('Enter the author name (or leave blank):');
-        
+
         const newQuote = {
             text: quoteText.trim(),
             author: quoteAuthor && quoteAuthor.trim() !== '' ? quoteAuthor.trim() : 'Anonymous'
         };
-        
+
         quotesArray.push(newQuote);
         saveQuotes(quotesArray);
-        
+
         // Show the new quote
         currentQuoteIndex = quotesArray.length - 1;
         displayCurrentQuote();
-        
+
         // Restart cycling
         startQuoteCycling();
 
@@ -10631,9 +10657,9 @@
             unlockAchievement('curator');
         }
     }
-    
+
     // XP SYSTEM LOGIC
-    
+
     function initXPSystem() {
         userXP = loadUserXP();
         xpSystemReady = true; // Must be set AFTER loadUserXP() so awardXP never runs on default values
@@ -10667,7 +10693,7 @@
             try { revalidateAchievements(); } catch (_) {}
         }
     }
-    
+
     function calculateXPForNextLevel(level) {
         // Exponential growth (Lee Sheldon method): XP needed = level^1.5 * 120
         return Math.floor(Math.pow(level, 1.5) * 120);
@@ -10726,44 +10752,44 @@
         // Without this, the default userXP values get saved to localStorage on every
         // page load (during the ~100ms before the setTimeout fires), wiping all progress.
         if (!xpSystemReady) return;
-        
+
         const currentHour = Math.floor(hoursWorked);
 
         // Calculate and update streak. hoursWorked is passed through so a day with
         // no real hours logged can't advance the streak.
         calculateStreak(hoursWorked);
-        
+
         // Reset daily tracking if it's a new day
         const today = new Date().toDateString();
         const lastDay = localStorage.getItem('xpLastDay');
-        
+
         if (lastDay !== today) {
             userXP.lastHourTracked = -1;
             userXP.todayHours = 0;
             userXP.milestonesReached = [];
             localStorage.setItem('xpLastDay', today);
         }
-        
+
         // Award XP for each completed hour (15 XP per hour)
         if (currentHour > userXP.lastHourTracked) {
             const hoursToAward = currentHour - Math.max(0, userXP.lastHourTracked);
             const xpGained = hoursToAward * XP_PER_HOUR;
-            
+
             userXP.currentXP += xpGained;
             userXP.totalXP += xpGained;
             userXP.lastHourTracked = currentHour;
             // todayHours mirrors the floor of actual hours worked — do NOT accumulate,
             // otherwise the very first call of the day (lastHourTracked === -1) inflates it.
             userXP.todayHours = currentHour;
-            
+
             // Show hourly XP notification
             if (hoursToAward > 0) {
                 showXPNotification(`+${xpGained} XP for ${hoursToAward} hour(s)!`, 'hourly');
             }
-            
+
             // Check for milestone bonuses
             checkMilestones(currentHour);
-            
+
             // Award streak bonus (once per day, and only for a day with real hours).
             //
             // Two problems used to live here. The multiplier was uncapped, and the
@@ -10786,7 +10812,7 @@
                 const capNote = userXP.consecutiveDays > STREAK_BONUS_MAX_DAYS ? ` (max ${STREAK_BONUS_MAX_DAYS}-day rate)` : '';
                 showXPNotification(`🔥 ${userXP.consecutiveDays}-Day Streak! +${streakBonus} Bonus XP!${capNote}`, 'streak');
             }
-            
+
             // Check for level up
             checkLevelUp();
         }
@@ -10799,7 +10825,7 @@
         saveUserXP(userXP);
         updateXPDisplay();
     }
-    
+
     function calculateStreak(hoursWorked) {
         const now = new Date();
         const today = now.toDateString();
@@ -10826,12 +10852,12 @@
             userXP.lastAttendanceDate = today;
             return;
         }
-        
+
         const lastDate = new Date(userXP.lastAttendanceDate);
         const currentDate = new Date(today);
         const diffTime = currentDate - lastDate;
         const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-        
+
         if (diffDays === 0) {
             // Same day, no change
             return;
@@ -10874,7 +10900,7 @@
         const cur = userXP.consecutiveDays || 0;
         if (cur > (userXP.longestStreak || 0)) userXP.longestStreak = cur;
     }
-    
+
     function checkMilestones(currentHour) {
         // Check if this milestone hasn't been reached today
         if (MILESTONE_BONUSES[currentHour] && !userXP.milestonesReached.includes(currentHour)) {
@@ -10885,7 +10911,7 @@
             showXPNotification(`🎯 ${milestone.label}! +${milestone.xp} Bonus XP!`, 'milestone');
         }
     }
-    
+
     function checkAchievements(hoursWorked) {
         // hoursWorked is a float (e.g. 7.42). All shift-completion checks use this
         // precise value rather than the truncated userXP.todayHours, so achievements
@@ -11136,7 +11162,7 @@
                 break;
         }
     }
-    
+
     // XP rewards per achievement tier
     const ACHIEVEMENT_XP = {
         // Shift completion
@@ -11224,6 +11250,10 @@
             <div class="achievements-modal-grid">${cards}</div>
         `;
         modal.querySelector('.achievements-modal-close').onclick = closeAchievementsModal;
+        // Every card icon comes from ACHIEVEMENTS[key].icon, interpolated at
+        // render time — a regex over this file's source can never find it,
+        // only a sweep of what actually landed in the DOM can.
+        cyberSweepEmoji(modal);
 
         requestAnimationFrame(() => {
             overlay.classList.add('active');
@@ -11240,7 +11270,7 @@
 
     window.openAchievementsModal = openAchievementsModal;
     window.closeAchievementsModal = closeAchievementsModal;
-    
+
     function checkLevelUp() {
         // xpNeeded MUST be recomputed on every iteration — the requirement grows
         // with level. It used to be a const captured before the loop (the
@@ -11259,7 +11289,7 @@
             xpNeeded = calculateXPForNextLevel(userXP.level);
         }
     }
-    
+
     function updateXPDisplay() {
         const levelElement = document.getElementById('xp-level');
         const currentXPElement = document.getElementById('xp-current');
@@ -11271,10 +11301,10 @@
         const longestStreakElement = document.getElementById('xp-longest-streak');
         const achievementsContainer = document.getElementById('xp-achievements');
         const nextMilestoneElement = document.getElementById('xp-next-milestone');
-        
+
         const xpNeeded = calculateXPForNextLevel(userXP.level);
         const progress = (userXP.currentXP / xpNeeded) * 100;
-        
+
         if (levelElement) levelElement.textContent = userXP.level;
         if (currentXPElement) currentXPElement.textContent = userXP.currentXP;
         if (neededXPElement) neededXPElement.textContent = xpNeeded;
@@ -11283,7 +11313,7 @@
         if (todayHoursElement) todayHoursElement.textContent = userXP.todayHours;
         if (streakElement) streakElement.textContent = userXP.consecutiveDays;
         if (longestStreakElement) longestStreakElement.textContent = userXP.longestStreak;
-        
+
         // Update achievements display - show only EARNED in row, plus a "View All" button
         if (achievementsContainer) {
             achievementsContainer.innerHTML = '';
@@ -11313,13 +11343,13 @@
             viewAll.onclick = () => window.openAchievementsModal && window.openAchievementsModal();
             achievementsContainer.appendChild(viewAll);
         }
-        
+
         // Show next milestone
         if (nextMilestoneElement) {
             const nextHour = Math.ceil((userXP.lastHourTracked + 1));
             const milestoneHours = [2, 4, 6, 8];
             const nextMilestone = milestoneHours.find(h => h > userXP.todayHours);
-            
+
             if (nextMilestone) {
                 const hoursRemaining = nextMilestone - userXP.todayHours;
                 nextMilestoneElement.textContent = `${hoursRemaining}h to ${MILESTONE_BONUSES[nextMilestone].label}`;
@@ -11329,29 +11359,33 @@
             }
         }
     }
-    
+
     function showXPNotification(message, type = 'hourly') {
         const notification = document.createElement('div');
         notification.className = `xp-milestone-notification xp-notif-${type}`;
         notification.textContent = message;
-        
+
         // Position stacked notifications
         const existingNotifications = document.querySelectorAll('.xp-milestone-notification');
         const offset = existingNotifications.length * 70;
         notification.style.top = `${20 + offset}px`;
-        
+
+        // A fresh element every call — a one-shot sweep, not cyberWatchEmoji:
+        // this node is gone in 3s, and an observer with nothing left to watch
+        // would just leak.
+        cyberSweepEmoji(notification);
         document.body.appendChild(notification);
-        
+
         setTimeout(() => {
             notification.remove();
         }, 3000);
     }
-    
+
     // Game XP Reward System
     function awardGameXP(gameType, performance) {
         let xpGained = 0;
         let message = '';
-        
+
         switch (gameType) {
             case 'snake': {
                 // Award XP based on snake score (each food = points)
@@ -11386,7 +11420,7 @@
                 message = `🐍 +${xpGained} XP (${snakeModeLabel}: ${snakeScoreVal} pts${snakeExtra}${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
                 break;
             }
-                
+
             case 'flappy': {
                 // Award XP based on pipes cleared
                 const flappyScoreVal = performance.score || 0;
@@ -11405,7 +11439,7 @@
                 message = `🐦 +${xpGained} XP (Flappy: ${flappyScoreVal} pipes${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
                 break;
             }
-                
+
             case 'tetris': {
                 // Award XP based on lines cleared and level reached
                 const tetrisLinesVal = performance.lines || 0;
@@ -11428,7 +11462,7 @@
                 message = `🧱 +${xpGained} XP (Tetris: ${tetrisLinesVal} lines, Lvl ${tetrisLevelVal}${performance.isHighScore ? ' 🏆!' : ''})`;
                 break;
             }
-                
+
             case 'reflex': {
                 // Award XP based on reaction time (faster = more XP)
                 const avgTime = performance.avgTime || 999;
@@ -11452,7 +11486,7 @@
                 message = `⚡ +${xpGained} XP (ReflexX: ${avgTime}ms avg${performance.falseStarts === 0 ? ' 🎯 Perfect!' : ''}${performance.isHighScore ? ' 🏆!' : ''})`;
                 break;
             }
-                
+
             case 'aim': {
                 // Award XP based on score and accuracy
                 const aimScoreVal = performance.score || 0;
@@ -11538,13 +11572,13 @@
                 break;
             }
         }
-        
+
         // Apply XP gain
         if (xpGained > 0) {
             userXP.currentXP += xpGained;
             userXP.totalXP += xpGained;
             userXP.gameSessions = (userXP.gameSessions || 0) + 1;
-            
+
             // Check for level up
             checkLevelUp();
 
@@ -11568,19 +11602,19 @@
             if (performance && performance.isHighScore) queueScoreSync();
         }
     }
-    
+
     // IMAGE BOX LOGIC
-    
+
     function initImageBox() {
         currentImageURL = loadImageURL();
         currentAspectRatio = loadAspectRatio();
         updateImageDisplay();
         updateAspectRatioButtons();
     }
-    
+
     function changeImage() {
         const newURL = prompt('Enter image URL from Google Images:', currentImageURL);
-        
+
         if (newURL !== null && newURL.trim() !== '') {
             currentImageURL = newURL.trim();
             saveImageURL(currentImageURL);
@@ -11592,38 +11626,38 @@
             }
         }
     }
-    
+
     function updateImageDisplay() {
         const imageDisplay = document.getElementById('image-display');
         if (!imageDisplay) return;
-        
+
         // Apply aspect ratio
         const ratio = aspectRatios[currentAspectRatio];
         if (ratio) {
             imageDisplay.style.paddingBottom = ratio.paddingBottom;
         }
-        
+
         if (currentImageURL && currentImageURL !== '') {
             imageDisplay.innerHTML = `<img src="${currentImageURL}" alt="Custom Image" class="image-box-img" onerror="this.parentElement.innerHTML='<div class=\\'image-placeholder\\'>❌ Failed to load image</div>'">`;
         } else {
             imageDisplay.innerHTML = '<div class="image-placeholder">📷 Click "Change Image" to add your favorite image</div>';
         }
     }
-    
+
     function changeAspectRatio(ratio) {
         if (!aspectRatios[ratio]) return;
-        
+
         // Only apply aspect ratio change if an image is loaded
         if (!currentImageURL || currentImageURL === '') {
             return;
         }
-        
+
         currentAspectRatio = ratio;
         saveAspectRatio(ratio);
         updateImageDisplay();
         updateAspectRatioButtons();
     }
-    
+
     function updateAspectRatioButtons() {
         Object.keys(aspectRatios).forEach(ratio => {
             const btn = document.getElementById(`aspect-ratio-${ratio.replace(':', '-')}`);
@@ -11636,7 +11670,7 @@
             }
         });
     }
-    
+
     // Cache for preventing unnecessary updates
     let cachedValues = {
         totalWorked: '',
@@ -11645,7 +11679,7 @@
         emoji: '',
         progress: -1
     };
-    
+
     // Cache DOM elements to avoid repeated queries (prevents animation resets)
     let cachedElements = {
         totalWorkedTime: null,
@@ -11655,18 +11689,18 @@
         progressFill: null,
         currentWorkedTime: null
     };
-    
+
     // Mouse position for parallax effects
     let mouseX = 0;
     let mouseY = 0;
-    
+
     // Modern CSS styles following 2025 trends
     const modernStyles = `
         <style id="attendance-modern-styles">
             @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
             @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap');
             @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
-            
+
             :root {
                 --mouse-x: 0;
                 --mouse-y: 0;
@@ -11680,7 +11714,7 @@
                 --retro-dark: #0a0e27;
                 --retro-dark-alt: #1a1d3a;
             }
-            
+
             .attendance-summary {
                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
@@ -11688,7 +11722,7 @@
                 -webkit-backdrop-filter: blur(28px) saturate(160%);
                 border: 1px solid rgba(255, 255, 255, 0.22);
                 border-radius: 24px;
-                box-shadow: 
+                box-shadow:
                     0 8px 32px rgba(0, 0, 0, 0.1),
                     0 1px 2px rgba(0, 0, 0, 0.05),
                     inset 0 1px 0 rgba(255, 255, 255, 0.12),
@@ -11708,7 +11742,7 @@
                 will-change: transform;
                 isolation: isolate;
             }
-            
+
             /* Left Panel - Snake Game & Quotes */
             .left-panel {
                 width: 400px;
@@ -11753,7 +11787,7 @@
                 transform-origin: top center;
                 transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
             }
-            
+
             /* Center Panel - Main Attendance Content */
             .main-attendance-content {
                 flex: 1;
@@ -11761,7 +11795,7 @@
                 display: flex;
                 flex-direction: column;
             }
-            
+
             /* Right Panel - XP System & Image Box */
             .right-panel {
                 width: 400px;
@@ -11771,7 +11805,7 @@
                 flex-shrink: 0;
                 transition: width 0.35s ease, opacity 0.3s ease, margin 0.35s ease;
             }
-            
+
             .attendance-summary::before {
                 content: '';
                 position: absolute;
@@ -11780,27 +11814,27 @@
                 right: 0;
                 height: 2px;
                 background: linear-gradient(
-                    90deg, 
-                    transparent, 
-                    var(--aurora-1), 
-                    var(--aurora-2), 
-                    var(--aurora-3), 
-                    var(--aurora-4), 
+                    90deg,
+                    transparent,
+                    var(--aurora-1),
+                    var(--aurora-2),
+                    var(--aurora-3),
+                    var(--aurora-4),
                     transparent
                 );
                 animation: shimmer 3s ease-in-out infinite;
                 background-size: 200% 100%;
             }
-            
+
             .attendance-summary:hover {
-                box-shadow: 
+                box-shadow:
                     0 20px 60px rgba(0, 0, 0, 0.2),
                     0 6px 16px rgba(0, 0, 0, 0.1),
                     inset 0 1px 0 rgba(255, 255, 255, 0.2),
                     8px 8px 20px rgba(0, 0, 0, 0.12),
                     -8px -8px 20px rgba(255, 255, 255, 0.08);
             }
-            
+
             .summary-header {
                 display: flex;
                 align-items: center;
@@ -11809,7 +11843,7 @@
                 margin-bottom: 32px;
                 text-align: center;
             }
-            
+
             .emoji-display {
                 font-size: 4rem;
                 line-height: 1;
@@ -11823,19 +11857,19 @@
                 transform: translateZ(0);
                 backface-visibility: hidden;
             }
-            
+
             .emoji-display:hover {
                 transform: scale(1.15) rotate(5deg);
                 filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3));
             }
-            
+
             .summary-title {
                 font-size: 1.2rem;
                 font-weight: 700;
                 font-variation-settings: 'wght' 700;
                 background: linear-gradient(
-                    135deg, 
-                    var(--aurora-1) 0%, 
+                    135deg,
+                    var(--aurora-1) 0%,
                     var(--aurora-2) 25%,
                     var(--aurora-3) 50%,
                     var(--aurora-4) 75%,
@@ -11849,7 +11883,7 @@
                 letter-spacing: -0.02em;
                 animation: gradientFlow 8s ease infinite, titlePulse 4s ease-in-out infinite;
             }
-            
+
             .modern-table {
                 width: 100%;
                 border-collapse: collapse;
@@ -11863,12 +11897,12 @@
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 transition: background 0.5s ease, box-shadow 0.5s ease;
             }
-            
+
             .modern-table thead {
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 color: white;
             }
-            
+
             .modern-table th {
                 padding: 16px 20px;
                 font-weight: 600;
@@ -11877,7 +11911,7 @@
                 letter-spacing: 0.05em;
                 border: none;
             }
-            
+
             .modern-table td {
                 padding: 16px 20px;
                 border: none;
@@ -11886,20 +11920,20 @@
                 color: rgba(255, 255, 255, 0.7);
                 transition: background-color 0.2s ease, color 0.5s ease, border-color 0.5s ease;
             }
-            
+
             .modern-table tbody tr {
                 transition: all 0.1s ease;
             }
-            
+
             .modern-table tbody tr:hover {
                 background: rgba(255, 255, 255, 0.1);
                 transform: scale(1.01);
             }
-            
+
             .modern-table tbody tr:nth-child(even) {
                 background: rgba(255, 255, 255, 0.03);
             }
-            
+
             .gap-warning {
                 background: linear-gradient(135deg, #ffeaa7, #fab1a0) !important;
                 color: #2d3436 !important;
@@ -11910,7 +11944,7 @@
                 margin: 8px 0;
                 animation: warningPulse 1s ease-in-out infinite;
             }
-            
+
             .time-stats {
                 display: grid;
                 grid-template-columns: 1fr 1fr 1fr;
@@ -11918,7 +11952,7 @@
                 gap: 20px;
                 margin: 32px 0;
             }
-            
+
             .stat-card {
                 background: rgba(255, 255, 255, 0.08);
                 border: 1px solid rgba(255, 255, 255, 0.15);
@@ -11929,7 +11963,7 @@
                 position: relative;
                 overflow: hidden;
                 cursor: pointer;
-                box-shadow: 
+                box-shadow:
                     inset 5px 5px 10px rgba(0, 0, 0, 0.05),
                     inset -5px -5px 10px rgba(255, 255, 255, 0.05),
                     5px 5px 15px rgba(0, 0, 0, 0.1),
@@ -11938,22 +11972,22 @@
                 contain: layout style;
                 will-change: transform;
             }
-            
+
             .stat-card.worked-time-card {
                 background: linear-gradient(135deg, rgba(0, 184, 148, 0.25), rgba(0, 184, 148, 0.1));
                 border-color: rgba(0, 184, 148, 0.35);
             }
-            
+
             .stat-card.remaining-time-card {
                 background: linear-gradient(135deg, rgba(225, 112, 85, 0.25), rgba(225, 112, 85, 0.1));
                 border-color: rgba(225, 112, 85, 0.35);
             }
-            
+
             .stat-card.completion-time-card {
                 background: linear-gradient(135deg, rgba(108, 92, 231, 0.25), rgba(108, 92, 231, 0.1));
                 border-color: rgba(108, 92, 231, 0.35);
             }
-            
+
             .stat-card::before {
                 content: '';
                 position: absolute;
@@ -11962,45 +11996,37 @@
                 width: 100%;
                 height: 3px;
                 background: linear-gradient(
-                    90deg, 
-                    transparent, 
-                    var(--aurora-1), 
-                    var(--aurora-2), 
-                    var(--aurora-3), 
+                    90deg,
+                    transparent,
+                    var(--aurora-1),
+                    var(--aurora-2),
+                    var(--aurora-3),
                     transparent
                 );
                 animation: cardShimmer 2s ease-in-out infinite;
                 opacity: 0;
                 transition: opacity 0.3s ease;
             }
-            .attendance-summary.retro-theme .stat-card::before {
-                background: linear-gradient(
-                    90deg,
-                    transparent,
-                    var(--rt-cyber-hl),
-                    var(--rt-accent),
-                    var(--rt-cyber-panel),
-                    transparent
-                ) !important;
-            }
-            
+            /* .retro-theme .stat-card::before now lives in the CYBERPUNK HUD
+               THEME block, with the rest of the theme. */
+
             .stat-card:hover::before {
                 opacity: 1;
             }
-            
+
             .stat-card:hover {
                 transform: translateY(-6px) scale(1.03) translateZ(20px);
-                box-shadow: 
+                box-shadow:
                     inset 8px 8px 15px rgba(0, 0, 0, 0.08),
                     inset -8px -8px 15px rgba(255, 255, 255, 0.08),
                     0 12px 32px rgba(0, 0, 0, 0.2),
                     0 4px 12px rgba(0, 0, 0, 0.15);
             }
-            
+
             .stat-card:active {
                 transform: translateY(-2px) scale(0.98);
             }
-            
+
             .stat-label {
                 font-size: 0.875rem;
                 font-weight: 500;
@@ -12011,7 +12037,7 @@
                 letter-spacing: 0.08em;
                 transition: color 0.5s ease;
             }
-            
+
             .stat-value {
                 font-size: 1.75rem;
                 font-weight: 700;
@@ -12023,31 +12049,31 @@
                 contain: layout style paint;
                 display: block;
             }
-            
+
             .stat-card:hover .stat-value {
                 font-variation-settings: 'wght' 800;
             }
-            
-            .worked-time { 
+
+            .worked-time {
                 color: #00b894;
                 text-shadow: 0 2px 12px rgba(0, 184, 148, 0.4);
             }
-            .remaining-time { 
+            .remaining-time {
                 color: #e17055;
                 text-shadow: 0 2px 12px rgba(225, 112, 85, 0.4);
             }
-            .completion-time { 
+            .completion-time {
                 color: #6c5ce7;
                 text-shadow: 0 2px 12px rgba(108, 92, 231, 0.4);
             }
-            
+
             .remaining-desc {
                 font-size: 0.75rem;
                 opacity: 0.8;
                 margin-top: 4px;
                 font-style: italic;
             }
-            
+
             .completion-message {
                 background: linear-gradient(135deg, #00b894, #00cec9);
                 color: white;
@@ -12060,7 +12086,7 @@
                 animation: celebrationPulse 1.5s ease-in-out infinite;
                 box-shadow: 0 8px 24px rgba(0, 184, 148, 0.3);
             }
-            
+
             /* Developer Info & Settings - Bottom Control Bar */
             /* Bottom Control Bar — sits as normal flex child inside main-attendance-content */
             .bottom-control-bar {
@@ -12086,7 +12112,7 @@
                 text-decoration: none;
                 position: relative;
             }
-            
+
             .developer-info:hover {
                 transform: scale(1.08) translateY(-4px);
                 background: rgba(255, 255, 255, 0.12);
@@ -12094,7 +12120,7 @@
                 box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
                 z-index: 1000;
             }
-            
+
             /* Settings Button */
             .settings-button {
                 background: rgba(255, 255, 255, 0.08);
@@ -12107,14 +12133,14 @@
                 font-size: 1.1rem;
                 color: #764ba2;
             }
-            
+
             .settings-button:hover {
                 transform: scale(1.08) translateY(-4px);
                 background: rgba(255, 255, 255, 0.12);
                 border-color: rgba(255, 255, 255, 0.25);
                 box-shadow: 0 8px 16px rgba(118, 75, 162, 0.3);
             }
-            
+
             .developer-tooltip {
                 position: absolute;
                 bottom: calc(100% + 8px);
@@ -12137,13 +12163,13 @@
                 backdrop-filter: blur(50px);
                 border: 1px solid rgba(255, 255, 255, 0.08);
             }
-            
+
             .developer-info:hover .developer-tooltip {
                 opacity: 1;
                 visibility: visible;
                 transform: translateX(-50%) translateY(0);
             }
-            
+
             .developer-tooltip::before {
                 content: '';
                 position: absolute;
@@ -12153,7 +12179,7 @@
                 border: 5px solid transparent;
                 border-top-color: rgba(25, 20, 50, 0.96);
             }
-            
+
             /* Picture-in-Picture Button Styles - Material Design 3 FAB */
             .pip-button {
                 background: linear-gradient(135deg, #667eea, #764ba2);
@@ -12172,56 +12198,56 @@
                 border: 1px solid rgba(255, 255, 255, 0.2);
                 letter-spacing: 0.5px;
             }
-            
+
             .pip-button:hover {
                 transform: scale(1.05) translateY(-4px);
                 box-shadow: 0 12px 24px rgba(102, 126, 234, 0.4), 0 6px 12px rgba(0, 0, 0, 0.2);
                 background: linear-gradient(135deg, #764ba2, #667eea);
             }
-            
+
             .pip-button:active {
                 transform: scale(0.98);
             }
-            
+
             .pip-button.active {
                 background: linear-gradient(135deg, #e17055, #fab1a0);
                 box-shadow: 0 12px 24px rgba(225, 112, 85, 0.4), 0 6px 12px rgba(0, 0, 0, 0.2);
             }
-            
+
             .pip-button.active:hover {
                 transform: scale(1.05) translateY(-4px);
                 background: linear-gradient(135deg, #fab1a0, #e17055);
             }
-            
+
             .pip-icon {
                 display: inline-block;
                 margin-right: 6px;
                 font-size: 1rem;
                 transition: transform 0.3s ease;
             }
-            
+
             .pip-button:hover .pip-icon {
                 transform: scale(1.1);
             }
-            
+
             /* Focus state for accessibility */
             .pip-button:focus {
                 outline: 2px solid rgba(102, 126, 234, 0.6);
                 outline-offset: 2px;
             }
-            
+
             .settings-button:focus,
             .developer-info:focus {
                 outline: 2px solid rgba(118, 75, 162, 0.6);
                 outline-offset: 2px;
             }
-            
+
             /* PiP Active State Styles */
             .attendance-summary.pip-active {
                 background: linear-gradient(135deg, rgba(225, 112, 85, 0.1), rgba(225, 112, 85, 0.05));
                 border-color: rgba(225, 112, 85, 0.3);
             }
-            
+
             .pip-placeholder {
                 display: none;
                 flex-direction: column;
@@ -12231,28 +12257,28 @@
                 text-align: center;
                 color: rgba(255, 255, 255, 0.7);
             }
-            
+
             .pip-placeholder.active {
                 display: flex;
             }
-            
+
             .pip-placeholder-icon {
                 font-size: 3rem;
                 margin-bottom: 12px;
                 opacity: 0.6;
             }
-            
+
             .pip-placeholder-text {
                 font-size: 1.1rem;
                 font-weight: 600;
                 margin-bottom: 6px;
             }
-            
+
             .pip-placeholder-desc {
                 font-size: 0.8rem;
                 opacity: 0.7;
             }
-            
+
             /* PiP Window Specific Styles */
             .pip-window-content {
                 padding: 16px !important;
@@ -12269,7 +12295,7 @@
                 overflow: visible !important;
                 transition: all 0.3s ease !important;
             }
-            
+
             /* PiP Window Dark Mode - Theme Aware */
             @media (prefers-color-scheme: dark) {
                 /* Glassmorphic Theme for PiP */
@@ -12279,7 +12305,7 @@
                     position: relative !important;
                     overflow: hidden !important;
                 }
-                
+
                 .pip-window-content:not(.retro-theme) .modern-table {
                     background: rgba(0, 0, 0, 0.3) !important;
                     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
@@ -12287,13 +12313,13 @@
                     position: relative !important;
                     z-index: 1 !important;
                 }
-                
+
                 .pip-window-content:not(.retro-theme) .modern-table td {
                     color: rgba(255, 255, 255, 0.85) !important;
                     font-family: 'Inter', sans-serif !important;
                     border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
                 }
-                
+
                 .pip-window-content:not(.retro-theme) .stat-card {
                     background: rgba(0, 0, 0, 0.4) !important;
                     border: 1px solid rgba(255, 255, 255, 0.15) !important;
@@ -12301,40 +12327,40 @@
                     position: relative !important;
                     z-index: 1 !important;
                 }
-                
+
                 .pip-window-content:not(.retro-theme) .stat-label {
                     color: rgba(255, 255, 255, 0.7) !important;
                     font-family: 'Inter', sans-serif !important;
                 }
-                
+
                 .pip-window-content:not(.retro-theme) .stat-value {
                     font-family: 'Inter', sans-serif !important;
                 }
-                
+
                 .pip-window-content:not(.retro-theme) .progress-bar {
                     background: rgba(255, 255, 255, 0.15) !important;
                     border: none !important;
                 }
-                
+
                 .pip-window-content:not(.retro-theme) .pip-compact-button {
                     background: rgba(255, 255, 255, 0.2) !important;
                     color: rgba(255, 255, 255, 0.9) !important;
                     border: 1px solid rgba(255, 255, 255, 0.2) !important;
                     font-family: 'Inter', sans-serif !important;
                 }
-                
+
                 .pip-window-content:not(.retro-theme) .pip-compact-button:hover {
                     background: rgba(108, 92, 231, 0.8) !important;
                     color: white !important;
                 }
-                
+
                 .pip-window-content:not(.retro-theme) .summary-title {
                     font-family: 'Inter', sans-serif !important;
                     background: linear-gradient(135deg, #667eea, #764ba2) !important;
                     -webkit-background-clip: text !important;
                     -webkit-text-fill-color: transparent !important;
                 }
-                
+
                 /* Retro-Futuristic Theme for PiP — inherits tokens from main .retro-theme rules.
                    Only PiP-specific overrides (compact button, sizing) needed here. */
                 .pip-window-content.retro-theme {
@@ -12361,7 +12387,7 @@
                         0 0 12px rgba(var(--rt-accent-rgb), 0.45) !important;
                 }
             }
-            
+
             /* PiP Window Light Mode - Theme Aware */
             @media (prefers-color-scheme: light) {
                 /* Glassmorphic Theme for PiP */
@@ -12372,7 +12398,7 @@
                     position: relative !important;
                     overflow: hidden !important;
                 }
-                
+
                 .pip-window-content:not(.retro-theme) .modern-table {
                     background: rgba(255, 255, 255, 0.9) !important;
                     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1) !important;
@@ -12380,13 +12406,13 @@
                     position: relative !important;
                     z-index: 1 !important;
                 }
-                
+
                 .pip-window-content:not(.retro-theme) .modern-table td {
                     color: rgba(0, 0, 0, 0.8) !important;
                     font-family: 'Inter', sans-serif !important;
                     border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
                 }
-                
+
                 .pip-window-content:not(.retro-theme) .stat-card {
                     background: rgba(255, 255, 255, 0.8) !important;
                     border: 1px solid rgba(0, 0, 0, 0.1) !important;
@@ -12394,68 +12420,68 @@
                     position: relative !important;
                     z-index: 1 !important;
                 }\n                \n                .pip-window-content:not(.retro-theme) .stat-card.worked-time-card {\n                    background: linear-gradient(135deg, rgba(0, 184, 148, 0.15), rgba(0, 184, 148, 0.08)) !important;\n                    border-color: rgba(0, 184, 148, 0.3) !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-card.remaining-time-card {\n                    background: linear-gradient(135deg, rgba(225, 112, 85, 0.15), rgba(225, 112, 85, 0.08)) !important;\n                    border-color: rgba(225, 112, 85, 0.3) !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-card.completion-time-card {\n                    background: linear-gradient(135deg, rgba(108, 92, 231, 0.15), rgba(108, 92, 231, 0.08)) !important;\n                    border-color: rgba(108, 92, 231, 0.3) !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-label {\n                    color: rgba(0, 0, 0, 0.6) !important;\n                    font-family: 'Inter', sans-serif !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-value {\n                    font-family: 'Inter', sans-serif !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .progress-bar {\n                    background: rgba(0, 0, 0, 0.1) !important;\n                    border: none !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .pip-compact-button {\n                    background: rgba(0, 0, 0, 0.1) !important;\n                    color: rgba(0, 0, 0, 0.7) !important;\n                    border: 1px solid rgba(0, 0, 0, 0.1) !important;\n                    font-family: 'Inter', sans-serif !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .pip-compact-button:hover {\n                    background: rgba(108, 92, 231, 0.8) !important;\n                    color: white !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .summary-title {\n                    font-family: 'Inter', sans-serif !important;\n                    background: linear-gradient(135deg, #667eea, #764ba2) !important;\n                    -webkit-background-clip: text !important;\n                    -webkit-text-fill-color: transparent !important;\n                }\n                \n                /* Retro-Futuristic Theme for PiP (light mode) — inherits tokens from main .retro-theme */\n                .pip-window-content.retro-theme {\n                    background: linear-gradient(135deg, var(--rt-bg-1) 0%, var(--rt-bg-2) 100%) !important;\n                    color: var(--rt-text) !important;\n                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12) !important;\n                    position: relative !important;\n                    overflow: hidden !important;\n                }\n                \n                .pip-window-content.retro-theme .pip-compact-button {\n                    background: var(--rt-panel-strong) !important;\n                    color: var(--rt-accent) !important;\n                    border: 1px solid var(--rt-border-strong) !important;\n                    box-shadow: inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.2) !important;\n                    font-family: 'Orbitron', sans-serif !important;\n                    font-weight: 700 !important;\n                }\n                \n                .pip-window-content.retro-theme .pip-compact-button:hover {\n                    background: rgba(var(--rt-accent-rgb), 0.18) !important;\n                    color: var(--rt-text) !important;\n                    box-shadow:\n                        inset 0 0 0 1px var(--rt-accent),\n                        0 0 12px rgba(var(--rt-accent-rgb), 0.4) !important;\n                }\n                \n                .pip-window-content .gap-warning {\n                    background: linear-gradient(135deg, #ffeaa7, #fab1a0) !important;\n                    color: #2d3436 !important;\n                }\n            }
-            
+
             .pip-window-content .summary-header {
                 margin-bottom: 20px;
                 gap: 12px;
             }
-            
+
             .pip-window-content .emoji-display {
                 font-size: 2.5rem;
             }
-            
+
             .pip-window-content .summary-title {
                 font-size: 1.5rem;
             }
-            
+
             .pip-window-content .modern-table {
                 margin: 16px 0;
                 font-size: 0.8rem;
             }
-            
+
             .pip-window-content .modern-table th,
             .pip-window-content .modern-table td {
                 padding: 10px 12px;
                 font-size: 0.75rem;
             }
-            
+
             .pip-window-content .time-stats {
                 grid-template-columns: 1fr;
                 gap: 12px;
                 margin: 20px 0;
             }
-            
+
             .pip-window-content .stat-card {
                 padding: 16px;
                 border-radius: 12px;
             }
-            
+
             .pip-window-content .stat-label {
                 font-size: 0.75rem;
                 margin-bottom: 6px;
             }
-            
+
             .pip-window-content .stat-value {
                 font-size: 1.2rem;
                 margin-bottom: 2px;
             }
-            
+
             .pip-window-content .remaining-desc {
                 font-size: 0.7rem;
                 opacity: 0.8;
             }
-            
+
             .pip-window-content .progress-bar {
                 height: 6px;
                 margin: 16px 0;
             }
-            
+
             .pip-window-content .completion-message {
                 padding: 16px;
                 font-size: 1rem;
                 margin-top: 16px;
             }
-            
+
             .pip-compact-button {
                 position: absolute !important;
                 top: 8px !important;
@@ -12474,12 +12500,12 @@
                 justify-content: center !important;
                 color: white !important;
             }
-            
+
             .pip-compact-button:hover {
                 background: rgba(108, 92, 231, 0.8) !important;
                 transform: scale(1.05) !important;
             }
-            
+
             /* Compact Mode Styles */
             .pip-window-content.compact-mode {
                 padding: 0px !important;
@@ -12491,7 +12517,7 @@
                 max-height: 70px !important;
                 overflow: hidden !important;
             }
-            
+
             /* Compact mode - Glassmorphic Aurora theme */
             .compact-mode:not(.retro-theme) .pip-compact-display {
                 text-align: center !important;
@@ -12501,7 +12527,7 @@
                 padding: 8px 16px !important;
                 backdrop-filter: blur(5px) saturate(180%) !important;
                 -webkit-backdrop-filter: blur(5px) saturate(180%) !important;
-                box-shadow: 
+                box-shadow:
                     0 0 20px rgba(102, 126, 234, 0.3),
                     0 0 40px rgba(118, 75, 162, 0.25),
                     0 0 60px rgba(240, 147, 251, 0.3),
@@ -12514,7 +12540,7 @@
                 overflow: hidden !important;
                 animation: auroraGlow 4s ease-in-out infinite !important;
             }
-            
+
             .compact-mode:not(.retro-theme) .pip-compact-display::before {
                 content: '' !important;
                 position: absolute !important;
@@ -12534,15 +12560,15 @@
                 opacity: 1 !important;
                 mix-blend-mode: screen !important;
             }
-            
+
             .compact-mode:not(.retro-theme) .pip-compact-display:hover {
                 transform: translateY(-2px) !important;
-                box-shadow: 
+                box-shadow:
                     0 12px 40px rgba(102, 126, 234, 0.3),
                     0 4px 12px rgba(118, 75, 162, 0.25),
                     inset 0 1px 1px rgba(255, 255, 255, 0.4) !important;
             }
-            
+
             .compact-mode:not(.retro-theme) .pip-compact-time {
                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
                 font-size: 1.2rem !important;
@@ -12554,7 +12580,7 @@
                 z-index: 1 !important;
                 text-shadow: 0 2px 8px rgba(102, 126, 234, 0.3) !important;
             }
-            
+
             .compact-mode:not(.retro-theme) .pip-compact-label {
                 font-family: 'Inter', sans-serif !important;
                 font-size: 0.6rem !important;
@@ -12565,7 +12591,7 @@
                 position: relative !important;
                 z-index: 1 !important;
             }
-            
+
             .compact-mode:not(.retro-theme) .pip-compact-emoji {
                 font-size: 1.1rem !important;
                 margin-left: 8px !important;
@@ -12575,13 +12601,13 @@
                 position: relative !important;
                 z-index: 1 !important;
             }
-            
+
             /* Compact mode — Cyberpunk HUD (light/dark adaptive via .retro-theme tokens) */
             .compact-mode.retro-theme .pip-compact-display {
                 text-align: center !important;
                 background: linear-gradient(135deg, var(--rt-bg-1) 0%, var(--rt-bg-2) 100%) !important;
                 border: 1px solid var(--rt-border-strong) !important;
-                border-radius: 2px !important;
+                border-radius: var(--rt-radius-sm, 2px) !important;
                 clip-path: var(--rt-clip);
                 padding: 8px 16px !important;
                 backdrop-filter: none !important;
@@ -12594,7 +12620,12 @@
                 cursor: pointer !important;
                 position: relative !important;
                 overflow: hidden !important;
-                animation: neonGlowPulse 4s ease-in-out infinite !important;
+                /* Was "neonGlowPulse", which animates box-shadow and border-color
+                   from hardcoded cyan/magenta/green — so the box-shadow declared
+                   three lines up never rendered and the glow ignored the user's
+                   swatches. rtGlowBreathe animates filter only, so it composites
+                   over the declaration and follows the Glow tokens. */
+                animation: rtGlowBreathe 4s ease-in-out infinite !important;
             }
 
             .compact-mode.retro-theme .pip-compact-display::before {
@@ -12631,12 +12662,12 @@
                 font-family: 'Share Tech Mono', 'Orbitron', monospace !important;
                 font-size: 1.2rem !important;
                 font-weight: 700 !important;
-                color: var(--rt-accent) !important;
+                color: var(--rt-text) !important;
                 margin: 2px 0 0 0 !important;
                 line-height: 1.1 !important;
                 text-shadow:
                     0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 12px rgba(var(--rt-accent-rgb), 0.45) !important;
+                    var(--rt-glow) !important;
                 letter-spacing: 0.08em !important;
                 position: relative !important;
                 z-index: 1 !important;
@@ -12664,12 +12695,12 @@
                 position: relative !important;
                 z-index: 1 !important;
             }
-            
+
             /* Performance optimization for dynamic elements */
             .stat-value, .emoji-display, .progress-fill {
                 will-change: transform;
             }
-            
+
             .progress-bar {
                 width: 100%;
                 height: 12px;
@@ -12678,7 +12709,7 @@
                 overflow: hidden;
                 margin: 24px 0;
                 position: relative;
-                box-shadow: 
+                box-shadow:
                     inset 3px 3px 6px rgba(0, 0, 0, 0.1),
                     inset -3px -3px 6px rgba(255, 255, 255, 0.05);
                 transform-style: preserve-3d;
@@ -12686,18 +12717,18 @@
                 /* Isolate progress updates from parent style recalculation */
                 contain: layout style;
             }
-            
+
             .progress-bar:hover {
                 transform: perspective(500px) rotateX(calc(var(--mouse-y) * -0.5deg)) rotateY(calc(var(--mouse-x) * 0.5deg));
             }
-            
+
             .progress-fill {
                 height: 100%;
                 background: linear-gradient(
-                    90deg, 
-                    var(--aurora-1), 
-                    var(--aurora-2), 
-                    var(--aurora-3), 
+                    90deg,
+                    var(--aurora-1),
+                    var(--aurora-2),
+                    var(--aurora-3),
                     var(--aurora-4)
                 );
                 background-size: 200% 100%;
@@ -12712,7 +12743,7 @@
                 transform: translateZ(0);
                 backface-visibility: hidden;
             }
-            
+
             .progress-fill::after {
                 content: '';
                 position: absolute;
@@ -12723,126 +12754,126 @@
                 background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
                 animation: progressShimmer 2s ease-in-out infinite;
             }
-            
+
             /* Animations */
             @keyframes emojiPulse {
                 0%, 100% { transform: scale(1); }
                 50% { transform: scale(1.1); }
             }
-            
+
             @keyframes emojiFloat {
                 0%, 100% { transform: translateY(0px); }
                 50% { transform: translateY(-10px); }
             }
-            
+
             @keyframes shimmer {
-                0% { 
+                0% {
                     background-position: -200% center;
                 }
-                100% { 
+                100% {
                     background-position: 200% center;
                 }
             }
-            
+
             @keyframes cardShimmer {
                 0% { left: -100%; }
                 50% { left: 50%; }
                 100% { left: 100%; }
             }
-            
+
             @keyframes progressShimmer {
                 0% { left: -100%; }
                 50% { left: 50%; }
                 100% { left: 100%; }
             }
-            
+
             @keyframes gradientFlow {
                 0% { background-position: 0% 50%; }
                 50% { background-position: 100% 50%; }
                 100% { background-position: 0% 50%; }
             }
-            
+
             @keyframes titlePulse {
-                0%, 100% { 
+                0%, 100% {
                     font-variation-settings: 'wght' 700;
                 }
-                50% { 
+                50% {
                     font-variation-settings: 'wght' 800;
                 }
             }
-            
+
             @keyframes warningPulse {
-                0%, 100% { 
-                    opacity: 1; 
+                0%, 100% {
+                    opacity: 1;
                     transform: scale(1);
                 }
-                50% { 
+                50% {
                     opacity: 0.85;
                     transform: scale(0.98);
                 }
             }
-            
+
             @keyframes celebrationPulse {
-                0%, 100% { 
-                    transform: scale(1); 
+                0%, 100% {
+                    transform: scale(1);
                 }
-                25% { 
-                    transform: scale(1.03) rotate(1deg); 
+                25% {
+                    transform: scale(1.03) rotate(1deg);
                 }
-                75% { 
-                    transform: scale(1.03) rotate(-1deg); 
+                75% {
+                    transform: scale(1.03) rotate(-1deg);
                 }
             }
-            
+
             @keyframes scanlines {
-                0% { 
-                    transform: translateY(0); 
+                0% {
+                    transform: translateY(0);
                 }
-                100% { 
-                    transform: translateY(4px); 
+                100% {
+                    transform: translateY(4px);
                 }
             }
-            
+
             @keyframes glitchText {
                 0%, 90%, 100% {
                     transform: translate(0);
-                    text-shadow: 
+                    text-shadow:
                         0 0 10px var(--neon-cyan),
                         0 0 20px var(--neon-cyan),
                         0 0 30px rgba(0, 240, 255, 0.5);
                 }
                 92% {
                     transform: translate(-2px, 1px);
-                    text-shadow: 
+                    text-shadow:
                         2px 0 var(--neon-magenta),
                         -2px 0 var(--neon-cyan),
                         0 0 20px var(--neon-cyan);
                 }
                 94% {
                     transform: translate(2px, -1px);
-                    text-shadow: 
+                    text-shadow:
                         -2px 0 var(--neon-magenta),
                         2px 0 var(--neon-cyan),
                         0 0 20px var(--neon-cyan);
                 }
             }
-            
+
             @keyframes neonPulse {
                 0%, 100% {
-                    box-shadow: 
+                    box-shadow:
                         0 0 5px var(--neon-cyan),
                         0 0 10px var(--neon-cyan),
                         inset 0 0 5px rgba(0, 240, 255, 0.2);
                 }
                 50% {
-                    box-shadow: 
+                    box-shadow:
                         0 0 10px var(--neon-cyan),
                         0 0 20px var(--neon-cyan),
                         0 0 30px var(--neon-magenta),
                         inset 0 0 10px rgba(0, 240, 255, 0.3);
                 }
             }
-            
+
             @keyframes rgbFlowBacklight {
                 0% {
                     background-position: 0% 50%;
@@ -12854,34 +12885,34 @@
                     background-position: 0% 50%;
                 }
             }
-            
+
             @keyframes auroraGlow {
                 0%, 100% {
-                    box-shadow: 
+                    box-shadow:
                         0 0 20px rgba(102, 126, 234, 0.5),
                         0 0 40px rgba(118, 75, 162, 0.4),
                         0 0 60px rgba(240, 147, 251, 0.3),
                         inset 0 0 30px rgba(102, 126, 234, 0.15) !important;
                 }
                 33% {
-                    box-shadow: 
+                    box-shadow:
                         0 0 25px rgba(118, 75, 162, 0.6),
                         0 0 50px rgba(240, 147, 251, 0.5),
                         0 0 75px rgba(79, 172, 254, 0.4),
                         inset 0 0 35px rgba(118, 75, 162, 0.2) !important;
                 }
                 66% {
-                    box-shadow: 
+                    box-shadow:
                         0 0 30px rgba(240, 147, 251, 0.6),
                         0 0 60px rgba(79, 172, 254, 0.5),
                         0 0 90px rgba(102, 126, 234, 0.4),
                         inset 0 0 40px rgba(240, 147, 251, 0.2) !important;
                 }
             }
-            
+
             @keyframes neonGlowPulse {
                 0%, 100% {
-                    box-shadow: 
+                    box-shadow:
                         0 0 20px rgba(0, 240, 255, 0.6),
                         0 0 40px rgba(255, 0, 255, 0.5),
                         0 0 60px rgba(0, 255, 65, 0.4),
@@ -12889,7 +12920,7 @@
                     border-color: rgba(0, 240, 255, 0.4);
                 }
                 33% {
-                    box-shadow: 
+                    box-shadow:
                         0 0 25px rgba(255, 0, 255, 0.7),
                         0 0 50px rgba(0, 255, 65, 0.6),
                         0 0 75px rgba(0, 240, 255, 0.5),
@@ -12897,7 +12928,7 @@
                     border-color: rgba(255, 0, 255, 0.5);
                 }
                 66% {
-                    box-shadow: 
+                    box-shadow:
                         0 0 30px rgba(0, 255, 65, 0.7),
                         0 0 60px rgba(0, 240, 255, 0.6),
                         0 0 90px rgba(255, 0, 255, 0.5),
@@ -12905,7 +12936,7 @@
                     border-color: rgba(0, 255, 65, 0.5);
                 }
             }
-            
+
             /* Settings Modal */
             .settings-modal {
                 position: fixed;
@@ -12918,7 +12949,7 @@
                 border-radius: 24px;
                 padding: 32px;
                 min-width: 400px;
-                box-shadow: 
+                box-shadow:
                     0 20px 60px rgba(0, 0, 0, 0.3),
                     inset 0 1px 0 rgba(255, 255, 255, 0.2);
                 z-index: 1000;
@@ -12926,21 +12957,21 @@
                 visibility: hidden;
                 transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55);
             }
-            
+
             .settings-modal.active {
                 opacity: 1;
                 visibility: visible;
                 transform: translate(-50%, -50%) scale(1);
                 max-height: 90vh;
                 overflow-y: auto;
-            
+
                 /* Firefox */
                 scrollbar-width: none;
-            
+
                 /* IE/Edge Legacy */
                 -ms-overflow-style: none;
             }
-            
+
             /* Chrome, Edge, Safari */
             .settings-modal.active::-webkit-scrollbar {
                 display: none;
@@ -12950,24 +12981,24 @@
                 scrollbar-width: thin;
                 scrollbar-color: rgba(255,255,255,.25) transparent;
             }
-            
+
             .settings-modal.active::-webkit-scrollbar {
                 width: 6px;
             }
-            
+
             .settings-modal.active::-webkit-scrollbar-track {
                 background: transparent;
             }
-            
+
             .settings-modal.active::-webkit-scrollbar-thumb {
                 background: rgba(255,255,255,.25);
                 border-radius: 999px;
             }
-            
+
             .settings-modal.active::-webkit-scrollbar-thumb:hover {
                 background: rgba(255,255,255,.45);
             }
-            
+
             .settings-modal-overlay {
                 position: fixed;
                 top: 0;
@@ -12981,7 +13012,7 @@
                 visibility: hidden;
                 transition: all 0.3s ease;
             }
-            
+
             .settings-modal-overlay.active {
                 opacity: 1;
                 visibility: visible;
@@ -13074,7 +13105,7 @@
                 height: auto !important;
                 border-radius: 10px;
             }
-            
+
             .settings-title {
                 font-size: 1.5rem;
                 font-weight: 700;
@@ -13083,7 +13114,7 @@
                 -webkit-background-clip: text;
                 -webkit-text-fill-color: transparent;
             }
-            
+
             .settings-option {
                 display: flex;
                 align-items: center;
@@ -13095,28 +13126,28 @@
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 transition: all 0.3s ease;
             }
-            
+
             .settings-option:hover {
                 background: rgba(255, 255, 255, 0.1);
                 transform: translateX(4px);
             }
-            
+
             .settings-option.disabled {
                 opacity: 0.4;
                 pointer-events: none;
                 cursor: not-allowed;
             }
-            
+
             .settings-option.disabled:hover {
                 transform: none;
                 background: rgba(255, 255, 255, 0.05);
             }
-            
+
             .settings-option-label {
                 font-weight: 500;
                 color: rgba(255, 255, 255, 0.9);
             }
-            
+
             .toggle-switch {
                 width: 50px;
                 height: 26px;
@@ -13126,17 +13157,17 @@
                 cursor: pointer;
                 transition: background 0.3s ease;
             }
-            
+
             .toggle-switch.active {
                 background: var(--aurora-1);
             }
-            
+
             .toggle-switch.disabled {
                 opacity: 0.5;
                 cursor: not-allowed;
                 background: rgba(255, 255, 255, 0.1) !important;
             }
-            
+
             .toggle-switch::after {
                 content: '';
                 position: absolute;
@@ -13149,7 +13180,7 @@
                 transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55);
                 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
             }
-            
+
             .toggle-switch.active::after {
                 transform: translateX(24px);
             }
@@ -13167,23 +13198,23 @@
                 transition: all 0.3s ease;
                 min-width: 140px;
             }
-            
+
             .settings-select:hover {
                 background: rgba(255, 255, 255, 0.15);
                 border-color: rgba(255, 255, 255, 0.3);
             }
-            
+
             .settings-select:focus {
                 border-color: var(--aurora-1);
                 box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
             }
-            
+
             .settings-select option {
                 background: #2d3436;
                 color: white;
                 padding: 8px;
             }
-            
+
             .close-modal-button {
                 margin-top: 24px;
                 width: 100%;
@@ -13196,164 +13227,164 @@
                 cursor: pointer;
                 transition: all 0.3s ease;
             }
-            
+
             .close-modal-button:hover {
                 transform: translateY(-2px);
                 box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
             }
-            
+
             /* Responsive Design */
             @media (max-width: 768px) {
                 .attendance-summary {
                     margin: 16px;
                     padding: 24px 20px;
                 }
-                
+
                 .summary-title {
                     font-size: 1.5rem;
                 }
-                
+
                 .emoji-display {
                     font-size: 3rem;
                 }
-                
+
                 .modern-table th,
                 .modern-table td {
                     padding: 12px 16px;
                     font-size: 0.875rem;
                 }
-                
+
                 .time-stats {
                     grid-template-columns: 1fr;
                     grid-template-rows: auto;
                     gap: 16px;
                 }
-                
+
                 .stat-card.worked-time-card {
                     grid-column: 1;
                     grid-row: auto;
                 }
-                
+
                 .pip-button {
                     bottom: 16px;
                     padding: 12px 20px;
                     font-size: 0.8rem;
                     border-radius: 14px;
                 }
-                
+
                 .pip-icon {
                     margin-right: 4px;
                     font-size: 0.9rem;
                 }
-                
+
                 /* Adjust button positions for mobile */
                 .settings-button {
                     transform: translateX(-100px);
                     padding: 10px 14px;
                     font-size: 1rem;
                 }
-                
+
                 .settings-button:hover {
                     transform: translateX(-100px) scale(1.08) translateY(-4px) rotate(90deg);
                 }
-                
+
                 .developer-info {
                     transform: translateX(50px);
                     padding: 10px 14px;
                     font-size: 1rem;
                 }
-                
+
                 .developer-info:hover {
                     transform: translateX(50px) scale(1.08) translateY(-4px);
                     z-index: 1000;
                 }
             }
-            
+
             /* Extra small screens (mobile) */
             @media (max-width: 480px) {
                 .pip-window-content {
                     padding: 12px !important;
                 }
-                
+
                 .pip-window-content .summary-header {
                     margin-bottom: 16px;
                     gap: 8px;
                 }
-                
+
                 .pip-window-content .emoji-display {
-                    font-size: 2rem;   
+                    font-size: 2rem;
                 }
-                
+
                 .pip-window-content .summary-title {
                     font-size: 1rem;
                 }
-                
+
                 .pip-window-content .modern-table {
                     font-size: 0.7rem;
                     margin: 12px 0;
                 }
-                
+
                 .pip-window-content .modern-table th,
                 .pip-window-content .modern-table td {
                     padding: 8px 6px;
                     font-size: 0.65rem;
                 }
-                
+
                 .pip-window-content .time-stats {
                     gap: 8px;
                     margin: 16px 0;
                 }
-                
+
                 .pip-window-content .stat-card {
                     padding: 12px;
                 }
-                
+
                 .pip-window-content .stat-label {
                     font-size: 0.7rem;
                     margin-bottom: 4px;
                 }
-                
+
                 .pip-window-content .stat-value {
                     font-size: 1rem;
                 }
-                
+
                 .pip-window-content .remaining-desc {
                     font-size: 0.65rem;
                 }
-                
+
                 .pip-window-content .progress-bar {
                     height: 5px;
                     margin: 12px 0;
                 }
-                
+
                 /* Make buttons more compact on small screens */
                 .settings-button {
                     transform: translateX(-70px);
                     padding: 8px 12px;
                     font-size: 0.95rem;
                 }
-                
+
                 .settings-button:hover {
                     transform: translateX(-70px) scale(1.08) translateY(-4px) rotate(90deg);
                 }
-                
+
                 .developer-info {
                     transform: translateX(30px);
                     padding: 8px 12px;
                     font-size: 0.95rem;
                 }
-                
+
                 .developer-info:hover {
                     transform: translateX(30px) scale(1.08) translateY(-4px);
                     z-index: 1000;
                 }
-                
+
                 .pip-button {
                     padding: 10px 16px;
                     font-size: 0.75rem;
                 }
             }
-            
+
             /* Dark mode enhancements */
             @media (prefers-color-scheme: dark) {
                 .attendance-summary {
@@ -13363,60 +13394,60 @@
                     border-color: rgba(255, 255, 255, 0.12);
                     color: rgba(255, 255, 255, 0.92);
                 }
-                
+
                 .modern-table {
                     background: rgba(0, 0, 0, 0.25);
                     border: 1px solid rgba(255, 255, 255, 0.08);
                 }
-                
+
                 .stat-card {
                     background: rgba(255, 255, 255, 0.04);
                     border-color: rgba(255, 255, 255, 0.1);
                     backdrop-filter: blur(6px);
                     -webkit-backdrop-filter: blur(6px);
                 }
-                
+
                 .modern-table td {
                     color: rgba(255, 255, 255, 0.75);
                 }
-                
+
                 .stat-label {
                     color: rgba(255, 255, 255, 0.7);
                 }
-                
+
                 .stat-card:hover {
                     background: rgba(255, 255, 255, 0.1);
                     border-color: rgba(255, 255, 255, 0.2);
                 }
-                
+
                 .attendance-summary:hover {
-                    box-shadow: 
+                    box-shadow:
                         0 16px 48px rgba(0, 0, 0, 0.25),
                         0 4px 12px rgba(0, 0, 0, 0.18),
                         inset 0 1px 0 rgba(255, 255, 255, 0.15);
                 }
-                
+
                 .pip-placeholder {
                     color: rgba(255, 255, 255, 0.7);
                 }
-                
+
                 .pip-button {
                     background: linear-gradient(135deg, #667eea, #764ba2);
                     border-color: rgba(255, 255, 255, 0.2);
                     color: white;
                 }
-                
+
                 .pip-button:hover {
                     box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
                 }
-                
+
                 .pip-button.active {
                     background: linear-gradient(135deg, #e17055, #fab1a0);
                     box-shadow: 0 6px 20px rgba(225, 112, 85, 0.4);
                     color: white;
                 }
             }
-            
+
                 /* Light mode enhancements */
             @media (prefers-color-scheme: light) {
                 .attendance-summary:not(.retro-theme) {
@@ -13425,26 +13456,26 @@
                     -webkit-backdrop-filter: blur(28px) saturate(150%);
                     border-color: rgba(102, 126, 234, 0.12);
                     color: rgba(0, 0, 0, 0.9);
-                    box-shadow: 
+                    box-shadow:
                         0 8px 32px rgba(0, 0, 0, 0.08),
                         0 1px 2px rgba(0, 0, 0, 0.06),
                         inset 0 1px 0 rgba(255, 255, 255, 0.9);
                 }
-                
+
                 .attendance-summary:not(.retro-theme)::before {
                     background: linear-gradient(
-                        90deg, 
-                        transparent, 
-                        rgba(102, 126, 234, 0.5), 
-                        rgba(118, 75, 162, 0.5), 
-                        rgba(240, 147, 251, 0.5), 
-                        rgba(79, 172, 254, 0.5), 
+                        90deg,
+                        transparent,
+                        rgba(102, 126, 234, 0.5),
+                        rgba(118, 75, 162, 0.5),
+                        rgba(240, 147, 251, 0.5),
+                        rgba(79, 172, 254, 0.5),
                         transparent
                     );
                     background-size: 200% 100%;
                     opacity: 0.7;
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .modern-table {
                     background: rgba(255, 255, 255, 0.75);
                     backdrop-filter: blur(8px);
@@ -13452,12 +13483,12 @@
                     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
                     border: 1px solid rgba(0, 0, 0, 0.06);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .modern-table td {
                     color: rgba(0, 0, 0, 0.8);
                     border-bottom: 1px solid rgba(0, 0, 0, 0.06);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .stat-card {
                     background: rgba(255, 255, 255, 0.65);
                     backdrop-filter: blur(8px);
@@ -13465,80 +13496,80 @@
                     border-color: rgba(0, 0, 0, 0.06);
                     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .stat-card.worked-time-card {
                     background: linear-gradient(135deg, rgba(0, 184, 148, 0.15), rgba(0, 184, 148, 0.05));
                     border-color: rgba(0, 184, 148, 0.3);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .stat-card.remaining-time-card {
                     background: linear-gradient(135deg, rgba(225, 112, 85, 0.15), rgba(225, 112, 85, 0.05));
                     border-color: rgba(225, 112, 85, 0.3);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .stat-card.completion-time-card {
                     background: linear-gradient(135deg, rgba(108, 92, 231, 0.15), rgba(108, 92, 231, 0.05));
                     border-color: rgba(108, 92, 231, 0.3);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .stat-label {
                     color: rgba(0, 0, 0, 0.6);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .developer-info {
                     background: rgba(255, 255, 255, 0.8);
                     border-color: rgba(0, 0, 0, 0.1);
                     color: #667eea;
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .developer-info:hover {
                     background: rgba(255, 255, 255, 0.9);
                     border-color: rgba(0, 0, 0, 0.2);
                     z-index: 1000;
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .progress-bar {
                     background: rgba(0, 0, 0, 0.1);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .gap-warning {
                     background: linear-gradient(135deg, #ffeaa7, #fab1a0) !important;
                     color: #2d3436 !important;
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .stat-card:hover {
                     background: rgba(255, 255, 255, 0.85);
                     border-color: rgba(102, 126, 234, 0.2);
                     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
                 }
-                
+
                 .attendance-summary:not(.retro-theme):hover {
-                    box-shadow: 
+                    box-shadow:
                         0 12px 40px rgba(0, 0, 0, 0.1),
                         0 4px 12px rgba(0, 0, 0, 0.06),
                         inset 0 1px 0 rgba(255, 255, 255, 0.9);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .pip-placeholder {
                     color: rgba(0, 0, 0, 0.7);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .pip-button {
                     background: linear-gradient(135deg, #667eea, #764ba2);
                     border-color: rgba(255, 255, 255, 0.2);
                     color: white;
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .pip-button:hover {
                     box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .pip-button.active {
                     background: linear-gradient(135deg, #e17055, #fab1a0);
                     box-shadow: 0 6px 20px rgba(225, 112, 85, 0.4);
                     color: white;
                 }
-                
+
                 /* Fix glassmorphic containers for light mode */
                 .attendance-summary:not(.retro-theme) .snake-game-container,
                 .attendance-summary:not(.retro-theme) .quotes-container,
@@ -13548,77 +13579,77 @@
                     backdrop-filter: blur(20px);
                     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .xp-container {
                     background: linear-gradient(135deg, rgba(108, 92, 231, 0.12), rgba(102, 126, 234, 0.08));
                     border-color: rgba(108, 92, 231, 0.25);
                     backdrop-filter: blur(20px);
                     box-shadow: 0 4px 16px rgba(108, 92, 231, 0.15);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .snake-game-title,
                 .attendance-summary:not(.retro-theme) .quotes-title,
                 .attendance-summary:not(.retro-theme) .xp-title {
                     color: rgba(0, 0, 0, 0.85);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .snake-score,
                 .attendance-summary:not(.retro-theme) .quote-text,
                 .attendance-summary:not(.retro-theme) .xp-stat-label {
                     color: rgba(0, 0, 0, 0.65);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .snake-canvas {
                     background: rgba(0, 0, 0, 0.05);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .quote-add-btn,
                 .attendance-summary:not(.retro-theme) .image-change-btn {
                     background: rgba(0, 0, 0, 0.08);
                     border-color: rgba(0, 0, 0, 0.15);
                     color: rgba(0, 0, 0, 0.8);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .quote-add-btn:hover,
                 .attendance-summary:not(.retro-theme) .image-change-btn:hover {
                     background: rgba(0, 0, 0, 0.12);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .aspect-ratio-btn {
                     background: rgba(0, 0, 0, 0.08);
                     border-color: rgba(0, 0, 0, 0.15);
                     color: rgba(0, 0, 0, 0.8);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .aspect-ratio-btn:hover {
                     background: rgba(0, 0, 0, 0.12);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .aspect-ratio-btn.active {
                     background: linear-gradient(135deg, #667eea, #764ba2);
                     border-color: #667eea;
                     color: white;
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .xp-stat-item {
                     background: rgba(0, 0, 0, 0.05);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .xp-progress-bar {
                     background: rgba(0, 0, 0, 0.1);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .settings-button {
                     background: rgba(255, 255, 255, 0.8);
                     border-color: rgba(0, 0, 0, 0.1);
                     color: #764ba2;
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .settings-button:hover {
                     background: rgba(255, 255, 255, 0.9);
                     border-color: rgba(0, 0, 0, 0.2);
                 }
-                
+
                 .attendance-summary:not(.retro-theme) .image-placeholder {
                     color: rgba(0, 0, 0, 0.4);
                 }
@@ -13799,7 +13830,7 @@
                     color: rgba(0,0,0,0.85);
                 }
             }
-            
+
             /* ============================================================
                NEUMORPHIC DEPTH — class-toggled via .neumorphic-active
                Adds pronounced 3-D inset / outset shadows to every surface
@@ -14023,64 +14054,643 @@
                 }
             }
 
+            /* ═══ CYBERPUNK HUD THEME — generated from cyber-dev/cyber-theme.css, do not edit here ═══ */
             /* ============================================================
-               CYBERPUNK HUD THEME (rebrand of "Sci-Fi Retro Futuristic")
-               — Always uses neon-on-dark tokens since BG is user-controlled
-                 and defaults to dark (#07091a). OS light/dark irrelevant.
-               — Inspired by Cyberpunk 2077 menu / HUD bracket interfaces
+               CYBERPUNK HUD THEME
+               Generated from cyber-dev/cyber-theme.css. Do not edit the copy
+               in the userscript; run node cyber-dev/reinsert.js.
+
+               ── THE TOKEN CONTRACT ──────────────────────────────────────
+               Three groups of user-set tokens. NO token in one group is ever
+               derived from a token in another:
+
+                 STRUCTURE   --rt-bg-1  --rt-bg-2
+                 ACCENTS     --rt-accent  --rt-cyber-hl  --rt-cyber-panel
+                 LEGIBILITY  --rt-text  --rt-glow-color  --rt-border-color
+
+               Dim variants derive from their OWN parent by opacity alone,
+               never by mixing in another hue. Linking type to Accent or BG is
+               what made the yellow unchangeable: a dark Accent then puts dark
+               text on a dark panel with no control that can undo it.
+
+                 ALL TYPE   -> var(--rt-text) / var(--rt-text-dim)
+                 ALL BLOOM  -> var(--rt-glow) / rgba(var(--rt-glow-rgb), a)
+                 ALL FRAMES -> var(--rt-border*) / var(--rt-outline)
+
+               KNOCKED-OUT TYPE is the one inversion allowed, and only in one
+               direction: a --rt-text fill carrying --rt-bg-1 glyphs. That is
+               legibility-safe by the same guarantee the contrast chip already
+               measures, because it is the identical pair of colours with the
+               roles swapped. An ACCENT fill carrying text is never allowed —
+               a dark Highlight would hide the label with nothing to warn you.
+
+               ── THE VISUAL LANGUAGE ─────────────────────────────────────
+               Authored against cyber-dev/ref/. What separates this from a
+               generic sci-fi HUD, in order of how much it matters:
+
+                 1. ASYMMETRY. No panel is a rounded rectangle. Step notches
+                    cut out of one corner, opposite-corner diagonals,
+                    terraced corners. Every silhouette is lopsided.
+                 2. 45-degree HAZARD HATCHING on edges, tracks and tabs.
+                 3. SOLID accent blocks with knocked-out glyphs, so there is
+                    real mass on screen and not only outline and glow.
+                 4. FLAT. No backdrop-filter, no glass, near-zero mid-tones.
+                    Hard colour on hard black.
+                 5. GREEBLE — mono codes, tick rows, segment counters.
+                 6. SCHEMATIC connector dots at the bracket ends.
+
+               clip-path removes the border along a cut edge, which leaves the
+               silhouette unfinished. --rt-outline draws it back with four
+               1px drop-shadows that follow the clip exactly, so one token
+               outlines every shape without a wrapper element.
                ============================================================ */
 
-            /* Neon-on-dark tokens (always active — cyberpunk BG is always dark) */
             .retro-theme {
+                /* -- STRUCTURE (user-set) -- */
                 --rt-bg-1: #07091a;
                 --rt-bg-2: #11142b;
-                --rt-panel: rgba(8, 10, 26, 0.78);
-                --rt-panel-strong: rgba(8, 10, 26, 0.92);
-                --rt-text: #fff200;            /* signature cyberpunk yellow */
-                --rt-text-dim: rgba(255, 242, 0, 0.72);
+                --rt-panel: rgba(6, 7, 16, 0.82);
+                --rt-panel-strong: rgba(4, 5, 12, 0.94);
+
+                /* -- ACCENTS (user-set) -- */
                 --rt-accent: #fff200;
                 --rt-accent-rgb: 255, 242, 0;
+                /* Highlight + Panel default to cyan until applyPreferences()
+                   writes them. Without these, every rule that consumes them
+                   would resolve to an invalid value.
+
+                   Panel has no -rgb companion because nothing takes Panel at
+                   partial alpha — it is used whole, as a gradient stop and as
+                   the bracket colour. It used to have one anyway: declared
+                   here, written on every repaint, torn down on every theme
+                   switch, and read by nothing. Removed when section H2 went
+                   in. Add it back only alongside the rule that consumes it,
+                   or H2 will fail it again in the other direction. */
+                --rt-cyber-hl: var(--rt-cyan, #00e5ff);
+                --rt-cyber-hl-rgb: var(--rt-cyan-rgb, 0, 229, 255);
+                --rt-cyber-panel: var(--rt-cyan, #00e5ff);
+
+                /* -- LEGIBILITY (user-set, independent of everything above) -- */
+                --rt-text: #fff200;
+                --rt-text-rgb: 255, 242, 0;
+                --rt-glow-color: #fff200;
+                --rt-glow-rgb: 255, 242, 0;
+                --rt-border-color: #fff200;
+                --rt-border-rgb: 255, 242, 0;
+
+                /* --rt-cyan is the fallback the Highlight and Panel swatches
+                   resolve to before applyPreferences() has run. It is NOT a
+                   colour anything paints with directly.
+
+                   THE OTHER FIXED HUES ARE GONE. There used to be a magenta,
+                   a lime and a warn here, described as "status only, never
+                   load-bearing for text" — and then four rules coloured text
+                   with them anyway: the two title ghosts, the HUD rail's
+                   LIVE tag, and the EQ button's sim state.
+
+                   Reported as: set every swatch to black and the LIVE tag is
+                   still bright. Exactly right, and worse than the bug this
+                   whole rework exists to fix — a dark Accent at least has a
+                   control the user could move, whereas a literal in the
+                   stylesheet has none at all.
+
+                   Status now reads through form, not through a private
+                   palette: the LIVE tag blinks, the EQ button knocks out.
+                   Both survive any palette, including all-black. */
                 --rt-cyan: #00e5ff;
                 --rt-cyan-rgb: 0, 229, 255;
-                --rt-magenta: #ff2a6d;
-                --rt-magenta-rgb: 255, 42, 109;
-                --rt-lime: #05ffa1;
-                --rt-lime-rgb: 5, 255, 161;
-                --rt-border: rgba(255, 242, 0, 0.32);
-                --rt-border-strong: rgba(255, 242, 0, 0.7);
-                --rt-grid: rgba(255, 242, 0, 0.06);
-                --rt-glow: 0 0 18px rgba(255, 242, 0, 0.35);
-                --rt-scanline: rgba(0, 229, 255, 0.04);
+
+                /* -- SEMANTIC ROLES ------------------------------------
+                   The reference console is bi-chromatic, and the second
+                   hue does real work: accent marks what is TARGETED
+                   (remaining, live, the thing you are waiting for) and
+                   data marks what is MEASURED (worked, elapsed, logged).
+                   Reading one number against the other is the whole job
+                   of this widget, so the two roles get names rather than
+                   being spelled --rt-cyber-hl at forty call sites.
+
+                   --rt-data aliases the Highlight swatch, so it stays
+                   user-settable and stays in the teardown list. It is a
+                   role, not a new token to clear.
+
+                   Roles are for FILLS, RULES and GLYPHS only. Numbers and
+                   labels stay on --rt-text: a dark Highlight must never be
+                   able to hide a readout, and no control could undo it. */
+                --rt-data: var(--rt-cyber-hl);
+                --rt-data-rgb: var(--rt-cyber-hl-rgb);
+
+                /* -- DERIVED: opacity off their own parent, no cross-hue mixing -- */
+                --rt-text-dim: rgba(var(--rt-text-rgb), 0.72);
+                --rt-text-faint: rgba(var(--rt-text-rgb), 0.42);
+                --rt-border: rgba(var(--rt-border-rgb), 0.38);
+                --rt-border-strong: rgba(var(--rt-border-rgb), 0.85);
+                --rt-grid: rgba(var(--rt-border-rgb), 0.07);
+                /* The raw preference, 0 upward. Kept because it is what the
+                   setting stores and what the teardown list clears. Nothing
+                   in the CSS reads it directly any more — see below. */
+                --rt-glow-mul: 0.6;
+
+                /* GLOW SCALE — the Glow Intensity slider, 0 to 1.
+
+                   Written by applyCyberTokens() rather than derived in CSS,
+                   because the settings modal is body-level and cannot see a
+                   property declared on the widget. This declaration is the
+                   pre-JS fallback and mirrors the shipped default.
+
+                   RADIUS SCALES WITH IT, not just alpha, and it scales from
+                   ZERO — so 0% is genuinely off and 100% is genuinely a lot,
+                   with the whole travel in between doing visible work.
+
+                   TWO ROUNDS OF GETTING THIS WRONG, both worth recording.
+
+                   First the multiplier touched alpha only, against fixed
+                   radii — opacity saturates long before a slider does, so the
+                   top half did nothing.
+
+                   Then radius scaled, but off a 7px base. Pass 2 had tightened
+                   that from 18px on the reasoning that "a small hard halo
+                   reads as a lit filament, a wide soft one reads as fog". That
+                   was wrong for this widget: at 7px there is barely a halo to
+                   scale, so even tripling it changed almost nothing visible.
+                   The base was the problem the whole time, not the range.
+
+                   THREE LAYERS, not one big blur. A single wide blur really
+                   does turn to fog — the objection was right, the conclusion
+                   was not. Real neon has a hot core, a bloom, and a wide dim
+                   spill; stacking those keeps the glyph crisp while the light
+                   travels a long way from it. Both text-shadow and box-shadow
+                   take a layer list, so one token serves both. */
+                --rt-glow-k: 0.6;
+
+                --rt-glow:
+                    0 0 calc(6px * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.95 * var(--rt-glow-k))),
+                    0 0 calc(22px * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.55 * var(--rt-glow-k))),
+                    0 0 calc(48px * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.30 * var(--rt-glow-k)));
+
+                /* The restrained pair, for chrome that should be lit but not
+                   shouting. Same shape, two layers. */
+                --rt-glow-soft:
+                    0 0 calc(4px * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.75 * var(--rt-glow-k))),
+                    0 0 calc(16px * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.35 * var(--rt-glow-k)));
+                --rt-scanline: rgba(var(--rt-border-rgb), 0.055);
+
+                /* -- RUNTIME: written from outside this stylesheet -- */
+                /* Per frame, by the analyser in cyber-audio.js. */
+                --rt-beat: 0;
+                /* Per render, by renderFullContent(), as an inline style on
+                   .progress-bar — the track needs the percentage because the
+                   playhead is drawn on the track rather than on the fill.
+                   Declared here so the var is never unset: an unset var()
+                   invalidates the whole declaration it appears in, so a
+                   missing --rt-progress would drop the playhead entirely
+                   rather than putting it at zero. */
+                --rt-progress: 0%;
+
+                /* 45-degree hazard hatching. THE cyberpunk tell, and the one
+                   motif a clean sci-fi HUD never has. */
+                --rt-hazard: repeating-linear-gradient(
+                    45deg,
+                    var(--rt-border-color) 0 5px,
+                    transparent 5px 11px);
+                --rt-hazard-dim: repeating-linear-gradient(
+                    45deg,
+                    rgba(var(--rt-border-rgb), 0.30) 0 5px,
+                    transparent 5px 11px);
+                /* Chevron fill for meters — the >>>> run in the reference. */
+                --rt-chevron: repeating-linear-gradient(
+                    115deg,
+                    rgba(0, 0, 0, 0.55) 0 3px,
+                    transparent 3px 9px);
+
+                /* CHROMATIC ABERRATION. Every display word in the
+                   reference sheets is split — a warm ghost one way, a cool
+                   ghost the other. It is the cheapest thing on this list
+                   and the most recognisably cyberpunk: one text-shadow,
+                   no pseudo-elements, no animation. Offsets stay at 2px;
+                   past about 3px it stops reading as a mis-converged tube
+                   and starts reading as a drop shadow. */
+                --rt-aberr:
+                    2px 0 rgba(var(--rt-accent-rgb), 0.55),
+                    -2px 0 rgba(var(--rt-data-rgb), 0.40);
+
+                /* 1px tick comb — the fine ruler under every scale and
+                   beside every ident block in the sheets. */
+                --rt-comb: repeating-linear-gradient(
+                    90deg,
+                    rgba(var(--rt-border-rgb), 0.75) 0 1px,
+                    transparent 1px 3px,
+                    rgba(var(--rt-border-rgb), 0.40) 3px 4px,
+                    transparent 4px 7px);
+
+                /* Coarse 4px dash — the segmented underline the reference
+                   puts beneath a stat block instead of a solid rule. */
+                --rt-dashrule: repeating-linear-gradient(
+                    90deg,
+                    var(--rt-border-color) 0 4px,
+                    transparent 4px 8px);
+
+                /* POSITIVE chevron: a two-tone diagonal fill for meters.
+                   --rt-chevron above is subtractive (black notches cut out
+                   of whatever is behind); this one IS the fill, which is
+                   how the reference draws a loading bar. Sized 16px so
+                   rtHazardCrawl walks it exactly one period. */
+                --rt-chevron-fill: repeating-linear-gradient(
+                    115deg,
+                    var(--rt-data) 0 8px,
+                    rgba(var(--rt-data-rgb), 0.35) 8px 16px);
+
+                /* One token that outlines whatever silhouette --rt-clip cuts.
+                   Opaque on purpose: stacked semi-transparent drop-shadows
+                   compound into a muddy double edge. */
+                --rt-outline:
+                    drop-shadow(1px 0 0 var(--rt-border-color))
+                    drop-shadow(-1px 0 0 var(--rt-border-color))
+                    drop-shadow(0 1px 0 var(--rt-border-color))
+                    drop-shadow(0 -1px 0 var(--rt-border-color));
             }
 
-            /* Shared HUD clip-path with notched corners (top-left + bottom-right) */
-            .retro-theme {
+            /* ============================================================
+               PANEL SHAPE — userPreferences.cyberPanelShape, applied as
+               .rt-shape-* on #total-time-summary.
+
+               clip-path clips overflow AND box-shadow, so it goes only on
+               elements with nothing escaping their box. The container and the
+               side panels keep border-radius alone: they hold the developer
+               tooltip at z-index 9999, game canvases, the skin tray, and two
+               position:fixed descendants (#aim-results, .lb-ach-popover).
+               Clipping those is why the original theme ended up with two dead
+               "clip-path: none !important" resets.
+               ============================================================ */
+
+            /* Default is notched — the asymmetric one. The soft option is
+               still there under Panel Shape for anyone who wants it. */
+            .retro-theme,
+            .retro-theme.rt-shape-notched {
+                --rt-radius: 0px;
+                --rt-radius-sm: 0px;
+                --rt-cut: 26px;
+                /* A right-angle STEP cut out of the bottom-right only.
+                   Lopsided on purpose: symmetry is what reads as sci-fi. */
                 --rt-clip: polygon(
-                    14px 0,
+                    0 0,
                     100% 0,
-                    100% calc(100% - 14px),
-                    calc(100% - 14px) 100%,
-                    0 100%,
-                    0 14px
+                    100% calc(100% - var(--rt-cut)),
+                    calc(100% - var(--rt-cut)) calc(100% - var(--rt-cut)),
+                    calc(100% - var(--rt-cut)) 100%,
+                    0 100%
                 );
+                /* Same step, mirrored into the top-left. Neighbouring panels
+                   alternate clip / clip-alt, which is how the reference gets
+                   its lopsided read: not one weird shape, but a run of plain
+                   shapes whose cuts never line up. */
+                --rt-clip-alt: polygon(
+                    var(--rt-cut) 0,
+                    100% 0,
+                    100% 100%,
+                    0 100%,
+                    0 var(--rt-cut),
+                    var(--rt-cut) var(--rt-cut)
+                );
+                --rt-bk-inset: 3px;
             }
 
-            /* ---- Main container ---- */
+            .retro-theme.rt-shape-chamfered {
+                --rt-radius: 2px;
+                --rt-radius-sm: 2px;
+                --rt-cut: 18px;
+                /* Top-right and bottom-left only — the classic cut-corner
+                   plate from the reference sheet. */
+                --rt-clip: polygon(
+                    0 0,
+                    calc(100% - var(--rt-cut)) 0,
+                    100% var(--rt-cut),
+                    100% 100%,
+                    var(--rt-cut) 100%,
+                    0 calc(100% - var(--rt-cut))
+                );
+                /* The other diagonal: top-left and bottom-right. */
+                --rt-clip-alt: polygon(
+                    var(--rt-cut) 0,
+                    100% 0,
+                    100% calc(100% - var(--rt-cut)),
+                    calc(100% - var(--rt-cut)) 100%,
+                    0 100%,
+                    0 var(--rt-cut)
+                );
+                --rt-bk-inset: 3px;
+            }
+
+            .retro-theme.rt-shape-stepped {
+                --rt-radius: 0px;
+                --rt-radius-sm: 0px;
+                --rt-cut: 9px;
+                /* Terraced: two right-angle jumps on the top-right. */
+                --rt-clip: polygon(
+                    0 0,
+                    calc(100% - var(--rt-cut) * 2) 0,
+                    calc(100% - var(--rt-cut) * 2) var(--rt-cut),
+                    calc(100% - var(--rt-cut)) var(--rt-cut),
+                    calc(100% - var(--rt-cut)) calc(var(--rt-cut) * 2),
+                    100% calc(var(--rt-cut) * 2),
+                    100% 100%,
+                    0 100%
+                );
+                /* Terraced, mirrored to the top-left. */
+                --rt-clip-alt: polygon(
+                    calc(var(--rt-cut) * 2) 0,
+                    100% 0,
+                    100% 100%,
+                    0 100%,
+                    0 calc(var(--rt-cut) * 2),
+                    var(--rt-cut) calc(var(--rt-cut) * 2),
+                    var(--rt-cut) var(--rt-cut),
+                    calc(var(--rt-cut) * 2) var(--rt-cut)
+                );
+                --rt-bk-inset: 3px;
+            }
+
+            .retro-theme.rt-shape-rounded {
+                --rt-radius: 14px;
+                --rt-radius-sm: 10px;
+                --rt-cut: 0px;
+                --rt-clip: none;
+                --rt-clip-alt: none;
+                --rt-bk-inset: 7px;
+            }
+
+            /* ============================================================
+               CORNER BRACKETS + SCHEMATIC DOTS — background layers, no DOM.
+
+               ::before and ::after are already spoken for on nearly every
+               panel (top rail, CRT layer, shimmer bar, sensor sweep), so the
+               brackets are composed as background layers. That also makes
+               them identical under all four shapes.
+
+               Usage:  background: var(--rt-brackets), <the panel fill>;
+               ============================================================ */
+
+            .retro-theme {
+                --rt-bk-len: 12px;
+                --rt-bk-w: 2px;
+                --rt-bk-c: var(--rt-border-color);
+                --rt-bk-dot: 3px;
+                --rt-brackets:
+                    /* top-left L */
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        left var(--rt-bk-inset) top var(--rt-bk-inset) /
+                        var(--rt-bk-len) var(--rt-bk-w) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        left var(--rt-bk-inset) top var(--rt-bk-inset) /
+                        var(--rt-bk-w) var(--rt-bk-len) no-repeat,
+                    /* top-right L */
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        right var(--rt-bk-inset) top var(--rt-bk-inset) /
+                        var(--rt-bk-len) var(--rt-bk-w) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        right var(--rt-bk-inset) top var(--rt-bk-inset) /
+                        var(--rt-bk-w) var(--rt-bk-len) no-repeat,
+                    /* bottom-left L */
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        left var(--rt-bk-inset) bottom var(--rt-bk-inset) /
+                        var(--rt-bk-len) var(--rt-bk-w) no-repeat,
+                    linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
+                        left var(--rt-bk-inset) bottom var(--rt-bk-inset) /
+                        var(--rt-bk-w) var(--rt-bk-len) no-repeat,
+                    /* Schematic terminal dots, as in the reference's
+                       connector runs. Two only — four reads as a border. */
+                    radial-gradient(circle,
+                        var(--rt-bk-c) 0 calc(var(--rt-bk-dot) / 2),
+                        transparent calc(var(--rt-bk-dot) / 2 + 0.5px))
+                        left calc(var(--rt-bk-inset) + var(--rt-bk-len) + 3px)
+                        top calc(var(--rt-bk-inset) - 1px) /
+                        var(--rt-bk-dot) var(--rt-bk-dot) no-repeat,
+                    radial-gradient(circle,
+                        var(--rt-bk-c) 0 calc(var(--rt-bk-dot) / 2),
+                        transparent calc(var(--rt-bk-dot) / 2 + 0.5px))
+                        right calc(var(--rt-bk-inset) + var(--rt-bk-len) + 3px)
+                        bottom calc(var(--rt-bk-inset) - 1px) /
+                        var(--rt-bk-dot) var(--rt-bk-dot) no-repeat;
+
+                /* The container's ambient grid. A plain 44px square lattice,
+                   not the hex one: the reference consoles all sit on graph
+                   paper, and the diagonal lattice fights the 45-degree hazard
+                   hatching that is the theme's loudest motif. --rt-hex stays
+                   for panel interiors, where nothing is hatched. */
+                /* Position and size live IN the layer, the way --rt-studs and
+                   --rt-brackets already do. Mixing the two styles — sizes
+                   inside the shorthand for some layers and a separate
+                   background-size for others — means the longhand silently
+                   overrides every in-shorthand size, and the count has to be
+                   kept in step by hand forever. */
+                --rt-grid-sq:
+                    linear-gradient(var(--rt-grid) 1px, transparent 1px)
+                        left top / 44px 44px,
+                    linear-gradient(90deg, var(--rt-grid) 1px, transparent 1px)
+                        left top / 44px 44px;
+
+                /* EDGE STUDS. Short thick bars sitting ON the frame edge, at
+                   deliberately unrelated offsets. Two of the reference frames
+                   do exactly this and it is the single cheapest way to break
+                   a rectangle's symmetry without cutting its silhouette --
+                   which matters here, because the container is the one
+                   element that may never be clipped. Background layers, so
+                   no DOM and nothing to reparent.
+
+                   5px wide, not 4: the background paints inside the
+                   border-box, so the container's 1px border covers the
+                   outermost pixel of each stud. */
+                --rt-studs:
+                    linear-gradient(var(--rt-accent), var(--rt-accent))
+                        left 0 top 58px / 5px 120px no-repeat,
+                    linear-gradient(var(--rt-data), var(--rt-data))
+                        right 0 bottom 68px / 5px 90px no-repeat;
+
+                /* Faint lattice for panel backdrops. */
+                --rt-hex:
+                    repeating-linear-gradient(60deg,
+                        var(--rt-grid) 0 1px, transparent 1px 22px),
+                    repeating-linear-gradient(-60deg,
+                        var(--rt-grid) 0 1px, transparent 1px 22px),
+                    repeating-linear-gradient(0deg,
+                        var(--rt-grid) 0 1px, transparent 1px 19px);
+            }
+
+            /* ============================================================
+               KEYFRAMES — rt-prefixed so they cannot collide with the shared
+               glassmorphic set.
+
+               Every one animates transform, opacity, filter or
+               background-position ONLY. Nothing animates box-shadow: an
+               animated box-shadow overrides the static declaration outright,
+               which is how the old "neonPulse 5s" made all four declared
+               layers of the stat-card shadow invisible.
+               ============================================================ */
+
+            @keyframes rtRailFlow {
+                0%   { background-position: 0% 50%; }
+                100% { background-position: 300% 50%; }
+            }
+
+            @keyframes rtHazardCrawl {
+                0%   { background-position: 0 0; }
+                100% { background-position: 22px 0; }
+            }
+
+            /* The scanline jitter. background-position-y, not transform: a
+               transform would drag the bottom hazard strip on the same
+               element vertically with it. Three layers, and only the middle
+               one moves. */
+            @keyframes rtScanDrift {
+                0%   { background-position-y: bottom, 0px, 0; }
+                100% { background-position-y: bottom, 4px, 0; }
+            }
+
+            /* The bottom edge strip crawling sideways. One 22px tile per
+               cycle, so the loop point is invisible — the same period every
+               other hazard band in the theme uses. Only the first layer
+               moves. */
+            @keyframes rtEdgeCrawl {
+                0%   { background-position-x: 0, 0, 0; }
+                100% { background-position-x: 22px, 0, 0; }
+            }
+
+            @keyframes rtPanelSweep {
+                0%   { transform: translateY(-110%); opacity: 0; }
+                8%   { opacity: 0.9; }
+                55%  { opacity: 0.5; }
+                100% { transform: translateY(360%); opacity: 0; }
+            }
+
+            /* Replaces the inherited glass cardShimmer, which animated "left"
+               and therefore triggered layout on every frame. */
+            @keyframes rtCardShimmer {
+                0%   { transform: translateX(-100%); }
+                100% { transform: translateX(220%); }
+            }
+
+            /* One clean pass. The old range paired 280% with ease-in-out,
+               which spent most of the cycle parked off both ends and read as
+               hesitation rather than a sweep — obvious once the fill started
+               clipping it. Linear, and only far enough to clear the edges. */
+            @keyframes rtMeterSweep {
+                0%   { transform: translateX(-100%); }
+                100% { transform: translateX(200%); }
+            }
+
+            /* Mostly still, with brief bursts, so it reads as a signal fault
+               rather than a permanent wobble. */
+            @keyframes rtGlitch {
+                0%, 88%, 100% { transform: translate(0, 0) skewX(0deg); }
+                89% { transform: translate(-2px, 1px) skewX(-1.4deg); }
+                91% { transform: translate(2px, -1px) skewX(1.2deg); }
+                93% { transform: translate(-1px, 0) skewX(0deg); }
+                95% { transform: translate(1px, 1px) skewX(0.8deg); }
+                97% { transform: translate(0, 0) skewX(0deg); }
+            }
+
+            @keyframes rtGhostL {
+                0%, 88%, 100% { transform: translate(0, 0); opacity: 0; }
+                89%           { transform: translate(-3px, 0); opacity: 0.8; }
+                93%           { transform: translate(-2px, 1px); opacity: 0.5; }
+                97%           { transform: translate(0, 0); opacity: 0; }
+            }
+
+            @keyframes rtGhostR {
+                0%, 88%, 100% { transform: translate(0, 0); opacity: 0; }
+                89%           { transform: translate(3px, 0); opacity: 0.8; }
+                93%           { transform: translate(2px, -1px); opacity: 0.5; }
+                97%           { transform: translate(0, 0); opacity: 0; }
+            }
+
+            @keyframes rtBoot {
+                0% {
+                    opacity: 0;
+                    transform: translateY(5px) scaleY(0.93);
+                    filter: brightness(2.6) saturate(0.15);
+                }
+                40%  { opacity: 1; filter: brightness(1.5) saturate(0.7); }
+                100% { opacity: 1; transform: translateY(0) scaleY(1); filter: none; }
+            }
+
+            /* The run holds its text twice, so -50% lands exactly on the
+               start of the second copy and the loop is invisible. */
+            @keyframes rtTicker {
+                0%   { transform: translateX(0); }
+                100% { transform: translateX(-50%); }
+            }
+
+            /* translateY percentages resolve against the BAND's own height,
+               not the container's — so 2400% of a 64px band is 1536px of
+               travel. The centre column is routinely over 1000px tall with
+               the table expanded, and at 1400% the sweep visibly stopped
+               two thirds of the way down. Overshooting is free: the extra
+               is spent off-screen, which just spaces the passes out. */
+            @keyframes rtSweepDown {
+                0%   { transform: translateY(-100%); }
+                100% { transform: translateY(2400%); }
+            }
+
+            @keyframes rtBlink {
+                0%, 46%   { opacity: 1; }
+                50%, 96%  { opacity: 0.25; }
+                100%      { opacity: 1; }
+            }
+
+            /* Used by the compact-PiP display, which lives outside this block
+               but still belongs to this theme. It previously ran
+               "neonGlowPulse", which animates box-shadow AND border-color
+               from hardcoded cyan/magenta/green — so its own declared shadow
+               never rendered and its glow ignored the user's swatches. This
+               animates filter only, so it composites over the declaration
+               instead of replacing it, and it reads the Glow tokens. */
+            @keyframes rtGlowBreathe {
+                0%, 100% {
+                    filter: drop-shadow(0 0 calc(12px * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.45 * var(--rt-glow-k))));
+                }
+                50% {
+                    filter: drop-shadow(0 0 calc(34px * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.85 * var(--rt-glow-k))));
+                }
+            }
+
+            /* ============================================================
+               MAIN CONTAINER
+
+               No filter here, deliberately. A filter on an ancestor becomes
+               the containing block for position:fixed descendants, and the
+               widget has two — #aim-results and .lb-ach-popover — which would
+               both start positioning against the widget instead of the
+               viewport. The beat is coupled through box-shadow instead: it is
+               a plain declaration re-resolving off --rt-beat, not an
+               animation, so it does not override anything.
+               ============================================================ */
+
             .attendance-summary.retro-theme {
                 background:
+                    var(--rt-studs),
+                    var(--rt-grid-sq),
                     linear-gradient(135deg, var(--rt-bg-1) 0%, var(--rt-bg-2) 100%) !important;
                 color: var(--rt-text) !important;
                 border: 1px solid var(--rt-border-strong) !important;
-                border-radius: 4px !important;
+                border-radius: var(--rt-radius) !important;
                 box-shadow:
-                    0 8px 32px rgba(0, 0, 0, 0.12),
+                    0 8px 32px rgba(0, 0, 0, 0.55),
                     inset 0 0 0 1px var(--rt-border),
-                    var(--rt-glow) !important;
+                    inset 0 0 calc((80px + 110px * var(--rt-beat)) * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.10 * var(--rt-glow-k))),
+                    0 0 calc((16px + 38px * var(--rt-beat)) * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.55 * var(--rt-glow-k))) !important;
                 position: relative;
                 overflow: hidden;
             }
 
-            /* Top accent bar — animated RGB flow */
+            /* Top rail. */
             .attendance-summary.retro-theme::before {
                 background: linear-gradient(
                     90deg,
@@ -14092,32 +14702,66 @@
                     transparent 100%
                 ) !important;
                 background-size: 300% 100% !important;
-                height: 3px !important;
-                animation: rgbFlowBacklight 4s linear infinite !important;
-                z-index: 2;
+                height: calc(3px + 2px * var(--rt-beat)) !important;
+                animation: rtRailFlow 4s linear infinite !important;
+                z-index: 4;
                 opacity: 1;
             }
 
-            /* Background scanlines overlay (subtle CRT feel — no grid tiles) */
+            /* CRT layer + vignette + a hazard strip along the bottom edge,
+               the way the reference sheets close off a frame.
+
+               THREE LAYERS, TWO DIRECTIONS, NO TRANSFORM.
+
+               This element used to carry the scanline jitter as a
+               translateY() on the whole pseudo-element. A transform moves
+               every layer it paints — so the bottom hazard strip, which
+               shares this element, bobbed up and down 4px in lockstep with
+               the CRT jitter instead of crawling sideways like every other
+               hazard band in the theme. It read as the frame edge twitching.
+
+               The two motions are now separate properties on separate
+               animations, which is the only way to give them different
+               directions AND different timing on one element:
+
+                 background-position-x  ->  the hazard strip crawls right,
+                                            1.6s linear, matching .rt-sec-fill
+                                            and .rt-hazard-strip.
+                 background-position-y  ->  the scanlines jitter down,
+                                            1.1s in 4 steps, as before.
+
+               Both are per-layer lists, so each layer states its own value
+               and the ones that must not move say so explicitly. The strip
+               also had to become a repeating 22px tile — it was a single
+               no-repeat band stretched to 100%, which cannot crawl.
+
+               Still no transform, and still nothing animating box-shadow. */
             .attendance-summary.retro-theme::after {
                 content: '';
                 position: absolute;
-                inset: 0;
+                inset: -4px 0 0 0;
                 background:
+                    var(--rt-hazard-dim) left bottom / 22px 7px repeat-x,
                     repeating-linear-gradient(
                         0deg,
                         var(--rt-scanline) 0px,
                         transparent 1px,
                         transparent 3px,
                         var(--rt-scanline) 4px
+                    ),
+                    radial-gradient(
+                        130% 100% at 50% 50%,
+                        transparent 50%,
+                        rgba(0, 0, 0, 0.5) 100%
                     );
-                animation: scanlines 10s linear infinite;
+                animation:
+                    rtEdgeCrawl 1.6s linear infinite,
+                    rtScanDrift 1.1s steps(4, end) infinite;
                 pointer-events: none;
-                z-index: 0;
-                opacity: 0.55;
+                z-index: 5;
+                opacity: 0.68;
             }
 
-            /* User background image overlay (set via JS inline style on a pseudo-like div) */
             .attendance-summary.retro-theme .cyber-bg-image {
                 position: absolute;
                 inset: 0;
@@ -14140,328 +14784,1096 @@
                 z-index: 1;
             }
 
-            /* Center panel sits above side panels so the tooltip is never clipped */
             .attendance-summary.retro-theme .main-attendance-content {
                 position: relative;
                 z-index: 2;
             }
 
-            /* Developer-info & tooltip must stack above all panels */
             .attendance-summary.retro-theme .developer-info {
                 position: relative;
                 z-index: 10;
             }
 
             .attendance-summary.retro-theme .developer-info:hover {
-                z-index: 10;
+                z-index: 1000;
             }
 
             .attendance-summary.retro-theme .developer-tooltip {
                 z-index: 9999 !important;
             }
 
-            /* ---- Title ---- */
+            /* Boot-in scan reveal. Added on entering the theme and on Game
+               Mode toggle, removed on a timer so it can re-trigger. */
+            .attendance-summary.retro-theme.rt-booting .modern-table,
+            .attendance-summary.retro-theme.rt-booting .stat-card,
+            .attendance-summary.retro-theme.rt-booting .progress-bar,
+            .attendance-summary.retro-theme.rt-booting .cyber-eq-wrap,
+            .attendance-summary.retro-theme.rt-booting .snake-game-container,
+            .attendance-summary.retro-theme.rt-booting .quotes-container,
+            .attendance-summary.retro-theme.rt-booting .xp-container,
+            .attendance-summary.retro-theme.rt-booting .image-box-container {
+                animation: rtBoot 500ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+            }
+
+            .attendance-summary.retro-theme.rt-booting .stat-card:nth-of-type(2) {
+                animation-delay: 70ms;
+            }
+
+            .attendance-summary.retro-theme.rt-booting .stat-card:nth-of-type(3) {
+                animation-delay: 140ms;
+            }
+
+            /* ============================================================
+               TITLE — aberrated display type, NOT a knocked-out plate.
+
+               Pass 2 made this a solid --rt-text plate with --rt-bg-1
+               glyphs, on the reasoning that mass is what separates
+               cyberpunk from clean sci-fi. The reference says that is right
+               about mass and wrong about where to put it: every sheet keeps
+               its ONE big display word as open type with a split colour
+               fringe, and spends its solid plates on the small things --
+               tags, ident codes, the primary button. A heading and a button
+               that look identical is the actual mistake, and pass 2 made it.
+
+               So the mass moved down to .rt-tag / .stat-label / th / the
+               level badge, and the title got the aberration instead.
+
+               The reference draws this word in pure white. It stays on
+               --rt-text here, because white is a colour no swatch can
+               reach and no contrast chip is measuring: the moment someone
+               picks a light BG, a hardcoded white title is unreadable with
+               nothing to warn them. Aberration is decoration layered ON the
+               measured colour, never a replacement for it.
+               ============================================================ */
+
             .attendance-summary.retro-theme .summary-title {
                 font-family: 'Orbitron', sans-serif !important;
-                font-weight: 800 !important;
-                letter-spacing: 0.18em !important;
+                font-weight: 900 !important;
+                letter-spacing: 0.22em !important;
                 text-transform: uppercase !important;
-                color: var(--rt-accent) !important;
                 background: none !important;
-                -webkit-background-clip: unset !important;
-                -webkit-text-fill-color: var(--rt-accent) !important;
-                text-shadow:
-                    0 0 1px var(--rt-accent),
-                    var(--rt-glow) !important;
-            }
-
-            .attendance-summary.retro-theme .emoji-display {
-                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25)) drop-shadow(0 0 8px rgba(var(--rt-accent-rgb), 0.45)) !important;
-            }
-
-            /* ---- Table ---- */
-            .attendance-summary.retro-theme .modern-table {
-                background: var(--rt-panel) !important;
-                border: 1px solid var(--rt-border) !important;
-                border-radius: 2px !important;
-                clip-path: var(--rt-clip);
-                box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.08),
-                    0 4px 16px rgba(0, 0, 0, 0.08) !important;
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
-            }
-
-            .attendance-summary.retro-theme .modern-table thead {
-                background: linear-gradient(
-                    90deg,
-                    rgba(var(--rt-accent-rgb), 0.18),
-                    rgba(var(--rt-cyber-hl-rgb), 0.14)
-                ) !important;
-                border-bottom: 1px solid var(--rt-border-strong) !important;
-            }
-
-            .attendance-summary.retro-theme .modern-table th {
-                font-family: 'Orbitron', sans-serif !important;
-                font-weight: 700 !important;
-                letter-spacing: 0.14em !important;
-                text-transform: uppercase !important;
-                color: var(--rt-accent) !important;
-                text-shadow: var(--rt-glow) !important;
-                font-size: 0.72rem !important;
-            }
-
-            .attendance-summary.retro-theme .modern-table td {
                 color: var(--rt-text) !important;
-                font-family: 'Share Tech Mono', monospace !important;
-                border-bottom: 1px solid var(--rt-border) !important;
+                -webkit-text-fill-color: var(--rt-text) !important;
+                padding: 0 !important;
+                clip-path: none;
+                /* Aberration first so the glow sits behind both fringes. */
+                text-shadow: var(--rt-aberr), var(--rt-glow) !important;
+                box-shadow: none !important;
+                position: relative;
+                display: inline-block;
+                animation: rtGlitch 7s steps(1, end) infinite !important;
             }
 
-            /* ---- Stat cards — Glassmorphic 3D HUD panels ---- */
-            .attendance-summary.retro-theme .stat-card {
-                background: rgba(var(--rt-accent-rgb), 0.04) !important;
-                border: 1px solid rgba(var(--rt-accent-rgb), 0.22) !important;
-                border-radius: 8px !important;
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.08),
-                    0 8px 32px rgba(0, 0, 0, 0.18),
-                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
-                backdrop-filter: blur(14px) saturate(130%);
-                -webkit-backdrop-filter: blur(14px) saturate(130%);
-                animation: neonPulse 5s ease-in-out infinite !important;
-                position: relative !important;
-                transform: perspective(600px) rotateX(1deg);
-                transition: transform 0.3s ease, box-shadow 0.3s ease;
-            }
-            .attendance-summary.retro-theme .stat-card:hover {
-                transform: perspective(600px) rotateX(0deg) translateY(-2px);
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.09),
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.14),
-                    0 12px 40px rgba(0, 0, 0, 0.25),
-                    0 4px 12px rgba(0, 0, 0, 0.15) !important;
-            }
-
-            /* Corner HUD bracket marker */
-            .attendance-summary.retro-theme .stat-card::after {
-                content: '';
+            /* The permanent fringe above is mis-convergence. These two are
+               the transient RGB split during a glitch burst — they sit at
+               opacity 0 for 88% of the cycle, so the two effects never
+               read as one smear. */
+            .attendance-summary.retro-theme .summary-title::before,
+            .attendance-summary.retro-theme .summary-title::after {
+                content: attr(data-rt-text);
                 position: absolute;
-                top: 6px;
-                right: 10px;
-                width: 10px;
-                height: 10px;
-                background: var(--card-accent, var(--rt-accent));
-                clip-path: polygon(0 0, 100% 0, 100% 30%, 30% 30%, 30% 100%, 0 100%);
-                opacity: 0.85;
+                inset: 0;
+                pointer-events: none;
+                background: none;
+                text-shadow: none;
+                opacity: 0;
+            }
+
+            /* The same warm/cool pair --rt-aberr uses, so the permanent fringe
+               and the glitch burst are obviously the same effect at two
+               intensities rather than two unrelated ones. */
+            .attendance-summary.retro-theme .summary-title::before {
+                color: var(--rt-accent);
+                -webkit-text-fill-color: var(--rt-accent);
+                animation: rtGhostL 7s steps(1, end) infinite;
+            }
+
+            .attendance-summary.retro-theme .summary-title::after {
+                color: var(--rt-data);
+                -webkit-text-fill-color: var(--rt-data);
+                animation: rtGhostR 7s steps(1, end) infinite;
+            }
+
+            /* The tint chains AHEAD of the shadows so the glyph is recoloured
+               first and the bloom is then thrown from the recoloured result.
+               Reversed, the drop-shadow would be tinted too and the halo
+               would stop following --rt-glow. */
+            .attendance-summary.retro-theme .emoji-display {
+                filter:
+                    var(--rt-emo-progress, opacity(1))
+                    drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4))
+                    drop-shadow(0 0 calc((15px + 22px * var(--rt-beat)) * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.85 * var(--rt-glow-k)))) !important;
+            }
+
+            /* ============================================================
+               HUD CHROME — greeble. Decorative only: it carries nothing the
+               user needs, so it renders in the faint tone and is
+               pointer-transparent and unselectable.
+               ============================================================ */
+
+            .attendance-summary.retro-theme .rt-hud-rail {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+                margin: 0 0 8px;
+                position: relative;
+                z-index: 2;
+                user-select: none;
                 pointer-events: none;
             }
 
-            .attendance-summary.retro-theme .stat-card.worked-time-card {
-                --card-accent: var(--rt-cyber-hl);
-                --card-accent-rgb: var(--rt-cyber-hl-rgb);
-                background: rgba(var(--rt-cyber-hl-rgb), 0.06) !important;
-                border-color: rgba(var(--rt-cyber-hl-rgb), 0.35) !important;
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-cyber-hl-rgb), 0.12),
-                    0 8px 32px rgba(var(--rt-cyber-hl-rgb), 0.10),
-                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
+            .attendance-summary.retro-theme .rt-code {
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.56rem;
+                letter-spacing: 0.16em;
+                text-transform: uppercase;
+                color: var(--rt-text-faint);
+                white-space: nowrap;
             }
 
-            .attendance-summary.retro-theme .stat-card.remaining-time-card {
-                --card-accent: var(--rt-accent);
-                --card-accent-rgb: var(--rt-accent-rgb);
-                background: rgba(var(--rt-accent-rgb), 0.06) !important;
-                border-color: rgba(var(--rt-accent-rgb), 0.35) !important;
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.12),
-                    0 8px 32px rgba(var(--rt-accent-rgb), 0.10),
-                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
+            .attendance-summary.retro-theme .rt-code.is-ok {
+                color: rgba(var(--rt-text-rgb), 0.9);
             }
 
-            .attendance-summary.retro-theme .stat-card.completion-time-card {
-                --card-accent: var(--rt-cyber-panel);
-                --card-accent-rgb: var(--rt-cyber-panel-rgb);
-                background: rgba(var(--rt-cyber-panel-rgb), 0.06) !important;
-                border-color: rgba(var(--rt-cyber-panel-rgb), 0.35) !important;
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
-                    0 8px 32px rgba(var(--rt-cyber-panel-rgb), 0.10),
-                    0 2px 6px rgba(0, 0, 0, 0.12) !important;
+            /* "Live" is carried by the BLINK and the bullet glyph, not by a
+               hue. It used to be a hardcoded green that no swatch could
+               reach, which is how an all-black palette still had one bright
+               green tag in it. */
+            .attendance-summary.retro-theme .rt-code.is-live {
+                color: var(--rt-text);
+                animation: rtBlink 2.4s steps(1, end) infinite;
             }
 
-            .attendance-summary.retro-theme .stat-label {
-                color: var(--card-accent, var(--rt-cyber-hl)) !important;
-                opacity: 0.85;
-                font-family: 'Orbitron', sans-serif !important;
-                font-weight: 700 !important;
-                letter-spacing: 0.18em !important;
-                text-transform: uppercase !important;
-                text-shadow: none !important;
+            /* Solid knocked-out chip — --rt-text fill, --rt-bg-1 glyphs. */
+            .attendance-summary.retro-theme .rt-code.is-block {
+                background: var(--rt-text);
+                color: var(--rt-bg-1);
+                padding: 1px 6px 1px 5px;
+                font-weight: 700;
+                clip-path: polygon(0 0, 100% 0, calc(100% - 5px) 100%, 0 100%);
             }
 
-            .attendance-summary.retro-theme .stat-value {
-                color: var(--card-accent, var(--rt-accent)) !important;
-                font-family: 'Share Tech Mono', monospace !important;
-                font-weight: 700 !important;
-                letter-spacing: 0.04em !important;
-                text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 12px rgba(var(--rt-accent-rgb), 0.35) !important;
+            .attendance-summary.retro-theme .rt-hazard-strip {
+                flex: 1 1 auto;
+                height: 7px;
+                min-width: 18px;
+                background: var(--rt-hazard-dim);
+                background-size: 22px 7px;
+                animation: rtHazardCrawl 1.6s linear infinite;
             }
 
-            .attendance-summary.retro-theme .worked-time {
-                color: var(--rt-cyber-hl) !important;
-                text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 14px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
+            /* The two-tone comb: a tall tick every fourth, short ones
+               between. An even comb reads as a hatch; an uneven one reads
+               as a scale, which is what the reference is drawing. */
+            .attendance-summary.retro-theme .rt-ticks {
+                flex: 0 0 auto;
+                width: 52px;
+                height: 9px;
+                background: var(--rt-comb);
             }
 
-            .attendance-summary.retro-theme .remaining-time {
-                color: var(--rt-accent) !important;
-                text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 14px rgba(var(--rt-accent-rgb), 0.45) !important;
-            }
+            /* ------------------------------------------------------------
+               SECTION HEADER — the reference console's one repeated
+               composition.
 
-            .attendance-summary.retro-theme .completion-time {
-                color: var(--rt-cyber-panel) !important;
-                text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 14px rgba(var(--rt-cyber-panel-rgb), 0.45) !important;
-            }
+               Every panel in the reference opens the same way: a short
+               thick glyph bar in the panel's own hue, the name in
+               letterspaced display caps, a hazard-hatched filler that eats
+               the slack, and a right-aligned mono readout. Three panels,
+               one rule — and that rhythm is what makes a stack of
+               unrelated boxes read as one instrument.
 
-            /* ---- Progress bar ---- */
-            .attendance-summary.retro-theme .progress-bar {
-                background: linear-gradient(135deg,
-                    rgba(var(--rt-cyber-panel-rgb), 0.10),
-                    rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
-                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
-                border-radius: 6px !important;
-                backdrop-filter: blur(8px) saturate(130%) !important;
-                -webkit-backdrop-filter: blur(8px) saturate(130%) !important;
-                box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.12) !important;
-            }
+               The hue is a variable, so a panel sets --rt-sec-c once and
+               the glyph, the wash and the rule all follow it.
+               ------------------------------------------------------------ */
 
-            .attendance-summary.retro-theme .progress-fill {
+            /* Rendered as a <caption> on .modern-table, so it sits inside the
+               clipped plate the theme draws — a sibling <div> above the table
+               would be outside it, and a wrapper element would re-flow
+               Glassmorphic.
+
+               THE DISPLAY MUST STAY table-caption. Setting a caption (or a
+               colspan td) to display:flex stops it being a proper table
+               child, so the browser wraps it in an anonymous table-cell: the
+               caption becomes a one-column-wide row instead of a full-width
+               header, and on a td the colspan is dropped entirely. Both fail
+               silently and only in the browser. So the caption keeps its
+               table display and carries the paint, and an inner .rt-sec-row
+               does the flex layout. */
+            .attendance-summary.retro-theme .rt-sec {
+                --rt-sec-c: var(--rt-data);
+                border-bottom: 1px solid rgba(var(--rt-border-rgb), 0.30);
                 background: linear-gradient(
                     90deg,
+                    rgba(var(--rt-border-rgb), 0.10),
+                    transparent 60%);
+                position: relative;
+                z-index: 2;
+            }
+
+            .attendance-summary.retro-theme .modern-table caption.rt-sec {
+                display: table-caption;
+                caption-side: top;
+                text-align: left;
+            }
+
+            .attendance-summary.retro-theme .rt-sec-row {
+                display: flex;
+                align-items: center;
+                gap: 11px;
+                padding: 9px 14px;
+            }
+
+            /* The glyph bar. Taller than it is wide, and glowing: the
+               reference uses it as a "this panel is live" tell. */
+            .attendance-summary.retro-theme .rt-sec-glyph {
+                flex: 0 0 auto;
+                width: 6px;
+                height: 14px;
+                background: var(--rt-sec-c);
+                box-shadow:
+                    0 0 calc(8px * var(--rt-glow-k)) var(--rt-sec-c),
+                    0 0 calc(24px * var(--rt-glow-k)) var(--rt-sec-c);
+            }
+
+            .attendance-summary.retro-theme .rt-sec-name {
+                font-family: 'Orbitron', sans-serif;
+                font-weight: 700;
+                font-size: 0.74rem;
+                letter-spacing: 0.19em;
+                text-transform: uppercase;
+                color: var(--rt-text);
+                white-space: nowrap;
+            }
+
+            /* Eats the slack. Decorative, so it takes the faint hazard. */
+            .attendance-summary.retro-theme .rt-sec-fill {
+                flex: 1 1 auto;
+                min-width: 14px;
+                height: 8px;
+                background: var(--rt-hazard-dim);
+                background-size: 22px 8px;
+                animation: rtHazardCrawl 2.4s linear infinite;
+            }
+
+            .attendance-summary.retro-theme .rt-sec-meta {
+                flex: 0 0 auto;
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.58rem;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: var(--rt-text-faint);
+                white-space: nowrap;
+            }
+
+            /* ------------------------------------------------------------
+               TITLE CHROME — the mono ident that runs beside the big word,
+               and the operator line beneath it.
+               ------------------------------------------------------------ */
+
+            .attendance-summary.retro-theme .rt-subcode {
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.6rem;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: rgba(var(--rt-text-rgb), 0.65);
+                white-space: nowrap;
+                user-select: none;
+            }
+
+            /* ------------------------------------------------------------
+               SYS TICKER — the scrolling status strip that closes the
+               reference frame off along its bottom edge.
+
+               translateX on a duplicated string, so it composites and the
+               loop is seamless: the run holds its text twice and travels
+               exactly -50%.
+               ------------------------------------------------------------ */
+
+            .attendance-summary.retro-theme .rt-ticker {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin: 10px 0 0;
+                padding-top: 8px;
+                border-top: 1px solid rgba(var(--rt-border-rgb), 0.25);
+                position: relative;
+                z-index: 2;
+                user-select: none;
+                pointer-events: none;
+            }
+
+            .attendance-summary.retro-theme .rt-ticker-track {
+                flex: 1 1 auto;
+                overflow: hidden;
+                white-space: nowrap;
+                /* Fade both ends so the text does not butt against the
+                   frame — the reference masks its ticker the same way. */
+                mask-image: linear-gradient(90deg,
+                    transparent, #000 3%, #000 97%, transparent);
+                -webkit-mask-image: linear-gradient(90deg,
+                    transparent, #000 3%, #000 97%, transparent);
+                /* Game Mode OFF sizes the whole widget with width:fit-content,
+                   which asks every descendant "how wide would you like to be
+                   with no constraint at all" — and a white-space:nowrap span
+                   answers with its full, un-wrapped text width. The run text
+                   is the whole ticker doubled (for the seamless -50% loop),
+                   so that answer was upward of 1000px, and the fit-content
+                   widget inherited it wholesale: confirmed in a real engine,
+                   hiding the ticker alone dropped Game-Mode-OFF width from
+                   ~1332px to ~634px, and neither min-width:0 nor a flex-basis
+                   change touched it — min-width only clamps a MINIMUM size
+                   during shrinking, and this was a MAX-CONTENT query, which
+                   flex-basis:0 is explicitly overridden away from
+                   (CSS Flexbox §9.9 substitutes "content" for a flex
+                   container's own intrinsic-size computation regardless of
+                   what flex-basis the item declares).
+                   contain:inline-size is the tool actually built for this: it
+                   stops the element's own content from feeding its width
+                   back into an ancestor's intrinsic-size query, while
+                   leaving its real, already-resolved-width layout (the
+                   marquee scrolling inside whatever space flex:1 1 auto
+                   hands it) completely untouched — verified: the track still
+                   stretches to fill its row exactly as before once Game Mode
+                   is back on. */
+                contain: inline-size;
+            }
+
+            .attendance-summary.retro-theme .rt-ticker-run {
+                display: inline-block;
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.58rem;
+                letter-spacing: 0.13em;
+                text-transform: uppercase;
+                color: var(--rt-text-faint);
+                animation: rtTicker 34s linear infinite;
+            }
+
+            /* ------------------------------------------------------------
+               AMBIENT SWEEP — one soft band travelling down the whole
+               frame. Its own element because the container's ::before and
+               ::after are already the top rail and the CRT layer, and
+               ::after animates a transform of its own.
+               ------------------------------------------------------------ */
+
+            .attendance-summary.retro-theme .rt-sweep {
+                position: absolute;
+                inset: 0;
+                overflow: hidden;
+                pointer-events: none;
+                z-index: 6;
+                border-radius: inherit;
+            }
+
+            .attendance-summary.retro-theme .rt-sweep::before {
+                content: '';
+                position: absolute;
+                left: 0;
+                right: 0;
+                height: 64px;
+                background: linear-gradient(
+                    180deg,
+                    transparent,
+                    rgba(var(--rt-data-rgb), 0.08),
+                    transparent);
+                animation: rtSweepDown 9s linear infinite;
+            }
+            /* ============================================================
+               TABLE — flat plate, solid knocked-out header, hazard edge
+               ============================================================ */
+
+            .attendance-summary.retro-theme .modern-table {
+                background:
+                    var(--rt-brackets),
+                    var(--rt-panel) !important;
+                border: 0 !important;
+                border-radius: var(--rt-radius-sm) !important;
+                clip-path: var(--rt-clip);
+                filter: var(--rt-outline);
+                backdrop-filter: none !important;
+                -webkit-backdrop-filter: none !important;
+                box-shadow: none !important;
+                position: relative;
+                overflow: hidden;
+            }
+
+            /* The column header is DELIBERATELY quiet.
+
+               Pass 2 made it a solid --rt-text plate with knocked-out
+               glyphs. That was the right instinct in the wrong place: the
+               table now carries a .rt-sec header directly above it, and two
+               heavy bars stacked read as a mistake rather than a hierarchy.
+               In the reference the loud bar is the panel name and the column
+               row beneath it is a thin dim caption. So this is a caption
+               now, and the mass moved up into .rt-sec.
+
+               Rajdhani rather than Orbitron: at 0.62rem Orbitron's wide
+               forms collide once letterspaced, and the reference uses its
+               condensed face for exactly this row. */
+            .attendance-summary.retro-theme .modern-table thead {
+                background:
+                    var(--rt-hazard-dim) left top / 100% 3px no-repeat,
+                    rgba(var(--rt-border-rgb), 0.07) !important;
+            }
+
+            .attendance-summary.retro-theme .modern-table th {
+                font-family: 'Rajdhani', sans-serif !important;
+                font-weight: 600 !important;
+                letter-spacing: 0.18em !important;
+                text-transform: uppercase !important;
+                color: var(--rt-text-faint) !important;
+                text-shadow: none !important;
+                font-size: 0.62rem !important;
+                padding-top: 11px !important;
+            }
+
+            .attendance-summary.retro-theme .modern-table td {
+                color: var(--rt-text-dim) !important;
+                font-family: 'Share Tech Mono', monospace !important;
+                border-bottom: 1px dashed rgba(var(--rt-border-rgb), 0.20) !important;
+            }
+
+            /* COLUMN COLOUR CODING.
+
+               The reference colours a log by MEANING, not by row: the time
+               you arrived, the time you have banked, and everything else.
+               Two hues and a dim tone across five columns, so a glance
+               lands on the two numbers that matter.
+
+               Column order is the host's: # / check-in / check-out /
+               worked / difference.
+
+               Scoped to tbody: the footer is a single colspan cell and
+               would otherwise be picked up by :nth-child(1) and rendered
+               faint and small. */
+            .attendance-summary.retro-theme .modern-table tbody td:nth-child(1) {
+                color: var(--rt-text-faint) !important;
+                font-size: 0.7rem !important;
+            }
+
+            .attendance-summary.retro-theme .modern-table tbody td:nth-child(2) {
+                color: var(--rt-accent) !important;
+            }
+
+            .attendance-summary.retro-theme .modern-table tbody td:nth-child(4) {
+                color: var(--rt-data) !important;
+            }
+
+            .attendance-summary.retro-theme .modern-table tbody td:nth-child(5) {
+                color: var(--rt-text-faint) !important;
+            }
+
+            /* The open session. Marked by the host, because CSS cannot see
+               that a cell says "Current" and the last row is not reliably
+               the live one. A hazard bite on the leading edge plus a wash,
+               the way the reference flags an active channel. */
+            .attendance-summary.retro-theme .modern-table tbody tr.rt-active td {
+                background: rgba(var(--rt-accent-rgb), 0.07) !important;
+            }
+
+            .attendance-summary.retro-theme .modern-table tbody tr.rt-active td:first-child {
+                background:
+                    var(--rt-hazard) left top / 4px 100% no-repeat,
+                    rgba(var(--rt-accent-rgb), 0.07) !important;
+            }
+
+            .attendance-summary.retro-theme .modern-table tbody tr:hover td {
+                background: rgba(var(--rt-border-rgb), 0.05) !important;
+            }
+
+            .attendance-summary.retro-theme .modern-table tbody tr:last-child td {
+                border-bottom: 0 !important;
+            }
+
+            /* The hazard-hatched footer the reference closes a log with.
+               A single colspan cell in <tfoot>, for the same reason the
+               header is a <caption>: it belongs inside the plate.
+
+               The cell keeps display:table-cell — see .rt-sec above. Setting
+               it to flex would drop the colspan and shrink the footer to one
+               column. The flex row is inside it. */
+            .attendance-summary.retro-theme .modern-table td.rt-tbl-foot {
+                padding: 0 !important;
+                border-top: 1px solid rgba(var(--rt-border-rgb), 0.30) !important;
+                border-bottom: 0 !important;
+                background: var(--rt-hazard-dim) !important;
+                background-size: 22px 100%;
+                position: relative;
+                z-index: 2;
+                user-select: none;
+            }
+
+            .attendance-summary.retro-theme .rt-foot-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 9px 15px;
+            }
+
+            .attendance-summary.retro-theme .rt-foot-row > span:first-child {
+                font-family: 'Rajdhani', sans-serif;
+                font-weight: 700;
+                font-size: 0.6rem;
+                letter-spacing: 0.19em;
+                text-transform: uppercase;
+                color: var(--rt-text-faint);
+            }
+
+            .attendance-summary.retro-theme .rt-foot-row > span:last-child {
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.72rem;
+                color: var(--rt-accent);
+            }
+
+            /* ============================================================
+               STAT CARDS
+
+               The old rule carried "animation: neonPulse 5s ... !important",
+               which animates box-shadow. An animated property beats the
+               static declaration, so all four declared shadow layers here and
+               every per-card shadow below never rendered, and the pulse
+               ignored the user's colours entirely. The breathing glow is a
+               filter now, which composites instead of replacing.
+
+               filter is safe on these: they contain only spans, so there is
+               no position:fixed descendant to reparent.
+               ============================================================ */
+
+            .attendance-summary.retro-theme .stat-card {
+                background:
+                    var(--rt-brackets),
+                    var(--rt-hazard-dim) right 0 top 0 / 26px 4px no-repeat,
+                    /* Segmented underline. The reference never closes a
+                       stat block with a solid rule — it uses a coarse 4px
+                       dash, which reads as a scale rather than a border. */
+                    var(--rt-dashrule) left 14px bottom 11px / calc(100% - 28px) 3px no-repeat,
+                    var(--rt-panel) !important;
+                border: 0 !important;
+                border-radius: var(--rt-radius-sm) !important;
+                padding-bottom: 26px !important;
+                clip-path: var(--rt-clip);
+                box-shadow: none !important;
+                backdrop-filter: none !important;
+                -webkit-backdrop-filter: none !important;
+                position: relative !important;
+                overflow: hidden;
+                transform: none;
+                transition: transform 0.18s ease, filter 90ms linear;
+                filter:
+                    var(--rt-outline)
+                    drop-shadow(0 0 calc((6px + 28px * var(--rt-beat)) * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.55 * var(--rt-glow-k) * var(--rt-beat))));
+            }
+
+            .attendance-summary.retro-theme .stat-card:hover {
+                transform: translateY(-2px);
+            }
+
+            /* Hover shimmer, retargeted off the glass keyframe that animated
+               "left". The base glass rule sets opacity:0 and reveals it only
+               on hover, which is why it read as "not animating" — it was
+               running the whole time, invisibly. */
+            .attendance-summary.retro-theme .stat-card::before {
+                left: 0 !important;
+                width: 42% !important;
+                height: 2px !important;
+                background: linear-gradient(
+                    90deg,
+                    transparent,
                     var(--rt-cyber-hl),
                     var(--rt-accent),
                     var(--rt-cyber-panel),
-                    var(--rt-cyber-hl)
+                    transparent
                 ) !important;
-                background-size: 300% 100% !important;
-                animation: rgbFlowBacklight 3s linear infinite !important;
-                box-shadow:
-                    0 0 10px rgba(var(--rt-accent-rgb), 0.5),
-                    inset 0 0 6px rgba(255, 255, 255, 0.25) !important;
+                animation: rtCardShimmer 1.6s ease-in-out infinite !important;
+                transform: translateX(-100%);
+                z-index: 3;
+                opacity: 0.55 !important;
+            }
+
+            .attendance-summary.retro-theme .stat-card:hover::before {
+                opacity: 1 !important;
+            }
+
+            /* Sensor sweep, staggered per card. */
+            .attendance-summary.retro-theme .stat-card::after {
+                content: '';
+                position: absolute;
+                inset: 0 0 auto 0;
+                height: 34%;
+                background: linear-gradient(
+                    180deg,
+                    transparent,
+                    rgba(var(--rt-cyber-hl-rgb), 0.15),
+                    transparent
+                );
+                animation: rtPanelSweep 5.5s ease-in-out infinite;
+                pointer-events: none;
+                z-index: 1;
+                opacity: 0;
+            }
+
+            .attendance-summary.retro-theme .stat-card:nth-of-type(2)::after {
+                animation-delay: 1.8s;
+            }
+
+            .attendance-summary.retro-theme .stat-card:nth-of-type(3)::after {
+                animation-delay: 3.6s;
+            }
+
+            /* Per-card identity lives in the bracket, the border and the
+               hazard tab — never in the type. A dark Highlight must not be
+               able to hide a number, and no control could undo it if it did.
+
+               The two flanking cards take opposite clips. Three identical
+               silhouettes in a row is exactly the symmetry that reads as
+               clean sci-fi; alternating them costs nothing and is most of
+               what makes the reference row look hand-assembled. */
+            .attendance-summary.retro-theme .stat-card.worked-time-card {
+                --rt-bk-c: var(--rt-data);
+                border: 1px solid rgba(var(--rt-data-rgb), 0.35) !important;
+            }
+
+            .attendance-summary.retro-theme .stat-card.completion-time-card {
+                --rt-bk-c: var(--rt-cyber-panel);
+                border: 1px solid rgba(var(--rt-border-rgb), 0.22) !important;
+                clip-path: var(--rt-clip-alt);
+            }
+
+            /* THE HERO CARD.
+
+               The reference does not lay three equal cards side by side. It
+               picks the one number you actually came to read — how long is
+               left — and spends everything on it: a tinted fill, a solid
+               accent border, a wide bloom, and the largest type in the
+               composition. The other two are reference values and are
+               drawn as reference values.
+
+               Pass 2 gave all three the same weight, which is why the row
+               read as a spec sheet instead of an instrument.
+
+               The fill and the frame follow Accent; the number stays on
+               --rt-text. Emphasis is allowed to be a swatch. Legibility is
+               not. */
+            .attendance-summary.retro-theme .stat-card.remaining-time-card {
+                --rt-bk-c: var(--rt-accent);
+                background:
+                    var(--rt-brackets),
+                    var(--rt-hazard) right 0 top 0 / 26px 4px no-repeat,
+                    var(--rt-dashrule) left 14px bottom 11px / calc(100% - 28px) 3px no-repeat,
+                    linear-gradient(180deg,
+                        rgba(var(--rt-accent-rgb), 0.16),
+                        rgba(var(--rt-accent-rgb), 0.02)),
+                    var(--rt-panel) !important;
+                border: 1px solid var(--rt-accent) !important;
+            }
+
+            .attendance-summary.retro-theme .stat-card.remaining-time-card .stat-value {
+                font-size: 1.9rem !important;
+                text-shadow:
+                    0 0 calc((8px + 10px * var(--rt-beat)) * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.95 * var(--rt-glow-k))),
+                    0 0 calc((30px + 40px * var(--rt-beat)) * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.55 * var(--rt-glow-k))) !important;
+            }
+
+            /* The sublabel the host already renders ("Time until freedom").
+               The reference sets this kind of line small, dim and wide — it
+               is a caption, and it must not compete with the number above
+               it. */
+            .attendance-summary.retro-theme .remaining-desc {
+                font-family: 'Rajdhani', sans-serif !important;
+                font-weight: 600 !important;
+                font-size: 0.56rem !important;
+                letter-spacing: 0.17em !important;
+                text-transform: uppercase !important;
+                color: var(--rt-text-faint) !important;
+                text-shadow: none !important;
                 position: relative;
+                z-index: 2;
+            }
+
+            /* The blinking live tell, top-right of the hero card. Its own
+               element: ::before is the shimmer and ::after is the sensor
+               sweep, both already spoken for on every card. */
+            .attendance-summary.retro-theme .rt-live {
+                position: absolute;
+                top: 7px;
+                right: 30px;
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.5rem;
+                letter-spacing: 0.14em;
+                color: var(--rt-accent);
+                animation: rtBlink 1.4s steps(1, end) infinite;
+                pointer-events: none;
+                user-select: none;
+                z-index: 3;
+            }
+
+            /* Solid knocked-out label plate. */
+            .attendance-summary.retro-theme .stat-label {
+                font-family: 'Orbitron', sans-serif !important;
+                font-weight: 700 !important;
+                letter-spacing: 0.16em !important;
+                text-transform: uppercase !important;
+                font-size: 0.56rem !important;
+                background: var(--rt-text);
+                color: var(--rt-bg-1) !important;
+                text-shadow: none !important;
+                padding: 2px 9px 2px 7px !important;
+                clip-path: polygon(0 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+                position: relative;
+                z-index: 2;
+                align-self: flex-start;
+            }
+
+            .attendance-summary.retro-theme .stat-value,
+            .attendance-summary.retro-theme .worked-time,
+            .attendance-summary.retro-theme .remaining-time,
+            .attendance-summary.retro-theme .completion-time {
+                color: var(--rt-text) !important;
+                font-family: 'Share Tech Mono', monospace !important;
+                font-weight: 700 !important;
+                letter-spacing: 0.02em !important;
+                text-shadow: var(--rt-glow) !important;
+                position: relative;
+                z-index: 2;
+            }
+
+            /* ============================================================
+               DAY TIMELINE — was "progress bar".
+
+               The reference does not draw a progress bar. It draws a
+               measuring instrument: an hour ruler, a fine tick comb, a
+               chevron-hatched fill that crawls, the break bitten out of it
+               in hazard stripes, and a hard playhead at the boundary. Same
+               one number, but you can read WHERE you are in the day off it
+               instead of just how far along.
+
+               The ruler and the comb are real elements (they carry the hour
+               labels); everything else is background layers on the two
+               elements the host already renders.
+               ============================================================ */
+
+            .attendance-summary.retro-theme .rt-ruler {
+                display: flex;
+                justify-content: space-between;
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.5rem;
+                letter-spacing: 0.08em;
+                color: var(--rt-text-faint);
+                margin-bottom: 3px;
+                position: relative;
+                z-index: 2;
+                user-select: none;
+                pointer-events: none;
+            }
+
+            /* The comb sits between the labels and the track, so the labels
+               read as annotations ON the scale rather than a caption above
+               a bar. */
+            .attendance-summary.retro-theme .rt-ruler::after {
+                content: '';
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: -4px;
+                height: 5px;
+                background: repeating-linear-gradient(
+                    90deg,
+                    rgba(var(--rt-border-rgb), 0.55) 0 1px,
+                    transparent 1px 12.5%);
+            }
+
+            /* overflow stays VISIBLE so the playhead below can stand proud of
+               the track. Nothing else is allowed to escape: the shimmer is
+               clipped by .progress-fill instead. See the playhead note. */
+            .attendance-summary.retro-theme .progress-bar {
+                background:
+                    var(--rt-hazard-dim) !important;
+                background-size: 22px 100% !important;
+                border: 1px solid var(--rt-border) !important;
+                border-radius: var(--rt-radius-sm) !important;
+                box-shadow: none !important;
+                backdrop-filter: none !important;
+                -webkit-backdrop-filter: none !important;
+                overflow: visible;
+                position: relative;
+            }
+
+            /* The fill is now ONE hue, not a four-stop rainbow.
+
+               Pass 2 ran the flowing accent-to-highlight-to-panel gradient
+               along it, which is pretty and says nothing: a meter whose
+               colour changes along its length cannot be read against the
+               track behind it. The reference fills a meter in the data hue
+               and lets the CHEVRONS carry the motion. So the gradient is
+               gone and the hatching crawls instead. */
+            .attendance-summary.retro-theme .progress-fill {
+                background: var(--rt-chevron-fill) !important;
+                background-size: 22px 100% !important;
+                animation: rtHazardCrawl 1.5s linear infinite !important;
+                box-shadow:
+                    0 0 calc(8px * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.9 * var(--rt-glow-k))),
+                    0 0 calc(26px * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.5 * var(--rt-glow-k))) !important;
+                position: relative;
+                /* HIDDEN, and this is the load-bearing bit. The highlight
+                   sweep is a child of this element and travels well past
+                   both ends of it; with overflow visible it ran out across
+                   the whole widget, entering from the left of the track and
+                   leaving off the right. Clipping it here confines the
+                   sweep to the filled portion of the meter, which is the
+                   only place a highlight on a meter means anything. */
                 overflow: hidden;
+                border-radius: 0 !important;
+            }
+
+            /* PLAYHEAD. A hard bright edge at the boundary, standing proud of
+               the track top and bottom. This is the detail that makes the
+               whole thing read as an instrument rather than a fill — the
+               reference puts one on every meter that tracks time.
+
+               It belongs to the TRACK, not the fill.
+
+               It started life as .progress-fill::before, riding the fill's
+               right edge so it needed no arithmetic. That forced the fill to
+               be overflow:visible — and the fill's other pseudo-element is
+               the sweep, which travels far outside it. One element cannot be
+               both clipped and not clipped, so the fill kept the sweep in and
+               the playhead moved up here, where the track is visible and the
+               3px overhang works.
+
+               The cost is that it needs the percentage, which only the host
+               knows: --rt-progress is written beside the fill's inline width,
+               and updateDynamicContent() keeps both in step. The fallback is
+               0% so a stale render puts it at the left edge rather than
+               dropping the declaration entirely.
+
+               margin-left centres the 2px bar ON the boundary, so it does not
+               hang off the right end at 100%. */
+            .attendance-summary.retro-theme .progress-bar::after {
+                content: '';
+                position: absolute;
+                top: -3px;
+                bottom: -3px;
+                left: var(--rt-progress, 0%);
+                margin-left: -1px;
+                width: 2px;
+                background: var(--rt-text);
+                box-shadow:
+                    0 0 calc((6px + 10px * var(--rt-beat)) * var(--rt-glow-k)) var(--rt-text),
+                    0 0 calc((20px + 26px * var(--rt-beat)) * var(--rt-glow-k)) var(--rt-text);
+                z-index: 3;
+                pointer-events: none;
             }
 
             .attendance-summary.retro-theme .progress-fill::after {
                 content: '' !important;
                 position: absolute !important;
                 top: 0 !important;
-                left: -100% !important;
-                width: 60% !important;
+                left: 0 !important;
+                width: 55% !important;
                 height: 100% !important;
                 background: linear-gradient(
                     90deg,
                     transparent,
-                    rgba(255, 255, 255, 0.4),
+                    rgba(255, 255, 255, 0.5),
                     transparent
                 ) !important;
-                animation: progressShimmer 2s ease-in-out infinite !important;
+                transform: translateX(-120%);
+                animation: rtMeterSweep 2.2s linear infinite !important;
             }
 
-            /* ---- Buttons / chips ---- */
+            /* ============================================================
+               AUDIO SPECTRUM RAIL
+               Inside .main-attendance-content so Game Mode keeps it — Game
+               Mode collapses .left-panel and .right-panel only.
+               ============================================================ */
+
+            /* Everything the host renders FOR this theme has to disappear
+               in Glassmorphic. The markup is shared — renderFullContent()
+               emits one tree for both themes — so an rt-* element that is
+               only styled under .retro-theme still LAYS OUT under
+               Glassmorphic, as unstyled text in the middle of the widget.
+
+               This list and the rt-* elements in renderFullContent() are
+               the same list. cyber-verify.js asserts that in both
+               directions, because the failure mode is invisible from here:
+               you only see it by switching themes. */
+            .attendance-summary:not(.retro-theme) .cyber-eq-wrap,
+            .attendance-summary:not(.retro-theme) .rt-hud-rail,
+            .attendance-summary:not(.retro-theme) .rt-sec,
+            .attendance-summary:not(.retro-theme) .rt-subcode,
+            .attendance-summary:not(.retro-theme) .rt-hazard-strip,
+            .attendance-summary:not(.retro-theme) .rt-ticks,
+            .attendance-summary:not(.retro-theme) .rt-ruler,
+            .attendance-summary:not(.retro-theme) .rt-live,
+            .attendance-summary:not(.retro-theme) .rt-ticker,
+            .attendance-summary:not(.retro-theme) .rt-sweep,
+            .attendance-summary:not(.retro-theme) .rt-tbl-foot {
+                display: none !important;
+            }
+
+            .attendance-summary.retro-theme .cyber-eq-wrap {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+                margin: 8px 0 10px;
+                padding: 4px 7px;
+                position: relative;
+                z-index: 2;
+                background:
+                    var(--rt-hazard) left top / 4px 100% no-repeat,
+                    var(--rt-panel);
+                border: 0;
+                border-radius: var(--rt-radius-sm);
+                clip-path: var(--rt-clip);
+                filter: var(--rt-outline);
+                --rt-cut: 12px;
+            }
+
+            .attendance-summary.retro-theme #cyber-eq {
+                display: block;
+                flex: 1 1 auto;
+                width: 100%;
+                height: 26px;
+                margin-left: 4px;
+            }
+
+            .attendance-summary.retro-theme .cyber-eq-btn {
+                flex: 0 0 auto;
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.58rem;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: var(--rt-text);
+                background: transparent;
+                border: 1px solid var(--rt-border-strong);
+                border-radius: 0;
+                padding: 3px 7px;
+                cursor: pointer;
+                transition: background 0.15s ease, color 0.15s ease;
+            }
+
+            /* Active states knock out rather than glow. */
+            .attendance-summary.retro-theme .cyber-eq-btn:hover {
+                background: var(--rt-text);
+                color: var(--rt-bg-1);
+            }
+
+            /* Knocked out when the analyser is actually running — the
+               strongest state the button has, and the one place mass belongs
+               on a control this small. --rt-text over --rt-bg-1 is the pair
+               the contrast chip measures. */
+            .attendance-summary.retro-theme .cyber-eq-btn.is-live {
+                background: var(--rt-text);
+                border-color: var(--rt-text);
+                color: var(--rt-bg-1);
+                box-shadow: var(--rt-glow-soft);
+            }
+
+            /* Procedural: outlined in the data hue rather than filled, so it
+               reads as "running, but not from anything real". Highlight is a
+               swatch and is measured by the contrast guard. */
+            .attendance-summary.retro-theme .cyber-eq-btn.is-sim {
+                border-color: var(--rt-data);
+                color: var(--rt-data);
+            }
+
+            /* ============================================================
+               BUTTONS / CHIPS — outlined, knocked out when active.
+
+               Never an accent fill carrying text: a dark Highlight would hide
+               the label with nothing to warn the user. Knocked-out states use
+               the --rt-text / --rt-bg-1 pair only.
+               ============================================================ */
+
             .attendance-summary.retro-theme .developer-info,
             .attendance-summary.retro-theme .settings-button {
-                background: linear-gradient(135deg,
-                    rgba(var(--rt-cyber-panel-rgb), 0.14),
-                    rgba(var(--rt-cyber-panel-rgb), 0.06)) !important;
-                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.32) !important;
-                color: var(--rt-accent) !important;
-                backdrop-filter: blur(10px) saturate(130%) !important;
-                -webkit-backdrop-filter: blur(10px) saturate(130%) !important;
-                box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.15),
-                    0 2px 6px rgba(0, 0, 0, 0.1) !important;
+                background: var(--rt-panel) !important;
+                border: 1px solid var(--rt-border) !important;
+                border-radius: var(--rt-radius-sm) !important;
+                color: var(--rt-text) !important;
+                backdrop-filter: none !important;
+                -webkit-backdrop-filter: none !important;
+                box-shadow: none !important;
             }
 
             .attendance-summary.retro-theme .developer-info:hover,
             .attendance-summary.retro-theme .settings-button:hover {
-                background: rgba(var(--rt-accent-rgb), 0.15) !important;
-                color: var(--rt-text) !important;
-                box-shadow:
-                    inset 0 0 0 1px var(--rt-accent),
-                    0 4px 12px rgba(var(--rt-accent-rgb), 0.35) !important;
-                z-index: 1000;
+                background: var(--rt-text) !important;
+                border-color: var(--rt-text) !important;
+                color: var(--rt-bg-1) !important;
             }
 
             .attendance-summary.retro-theme .pip-button {
-                background: linear-gradient(
-                    135deg,
-                    rgba(var(--rt-cyber-hl-rgb), 0.18),
-                    rgba(var(--rt-accent-rgb), 0.18)
-                ) !important;
-                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.32) !important;
+                background: var(--rt-panel) !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: 0 !important;
+                clip-path: polygon(9px 0, 100% 0, 100% 100%, 0 100%, 0 9px);
                 color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 font-weight: 700 !important;
                 letter-spacing: 0.1em !important;
                 text-transform: uppercase !important;
-                backdrop-filter: blur(10px) saturate(130%) !important;
-                -webkit-backdrop-filter: blur(10px) saturate(130%) !important;
-                box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.2),
-                    0 2px 8px rgba(0, 0, 0, 0.12) !important;
+                text-shadow: var(--rt-glow-soft) !important;
+                backdrop-filter: none !important;
+                -webkit-backdrop-filter: none !important;
+                box-shadow: none !important;
             }
 
             .attendance-summary.retro-theme .pip-button:hover {
-                background: linear-gradient(
-                    135deg,
-                    rgba(var(--rt-cyber-hl-rgb), 0.35),
-                    rgba(var(--rt-accent-rgb), 0.35)
-                ) !important;
-                box-shadow:
-                    inset 0 0 0 1px var(--rt-accent),
-                    0 6px 18px rgba(var(--rt-accent-rgb), 0.35) !important;
+                background: var(--rt-text) !important;
+                color: var(--rt-bg-1) !important;
+                text-shadow: none !important;
             }
 
-            /* ---- Completion message ---- */
+            /* ============================================================
+               COMPLETION MESSAGE
+               ============================================================ */
+
             .attendance-summary.retro-theme .completion-message {
-                background: linear-gradient(
-                    135deg,
-                    rgba(var(--rt-cyber-panel-rgb), 0.18),
-                    rgba(var(--rt-cyber-hl-rgb), 0.18)
-                ) !important;
-                border: 1px solid var(--rt-cyber-panel) !important;
-                border-radius: 2px !important;
+                background:
+                    var(--rt-hazard) left top / 100% 4px no-repeat,
+                    var(--rt-panel) !important;
+                border: 0 !important;
+                border-radius: var(--rt-radius-sm) !important;
                 clip-path: var(--rt-clip);
-                color: var(--rt-cyber-panel) !important;
+                filter: var(--rt-outline);
+                color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 font-weight: 700 !important;
                 letter-spacing: 0.06em !important;
-                text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    0 0 12px rgba(var(--rt-cyber-panel-rgb), 0.5) !important;
-                box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.2),
-                    0 4px 14px rgba(var(--rt-cyber-panel-rgb), 0.18) !important;
+                text-shadow: var(--rt-glow) !important;
+                box-shadow: none !important;
+                padding-top: 13px !important;
             }
 
-            /* ---- Side panels (snake/quotes/xp/image) inherit HUD tokens ---- */
+            /* ============================================================
+               SIDE PANELS
+               border-radius only, never clip-path or filter: these hold game
+               canvases, trays, popovers, and the two position:fixed elements
+               (#aim-results, .lb-ach-popover) that a filtered ancestor would
+               reparent.
+               ============================================================ */
+
             .attendance-summary.retro-theme .snake-game-container,
             .attendance-summary.retro-theme .quotes-container,
             .attendance-summary.retro-theme .xp-container,
             .attendance-summary.retro-theme .image-box-container {
+                background:
+                    var(--rt-brackets),
+                    var(--rt-hazard-dim) left top / 3px 100% no-repeat,
+                    var(--rt-panel) !important;
+                border: 1px solid var(--rt-border) !important;
+                border-radius: var(--rt-radius) !important;
                 color: var(--rt-text);
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+                box-shadow: none !important;
                 position: relative;
                 z-index: 1;
             }
@@ -14470,175 +15882,300 @@
             .attendance-summary.retro-theme .quotes-title,
             .attendance-summary.retro-theme .xp-title,
             .attendance-summary.retro-theme .image-box-title {
-                color: var(--rt-accent) !important;
+                color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 letter-spacing: 0.12em !important;
                 text-transform: uppercase !important;
+                text-shadow: var(--rt-glow-soft) !important;
+                border-bottom: 1px solid var(--rt-border) !important;
+                padding-bottom: 5px !important;
             }
 
-            /* Ensure all secondary text inside retro-theme panels stays visible */
             .attendance-summary.retro-theme .snake-score {
                 color: var(--rt-text-dim) !important;
+                font-family: 'Share Tech Mono', monospace !important;
             }
+
             .attendance-summary.retro-theme .snake-canvas {
-                background: rgba(var(--rt-cyber-panel-rgb), 0.05) !important;
+                background: rgba(0, 0, 0, 0.4) !important;
+                border: 1px solid var(--rt-border) !important;
+                border-radius: 0 !important;
             }
 
-            /* ---- User-customizable HUD color overrides ----
-               Fallback chain ensures legacy styling if --rt-cyber-hl isn't set yet. */
-            .attendance-summary.retro-theme {
-                --rt-cyber-hl: var(--rt-cyan, #00e5ff);
-                --rt-cyber-hl-rgb: var(--rt-cyan-rgb, 0, 229, 255);
-                --rt-cyber-panel: var(--rt-cyan, #00e5ff);
-                --rt-cyber-panel-rgb: var(--rt-cyan-rgb, 0, 229, 255);
+            /* ============================================================
+               XP / QUOTES / IMAGE PANELS
+               (these were hardcoded glassmorphic purple)
+               ============================================================ */
+
+            .attendance-summary.retro-theme .xp-progress-bar {
+                background: var(--rt-hazard-dim) !important;
+                background-size: 22px 100% !important;
+                border: 1px solid var(--rt-border) !important;
+                border-radius: 0 !important;
+                position: relative;
+                overflow: hidden;
             }
 
-            /* Modern table — glassmorphic with user panel tint */
-            .attendance-summary.retro-theme .modern-table {
-                background: linear-gradient(135deg,
-                    rgba(var(--rt-cyber-panel-rgb), 0.10),
-                    rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
-                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
-                border-radius: 10px !important;
-                clip-path: none !important;
-                backdrop-filter: blur(14px) saturate(140%) !important;
-                -webkit-backdrop-filter: blur(14px) saturate(140%) !important;
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
-                    0 8px 32px rgba(0, 0, 0, 0.18),
-                    0 2px 6px rgba(0, 0, 0, 0.10) !important;
-            }
-
-            /* Side panels — glassmorphic with user panel tint */
-            .attendance-summary.retro-theme .snake-game-container,
-            .attendance-summary.retro-theme .quotes-container,
-            .attendance-summary.retro-theme .xp-container,
-            .attendance-summary.retro-theme .image-box-container {
-                background: linear-gradient(135deg,
-                    rgba(var(--rt-cyber-panel-rgb), 0.10),
-                    rgba(var(--rt-cyber-panel-rgb), 0.04)) !important;
-                border: 1px solid rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
-                border-radius: 10px !important;
-                clip-path: none !important;
-                backdrop-filter: blur(14px) saturate(140%);
-                -webkit-backdrop-filter: blur(14px) saturate(140%);
-                box-shadow:
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-                    inset 0 0 0 1px rgba(var(--rt-cyber-panel-rgb), 0.12),
-                    0 8px 32px rgba(0, 0, 0, 0.18),
-                    0 2px 6px rgba(0, 0, 0, 0.10) !important;
-            }
-
-            /* XP progress fill (was hardcoded purple) */
             .attendance-summary.retro-theme .xp-progress-fill {
-                background: linear-gradient(90deg,
-                    var(--rt-cyber-hl) 0%,
-                    var(--rt-accent) 50%,
-                    var(--rt-cyber-hl) 100%) !important;
-                box-shadow: 0 0 12px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
+                background: var(--rt-chevron-fill) !important;
+                background-size: 22px 100% !important;
+                animation: rtHazardCrawl 2s linear infinite !important;
+                border-radius: 0 !important;
+                box-shadow:
+                    0 0 calc(7px * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.85 * var(--rt-glow-k))),
+                    0 0 calc(22px * var(--rt-glow-k))
+                        rgba(var(--rt-glow-rgb), calc(0.45 * var(--rt-glow-k))) !important;
             }
 
-            /* XP stat values (was hardcoded #6c5ce7 / #a29bfe purple) */
+            /* SEGMENTED XP.
+
+               The reference never draws XP as a continuous fill — it is
+               always a row of discrete slabs with slanted ends, because a
+               segmented meter reads as "count" and a smooth one reads as
+               "proportion". XP is a count.
+
+               The host renders one continuous fill, so rather than ask it
+               for twenty elements this knocks the gaps back OUT over the
+               top in the background colour: 20 slices, a 2px gap, sheared
+               to 115deg to match every other diagonal in the theme. Same
+               look, no DOM, and it stays correct at any width.
+
+               --rt-bg-1 and not transparent: the gaps have to hide the fill
+               under them, not tint it. */
+            .attendance-summary.retro-theme .xp-progress-bar::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background: repeating-linear-gradient(
+                    115deg,
+                    transparent 0 calc(5% - 2px),
+                    var(--rt-bg-1) calc(5% - 2px) 5%);
+                pointer-events: none;
+                z-index: 2;
+            }
+
             .attendance-summary.retro-theme .xp-stat-value {
-                color: var(--rt-cyber-hl) !important;
+                color: var(--rt-text) !important;
+                font-family: 'Share Tech Mono', monospace !important;
+                text-shadow: var(--rt-glow-soft) !important;
             }
+
             .attendance-summary.retro-theme .xp-stat-label {
-                color: var(--rt-accent) !important;
-                opacity: 0.9;
+                color: var(--rt-text-dim) !important;
+                font-family: 'Share Tech Mono', monospace !important;
+                letter-spacing: 0.1em !important;
             }
+
             .attendance-summary.retro-theme .xp-info {
                 color: var(--rt-text-dim) !important;
             }
 
-            /* Quotes text — dynamic cyber colors */
             .attendance-summary.retro-theme .quote-text {
                 color: var(--rt-text) !important;
             }
+
             .attendance-summary.retro-theme .quote-author {
-                color: var(--rt-cyber-hl) !important;
-                opacity: 0.8;
+                color: var(--rt-text-dim) !important;
+                font-family: 'Share Tech Mono', monospace !important;
             }
+
             .attendance-summary.retro-theme .quote-add-btn {
-                background: rgba(var(--rt-cyber-panel-rgb), 0.12) !important;
-                border-color: rgba(var(--rt-cyber-panel-rgb), 0.3) !important;
-                color: var(--rt-accent) !important;
-            }
-
-            /* Level badge (was hardcoded purple) */
-            .attendance-summary.retro-theme .level-badge {
-                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
-                color: var(--rt-bg-1) !important;
-                box-shadow: 0 0 14px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
-            }
-
-            /* View-all achievements button (was glassmorphic purple rgba) */
-            .attendance-summary.retro-theme .xp-achievements-view-all {
-                background: linear-gradient(135deg,
-                    rgba(var(--rt-cyber-hl-rgb), 0.22),
-                    rgba(var(--rt-accent-rgb), 0.22)) !important;
-                border: 1px solid var(--rt-cyber-hl) !important;
-                color: var(--rt-text) !important;
-            }
-            .attendance-summary.retro-theme .xp-achievements-view-all:hover {
-                background: linear-gradient(135deg,
-                    rgba(var(--rt-cyber-hl-rgb), 0.45),
-                    rgba(var(--rt-accent-rgb), 0.45)) !important;
-                box-shadow: 0 4px 14px rgba(var(--rt-cyber-hl-rgb), 0.4) !important;
-            }
-
-            /* Aspect-ratio buttons (used aurora gradient) */
-            .attendance-summary.retro-theme .aspect-ratio-btn {
-                background: var(--rt-panel) !important;
+                background: transparent !important;
                 border: 1px solid var(--rt-border) !important;
+                border-radius: 0 !important;
                 color: var(--rt-text) !important;
             }
-            .attendance-summary.retro-theme .aspect-ratio-btn.active {
-                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
-                border-color: var(--rt-cyber-hl) !important;
+
+            .attendance-summary.retro-theme .quote-add-btn:hover {
+                background: var(--rt-text) !important;
                 color: var(--rt-bg-1) !important;
-                box-shadow: 0 4px 12px rgba(var(--rt-cyber-hl-rgb), 0.4) !important;
             }
 
-            /* Game switch tabs (aurora gradient on active) */
+            /* Solid knocked-out badge, cut to a HEXAGON.
+
+               The reference gives its level/rank chip a six-sided
+               silhouette every single time — it is how a rank is
+               distinguished from a button at a glance, and it is the one
+               shape in the sheets that never appears anywhere else. Worth
+               spending it here rather than on another slanted rectangle,
+               which is what pass 2 had.
+
+               Padding has to clear the two side points or the text runs
+               under them. */
+            .attendance-summary.retro-theme .level-badge {
+                background: var(--rt-text) !important;
+                border: 0 !important;
+                border-radius: 0 !important;
+                clip-path: polygon(
+                    50% 0, 100% 25%, 100% 75%,
+                    50% 100%, 0 75%, 0 25%);
+                padding-left: 15px !important;
+                padding-right: 15px !important;
+                color: var(--rt-bg-1) !important;
+                font-family: 'Orbitron', sans-serif !important;
+                font-weight: 700 !important;
+                letter-spacing: 0.1em !important;
+                text-shadow: none !important;
+                box-shadow: var(--rt-glow) !important;
+            }
+
+            .attendance-summary.retro-theme .xp-achievements-view-all {
+                background: transparent !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: 0 !important;
+                color: var(--rt-text) !important;
+                font-family: 'Share Tech Mono', monospace !important;
+                letter-spacing: 0.08em !important;
+            }
+
+            .attendance-summary.retro-theme .xp-achievements-view-all:hover {
+                background: var(--rt-text) !important;
+                color: var(--rt-bg-1) !important;
+            }
+
+            .attendance-summary.retro-theme .aspect-ratio-btn {
+                background: transparent !important;
+                border: 1px solid var(--rt-border) !important;
+                border-radius: 0 !important;
+                color: var(--rt-text) !important;
+            }
+
+            .attendance-summary.retro-theme .aspect-ratio-btn.active {
+                background: var(--rt-text) !important;
+                border-color: var(--rt-text) !important;
+                color: var(--rt-bg-1) !important;
+            }
+
+            /* ============================================================
+               GAME CONTROLS
+               ============================================================ */
+
             .attendance-summary.retro-theme .game-switch-btn {
-                background: rgba(var(--rt-cyber-panel-rgb), 0.10) !important;
-                border-color: rgba(var(--rt-cyber-panel-rgb), 0.28) !important;
+                background: transparent !important;
+                border: 1px solid var(--rt-border) !important;
+                border-radius: 0 !important;
                 color: var(--rt-text-dim) !important;
             }
+
             .attendance-summary.retro-theme .game-switch-btn:hover {
-                background: rgba(var(--rt-cyber-hl-rgb), 0.18) !important;
-                border-color: var(--rt-cyber-hl) !important;
+                border-color: var(--rt-border-strong) !important;
                 color: var(--rt-text) !important;
             }
+
             .attendance-summary.retro-theme .game-switch-btn.active {
-                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
-                border-color: var(--rt-cyber-hl) !important;
+                background: var(--rt-text) !important;
+                border-color: var(--rt-text) !important;
                 color: var(--rt-bg-1) !important;
             }
 
-            /* Snake / generic game-control buttons (Play / Reset / PvCPU / Max) */
             .attendance-summary.retro-theme .snake-btn {
-                background: linear-gradient(135deg, var(--rt-cyber-hl), var(--rt-accent)) !important;
-                color: var(--rt-bg-1) !important;
-                border: 1px solid var(--rt-cyber-hl) !important;
-            }
-            .attendance-summary.retro-theme .snake-btn:hover {
-                box-shadow: 0 4px 14px rgba(var(--rt-cyber-hl-rgb), 0.45) !important;
-                filter: brightness(1.1);
+                background: transparent !important;
+                color: var(--rt-text) !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: 0 !important;
+                clip-path: polygon(7px 0, 100% 0, 100% 100%, 0 100%, 0 7px);
+                font-family: 'Share Tech Mono', monospace !important;
+                letter-spacing: 0.06em !important;
+                text-shadow: var(--rt-glow-soft) !important;
             }
 
-            /* Settings modal elements follow cyberpunk colors */
+            .attendance-summary.retro-theme .snake-btn:hover {
+                background: var(--rt-text) !important;
+                color: var(--rt-bg-1) !important;
+                text-shadow: none !important;
+            }
+
+            /* ============================================================
+               SETTINGS MODAL — body-level, so it reads the tokens
+               applyPreferences() mirrors onto documentElement.
+               ============================================================ */
+
+            /* ============================================================
+               EMOJI TINT handles.
+
+               Declared on the body scope, not inside .retro-theme, because
+               the settings modal is body-level and cannot see a property
+               declared on the widget - the same reason --rt-glow-k is
+               mirrored onto documentElement.
+
+               opacity(1) is the no-op stand-in for "off". 'none' cannot be
+               combined with other filter functions, so a rule that chains a
+               tint with drop-shadows needs a real function here or the whole
+               declaration is invalid and the glow goes with it.
+
+               The filter itself is injected by ensureCyberEmojiFilter(); the
+               id must match CYBER_EMOJI_FILTER_ID and section H3 asserts it.
+               ============================================================ */
+            body:has(.retro-theme) {
+                --rt-emo-tint: url(#rt-emoji-tint);
+                --rt-emo-progress: var(--rt-emo-tint);
+            }
+
+            /* There was a [data-emoji-set="professional"] opt-out here: the
+               "professional" progression was a 🔴🟠🟡🟢🔵 traffic light whose
+               meaning WAS its hue, so tinting it to one colour would have
+               deleted the signal outright (confirmed by rendering it, not
+               guessed). That set is gone — nobody used it, and it needed its
+               own carve-out wherever emoji were themed. Its replacement,
+               'none', renders no glyph at all, so there is nothing left to
+               opt a tint out of; the rule is not reinstated under the new
+               name because it would be dead weight, not a safeguard. */
+
+            /* A bare wrapper around a single emoji, and deliberately nothing
+               else. A filter applies to everything its element paints, so
+               tinting .game-switch-btn directly would duotone its border and
+               its knocked-out --rt-text fill along with the glyph. The
+               wrapper paints nothing, so only the emoji is affected.
+
+               It stays an unstyled inline span in Glassmorphic - no hide
+               rule, because hiding it would hide the emoji. See RT_PASSTHROUGH
+               in cyber-verify.js. */
+            body:has(.retro-theme) .rt-emo {
+                display: inline-block;
+                filter: var(--rt-emo-tint, opacity(1));
+            }
+
             body:has(.retro-theme) .close-modal-button {
-                background: linear-gradient(135deg, var(--rt-cyber-hl, #00e5ff), var(--rt-accent, #fff200)) !important;
+                background: var(--rt-text, #fff200) !important;
+                border: 0 !important;
+                border-radius: 0 !important;
                 color: var(--rt-bg-1, #07091a) !important;
             }
+
             body:has(.retro-theme) .settings-title {
-                background: linear-gradient(135deg, var(--rt-cyber-hl, #00e5ff), var(--rt-accent, #fff200)) !important;
-                -webkit-background-clip: text !important;
-                -webkit-text-fill-color: transparent !important;
+                background: none !important;
+                -webkit-background-clip: unset !important;
+                background-clip: unset !important;
+                -webkit-text-fill-color: var(--rt-text, #fff200) !important;
+                color: var(--rt-text, #fff200) !important;
+                /* Body-level, so it reads the copy of the tokens that
+                   applyCyberTokens() mirrors onto documentElement. The
+                   fallbacks matter here and nowhere else. */
+                text-shadow:
+                    0 0 calc(6px * var(--rt-glow-k, 0.6))
+                        rgba(var(--rt-glow-rgb, 255, 242, 0), calc(0.9 * var(--rt-glow-k, 0.6))),
+                    0 0 calc(26px * var(--rt-glow-k, 0.6))
+                        rgba(var(--rt-glow-rgb, 255, 242, 0), calc(0.5 * var(--rt-glow-k, 0.6))) !important;
             }
-            
+
+            /* Contrast guard readout in the Cyberpunk Colors row. It warns; it
+               never silently corrects a deliberate choice. */
+            .cyber-contrast-chip {
+                font-family: 'Share Tech Mono', monospace;
+                font-size: 0.66rem;
+                letter-spacing: 0.06em;
+                padding: 2px 7px;
+                border-radius: 0;
+                border: 1px solid currentColor;
+                white-space: nowrap;
+            }
+
+            .cyber-contrast-chip.is-pass { color: #05ffa1; }
+            .cyber-contrast-chip.is-warn { color: #ffb300; }
+            .cyber-contrast-chip.is-fail { color: #ff2a6d; }
+            /* ═══ END CYBERPUNK HUD THEME ═══ */
+
             /* Borderless PiP Window - Hide Browser Chrome */
             @media (display-mode: picture-in-picture) {
                 /* Target the PiP window itself */
@@ -14646,7 +16183,7 @@
                     /* Maximize content area */
                     overflow: hidden !important;
                 }
-                
+
                 body {
                     /* Remove all default margins and padding */
                     margin: 0 !important;
@@ -14658,14 +16195,14 @@
                     min-height: 100vh !important;
                     height: 100vh !important;
                 }
-                
+
                 html {
                     margin: 0 !important;
                     padding: 0 !important;
                     border: none !important;
                     overflow: hidden !important;
                 }
-                
+
                 /* Ensure content fills entire window including title bar area */
                 .pip-window-content,
                 .attendance-summary {
@@ -14679,7 +16216,7 @@
                     overflow-x: hidden !important;
                     box-sizing: border-box !important;
                 }
-                
+
                 /* Compact mode should also be borderless */
                 .pip-compact-display {
                     border: none !important;
@@ -14696,7 +16233,7 @@
                     box-shadow: none !important;
                 }
             }
-            
+
             /* ==================== SNAKE GAME STYLES ==================== */
             .snake-game-container {
                 background: rgba(255, 255, 255, 0.08);
@@ -14706,14 +16243,14 @@
                 position: relative;
                 overflow: hidden;
             }
-            
+
             .snake-game-header {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 margin-bottom: 12px;
             }
-            
+
             .snake-game-title {
                 font-size: 1rem;
                 font-weight: 600;
@@ -14727,7 +16264,7 @@
                 font-size: 0.875rem;
                 color: rgba(255, 255, 255, 0.7);
             }
-            
+
             .snake-canvas {
                 width: 100%;
                 background: rgba(0, 0, 0, 0.3);
@@ -14736,7 +16273,7 @@
                 image-rendering: pixelated;
                 box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.3);
             }
-            
+
             .snake-controls {
                 display: flex;
                 justify-content: space-between;
@@ -14744,7 +16281,7 @@
                 margin-top: 12px;
                 gap: 8px;
             }
-            
+
             .snake-btn {
                 padding: 8px 16px;
                 background: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
@@ -14756,7 +16293,7 @@
                 transition: all 0.3s ease;
                 font-size: 0.875rem;
             }
-            
+
             .snake-btn:hover {
                 transform: scale(1.05);
                 box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
@@ -14774,17 +16311,17 @@
                 display: none;
                 z-index: 10;
             }
-            
+
             .snake-game-over.active {
                 display: block;
             }
-            
+
             .snake-game-over h3 {
                 color: #e17055;
                 margin: 0 0 12px 0;
                 font-size: 1.5rem;
             }
-            
+
             .snake-game-over p {
                 color: rgba(255, 255, 255, 0.8);
                 margin: 8px 0;
@@ -15083,7 +16620,7 @@
                 background: rgba(255,255,255,0.2);
                 border-radius: 4px;
             }
-            
+
             .game-switch-btn {
                 padding: 8px 12px;
                 background: rgba(255, 255, 255, 0.1);
@@ -15098,20 +16635,20 @@
                 align-items: center;
                 justify-content: center;
             }
-            
+
             .game-switch-btn:hover {
                 background: rgba(255, 255, 255, 0.2);
                 transform: translateY(-2px);
                 border-color: rgba(255, 255, 255, 0.3);
             }
-            
+
             .game-switch-btn.active {
                 background: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
                 border-color: var(--aurora-1);
                 color: white;
                 box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
             }
-            
+
             .multi-game-area {
                 width: 100%;
                 height: 368px;
@@ -15232,48 +16769,48 @@
                 color: #f87171;
                 border-color: rgba(239,68,68,0.4);
             }
-            
+
             /* ==================== REFLEX GAME STYLES ==================== */
             .reflex-game-area {
                 cursor: pointer;
             }
-            
+
             .reflex-waiting-state {
                 background: linear-gradient(135deg, #dc2626, #991b1b) !important;
                 animation: pulseRed 1s ease-in-out infinite;
             }
-            
+
             .reflex-ready-state {
                 background: linear-gradient(135deg, #16a34a, #15803d) !important;
                 animation: pulseGreen 0.5s ease-in-out infinite;
             }
-            
+
             @keyframes pulseRed {
                 0%, 100% { opacity: 1; }
                 50% { opacity: 0.85; }
             }
-            
+
             @keyframes pulseGreen {
                 0%, 100% { box-shadow: 0 0 20px rgba(22, 163, 74, 0.5); }
                 50% { box-shadow: 0 0 40px rgba(22, 163, 74, 0.8); }
             }
-            
+
             .reflex-target {
                 cursor: crosshair;
                 animation: targetPulse 1s ease-in-out infinite;
             }
-            
+
             @keyframes targetPulse {
-                0%, 100% { 
+                0%, 100% {
                     transform: scale(1);
                     box-shadow: 0 0 30px currentColor;
                 }
-                50% { 
+                50% {
                     transform: scale(1.1);
                     box-shadow: 0 0 50px currentColor;
                 }
             }
-            
+
             .reflex-mode-toggle {
                 position: absolute;
                 top: 10px;
@@ -15290,12 +16827,12 @@
                 transition: all 0.3s ease;
                 z-index: 20;
             }
-            
+
             .reflex-mode-toggle:hover {
                 background: rgba(255, 255, 255, 0.25);
                 transform: scale(1.05);
             }
-            
+
             #reflex-stats,
             #aim-stats {
                 background: rgba(0, 0, 0, 0.2);
@@ -15303,7 +16840,7 @@
                 margin-top: 8px;
                 color: rgba(255, 255, 255, 0.9);
             }
-            
+
             #reflex-results,
             #aim-results {
                 position: fixed;
@@ -15322,24 +16859,24 @@
                 visibility: hidden;
                 transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55);
             }
-            
+
             #reflex-results.active,
             #aim-results.active {
                 opacity: 1;
                 visibility: visible;
                 transform: translate(-50%, -50%) scale(1);
             }
-            
+
             /* ==================== AIM TRAINER STYLES ==================== */
             .aim-game-area {
                 cursor: crosshair;
-                background: 
+                background:
                     linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
                     linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
                     rgba(0, 0, 0, 0.3);
                 background-size: 20px 20px;
             }
-            
+
             .aim-target {
                 animation: targetPulse 1s ease-in-out infinite;
                 user-select: none;
@@ -15347,13 +16884,13 @@
                 will-change: transform, opacity;
                 backface-visibility: hidden;
             }
-            
+
             .bullet-hole {
                 animation: bulletHoleFade 2s ease-out forwards;
                 user-select: none;
                 pointer-events: none;
             }
-            
+
             @keyframes targetAppear {
                 0% {
                     opacity: 0;
@@ -15364,9 +16901,9 @@
                     transform: scale(1);
                 }
             }
-            
+
             @keyframes bulletHoleFade {
-                0% { 
+                0% {
                     opacity: 0;
                     transform: scale(0);
                 }
@@ -15378,12 +16915,12 @@
                     opacity: 0.8;
                     transform: scale(1);
                 }
-                100% { 
+                100% {
                     opacity: 0;
                     transform: scale(0.8);
                 }
             }
-            
+
             /* ==================== QUOTES BOX STYLES ==================== */
             .quotes-container {
                 background: rgba(255, 255, 255, 0.08);
@@ -15396,20 +16933,20 @@
                 /* Isolate quote animations from parent updates */
                 contain: layout style;
             }
-            
+
             .quotes-header {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 margin-bottom: 16px;
             }
-            
+
             .quotes-title {
                 font-size: 1rem;
                 font-weight: 600;
                 color: rgba(255, 255, 255, 0.9);
             }
-            
+
             .quote-add-btn {
                 padding: 6px 12px;
                 background: rgba(255, 255, 255, 0.1);
@@ -15420,11 +16957,11 @@
                 cursor: pointer;
                 transition: all 0.3s ease;
             }
-            
+
             .quote-add-btn:hover {
                 background: rgba(255, 255, 255, 0.2);
             }
-            
+
             .quote-display {
                 text-align: center;
                 padding: 20px 10px;
@@ -15433,7 +16970,7 @@
                 align-items: center;
                 justify-content: center;
             }
-            
+
             .quote-text {
                 font-size: 1rem;
                 font-style: italic;
@@ -15445,22 +16982,22 @@
                 /* Prevent animation resets from parent updates */
                 contain: layout style paint;
             }
-            
+
             @keyframes fadeIn {
                 from { opacity: 0; transform: translateY(10px); }
                 to { opacity: 1; transform: translateY(0); }
             }
-            
+
             @keyframes fadeOut {
                 from { opacity: 1; transform: translateY(0); }
                 to { opacity: 0; transform: translateY(-10px); }
             }
-            
+
             .quote-text.fade-out {
                 opacity: 0;
                 transform: translateY(-10px);
             }
-            
+
             .quote-author {
                 font-size: 0.875rem;
                 color: rgba(255, 255, 255, 0.6);
@@ -15470,7 +17007,7 @@
                 /* Prevent animation resets from parent updates */
                 contain: layout style paint;
             }
-            
+
             /* ==================== XP SYSTEM STYLES ==================== */
             .xp-container {
                 background: linear-gradient(135deg, rgba(108, 92, 231, 0.2), rgba(102, 126, 234, 0.15));
@@ -15480,26 +17017,26 @@
                 position: relative;
                 overflow: hidden;
             }
-            
+
             .xp-header {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 margin-bottom: 16px;
             }
-            
+
             .xp-title {
                 font-size: 1rem;
                 font-weight: 600;
                 color: rgba(255, 255, 255, 0.9);
             }
-            
+
             .xp-level {
                 display: flex;
                 align-items: center;
                 gap: 8px;
             }
-            
+
             .level-badge {
                 background: linear-gradient(135deg, #6c5ce7, #a29bfe);
                 padding: 6px 12px;
@@ -15508,11 +17045,11 @@
                 font-size: 0.875rem;
                 box-shadow: 0 2px 8px rgba(108, 92, 231, 0.4);
             }
-            
+
             .xp-progress-container {
                 margin-bottom: 12px;
             }
-            
+
             .xp-progress-bar {
                 width: 100%;
                 height: 20px;
@@ -15521,7 +17058,7 @@
                 overflow: hidden;
                 position: relative;
             }
-            
+
             .xp-progress-fill {
                 height: 100%;
                 background: linear-gradient(90deg, #6c5ce7, #a29bfe, #6c5ce7);
@@ -15530,7 +17067,7 @@
                 transition: width 0.5s ease;
                 box-shadow: 0 0 10px rgba(108, 92, 231, 0.5);
             }
-            
+
             .xp-info {
                 display: flex;
                 justify-content: space-between;
@@ -15538,33 +17075,33 @@
                 color: rgba(255, 255, 255, 0.7);
                 margin-top: 8px;
             }
-            
+
             .xp-stats {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
                 gap: 12px;
                 margin-top: 12px;
             }
-            
+
             .xp-stat-item {
                 background: rgba(255, 255, 255, 0.05);
                 padding: 12px;
                 border-radius: 8px;
                 text-align: center;
             }
-            
+
             .xp-stat-label {
                 font-size: 0.75rem;
                 color: rgba(255, 255, 255, 0.6);
                 margin-bottom: 4px;
             }
-            
+
             .xp-stat-value {
                 font-size: 1.25rem;
                 font-weight: 700;
                 color: #a29bfe;
             }
-            
+
             .xp-streak {
                 display: flex;
                 align-items: center;
@@ -15578,17 +17115,17 @@
                 font-weight: 600;
                 font-size: 0.875rem;
             }
-            
+
             .xp-streak-icon {
                 font-size: 1.2rem;
                 animation: fireFlicker 1.5s ease-in-out infinite;
             }
-            
+
             @keyframes fireFlicker {
                 0%, 100% { transform: scale(1); opacity: 1; }
                 50% { transform: scale(1.1); opacity: 0.9; }
             }
-            
+
             .xp-achievements {
                 display: flex;
                 flex-wrap: wrap;
@@ -15601,38 +17138,38 @@
                 align-items: center;
                 justify-content: center;
             }
-            
+
             .xp-achievements:empty::before {
                 content: 'Loading achievements... 🏆';
                 color: rgba(255, 255, 255, 0.4);
                 font-size: 0.75rem;
                 font-style: italic;
             }
-            
+
             .achievement-badge {
                 font-size: 1.8rem;
                 cursor: pointer;
                 transition: transform 0.3s ease, filter 0.3s ease, opacity 0.3s ease;
                 filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
             }
-            
+
             .achievement-badge.earned {
                 filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
                 opacity: 1;
             }
-            
+
             .achievement-badge.unearned {
                 filter: grayscale(1) brightness(0.5);
                 opacity: 0.35;
                 transform: scale(0.85);
             }
-            
+
             .achievement-badge.unearned:hover {
                 filter: grayscale(0.5) brightness(0.7);
                 opacity: 0.6;
                 transform: scale(1);
             }
-            
+
             .achievement-badge:hover {
                 transform: scale(1.2);
             }
@@ -15854,7 +17391,7 @@
                     color: #10b981;
                 }
             }
-            
+
             .xp-next-milestone {
                 margin-top: 8px;
                 padding: 6px 12px;
@@ -15866,7 +17403,7 @@
                 color: rgba(255, 193, 7, 0.9);
                 font-weight: 600;
             }
-            
+
             .xp-milestone-notification {
                 position: fixed;
                 top: 20px;
@@ -15884,45 +17421,45 @@
                 -webkit-backdrop-filter: none !important;
                 opacity: 1 !important;
             }
-            
+
             .xp-notif-hourly {
                 background: linear-gradient(135deg, #4a5bd4, #5a3a8a);
                 box-shadow: 0 8px 24px rgba(102, 126, 234, 0.7), 0 0 0 1px rgba(255,255,255,0.15);
             }
-            
+
             .xp-notif-milestone {
                 background: linear-gradient(135deg, #c94bce, #c03d5a);
                 box-shadow: 0 8px 24px rgba(245, 87, 108, 0.7), 0 0 0 1px rgba(255,255,255,0.15);
             }
-            
+
             .xp-notif-streak {
                 background: linear-gradient(135deg, #c84e1e, #c46910);
                 box-shadow: 0 8px 24px rgba(255, 107, 53, 0.7), 0 0 0 1px rgba(255,255,255,0.15);
             }
-            
+
             .xp-notif-levelup {
                 background: linear-gradient(135deg, #008a6e, #009a9a);
                 box-shadow: 0 8px 24px rgba(0, 184, 148, 0.7), 0 0 0 1px rgba(255,255,255,0.15);
                 font-size: 1.1rem;
             }
-            
+
             .xp-notif-achievement {
                 background: linear-gradient(135deg, #d4971a, #b84e1e);
                 box-shadow: 0 8px 24px rgba(253, 203, 110, 0.7), 0 0 0 1px rgba(255,255,255,0.15);
                 font-size: 1.05rem;
             }
-            
+
             .xp-notif-game {
                 background: linear-gradient(135deg, #1a7fc4, #6b2ab8);
                 box-shadow: 0 8px 24px rgba(79, 172, 254, 0.7), 0 0 0 1px rgba(255,255,255,0.15);
                 font-size: 1rem;
             }
-            
+
             @keyframes slideInRight {
                 from { transform: translateX(400px); opacity: 0; }
                 to { transform: translateX(0); opacity: 1; }
             }
-            
+
             /* ==================== IMAGE BOX STYLES ==================== */
             .image-box-container {
                 background: rgba(255, 255, 255, 0.08);
@@ -15932,14 +17469,14 @@
                 position: relative;
                 overflow: hidden;
             }
-            
+
             .image-box-header {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 margin-bottom: 12px;
             }
-            
+
             .image-change-btn {
                 padding: 6px 12px;
                 background: rgba(255, 255, 255, 0.1);
@@ -15950,17 +17487,17 @@
                 cursor: pointer;
                 transition: all 0.3s ease;
             }
-            
+
             .image-change-btn:hover {
                 background: rgba(255, 255, 255, 0.2);
             }
-            
+
             .aspect-ratio-controls {
                 display: flex;
                 gap: 4px;
                 justify-content: center;
             }
-            
+
             .aspect-ratio-btn {
                 padding: 4px;
                 background: rgba(255, 255, 255, 0.1);
@@ -15976,18 +17513,18 @@
                 align-items: center;
                 justify-content: center;
             }
-            
+
             .aspect-ratio-btn:hover {
                 background: rgba(255, 255, 255, 0.2);
                 transform: translateY(-2px);
             }
-            
+
             .aspect-ratio-btn.active {
                 background: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
                 border-color: var(--aurora-1);
                 box-shadow: 0 4px 12px rgba(255, 105, 180, 0.3);
             }
-            
+
             .image-display {
                 width: 100%;
                 position: relative;
@@ -15996,7 +17533,7 @@
                 overflow: hidden;
                 background: rgba(0, 0, 0, 0.2);
             }
-            
+
             .image-display .image-box-img {
                 position: absolute;
                 top: 0;
@@ -16006,11 +17543,11 @@
                 object-fit: cover; /* Fill container without empty spaces */
                 transition: transform 0.3s ease;
             }
-            
+
             .image-display .image-box-img:hover {
                 transform: scale(1.02);
             }
-            
+
             .image-placeholder {
                 position: absolute;
                 top: 50%;
@@ -16021,7 +17558,7 @@
                 text-align: center;
                 width: 80%;
             }
-            
+
             /* ==================== FLAPPY BIRD STYLES ==================== */
             #flappy-canvas {
                 cursor: pointer;
@@ -16036,7 +17573,7 @@
                 display: block;
                 image-rendering: pixelated;
             }
-            
+
             #breakout-canvas {
                 border-radius: 12px;
                 box-shadow: 0 0 24px rgba(0, 210, 255, 0.25), 0 0 8px rgba(124, 92, 252, 0.2);
@@ -16114,6 +17651,35 @@
             .pool-color-swatch.active {
                 border-color: #fff;
                 box-shadow: 0 0 8px rgba(255,255,255,0.4);
+                transform: scale(1.1);
+            }
+
+            /* Cyberpunk HUD palette presets — a two-stop gradient swatch per
+               entry in CYBER_PALETTES, so picking one is a single click that
+               sets all eight tokens at once. The eight pickers below stay for
+               fine-tuning after a preset, not instead of it. */
+            .cyber-palette-swatches {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+                flex-wrap: wrap;
+            }
+            .cyber-palette-btn {
+                width: 30px;
+                height: 30px;
+                border-radius: 50%;
+                border: 2px solid rgba(255, 255, 255, 0.2);
+                cursor: pointer;
+                padding: 0;
+                transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+            }
+            .cyber-palette-btn:hover {
+                transform: scale(1.15);
+                border-color: rgba(255, 255, 255, 0.5);
+            }
+            .cyber-palette-btn.active {
+                border-color: #fff;
+                box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
                 transform: scale(1.1);
             }
 
@@ -16209,36 +17775,36 @@
                     flex-wrap: wrap;
                     justify-content: center;
                 }
-                
+
                 .left-panel,
                 .right-panel {
                     width: 350px;
                 }
             }
-            
+
             @media (max-width: 1200px) {
                 .attendance-summary {
                     flex-direction: column;
                     max-width: 800px;
                     align-items: stretch;
                 }
-                
+
                 .left-panel,
                 .right-panel {
                     width: 100%;
                 }
-                
+
                 .main-attendance-content {
                     order: -1; /* Show main content first on mobile */
                 }
             }
-            
+
             @media (max-width: 768px) {
                 .attendance-summary {
                     padding: 20px;
                     margin: 16px auto;
                 }
-                
+
                 .left-panel,
                 .right-panel {
                     gap: 16px;
@@ -16930,6 +18496,12 @@
 
     // Calculate emoji based on work progress
     function getEmojiForProgress(workedSeconds, totalSeconds = getShiftSeconds()) {
+        // 'none' means no mood glyph at all — checked first and unconditionally,
+        // so it also silences the overtime clown/running glyphs below. A user
+        // who asked for no emoji should not still get one once their shift
+        // runs long.
+        if (userPreferences.emojiSet === 'none') return '';
+
         const progress = Math.min(workedSeconds / totalSeconds, 1);
 
         // If exceeded shift + 30 minutes, show clown emoji (go home!)
@@ -16955,7 +18527,7 @@
         if (existingInfo) {
             existingInfo.remove();
         }
-        
+
         const developerDiv = document.createElement('div');
         developerDiv.className = 'developer-info';
         developerDiv.innerHTML = `
@@ -17005,47 +18577,53 @@
                 </div>
             </div>
         `;
-        
+
         container.appendChild(developerDiv);
     }
-    
+
     // Add settings button
     function addSettingsButton(container) {
         const existingButton = container.querySelector('.settings-button');
         if (existingButton) {
             existingButton.remove();
         }
-        
+
         const settingsButton = document.createElement('div');
         settingsButton.className = 'settings-button';
-        settingsButton.innerHTML = '⚙️';
+        settingsButton.innerHTML = '<span class="rt-emo">⚙️</span>';
         settingsButton.title = 'Settings';
         settingsButton.addEventListener('click', toggleSettingsModal);
-        
+
         container.appendChild(settingsButton);
     }
-    
+
     // Toggle settings modal
     function toggleSettingsModal() {
         let modal = document.getElementById('attendance-settings-modal');
         let overlay = document.getElementById('settings-modal-overlay');
-        
+
         if (!modal) {
             createSettingsModal();
             modal = document.getElementById('attendance-settings-modal');
             overlay = document.getElementById('settings-modal-overlay');
         }
-        
+        // The modal element is built once and reused on every reopen — its
+        // content can be years stale relative to the current theme (built
+        // while Glassmorphic, never rebuilt since). A fresh sweep on every
+        // open catches that; cyberSweepEmoji() is idempotent, so this is
+        // cheap even when nothing changed.
+        cyberSweepEmoji(modal);
+
         const wasOpen = modal.classList.contains('active');
         modal.classList.toggle('active');
         overlay.classList.toggle('active');
-        
+
         // Sync once on close (not on every individual setting change)
         if (wasOpen && lbRegistered) {
             try { syncMyScore(); } catch (_) {}
         }
     }
-    
+
     // Create settings modal
     function createSettingsModal() {
         // Create overlay
@@ -17054,26 +18632,26 @@
         overlay.className = 'settings-modal-overlay';
         overlay.addEventListener('click', toggleSettingsModal);
         document.body.appendChild(overlay);
-        
+
         // Create modal
         const modal = document.createElement('div');
         modal.id = 'attendance-settings-modal';
         modal.className = 'settings-modal';
-        
+
         const isGlassmorphic = userPreferences.displayTheme === 'glassmorphic';
-        
+
         modal.innerHTML = `
             <div class="settings-title">⚙️ Customize Your Experience</div>
             <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
-                <span class="settings-option-label">🎨 Neumorphic Depth <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
+                <span class="settings-option-label"><span class="rt-emo">🎨</span> Neumorphic Depth <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
                 <div class="toggle-switch ${userPreferences.neumorphicDepth ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="neumorphicDepth"></div>
             </div>
             <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
-                <span class="settings-option-label">🌊 Fluid Gradients <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
+                <span class="settings-option-label"><span class="rt-emo">🌊</span> Fluid Gradients <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
                 <div class="toggle-switch ${userPreferences.fluidGradients ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="fluidGradients"></div>
             </div>
             <div class="settings-option">
-                <span class="settings-option-label">� Shift Duration</span>
+                <span class="settings-option-label"><span class="rt-emo">⏱️</span> Shift Duration</span>
                 <select class="settings-select" data-pref="shiftDuration">
                     <option value="4h" ${userPreferences.shiftDuration === '4h' ? 'selected' : ''}>4h — Short Leave</option>
                     <option value="8h" ${userPreferences.shiftDuration === '8h' ? 'selected' : ''}>8h — Standard</option>
@@ -17081,21 +18659,30 @@
                 </select>
             </div>
             <div class="settings-option">
-                <span class="settings-option-label">�😎 Emoji Style</span>
+                <span class="settings-option-label"><span class="rt-emo">😎</span> Emoji Style</span>
                 <select class="settings-select" data-pref="emojiSet">
                     <option value="fun" ${userPreferences.emojiSet === 'fun' ? 'selected' : ''}>Fun (GenZ)</option>
-                    <option value="professional" ${userPreferences.emojiSet === 'professional' ? 'selected' : ''}>Professional (Dots)</option>
+                    <option value="none" ${userPreferences.emojiSet === 'none' ? 'selected' : ''}>None (No Emoji)</option>
                 </select>
             </div>
             <div class="settings-option">
-                <span class="settings-option-label">🎨 Display Theme</span>
+                <span class="settings-option-label"><span class="rt-emo">🎨</span> Display Theme</span>
                 <select class="settings-select" data-pref="displayTheme" id="theme-selector">
                     <option value="glassmorphic" ${userPreferences.displayTheme === 'glassmorphic' ? 'selected' : ''}>Glassmorphic Aurora</option>
                     <option value="retro-futuristic" ${userPreferences.displayTheme === 'retro-futuristic' ? 'selected' : ''}>Cyberpunk HUD</option>
                 </select>
             </div>
             <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
-                <span class="settings-option-label">🌈 Cyberpunk Colors</span>
+                <span class="settings-option-label"><span class="rt-emo">🎨</span> Palette</span>
+                <div class="cyber-palette-swatches" id="cyber-palette-swatches">
+                    ${Object.keys(CYBER_PALETTES).map(key => {
+                        const p = CYBER_PALETTES[key];
+                        return `<button type="button" class="cyber-palette-btn" data-palette="${key}" title="${escapeHtml(p.label)}" style="background: linear-gradient(135deg, ${p.cyberAccent}, ${p.cyberHighlight});"></button>`;
+                    }).join('')}
+                </div>
+            </div>
+            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                <span class="settings-option-label"><span class="rt-emo">🌈</span> Cyberpunk Colors</span>
                 <div class="cyber-color-pickers">
                     <label title="Background primary">
                         <input type="color" data-pref="cyberBgPrimary" value="${userPreferences.cyberBgPrimary || '#07091a'}">
@@ -17117,10 +18704,50 @@
                         <input type="color" data-pref="cyberPanelTint" value="${userPreferences.cyberPanelTint || '#00e5ff'}">
                         <span>Panel</span>
                     </label>
+                    <label title="Text — every piece of type. Independent of Accent and both backgrounds, on purpose.">
+                        <input type="color" data-pref="cyberText" value="${userPreferences.cyberText || '#fff200'}">
+                        <span>Text</span>
+                    </label>
+                    <label title="Glow — every bloom and drop-shadow">
+                        <input type="color" data-pref="cyberGlow" value="${userPreferences.cyberGlow || '#fff200'}">
+                        <span>Glow</span>
+                    </label>
+                    <label title="Border — frames, corner brackets, grid and scanlines">
+                        <input type="color" data-pref="cyberBorder" value="${userPreferences.cyberBorder || '#fff200'}">
+                        <span>Border</span>
+                    </label>
                 </div>
             </div>
             <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
-                <span class="settings-option-label">🖼️ Background Image</span>
+                <span class="settings-option-label"><span class="rt-emo">💡</span> Glow Intensity</span>
+                <div class="cyber-bg-controls">
+                    <span class="cyber-contrast-chip is-pass" id="cyber-contrast-chip">Text vs BG</span>
+                    <label class="cyber-bg-opacity-label">
+                        <input type="range" min="0" max="${CYBER_GLOW_MAX_PCT}" step="5" value="${cyberGlowToPct(userPreferences.cyberGlowIntensity)}" id="cyber-glow-slider">
+                        <span id="cyber-glow-value">${cyberGlowToPct(userPreferences.cyberGlowIntensity)}%</span>
+                    </label>
+                </div>
+            </div>
+            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                <span class="settings-option-label"><span class="rt-emo">📐</span> Panel Shape</span>
+                <select class="settings-select" data-pref="cyberPanelShape">
+                    <option value="notched" ${(userPreferences.cyberPanelShape || 'notched') === 'notched' ? 'selected' : ''}>Notched — step cut</option>
+                    <option value="chamfered" ${userPreferences.cyberPanelShape === 'chamfered' ? 'selected' : ''}>Chamfered — cut corners</option>
+                    <option value="stepped" ${userPreferences.cyberPanelShape === 'stepped' ? 'selected' : ''}>Stepped — terraced</option>
+                    <option value="rounded" ${userPreferences.cyberPanelShape === 'rounded' ? 'selected' : ''}>Rounded — soft</option>
+                </select>
+            </div>
+            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                <span class="settings-option-label"><span class="rt-emo">🎵</span> Audio Visualizer <small style="opacity:0.6;font-size:0.75rem;">System audio needs a click on the rail</small></span>
+                <select class="settings-select" data-pref="cyberAudioSource">
+                    <option value="off" ${(userPreferences.cyberAudioSource || 'off') === 'off' ? 'selected' : ''}>Off</option>
+                    <option value="system" ${userPreferences.cyberAudioSource === 'system' ? 'selected' : ''}>System audio</option>
+                    <option value="mic" ${userPreferences.cyberAudioSource === 'mic' ? 'selected' : ''}>Microphone</option>
+                    <option value="sim" ${userPreferences.cyberAudioSource === 'sim' ? 'selected' : ''}>Procedural</option>
+                </select>
+            </div>
+            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                <span class="settings-option-label"><span class="rt-emo">🖼️</span> Background Image</span>
                 <div class="cyber-bg-controls">
                     <button class="cyber-bg-btn" id="cyber-bg-change-btn" title="Set background image URL">Change BG</button>
                     <button class="cyber-bg-btn cyber-bg-clear" id="cyber-bg-clear-btn" title="Remove background image" ${userPreferences.cyberBgImage ? '' : 'style="display:none;"'}>✕</button>
@@ -17135,14 +18762,14 @@
                 <div class="toggle-switch ${userPreferences.gameModeHidden ? 'active' : ''}" data-pref="gameModeHidden"></div>
             </div>
             <div class="settings-option">
-                <span class="settings-option-label">🖥️ VSync</span>
+                <span class="settings-option-label"><span class="rt-emo">🖥️</span> VSync</span>
                 <select class="settings-select" data-pref="gameFps" id="fps-selector">
                     <option value="60" ${userPreferences.gameFps === 60 || userPreferences.gameFps === '60' ? 'selected' : ''}>Full (60 FPS)</option>
                     <option value="30" ${userPreferences.gameFps === 30 || userPreferences.gameFps === '30' ? 'selected' : ''}>Half (30 FPS)</option>
                 </select>
             </div>
             <div class="settings-option">
-                <span class="settings-option-label">🎱 Pool Table Color</span>
+                <span class="settings-option-label"><span class="rt-emo">🎱</span> Pool Table Color</span>
                 <div class="pool-color-swatches" id="pool-color-swatches">
                     <div class="pool-color-swatch ${userPreferences.poolTableColor === 'green' ? 'active' : ''}" data-pool-color="green" style="background: linear-gradient(135deg, #2d8a4e, #1a5c32);" title="Green"></div>
                     <div class="pool-color-swatch ${userPreferences.poolTableColor === 'red' ? 'active' : ''}" data-pool-color="red" style="background: linear-gradient(135deg, #8b3a3a, #5c1a1a);" title="Red"></div>
@@ -17151,7 +18778,7 @@
                 </div>
             </div>
             <div class="settings-option">
-                <span class="settings-option-label">🎲 Ludo Board</span>
+                <span class="settings-option-label"><span class="rt-emo">🎲</span> Ludo Board</span>
                 <select class="settings-select" data-pref="ludoRotation">
                     <option value="0" ${Number(userPreferences.ludoRotation) === 0 ? 'selected' : ''}>Blue top-left (default)</option>
                     <option value="1" ${Number(userPreferences.ludoRotation) === 1 ? 'selected' : ''}>Blue bottom-left</option>
@@ -17160,7 +18787,7 @@
                 </select>
             </div>
             <div class="settings-option">
-                <span class="settings-option-label">🎲 Ludo CPU</span>
+                <span class="settings-option-label"><span class="rt-emo">🎲</span> Ludo CPU</span>
                 <select class="settings-select" data-pref="ludoDifficulty">
                     <option value="adaptive" ${userPreferences.ludoDifficulty === 'adaptive' || !userPreferences.ludoDifficulty ? 'selected' : ''}>Adaptive — follows your win rate</option>
                     <option value="easy" ${userPreferences.ludoDifficulty === 'easy' ? 'selected' : ''}>Easy — often plays a random move</option>
@@ -17169,7 +18796,7 @@
                 </select>
             </div>
             <div class="settings-option" style="align-items: flex-start; flex-direction: column; gap: 10px;">
-                <span class="settings-option-label">🎲 Ludo Rules</span>
+                <span class="settings-option-label"><span class="rt-emo">🎲</span> Ludo Rules</span>
                 <div class="ludo-rule-toggles">
                     <div class="ludo-rule-row">
                         <span>Blocks bar opponents <small style="opacity:0.6;">(never on ★ squares)</small></span>
@@ -17198,9 +18825,9 @@
             </div>
             <button class="close-modal-button">✨ Save & Close</button>
         `;
-        
+
         document.body.appendChild(modal);
-        
+
         // Add toggle listeners
         modal.querySelectorAll('.toggle-switch').forEach(toggle => {
             toggle.addEventListener('click', function() {
@@ -17208,7 +18835,7 @@
                 if (this.classList.contains('disabled')) {
                     return;
                 }
-                
+
                 const pref = this.getAttribute('data-pref');
                 this.classList.toggle('active');
                 userPreferences[pref] = this.classList.contains('active');
@@ -17227,19 +18854,19 @@
                     ? parseInt(this.value, 10) : this.value;
                 savePreferences();
                 applyPreferences();
-                
+
                 // If theme changed, update dependent options visibility
                 if (pref === 'displayTheme') {
                     updateThemeDependentOptions(modal, this.value);
                 }
             });
         });
-        
+
         // Function to update theme-dependent options
         function updateThemeDependentOptions(modal, theme) {
             const isGlassmorphic = theme === 'glassmorphic';
             const dependentOptions = modal.querySelectorAll('[data-theme-dependent="glassmorphic"]');
-            
+
             dependentOptions.forEach(option => {
                 const toggle = option.querySelector('.toggle-switch');
                 if (isGlassmorphic) {
@@ -17257,20 +18884,69 @@
             });
         }
 
+        // Palette preset listeners. One click sets all eight cyber* swatches
+        // from CYBER_PALETTES — the same object the dev harness's quick-select
+        // row reads from, so the two cannot drift the way the glow converter
+        // once did. The eight individual pickers below stay live afterward:
+        // picking a preset is a starting point, not a lock.
+        modal.querySelectorAll('.cyber-palette-btn').forEach(btn => {
+            btn.addEventListener('click', function () {
+                const preset = CYBER_PALETTES[this.dataset.palette];
+                if (!preset) return;
+                ['cyberBgPrimary', 'cyberBgSecondary', 'cyberAccent', 'cyberHighlight',
+                 'cyberPanelTint', 'cyberText', 'cyberGlow', 'cyberBorder'].forEach(pref => {
+                    userPreferences[pref] = preset[pref];
+                    const input = modal.querySelector(`input[type="color"][data-pref="${pref}"]`);
+                    // Assigning userPreferences alone does not move the input's
+                    // own displayed swatch — it has to be told directly.
+                    if (input) input.value = preset[pref];
+                });
+                savePreferences();
+                applyPreferences();
+                updateCyberContrastChip(modal);
+                modal.querySelectorAll('.cyber-palette-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
         // Color picker listeners (Cyberpunk HUD customizable colors)
         modal.querySelectorAll('input[type="color"][data-pref]').forEach(picker => {
             picker.addEventListener('input', function() {
                 const pref = this.getAttribute('data-pref');
                 userPreferences[pref] = this.value;
                 applyPreferences(); // live preview while sliding
+                updateCyberContrastChip(modal);
             });
             picker.addEventListener('change', function() {
                 const pref = this.getAttribute('data-pref');
                 userPreferences[pref] = this.value;
                 savePreferences();
                 applyPreferences();
+                updateCyberContrastChip(modal);
             });
         });
+
+        // Glow intensity. Its own listener rather than the generic one because
+        // the slider is 0–100 and the stored value is 0–1.
+        //
+        // Routed through cyberGlowFromPct/ToPct so this panel and the dev
+        // harness cannot drift apart on the conversion — they were briefly in
+        // different units, and the harness was the one calibrated wrong.
+        const glowSlider = modal.querySelector('#cyber-glow-slider');
+        if (glowSlider) {
+            const onGlow = function (save) {
+                userPreferences.cyberGlowIntensity = cyberGlowFromPct(glowSlider.value);
+                const out = modal.querySelector('#cyber-glow-value');
+                if (out) out.textContent = cyberGlowToPct(userPreferences.cyberGlowIntensity) + '%';
+                if (save) savePreferences();
+                applyPreferences();
+            };
+            glowSlider.addEventListener('input', function () { onGlow(false); });
+            glowSlider.addEventListener('change', function () { onGlow(true); });
+        }
+
+        // Seed the contrast readout for whatever the stored palette already is.
+        updateCyberContrastChip(modal);
 
         // Background image controls
         const bgChangeBtn = modal.querySelector('#cyber-bg-change-btn');
@@ -17311,7 +18987,7 @@
                 savePreferences();
             });
         }
-        
+
         // Add close button listener
         modal.querySelector('.close-modal-button').addEventListener('click', toggleSettingsModal);
 
@@ -17326,50 +19002,1222 @@
             });
         });
     }
-    
+
+    // ═══ CYBERPUNK HUD — generated from cyber-dev/cyber-hud.js, do not edit here ═══
+    // ============================================================
+    // CYBERPUNK HUD — tokens, panel shape, contrast guard, boot-in
+    //
+    // Generated from cyber-dev/cyber-hud.js. Do not edit the copy in the
+    // userscript; edit here and run node cyber-dev/reinsert.js.
+    //
+    // This is an indented block of the userscript's IIFE body and has no
+    // exports of its own — cyber-dev/load.js wraps it in a Function to make
+    // the same source both drop-in-able and testable, the trick ludo-dev/
+    // and snake-dev/ use.
+    //
+    // Function declarations hoist within the IIFE, so applyPreferences() can
+    // call into here regardless of where this block lands in the file.
+    // ============================================================
+
+    // The four panel geometries, most-cyberpunk first. Anything not in this
+    // list falls back to 'notched' rather than leaving the container with no
+    // shape class at all, which would drop --rt-radius and --rt-clip.
+    //
+    // 'notched' is the default because it is the asymmetric one: a right-angle
+    // step cut out of a single corner. Symmetry is most of what makes a HUD
+    // read as clean sci-fi instead of cyberpunk, so the soft option is kept
+    // but is no longer what ships.
+    const CYBER_PANEL_SHAPES = ['notched', 'chamfered', 'stepped', 'rounded'];
+
+    // ------------------------------------------------------------------
+    // The token map: pref name -> the CSS custom properties it drives.
+    //
+    // ONE list, used for both writing and teardown. The original theme kept
+    // those as two hand-maintained lists, and the write list had grown six
+    // entries past the teardown list — which is how --rt-text and friends
+    // ended up permanently yellow no matter what the Accent picker said.
+    // Deriving both directions from this array makes them impossible to
+    // desynchronise.
+    //
+    // 'rgb' emits a second property holding "r, g, b" for use inside
+    // rgba(var(--x-rgb), a).
+    //
+    // 'rgbName' STATES that property's name instead of deriving it, and the
+    // two swatches that need it are why this field exists. The name used to
+    // be built as varName + '-rgb', which is right for six of the eight
+    // swatches and wrong for the two whose varName already ends in '-color':
+    // it wrote --rt-glow-color-rgb and --rt-border-color-rgb, while the
+    // stylesheet consumes --rt-glow-rgb (21 sites) and --rt-border-rgb (17).
+    // Nothing read what was written, so Glow and Border kept their yellow
+    // defaults for every frame, grid line and bloom in the theme no matter
+    // what the pickers said — the exact defect this rework exists to remove,
+    // one layer below where it was fixed.
+    //
+    // It survived 1523 assertions because teardown derived the name the same
+    // wrong way, so the write list and the teardown list agreed with each
+    // other perfectly. Neither agreed with the CSS. Section H2 of
+    // cyber-verify.js now checks that boundary.
+    // ------------------------------------------------------------------
+    const CYBER_TOKENS = [
+        // -- STRUCTURE --
+        { pref: 'cyberBgPrimary',   varName: '--rt-bg-1',        fallback: '#07091a' },
+        { pref: 'cyberBgSecondary', varName: '--rt-bg-2',        fallback: '#11142b' },
+        // -- ACCENTS --
+        { pref: 'cyberAccent',      varName: '--rt-accent',      fallback: '#fff200', rgb: true },
+        { pref: 'cyberHighlight',   varName: '--rt-cyber-hl',    fallback: '#00e5ff', rgb: true },
+        // No 'rgb' — nothing consumes var(--rt-cyber-panel-rgb). See the note
+        // beside the Panel default in cyber-theme.css.
+        { pref: 'cyberPanelTint',   varName: '--rt-cyber-panel', fallback: '#00e5ff' },
+        // -- LEGIBILITY: independent of everything above, by design. Linking
+        //    any of these to an accent or a background is what put dark text
+        //    on a dark panel with no control that could undo it.
+        { pref: 'cyberText',        varName: '--rt-text',         fallback: '#fff200', rgb: true },
+        { pref: 'cyberGlow',        varName: '--rt-glow-color',   fallback: '#fff200', rgb: true,
+          rgbName: '--rt-glow-rgb' },
+        { pref: 'cyberBorder',      varName: '--rt-border-color', fallback: '#fff200', rgb: true,
+          rgbName: '--rt-border-rgb' }
+    ];
+
+    // The companion property's name. Single source for both the write path
+    // and the teardown path — if these two ever disagree, teardown leaves a
+    // token behind and it bleeds into Glassmorphic.
+    function cyberRgbVarName(t) {
+        return t.rgbName || t.varName + '-rgb';
+    }
+
+    // Every property name this subsystem may have written, for teardown.
+    // Derived, never typed out by hand.
+    function cyberTokenVarNames() {
+        const names = [];
+        CYBER_TOKENS.forEach(function (t) {
+            names.push(t.varName);
+            if (t.rgb) names.push(cyberRgbVarName(t));
+        });
+        names.push('--rt-glow-mul');
+        names.push('--rt-glow-k');
+        names.push('--rt-beat');
+        return names;
+    }
+
+    // Writes the whole token set onto one element. Used for the widget, for
+    // documentElement (so body-level modal rules resolve) and for the PiP
+    // clone, which is why it takes the element rather than assuming one.
+    function applyCyberTokens(el) {
+        if (!el || !el.style) return;
+        CYBER_TOKENS.forEach(function (t) {
+            const hex = userPreferences[t.pref] || t.fallback;
+            el.style.setProperty(t.varName, hex);
+            if (t.rgb) el.style.setProperty(cyberRgbVarName(t), hexToRgbStr(hex));
+        });
+        // GLOW.
+        //
+        // Two properties for one value. --rt-glow-mul is the raw preference,
+        // kept because it is what gets stored and torn down; --rt-glow-k is
+        // the same number guarded and clamped, and is what the stylesheet
+        // actually multiplies by.
+        //
+        // Written here rather than derived in CSS because the settings modal
+        // is body-level: a property declared inside .retro-theme is invisible
+        // to it, but everything applyCyberTokens() writes is mirrored onto
+        // documentElement and so reachable from there.
+        const mul = userPreferences.cyberGlowIntensity;
+        const safeMul = mul === undefined ? CYBER_GLOW_DEFAULT : Number(mul);
+        el.style.setProperty('--rt-glow-mul', String(safeMul));
+        el.style.setProperty('--rt-glow-k', String(cyberGlowScale(safeMul)));
+    }
+
+    // Removes every property applyCyberTokens could have set. Anything left
+    // behind here bleeds into the Glassmorphic theme, where these tokens have
+    // no meaning but still win over the stylesheet.
+    function clearCyberTokens(el) {
+        if (!el || !el.style) return;
+        cyberTokenVarNames().forEach(function (p) { el.style.removeProperty(p); });
+    }
+
+    // ------------------------------------------------------------------
+    // Glow scale — a plain 0–100% that means what it says.
+    //
+    // The slider IS the scale: 0 is off, 1 is everything the theme has. No
+    // conversion, no normalisation, no "percent of some other number".
+    //
+    // It took two wrong turns to get here and both are worth remembering,
+    // because both looked like the fix at the time.
+    //
+    //   1. The multiplier scaled ALPHA against fixed blur radii. Opacity
+    //      saturates long before a slider does, so the top half did nothing.
+    //   2. Radius scaled too, but off a 7px base, and the range was widened
+    //      to 300% to compensate. That was treating the symptom: at 7px there
+    //      is barely a halo to scale, so most of a longer slider still did
+    //      nothing — and a slider whose useful range is its last third is a
+    //      worse control than a short one.
+    //
+    // The base radii were the problem. They are 3–5x larger now and layered,
+    // so the full 0–100% does visible work and the ceiling is genuinely the
+    // ceiling. See --rt-glow in cyber-theme.css.
+    // ------------------------------------------------------------------
+    const CYBER_GLOW_DEFAULT = 0.6;
+    const CYBER_GLOW_MAX_PCT = 100;
+
+    // Guarded rather than trusted: a NaN here would invalidate every glow
+    // declaration in the theme at once, which reads as "the glow broke"
+    // rather than "a preference is malformed".
+    function cyberGlowScale(mul) {
+        const m = Number(mul);
+        if (!isFinite(m) || m < 0) return CYBER_GLOW_DEFAULT;
+        return Math.min(1, m);
+    }
+
+    function cyberGlowToPct(mul) {
+        return Math.round(cyberGlowScale(mul === undefined ? CYBER_GLOW_DEFAULT : mul) * 100);
+    }
+
+    function cyberGlowFromPct(pct) {
+        const p = parseInt(pct, 10);
+        if (isNaN(p)) return CYBER_GLOW_DEFAULT;
+        return Math.max(0, Math.min(CYBER_GLOW_MAX_PCT, p)) / 100;
+    }
+
+    // ------------------------------------------------------------------
+    // Panel shape
+    // ------------------------------------------------------------------
+    function cyberPanelShape() {
+        const s = userPreferences.cyberPanelShape;
+        // Must match the shape the bare .retro-theme token block declares, or
+        // an unknown value would render with tokens from one shape and a class
+        // from none.
+        return CYBER_PANEL_SHAPES.indexOf(s) === -1 ? 'notched' : s;
+    }
+
+    function applyCyberShape(el) {
+        if (!el || !el.classList) return;
+        CYBER_PANEL_SHAPES.forEach(function (s) { el.classList.remove('rt-shape-' + s); });
+        el.classList.add('rt-shape-' + cyberPanelShape());
+    }
+
+    function clearCyberShape(el) {
+        if (!el || !el.classList) return;
+        CYBER_PANEL_SHAPES.forEach(function (s) { el.classList.remove('rt-shape-' + s); });
+    }
+
+    // ------------------------------------------------------------------
+    // Contrast guard
+    //
+    // Warns, never corrects. Silently overriding a colour the user chose on
+    // purpose is worse than showing them it fails — they may be mid-way
+    // through picking a palette, and an auto-correction would fight them.
+    // ------------------------------------------------------------------
+
+    // WCAG relative luminance. Reuses hexToRgbStr for the channel parse so
+    // there is exactly one hex reader in the file.
+    function relativeLuminance(hex) {
+        const parts = hexToRgbStr(hex).split(',').map(function (n) {
+            const c = parseInt(n, 10) / 255;
+            return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * parts[0] + 0.7152 * parts[1] + 0.0722 * parts[2];
+    }
+
+    function contrastRatio(hexA, hexB) {
+        const a = relativeLuminance(hexA);
+        const b = relativeLuminance(hexB);
+        const hi = Math.max(a, b);
+        const lo = Math.min(a, b);
+        return (hi + 0.05) / (lo + 0.05);
+    }
+
+    // EVERY SWATCH THAT CARRIES TYPE IS MEASURED.
+    //
+    // This used to check the Text swatch alone, because Text was the only
+    // colour any glyph in the theme resolved to. The rework changed that:
+    // the reference console reads its punch log by MEANING, so arrival
+    // times took Accent and banked time took Highlight, and suddenly two
+    // more swatches could hide a number.
+    //
+    // That is the precise defect this whole theme exists to make
+    // impossible, so the fix is not to trust the palette — it is to widen
+    // the guard. Any swatch allowed to colour text has to appear in
+    // CYBER_TEXT_SWATCHES, and cyber-verify.js asserts the CSS never
+    // colours type with a swatch that is missing from this list. Adding a
+    // coloured readout without adding its swatch here fails the suite.
+    //
+    // Each is checked against the DARKER background stop, which is the
+    // worst case anywhere along the gradient.
+    const CYBER_TEXT_SWATCHES = [
+        { pref: 'cyberText',      label: 'Text',      fallback: '#fff200' },
+        { pref: 'cyberAccent',    label: 'Accent',    fallback: '#fff200' },
+        { pref: 'cyberHighlight', label: 'Highlight', fallback: '#00e5ff' }
+    ];
+
+    function cyberSwatchContrast(pref, fallback) {
+        const hex = userPreferences[pref] || fallback;
+        const bg1 = userPreferences.cyberBgPrimary || '#07091a';
+        const bg2 = userPreferences.cyberBgSecondary || '#11142b';
+        return Math.min(contrastRatio(hex, bg1), contrastRatio(hex, bg2));
+    }
+
+    // Kept as the Text-only reading. The chip reports the worst swatch, but
+    // Text is the one a caller may want on its own.
+    function cyberTextContrast() {
+        return cyberSwatchContrast('cyberText', '#fff200');
+    }
+
+    // The worst offender, by name. Reporting "Highlight 2.4:1" instead of a
+    // bare number is the difference between a warning the user can act on
+    // and one they have to go hunting for.
+    function cyberWorstContrast() {
+        let worst = null;
+        CYBER_TEXT_SWATCHES.forEach(function (s) {
+            const ratio = cyberSwatchContrast(s.pref, s.fallback);
+            if (!worst || ratio < worst.ratio) worst = { ratio: ratio, label: s.label };
+        });
+        return worst;
+    }
+
+    // Repaints the chip in the Cyberpunk Colors row. No-op when the settings
+    // modal is closed.
+    function updateCyberContrastChip(root) {
+        const scope = root || document;
+        const chip = scope.querySelector('.cyber-contrast-chip');
+        if (!chip) return;
+        const worst = cyberWorstContrast();
+        const ratio = worst.ratio;
+        const shown = (Math.round(ratio * 10) / 10).toFixed(1);
+        let cls = 'is-pass';
+        let note = 'AA';
+        if (ratio < 3) { cls = 'is-fail'; note = 'too low'; }
+        else if (ratio < 4.5) { cls = 'is-warn'; note = 'large text only'; }
+        chip.className = 'cyber-contrast-chip ' + cls;
+        chip.textContent = worst.label + ' vs BG ' + shown + ':1 · ' + note;
+        chip.title = 'WCAG contrast against the darker background stop, for the ' +
+                     'worst of the swatches that colour text (Text, Accent, ' +
+                     'Highlight). This is a warning only — nothing is changed for you.';
+    }
+
+    // ------------------------------------------------------------------
+    // Title glitch ghosts
+    //
+    // The two RGB-split ghosts are pseudo-elements using content:
+    // attr(data-rt-text), so the text has to be mirrored onto the attribute.
+    // Without it the ghosts render empty and the title simply looks normal,
+    // which is the correct degradation.
+    // ------------------------------------------------------------------
+    function updateCyberTitleGhosts(container) {
+        const root = container || document.getElementById('total-time-summary');
+        if (!root) return;
+        const title = root.querySelector('.summary-title');
+        if (!title) return;
+        // textContent, not innerHTML: the ghosts are decorative and must never
+        // be able to reproduce markup.
+        const text = (title.textContent || '').trim();
+        if (text) title.setAttribute('data-rt-text', text);
+        else title.removeAttribute('data-rt-text');
+    }
+
+    // ------------------------------------------------------------------
+    // Boot-in scan reveal
+    //
+    // The class has to come off again or the animation can never replay —
+    // re-adding a class that is already present does not restart a CSS
+    // animation.
+    // ------------------------------------------------------------------
+    let cyberBootTimer = null;
+
+    function triggerCyberBoot(container) {
+        const root = container || document.getElementById('total-time-summary');
+        if (!root || !root.classList.contains('retro-theme')) return;
+        root.classList.remove('rt-booting');
+        // Force a reflow so removing and re-adding in the same frame still
+        // restarts the animation.
+        void root.offsetWidth;
+        root.classList.add('rt-booting');
+        if (cyberBootTimer) clearTimeout(cyberBootTimer);
+        // Longest stagger (140ms) + duration (520ms), plus a small margin.
+        cyberBootTimer = setTimeout(function () {
+            root.classList.remove('rt-booting');
+            cyberBootTimer = null;
+        }, 760);
+    }
+
+    // ------------------------------------------------------------------
+    // The whole Cyberpunk presentation pass, in one call.
+    // applyPreferences() delegates here so there is a single place that knows
+    // what "apply the cyberpunk theme" means.
+    // ------------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // PALETTES — six built-in swatch sets, defined ONCE so the shipped
+    // settings modal and the dev harness cannot drift the way the glow
+    // converter once did (cyberGlowFromPct/ToPct exists for the same
+    // reason: two places computing the same thing by hand is how they stop
+    // agreeing).
+    //
+    // Each is a complete, independently-authored set of all eight swatches
+    // — never a formula derived from one seed hue. A formula is exactly
+    // what the ORIGINAL bug was: every token but Accent hardcoded to the
+    // same yellow, because nobody had to independently decide what Border
+    // or Glow should be. Six full sets, each checked against the contrast
+    // guard (section H4), is the opposite of that shortcut.
+    // ------------------------------------------------------------------
+    const CYBER_PALETTES = {
+        yellowCyan:  { label: 'Yellow / Cyan', cyberBgPrimary: '#07091a', cyberBgSecondary: '#11142b',
+                       cyberAccent: '#fff200', cyberHighlight: '#00e5ff', cyberPanelTint: '#00e5ff',
+                       cyberText: '#fff200', cyberGlow: '#fff200', cyberBorder: '#fff200' },
+        bladeAmber:  { label: 'Blade Amber', cyberBgPrimary: '#0b0705', cyberBgSecondary: '#1c1209',
+                       cyberAccent: '#ffa227', cyberHighlight: '#ffd08a', cyberPanelTint: '#c9741f',
+                       cyberText: '#ffcf9b', cyberGlow: '#ff8c1a', cyberBorder: '#e2872b' },
+        magentaNoir: { label: 'Magenta Noir', cyberBgPrimary: '#0a0512', cyberBgSecondary: '#170a26',
+                       cyberAccent: '#ff2a6d', cyberHighlight: '#d16bff', cyberPanelTint: '#8a2be2',
+                       cyberText: '#ffd6e8', cyberGlow: '#ff2a6d', cyberBorder: '#ff5c94' },
+        acidGreen:   { label: 'Acid Green', cyberBgPrimary: '#04100a', cyberBgSecondary: '#082114',
+                       cyberAccent: '#05ffa1', cyberHighlight: '#b4ff3a', cyberPanelTint: '#00c98a',
+                       cyberText: '#c8ffe6', cyberGlow: '#05ffa1', cyberBorder: '#3affb0' },
+        ghostMono:   { label: 'Ghost Mono', cyberBgPrimary: '#0c0c0f', cyberBgSecondary: '#16161c',
+                       cyberAccent: '#9aa4b8', cyberHighlight: '#e6ebf5', cyberPanelTint: '#6b7488',
+                       cyberText: '#eef2fa', cyberGlow: '#c3ccdd', cyberBorder: '#7d879c' },
+        // The 6th slot. Not a "dark" palette pretending to be a mistake —
+        // that role belongs to the dev harness alone, never to something
+        // shipped as a real user choice. Every swatch here is independently
+        // checked against the contrast guard, same as the other five.
+        violetHaze:  { label: 'Violet Haze', cyberBgPrimary: '#0b0616', cyberBgSecondary: '#180d2c',
+                       cyberAccent: '#c88bf5', cyberHighlight: '#e3b8ff', cyberPanelTint: '#7c3aed',
+                       cyberText: '#ecdcff', cyberGlow: '#c77dff', cyberBorder: '#9d4edd' }
+    };
+
+    // ------------------------------------------------------------------
+    // EMOJI TINT
+    //
+    // The widget's emoji are colour glyphs supplied by the system emoji font.
+    // No CSS colour property reaches them - `color` styles text, and these
+    // carry their own palette (COLR layers or a bitmap strike). An SVG filter
+    // does reach them: desaturate to luminance, then map that luminance
+    // through a ramp built from the theme hue. Silhouette and shading
+    // survive; the palette becomes the theme's.
+    //
+    // WHY AN SVG FILTER AND NOT A CSS FILTER CHAIN. The swatches are
+    // arbitrary user hex. The well-known sepia()/saturate()/hue-rotate()
+    // recipe only *approaches* a target hue by iterative solving, never lands
+    // on a given hex, and drifts badly for dark or desaturated picks.
+    // feComponentTransfer takes the channel values directly.
+    //
+    // WHY THREE RAMP STOPS AND NOT TWO. A plain black->hue duotone collapses
+    // every specular highlight into the hue and the glyphs go muddy - a gear
+    // stops reading as a gear. A third bright stop keeps the highlights. Both
+    // were rendered before choosing; two stops is visibly worse.
+    //
+    // WHERE THIS MAY NOT GO. A filter applies to everything its element
+    // paints, background and border included - so it never goes on a button,
+    // only on the glyph itself or on a bare .rt-emo wrapper around it.
+    // Filtering .game-switch-btn would duotone its border and its knocked-out
+    // --rt-text fill along with the emoji. A filter also becomes the
+    // containing block for position:fixed descendants, which is why it stays
+    // off the container and the side panels; see the --rt-outline note.
+    // ------------------------------------------------------------------
+
+    // Must match the url(#...) spelled in cyber-theme.css. Section H3 of
+    // cyber-verify.js asserts the two agree: the last time a name was coupled
+    // across the JS/CSS boundary by hand, it silently stopped matching and
+    // two swatches were dead for three passes.
+    const CYBER_EMOJI_FILTER_ID = 'rt-emoji-tint';
+    const CYBER_EMOJI_DEFS_ID   = 'rt-emoji-defs';
+
+    // How far the top stop is pushed toward white. 0 is a flat duotone, 1
+    // blows highlights to pure white and loses the hue in them. 0.75 keeps a
+    // highlight that still reads as the theme colour.
+    const CYBER_TINT_HILITE = 0.75;
+
+    // One "0 mid hi" table per channel. Luminance 0 stays black so the glyph
+    // keeps its own shading rather than becoming a flat silhouette.
+    function cyberTintTable(hex) {
+        const parts = hexToRgbStr(hex || '').split(',').map(function (n) {
+            return Number(n.trim()) / 255;
+        });
+        if (parts.length !== 3 || parts.some(function (n) { return isNaN(n); })) return null;
+        return parts.map(function (c) {
+            const v  = Math.min(1, Math.max(0, c));
+            const hi = v + (1 - v) * CYBER_TINT_HILITE;
+            return '0 ' + v.toFixed(4) + ' ' + hi.toFixed(4);
+        });
+    }
+
+    // Idempotent: builds the <defs> once per document, then only rewrites the
+    // ramp. Takes a document because a filter reference resolves per-document
+    // and the PiP clone is a separate one. A missing id there degrades to
+    // untinted rather than to a blank element (checked in a real engine), but
+    // untinted is still the wrong answer, so PiP gets its own copy.
+    function ensureCyberEmojiFilter(doc) {
+        if (!doc || !doc.body) return;
+        // Feature-detected rather than assumed, same reason as cyberSweepEmoji:
+        // a hand-rolled test stub with no real SVG DOM should no-op here, not
+        // throw and take the rest of applyCyberpunkTheme() down with it.
+        if (typeof doc.createElementNS !== 'function') return;
+        const table = cyberTintTable(userPreferences.cyberAccent || '#fff200');
+        if (!table) return;
+        const NS = 'http://www.w3.org/2000/svg';
+        let svg = doc.getElementById(CYBER_EMOJI_DEFS_ID);
+        if (!svg) {
+            svg = doc.createElementNS(NS, 'svg');
+            svg.setAttribute('id', CYBER_EMOJI_DEFS_ID);
+            svg.setAttribute('aria-hidden', 'true');
+            svg.setAttribute('focusable', 'false');
+            svg.setAttribute('width', '0');
+            svg.setAttribute('height', '0');
+            svg.style.cssText =
+                'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none';
+            const defs   = doc.createElementNS(NS, 'defs');
+            const filter = doc.createElementNS(NS, 'filter');
+            filter.setAttribute('id', CYBER_EMOJI_FILTER_ID);
+            // Without sRGB the transfer runs in linearRGB and the result is
+            // washed out and hue-shifted away from what the swatch says.
+            filter.setAttribute('color-interpolation-filters', 'sRGB');
+            const sat = doc.createElementNS(NS, 'feColorMatrix');
+            sat.setAttribute('type', 'saturate');
+            sat.setAttribute('values', '0');
+            filter.appendChild(sat);
+            const xfer = doc.createElementNS(NS, 'feComponentTransfer');
+            // Tagged with a data attribute rather than found by tag name:
+            // feFuncR is camelCase, and tag lookups are case-folded in an
+            // HTML document, so getElementsByTagName('feFuncR') finds nothing.
+            ['r', 'g', 'b'].forEach(function (ch) {
+                const f = doc.createElementNS(NS, 'feFunc' + ch.toUpperCase());
+                f.setAttribute('type', 'table');
+                f.setAttribute('data-rt-ch', ch);
+                xfer.appendChild(f);
+            });
+            filter.appendChild(xfer);
+            defs.appendChild(filter);
+            svg.appendChild(defs);
+            doc.body.appendChild(svg);
+        }
+        const funcs = svg.querySelectorAll('[data-rt-ch]');
+        for (let i = 0; i < funcs.length && i < 3; i++) {
+            funcs[i].setAttribute('tableValues', table[i]);
+        }
+    }
+
+    function clearCyberEmojiFilter(doc) {
+        if (!doc) return;
+        const svg = doc.getElementById(CYBER_EMOJI_DEFS_ID);
+        if (svg && svg.parentNode) svg.parentNode.removeChild(svg);
+    }
+
+    // ------------------------------------------------------------------
+    // EMOJI SWEEP — universal coverage
+    //
+    // The wrap-every-known-template-literal approach this shipped with
+    // first covered 32 sites and still missed the achievement badges, the
+    // leaderboard join card and the settings-modal close button — because
+    // those inject their icon from a DATA STRUCTURE at render time
+    // (`badge.innerHTML = achievement.icon`), not a literal sitting in an
+    // HTML template string. A regex over the SOURCE can only ever find the
+    // second kind.
+    //
+    // So this is no longer "wrap every place an emoji was found by hand" —
+    // it is "sweep the RENDERED DOM for anything the platform paints
+    // through its colour emoji font, and keep watching." That is a
+    // property of the page, not of the source text, and it is the only
+    // formulation that also covers whatever the next feature injects.
+    // ------------------------------------------------------------------
+
+    // Emoji_Presentation: codepoints the platform renders through its
+    // colour emoji font BY DEFAULT (faces, food, tools with no trailing
+    // FE0F). Extended_Pictographic + U+FE0F: codepoints that default to a
+    // plain TEXT glyph — already correctly following `color` — but are
+    // explicitly forced into emoji presentation by a trailing variation
+    // selector-16: the gear/hourglass/warning family (\u2699\uFE0F etc).
+    //
+    // Extended_Pictographic ALONE, with no FE0F, is deliberately EXCLUDED.
+    // It also matches things like a bare check mark, star or arrow, which
+    // render as plain monochrome glyphs already correctly following
+    // --rt-text. Tinting those would re-derive a colour CSS already had
+    // right, through a lossier path.
+    const CYBER_EMOJI_RUN_RE =
+        /(?:(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F)(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F))*)+/gu;
+
+    // Never split text inside these. SCRIPT/STYLE hold source text, not
+    // content — splitting it would corrupt the page, not decorate it.
+    // TITLE/OPTION/SELECT render through native chrome the SVG filter
+    // cannot reach anyway, so wrapping their text only adds dead spans.
+    const CYBER_EMOJI_SKIP_TAGS = {
+        SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEXTAREA: 1, TITLE: 1, OPTION: 1, SELECT: 1
+    };
+
+    function cyberEmojiSkipAncestor(el) {
+        while (el) {
+            if (CYBER_EMOJI_SKIP_TAGS[el.tagName]) return true;
+            if (el.classList) {
+                // Already wrapped. The guard that stops the observer
+                // re-wrapping its own output and recursing forever: inserting
+                // <span class="rt-emo"> is itself a mutation the observer
+                // sees, and without this it would walk straight back in.
+                if (el.classList.contains('rt-emo')) return true;
+                // The progress glyph carries its own bespoke filter chain —
+                // chained ahead of its drop-shadows, with a per-emoji-set
+                // opt-out (see --rt-emo-progress). Wrapping its text too
+                // would nest one filter inside another for no benefit.
+                if (el.classList.contains('emoji-display')) return true;
+            }
+            el = el.parentElement;
+        }
+        return false;
+    }
+
+    // Splits one text node in place, wrapping every emoji run in a bare
+    // <span class="rt-emo">. Returns whether it changed anything. Creates
+    // through node.ownerDocument rather than the global `document`, because
+    // the PiP clone is a second document and a node built in one document
+    // cannot always be trusted to insert cleanly into another.
+    function cyberWrapEmojiTextNode(node) {
+        const text = node.nodeValue;
+        if (!text) return false;
+        CYBER_EMOJI_RUN_RE.lastIndex = 0;
+        if (!CYBER_EMOJI_RUN_RE.test(text)) return false;
+        const doc = node.ownerDocument;
+        if (!doc || !node.parentNode) return false;
+        const frag = doc.createDocumentFragment();
+        let last = 0, m;
+        CYBER_EMOJI_RUN_RE.lastIndex = 0;
+        while ((m = CYBER_EMOJI_RUN_RE.exec(text))) {
+            if (m.index > last) frag.appendChild(doc.createTextNode(text.slice(last, m.index)));
+            const span = doc.createElement('span');
+            span.className = 'rt-emo';
+            span.textContent = m[0];
+            frag.appendChild(span);
+            last = m.index + m[0].length;
+        }
+        if (last < text.length) frag.appendChild(doc.createTextNode(text.slice(last)));
+        node.parentNode.replaceChild(frag, node);
+        return true;
+    }
+
+    // Full sweep of one subtree. Safe on a root with no emoji in it (the
+    // TreeWalker filter rejects almost everything before the regex ever
+    // runs) and safe to call twice (already-wrapped runs are skipped by the
+    // ancestor check, not re-split). Feature-detected rather than assumed:
+    // cyber-verify.js exercises applyCyberpunkTheme() against a hand-rolled
+    // Node stub with no TreeWalker or NodeFilter, and a silent no-op there
+    // is correct — the stub is for token/shape assertions, not DOM behaviour,
+    // which is proven separately in a real engine (see the plan).
+    function cyberSweepEmoji(root) {
+        if (!root || !root.ownerDocument) return;
+        const doc = root.ownerDocument;
+        if (typeof doc.createTreeWalker !== 'function' || typeof NodeFilter === 'undefined') return;
+        const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode: function (node) {
+                return cyberEmojiSkipAncestor(node.parentElement)
+                    ? NodeFilter.FILTER_REJECT
+                    : NodeFilter.FILTER_ACCEPT;
+            }
+        });
+        const hits = [];
+        let n;
+        while ((n = walker.nextNode())) hits.push(n);
+        // Collected before wrapping rather than wrapped during the walk:
+        // replaceChild() during traversal detaches the node the walker is
+        // sitting on, which is exactly the kind of thing a live TreeWalker
+        // does not guarantee survives.
+        hits.forEach(cyberWrapEmojiTextNode);
+    }
+
+    // True only while Cyberpunk is the active theme. Every observer
+    // callback below gates on this first: the widget-container observer has
+    // to stay attached across a theme switch (see cyberWatchEmoji), but must
+    // do nothing while Glassmorphic is showing, or every achievement toast
+    // and modal open pays for a DOM walk that has no reason to run.
+    let cyberEmojiTintActive = false;
+
+    // One observer per root, ever. Re-attaching on every call would stack a
+    // new MutationObserver on the same element each time it runs — and the
+    // widget's container observer is wired from applyCyberpunkTheme(),
+    // which runs on every colour-slider tick, not just on theme entry.
+    const cyberEmojiObservedRoots = typeof WeakSet === 'function' ? new WeakSet() : null;
+
+    // Attaches a persistent MutationObserver to `root`, watching for any
+    // future content change (childList + subtree + characterData) and
+    // sweeping whatever changed. Idempotent — a second call on the same
+    // root is a WeakSet lookup and nothing else. Does NOT sweep existing
+    // content itself; callers that need an immediate pass call
+    // cyberSweepEmoji() explicitly (see applyPreferences()'s enteringRetro
+    // branch), because a sweep on every one of the many calls this makes
+    // during a colour drag would walk the whole widget on every tick.
+    //
+    // This is what makes the achievement badges the report was about
+    // actually stay covered: updateXPDisplay() sets
+    // `badge.innerHTML = achievement.icon` — a plain data-driven write with
+    // no idea the Cyberpunk theme exists — and the observer catches it
+    // exactly the same way it would catch a change nobody wrote yet.
+    function cyberWatchEmoji(root) {
+        if (!root || !cyberEmojiObservedRoots || cyberEmojiObservedRoots.has(root)) return;
+        if (typeof MutationObserver !== 'function') return;
+        cyberEmojiObservedRoots.add(root);
+        const observer = new MutationObserver(function (records) {
+            if (!cyberEmojiTintActive) return;
+            records.forEach(function (rec) {
+                if (rec.type === 'characterData') {
+                    if (rec.target.nodeType === 3) cyberWrapEmojiTextNode(rec.target);
+                    return;
+                }
+                rec.addedNodes.forEach(function (node) {
+                    if (node.nodeType === 3) cyberWrapEmojiTextNode(node);
+                    else if (node.nodeType === 1) cyberSweepEmoji(node);
+                });
+            });
+        });
+        observer.observe(root, { childList: true, subtree: true, characterData: true });
+    }
+
+    function applyCyberpunkTheme(container) {
+        if (!container) return;
+        cyberEmojiTintActive = true;
+        cyberWatchEmoji(container);
+        applyCyberTokens(container);
+        applyCyberShape(container);
+        updateCyberTitleGhosts(container);
+        ensureCyberEmojiFilter(document);
+        // Published so the stylesheet can opt the progress glyph out of the
+        // tint for the one set whose meaning is its hue. See the note beside
+        // --rt-emo-progress in cyber-theme.css.
+        container.setAttribute('data-emoji-set', userPreferences.emojiSet || 'fun');
+
+        // Mirror onto the document root so body-level modal rules
+        // (body:has(.retro-theme) ...) can resolve the same tokens.
+        applyCyberTokens(document.documentElement);
+
+        // Mirror onto the PiP clone so the pickers apply live there too.
+        if (typeof isPipActive !== 'undefined' && isPipActive && pipWindow && !pipWindow.closed) {
+            const pipEl = pipWindow.document.querySelector('.pip-window-content.retro-theme');
+            if (pipEl) {
+                applyCyberTokens(pipEl);
+                applyCyberShape(pipEl);
+            }
+            ensureCyberEmojiFilter(pipWindow.document);
+            const bg1 = userPreferences.cyberBgPrimary || '#07091a';
+            const bg2 = userPreferences.cyberBgSecondary || '#11142b';
+            pipWindow.document.body.style.background =
+                'linear-gradient(135deg, ' + bg1 + ' 0%, ' + bg2 + ' 100%)';
+        }
+    }
+
+    function clearCyberpunkTheme(container) {
+        if (container) {
+            clearCyberTokens(container);
+            clearCyberShape(container);
+            container.classList.remove('rt-booting');
+            const title = container.querySelector('.summary-title');
+            if (title) title.removeAttribute('data-rt-text');
+            container.removeAttribute('data-emoji-set');
+        }
+        cyberEmojiTintActive = false;
+        // The defs node lives on <body>, so it outlives a theme switch
+        // unless it is removed here.
+        clearCyberEmojiFilter(document);
+        if (typeof isPipActive !== 'undefined' && isPipActive && pipWindow && !pipWindow.closed) {
+            clearCyberEmojiFilter(pipWindow.document);
+        }
+        clearCyberTokens(document.documentElement);
+        if (cyberBootTimer) { clearTimeout(cyberBootTimer); cyberBootTimer = null; }
+    }
+    // ═══ END CYBERPUNK HUD ═══
+
+    // ═══ CYBERPUNK AUDIO — generated from cyber-dev/cyber-audio.js, do not edit here ═══
+    // ============================================================
+    // CYBERPUNK AUDIO — spectrum rail and the --rt-beat coupling
+    //
+    // Generated from cyber-dev/cyber-audio.js. Do not edit the copy in the
+    // userscript; edit here and run node cyber-dev/reinsert.js.
+    //
+    // WHAT A BROWSER CAN AND CANNOT DO HERE, because the limits shape all of
+    // the code below:
+    //
+    //   There is no system-loopback tap in the Web Audio API. The ONLY way to
+    //   analyse "whatever is playing on this machine" is
+    //   getDisplayMedia({ audio: true }), which:
+    //     - requires a user gesture, every session;
+    //     - shows the share picker, and on Windows only actually carries
+    //       system output when the user ticks "Also share system audio";
+    //     - requires a video constraint (audio-only getDisplayMedia is not
+    //       allowed), so the video track is stopped and dropped immediately;
+    //     - leaves a "sharing your screen" banner up while it runs.
+    //
+    //   So the rail is tiered, and NOTHING here ever requests a permission
+    //   without a click:
+    //     system -> real system output      (share picker)
+    //     mic    -> speakers, ambiently     (one prompt, persists)
+    //     sim    -> procedural              (no permission at all)
+    //
+    // The button cycles OFF -> SYS -> MIC -> SIM -> OFF. A declined grant
+    // does NOT auto-escalate to the next tier: firing a microphone prompt
+    // immediately after someone cancelled a screen-share prompt is a second
+    // surprise, so the tier is marked failed and the next click moves on.
+    // ============================================================
+
+    const CYBER_EQ_BARS = 32;
+    const CYBER_EQ_SOURCES = ['off', 'system', 'mic', 'sim'];
+
+    let cyberAudioCtx = null;
+    let cyberAnalyser = null;
+    let cyberFreqData = null;
+    let cyberStream = null;
+    let cyberStreamNode = null;
+    let cyberEqRaf = null;
+    let cyberEqLastFrame = 0;
+    let cyberEqCanvas = null;
+    let cyberEqCssW = 0;
+    let cyberEqCssH = 0;
+
+    // Beat detection state.
+    let cyberBassAvg = 0;
+    let cyberBeat = 0;
+    let cyberBeatWritten = -1;
+
+    // Peak-hold per bar, so the rail reads as a meter rather than a blur.
+    let cyberPeaks = new Array(CYBER_EQ_BARS).fill(0);
+
+    // 'off' | 'system' | 'mic' | 'sim'; plus whether the last grant failed.
+    let cyberEqMode = 'off';
+    let cyberEqFailed = false;
+
+    function cyberEqSource() {
+        const s = userPreferences.cyberAudioSource;
+        return CYBER_EQ_SOURCES.indexOf(s) === -1 ? 'off' : s;
+    }
+
+    // ------------------------------------------------------------------
+    // Source acquisition
+    // ------------------------------------------------------------------
+
+    function cyberMakeContext() {
+        if (cyberAudioCtx) return cyberAudioCtx;
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (!Ctor) return null;
+        cyberAudioCtx = new Ctor();
+        cyberAnalyser = cyberAudioCtx.createAnalyser();
+        cyberAnalyser.fftSize = 512;
+        cyberAnalyser.smoothingTimeConstant = 0.72;
+        cyberFreqData = new Uint8Array(cyberAnalyser.frequencyBinCount);
+        return cyberAudioCtx;
+    }
+
+    // Wires a MediaStream into the analyser. Deliberately does NOT connect to
+    // destination — routing captured system audio back to the speakers would
+    // feed back.
+    function cyberAttachStream(stream) {
+        if (!cyberMakeContext()) return false;
+        cyberDetachStream();
+        cyberStream = stream;
+        cyberStreamNode = cyberAudioCtx.createMediaStreamSource(stream);
+        cyberStreamNode.connect(cyberAnalyser);
+
+        // The user can end a screen-share from Chrome's own banner, which we
+        // only learn about through the track. Without this the rail would sit
+        // at zero forever and look broken.
+        stream.getTracks().forEach(function (t) {
+            t.addEventListener('ended', function () {
+                if (cyberStream === stream) cyberEqFallbackToSim('share ended');
+            });
+        });
+        if ('oninactive' in stream) {
+            stream.oninactive = function () {
+                if (cyberStream === stream) cyberEqFallbackToSim('stream inactive');
+            };
+        }
+        return true;
+    }
+
+    function cyberDetachStream() {
+        if (cyberStreamNode) {
+            try { cyberStreamNode.disconnect(); } catch (e) { /* already gone */ }
+            cyberStreamNode = null;
+        }
+        if (cyberStream) {
+            cyberStream.getTracks().forEach(function (t) {
+                try { t.stop(); } catch (e) { /* already stopped */ }
+            });
+            cyberStream = null;
+        }
+    }
+
+    function cyberEqFallbackToSim(why) {
+        cyberDetachStream();
+        cyberEqMode = 'sim';
+        cyberEqFailed = false;
+        userPreferences.cyberAudioSource = 'sim';
+        savePreferences();
+        cyberEqUpdateButton();
+        if (why) console.info('[CyberEQ] ' + why + ' — falling back to the procedural rail.');
+    }
+
+    async function cyberEqConnectSystem() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) return false;
+        // A video constraint is mandatory: getDisplayMedia rejects audio-only.
+        // The track is stopped the moment we have the stream, so no frames are
+        // ever read, but the audio track stays live.
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+            video: { width: 1, height: 1, frameRate: 1 },
+            audio: {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false
+            }
+        });
+        const audio = stream.getAudioTracks();
+        if (!audio.length) {
+            // The user shared a surface but left "share system audio" unticked.
+            stream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
+            throw new Error('no audio track — "Also share system audio" was not ticked');
+        }
+        stream.getVideoTracks().forEach(function (t) {
+            try { t.stop(); } catch (e) {}
+            try { stream.removeTrack(t); } catch (e) {}
+        });
+        return cyberAttachStream(stream);
+    }
+
+    async function cyberEqConnectMic() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+        // These three must be off. Left on, the browser gates and levels the
+        // signal for speech, and the analyser sees a flattened version of the
+        // music rather than the music.
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false
+            }
+        });
+        return cyberAttachStream(stream);
+    }
+
+    // Advances one tier. Called from the rail button and nowhere else, so the
+    // gesture requirement is satisfied by construction.
+    async function cyberEqCycle() {
+        const order = CYBER_EQ_SOURCES;
+        const from = cyberEqFailed ? cyberEqMode : cyberEqSource();
+        const next = order[(order.indexOf(from) + 1) % order.length];
+
+        cyberDetachStream();
+        cyberEqFailed = false;
+        cyberEqMode = next;
+        userPreferences.cyberAudioSource = next;
+        savePreferences();
+        cyberEqUpdateButton();
+
+        if (next === 'off') { cyberEqStopLoop(); cyberEqClearBeat(); return; }
+
+        if (next === 'sim') { cyberEqStartLoop(); return; }
+
+        try {
+            if (cyberMakeContext() && cyberAudioCtx.state === 'suspended') {
+                await cyberAudioCtx.resume();
+            }
+            const ok = next === 'system' ? await cyberEqConnectSystem() : await cyberEqConnectMic();
+            if (!ok) throw new Error('capture unavailable in this browser');
+            cyberEqFailed = false;
+        } catch (err) {
+            // Cancelling the picker is a normal outcome, not an error worth
+            // shouting about. Mark the tier failed so the next click moves on.
+            cyberEqFailed = true;
+            console.info('[CyberEQ] ' + next + ' unavailable: ' + (err && err.message ? err.message : err));
+        }
+        cyberEqUpdateButton();
+        cyberEqStartLoop();
+    }
+
+    // Restores the saved source on load. Never prompts: 'system' always waits
+    // for a click, and 'mic' resumes only if the permission is already granted.
+    async function cyberEqAutoResume() {
+        const want = cyberEqSource();
+        if (want === 'off') return;
+        cyberEqMode = want;
+
+        if (want === 'sim') { cyberEqStartLoop(); cyberEqUpdateButton(); return; }
+
+        if (want === 'system') {
+            // No gesture at load, and the picker cannot be opened without one.
+            cyberEqFailed = true;
+            cyberEqUpdateButton();
+            cyberEqStartLoop();
+            return;
+        }
+
+        let granted = false;
+        try {
+            if (navigator.permissions && navigator.permissions.query) {
+                const st = await navigator.permissions.query({ name: 'microphone' });
+                granted = st && st.state === 'granted';
+            }
+        } catch (e) { granted = false; }
+
+        if (!granted) {
+            cyberEqFailed = true;
+            cyberEqUpdateButton();
+            cyberEqStartLoop();
+            return;
+        }
+        try {
+            cyberMakeContext();
+            await cyberEqConnectMic();
+        } catch (e) {
+            cyberEqFailed = true;
+        }
+        cyberEqUpdateButton();
+        cyberEqStartLoop();
+    }
+
+    // ------------------------------------------------------------------
+    // The rail
+    // ------------------------------------------------------------------
+
+    function cyberEqUpdateButton() {
+        const btn = document.getElementById('cyber-eq-btn');
+        if (!btn) return;
+        const label = { off: 'OFF', system: 'SYS', mic: 'MIC', sim: 'SIM' };
+        const mode = cyberEqFailed ? cyberEqMode : cyberEqSource();
+        btn.textContent = (cyberEqFailed ? '! ' : '') + (label[mode] || 'OFF');
+        btn.classList.toggle('is-live', !cyberEqFailed && (mode === 'system' || mode === 'mic'));
+        btn.classList.toggle('is-sim', !cyberEqFailed && mode === 'sim');
+        btn.title = cyberEqFailed
+            ? mode + ' is not connected — click to try the next source'
+            : 'Audio source: ' + mode + ' — click to cycle (system / mic / procedural / off)';
+    }
+
+    function cyberEqClearBeat() {
+        const root = document.getElementById('total-time-summary');
+        if (root) root.style.setProperty('--rt-beat', '0');
+        cyberBeat = 0;
+        cyberBeatWritten = -1;
+    }
+
+    // Procedural spectrum: no audio, no permission, and it must never look
+    // like a dead rail. Deterministic in t so it does not jitter.
+    function cyberSimBar(i, t) {
+        const p = i / CYBER_EQ_BARS;
+        const a = Math.sin(t * 0.0021 + i * 0.55) * 0.5 + 0.5;
+        const b = Math.sin(t * 0.0009 - i * 0.31) * 0.5 + 0.5;
+        const c = Math.sin(t * 0.0043 + i * 1.7) * 0.5 + 0.5;
+        // Tilted so the lows sit higher than the highs, like real music.
+        const tilt = 1 - p * 0.55;
+        return Math.max(0, Math.min(1, (a * 0.5 + b * 0.32 + c * 0.18) * tilt));
+    }
+
+    function cyberEqReadBars(t) {
+        const bars = new Array(CYBER_EQ_BARS);
+        const live = cyberAnalyser && cyberStream;
+        if (!live) {
+            for (let i = 0; i < CYBER_EQ_BARS; i++) bars[i] = cyberSimBar(i, t);
+            return bars;
+        }
+        cyberAnalyser.getByteFrequencyData(cyberFreqData);
+        const n = cyberFreqData.length;
+        // Roughly logarithmic binning: an even split would spend most of the
+        // rail on inaudible high frequencies and look almost flat.
+        for (let i = 0; i < CYBER_EQ_BARS; i++) {
+            const lo = Math.floor(Math.pow(i / CYBER_EQ_BARS, 2) * (n - 1));
+            const hi = Math.max(lo + 1, Math.floor(Math.pow((i + 1) / CYBER_EQ_BARS, 2) * (n - 1)));
+            let sum = 0;
+            for (let k = lo; k < hi; k++) sum += cyberFreqData[k];
+            bars[i] = (sum / (hi - lo)) / 255;
+        }
+        return bars;
+    }
+
+    // Bass energy against a rolling average. An absolute threshold would
+    // never suit both a quiet mic and a hot system capture.
+    function cyberEqUpdateBeat(bars) {
+        let bass = 0;
+        for (let i = 0; i < 6; i++) bass += bars[i];
+        bass /= 6;
+        cyberBassAvg = cyberBassAvg * 0.94 + bass * 0.06;
+        const rel = cyberBassAvg > 0.001 ? (bass / cyberBassAvg) - 1 : 0;
+        const target = Math.max(0, Math.min(1, rel * 1.3));
+        // Fast attack, slow release, so a kick reads as a hit not a wobble.
+        cyberBeat = target > cyberBeat ? target : cyberBeat * 0.86 + target * 0.14;
+
+        const root = document.getElementById('total-time-summary');
+        if (!root) return;
+        // Writing a custom property invalidates style for the subtree, so only
+        // write when it actually moved.
+        const q = Math.round(cyberBeat * 50) / 50;
+        if (q !== cyberBeatWritten) {
+            root.style.setProperty('--rt-beat', String(q));
+            cyberBeatWritten = q;
+        }
+    }
+
+    function cyberEqResize() {
+        const cv = cyberEqCanvas;
+        if (!cv) return false;
+        const w = cv.clientWidth;
+        const h = cv.clientHeight;
+        if (!w || !h) return false;
+        if (w === cyberEqCssW && h === cyberEqCssH) return true;
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        cv.width = Math.round(w * dpr);
+        cv.height = Math.round(h * dpr);
+        cyberEqCssW = w;
+        cyberEqCssH = h;
+        return true;
+    }
+
+    function cyberEqPaint(bars) {
+        const cv = cyberEqCanvas;
+        if (!cv) return;
+        const ctx = cv.getContext('2d');
+        if (!ctx) return;
+        const W = cv.width;
+        const H = cv.height;
+        ctx.clearRect(0, 0, W, H);
+
+        // Colours come from the live tokens, so the rail follows the same
+        // swatches as the rest of the HUD instead of hardcoding a palette.
+        const cs = getComputedStyle(cv);
+        const cLow = (cs.getPropertyValue('--rt-cyber-hl') || '#00e5ff').trim();
+        const cMid = (cs.getPropertyValue('--rt-accent') || '#fff200').trim();
+        const cHigh = (cs.getPropertyValue('--rt-cyber-panel') || '#00e5ff').trim();
+        const cPeak = (cs.getPropertyValue('--rt-glow-color') || '#fff200').trim();
+        const cGrid = (cs.getPropertyValue('--rt-grid') || 'rgba(255,242,0,0.06)').trim();
+
+        const grad = ctx.createLinearGradient(0, 0, W, 0);
+        grad.addColorStop(0, cLow);
+        grad.addColorStop(0.5, cMid);
+        grad.addColorStop(1, cHigh);
+
+        // Baseline
+        ctx.fillStyle = cGrid;
+        ctx.fillRect(0, H - 1, W, 1);
+
+        const slot = W / CYBER_EQ_BARS;
+        const barW = Math.max(1, slot * 0.62);
+        const pad = (slot - barW) / 2;
+
+        ctx.fillStyle = grad;
+        for (let i = 0; i < CYBER_EQ_BARS; i++) {
+            const v = Math.max(0, Math.min(1, bars[i]));
+            const h = Math.max(1, v * (H - 3));
+            ctx.fillRect(i * slot + pad, H - h, barW, h);
+
+            // Peak hold, decaying.
+            cyberPeaks[i] = v > cyberPeaks[i] ? v : cyberPeaks[i] * 0.955;
+            const ph = Math.max(1, cyberPeaks[i] * (H - 3));
+            ctx.fillStyle = cPeak;
+            ctx.fillRect(i * slot + pad, Math.max(0, H - ph - 2), barW, 1.5);
+            ctx.fillStyle = grad;
+        }
+    }
+
+    function cyberEqFrame(ts) {
+        cyberEqRaf = requestAnimationFrame(cyberEqFrame);
+
+        // Share the widget's existing FPS cap rather than adding a second
+        // uncapped loop next to the games.
+        const interval = typeof getFrameInterval === 'function' ? getFrameInterval() : 16.67;
+        if (ts - cyberEqLastFrame < interval) return;
+        cyberEqLastFrame = ts;
+
+        if (!cyberEqCanvas || !cyberEqCanvas.isConnected) {
+            cyberEqCanvas = document.getElementById('cyber-eq');
+            cyberEqCssW = 0;
+            if (!cyberEqCanvas) return;
+        }
+        if (!cyberEqResize()) return;
+
+        const bars = cyberEqReadBars(ts);
+        cyberEqUpdateBeat(bars);
+        cyberEqPaint(bars);
+    }
+
+    function cyberEqStartLoop() {
+        if (cyberEqRaf !== null) return;
+        cyberEqCanvas = document.getElementById('cyber-eq');
+        cyberEqCssW = 0;
+        cyberEqLastFrame = 0;
+        cyberEqRaf = requestAnimationFrame(cyberEqFrame);
+    }
+
+    function cyberEqStopLoop() {
+        if (cyberEqRaf !== null) {
+            cancelAnimationFrame(cyberEqRaf);
+            cyberEqRaf = null;
+        }
+    }
+
+    // renderFullContent() rebuilds the widget's markup, so a listener bound
+    // directly to the button is orphaned on the next render and the rail goes
+    // dead with no visible cause. Delegated from document instead: bound once,
+    // survives every re-render.
+    let cyberEqBound = false;
+    let cyberEqResumed = false;
+
+    function initCyberEq() {
+        if (!cyberEqBound) {
+            cyberEqBound = true;
+            document.addEventListener('click', function (e) {
+                const btn = e.target && e.target.closest ? e.target.closest('#cyber-eq-btn') : null;
+                if (!btn) return;
+                e.preventDefault();
+                e.stopPropagation();
+                cyberEqCycle();
+            });
+        }
+        cyberEqUpdateButton();
+        // Restore the saved source exactly once per page. Never prompts:
+        // 'system' waits for a click, 'mic' only resumes on an existing grant.
+        if (!cyberEqResumed) {
+            cyberEqResumed = true;
+            cyberEqAutoResume();
+        } else if (cyberEqSource() !== 'off') {
+            cyberEqStartLoop();
+        }
+    }
+
+    // Full teardown. A capture stream that outlives a theme switch shows the
+    // user a permanent screen-share banner for a rail that is no longer on
+    // screen, so this must run on every exit path.
+    function cleanupCyberAudio() {
+        cyberEqStopLoop();
+        cyberDetachStream();
+        if (cyberAudioCtx) {
+            try { cyberAudioCtx.close(); } catch (e) { /* already closed */ }
+            cyberAudioCtx = null;
+            cyberAnalyser = null;
+            cyberFreqData = null;
+        }
+        cyberPeaks = new Array(CYBER_EQ_BARS).fill(0);
+        cyberBassAvg = 0;
+        cyberEqCanvas = null;
+        cyberEqCssW = 0;
+        cyberEqClearBeat();
+    }
+    // ═══ END CYBERPUNK AUDIO ═══
+
     // Apply user preferences
     function applyPreferences() {
         const container = document.getElementById('total-time-summary');
         if (!container) return;
-        
+
         // Apply display theme
         if (userPreferences.displayTheme === 'retro-futuristic') {
+            // Captured before the class goes on: the boot-in reveal should
+            // fire when the theme is switched INTO, not on every colour-slider
+            // move, and applyPreferences() runs on each of those.
+            const enteringRetro = !container.classList.contains('retro-theme');
             container.classList.add('retro-theme');
-            // Apply user-customizable Cyberpunk HUD colors via CSS custom properties
-            const bg1 = userPreferences.cyberBgPrimary   || '#07091a';
-            const bg2 = userPreferences.cyberBgSecondary || '#11142b';
-            const acc = userPreferences.cyberAccent      || '#fff200';
-            const hl  = userPreferences.cyberHighlight   || '#00e5ff';
-            const pnl = userPreferences.cyberPanelTint   || '#00e5ff';
-            container.style.setProperty('--rt-bg-1', bg1);
-            container.style.setProperty('--rt-bg-2', bg2);
-            container.style.setProperty('--rt-accent', acc);
-            container.style.setProperty('--rt-accent-rgb', hexToRgbStr(acc));
-            container.style.setProperty('--rt-cyber-hl', hl);
-            container.style.setProperty('--rt-cyber-hl-rgb', hexToRgbStr(hl));
-            container.style.setProperty('--rt-cyber-panel', pnl);
-            container.style.setProperty('--rt-cyber-panel-rgb', hexToRgbStr(pnl));
-            // Also expose vars at document root so body-level modals can use them
-            document.documentElement.style.setProperty('--rt-cyber-hl', hl);
-            document.documentElement.style.setProperty('--rt-accent', acc);
-            document.documentElement.style.setProperty('--rt-bg-1', bg1);
 
-            // Mirror custom CSS vars onto PiP window so color pickers apply live
-            if (isPipActive && pipWindow && !pipWindow.closed) {
-                const pipEl = pipWindow.document.querySelector('.pip-window-content.retro-theme');
-                if (pipEl) {
-                    pipEl.style.setProperty('--rt-bg-1', bg1);
-                    pipEl.style.setProperty('--rt-bg-2', bg2);
-                    pipEl.style.setProperty('--rt-accent', acc);
-                    pipEl.style.setProperty('--rt-accent-rgb', hexToRgbStr(acc));
-                    pipEl.style.setProperty('--rt-cyber-hl', hl);
-                    pipEl.style.setProperty('--rt-cyber-hl-rgb', hexToRgbStr(hl));
-                    pipEl.style.setProperty('--rt-cyber-panel', pnl);
-                    pipEl.style.setProperty('--rt-cyber-panel-rgb', hexToRgbStr(pnl));
-                }
-                // Also update PiP body gradient
-                pipWindow.document.body.style.background = `linear-gradient(135deg, ${bg1} 0%, ${bg2} 100%)`;
-            }
+            // Tokens, panel shape, title ghosts and the PiP/root mirrors all
+            // live in cyber-dev/cyber-hud.js so that one place knows what
+            // "apply the cyberpunk theme" means, and so the write list and the
+            // teardown list are derived from a single array instead of being
+            // maintained by hand — which is how six tokens drifted out of the
+            // teardown list and made the yellow unchangeable.
+            applyCyberpunkTheme(container);
+            initCyberEq();
+            if (enteringRetro) triggerCyberBoot(container);
+            // One full correcting sweep on the actual switch-in, not on every
+            // colour-slider tick (applyCyberpunkTheme()'s own cyberWatchEmoji()
+            // call is the cheap, idempotent, every-tick-safe half of this —
+            // see the comment beside it). Content that rendered while
+            // Glassmorphic was active — an achievement earned before the user
+            // ever tried Cyberpunk — has no reason to have fired a mutation
+            // since, so the observer alone would leave it unwrapped forever.
+            if (enteringRetro) cyberSweepEmoji(container);
 
             // Background image overlay
             let bgEl = container.querySelector('.cyber-bg-image');
@@ -17386,14 +20234,18 @@
             }
         } else {
             container.classList.remove('retro-theme');
-            // Clear inline overrides so glassmorphic theme isn't affected
-            ['--rt-bg-1','--rt-bg-2','--rt-accent','--rt-accent-rgb','--rt-cyber-hl','--rt-cyber-hl-rgb','--rt-cyber-panel','--rt-cyber-panel-rgb']
-                .forEach(p => { container.style.removeProperty(p); document.documentElement.style.removeProperty(p); });
+            // Clears every property CYBER_TOKENS could have written, on both
+            // the container and documentElement. Anything left behind has no
+            // meaning under Glassmorphic but still wins over the stylesheet.
+            clearCyberpunkTheme(container);
+            // A capture stream outliving the theme switch would leave the user
+            // a permanent screen-share banner for a rail that is gone.
+            cleanupCyberAudio();
             // Remove background image overlay if switching away
             const bgEl = container.querySelector('.cyber-bg-image');
             if (bgEl) bgEl.remove();
         }
-        
+
         // Apply neumorphic depth (only for glassmorphic theme)
         if (userPreferences.displayTheme === 'glassmorphic') {
             container.style.boxShadow = ''; // clear any old inline override
@@ -17433,7 +20285,7 @@
         // Apply game mode panel visibility
         applyGameMode();
     }
-    
+
     // ── Game Mode: show/hide left and right panels ──────────────
     // gameModeHidden: true  = Game Mode ON  → panels visible, widget full size
     // gameModeHidden: false = Game Mode OFF → panels hidden, widget shrinks 10%
@@ -17482,14 +20334,14 @@
             const rect = container.getBoundingClientRect();
             const x = (e.clientX - rect.left) / rect.width;
             const y = (e.clientY - rect.top) / rect.height;
-            
+
             mouseX = (x - 0.5) * 20; // Range: -10 to 10
             mouseY = (y - 0.5) * 20;
-            
+
             container.style.setProperty('--mouse-x', mouseX);
             container.style.setProperty('--mouse-y', mouseY);
         });
-        
+
         container.addEventListener('mouseleave', () => {
             container.style.setProperty('--mouse-x', 0);
             container.style.setProperty('--mouse-y', 0);
@@ -17498,12 +20350,12 @@
 
     function insertAndCalculate() {
         injectModernStyles();
-        
+
         const tableDiv = document.querySelector('.main-attendance-table');
         if (!tableDiv) {
             return;
         }
-        
+
         let totalTimeDiv = document.getElementById('total-time-summary');
         let isNewElement = false;
         if (!totalTimeDiv) {
@@ -17519,7 +20371,7 @@
         }
 
         calculateTotalTime(totalTimeDiv);
-        
+
         // Apply preferences after element is in DOM
         if (isNewElement) {
             // Use setTimeout to ensure DOM is fully updated
@@ -17534,7 +20386,7 @@
 
         if (today.getHours() < 5) {
             const prevDay = new Date(today);
-            prevDay.setDate(today.getDate() - 1); 
+            prevDay.setDate(today.getDate() - 1);
             todayFormatted = formatDate(prevDay);
         }
 
@@ -17555,11 +20407,11 @@
 
                 const rowData = Array.from(cells).map(cell => cell.innerText.trim());
 
-                const date = rowData[1]; 
-                const time = rowData[3]; 
-                const checkInOut = rowData[4]; 
+                const date = rowData[1];
+                const time = rowData[3];
+                const checkInOut = rowData[4];
                 const checkInHour = parseInt(time.split(":")[0], 10);
-                
+
                 if (date === todayFormatted) {
                     if (checkInOut === 'In' && checkInHour > 5) {
                         if (lastCheckOutTime) {
@@ -17582,13 +20434,13 @@
                             workedTime: secondsToHHMMSS(workedTime),
                         });
                         lastCheckOutTime = time;
-                        checkInTime = null; 
+                        checkInTime = null;
                     }
                 } else if (date === formatDate(today) && today.getHours() < 5 && checkInHour < 5) {
                     if (checkInOut === 'In') {
                         if (lastCheckOutTime) {
                             const gap = calculateTimeDifference(lastCheckOutTime, time);
-                            if (gap <= 21600) { 
+                            if (gap <= 21600) {
                                 checkInTime = time;
                             } else {
                                 checkInTime = time;
@@ -17606,7 +20458,7 @@
                             workedTime: secondsToHHMMSS(workedTime),
                         });
                         lastCheckOutTime = time;
-                        checkInTime = null; 
+                        checkInTime = null;
                     }
                 }
             });
@@ -17628,13 +20480,13 @@
             const currentRowCount = totalTimeDiv.querySelectorAll('.modern-table tbody tr:not(.gap-warning)').length;
             const isInitialRender = totalTimeDiv.innerHTML === '';
             const tableStructureChanged = checkInOutList.length !== currentRowCount;
-            
+
             // Block all re-renders when games are active, even if table changes
             const shouldRerender = isInitialRender || (tableStructureChanged && !featuresInitialized);
-            
+
             if (shouldRerender) {
                 renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today);
-                
+
                 // Clear cached DOM elements after re-render so they get re-queried
                 cachedElements = {
                     totalWorkedTime: null,
@@ -17648,11 +20500,11 @@
                 // Just update dynamic content without re-rendering to preserve animations
                 updateDynamicContent(totalWorkedTime, today, checkInOutList);
             }
-            
+
             // Always update lastTotalWorkedTime to track state
             lastTotalWorkedTime = totalWorkedTime;
         }
-        
+
         // Only insert into DOM on first render - don't repeat this operation!
         if (!totalTimeDiv.parentNode) {
             $('.main-attendance-table').before(totalTimeDiv);
@@ -17662,7 +20514,7 @@
     function formatDate(date) {
         return `${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')}/${date.getFullYear()}`;
     }
-    
+
     function formatTime12Hour(date) {
         let hours = date.getHours();
         const minutes = date.getMinutes().toString().padStart(2, '0');
@@ -17695,7 +20547,7 @@
         seconds %= 60;
         return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     }
-    
+
     // Additional utility function from original script
     function timeToSeconds(timeString) {
         const parts = timeString.split(':');
@@ -17703,8 +20555,8 @@
     }
 
     function interpolateColor(color1, color2, factor) {
-        if (arguments.length < 3) { 
-            return color1; 
+        if (arguments.length < 3) {
+            return color1;
         }
         let result = color1.slice();
         for (let i = 0; i < 3; i++) {
@@ -17712,40 +20564,40 @@
         }
         return `rgba(${result[0]}, ${result[1]}, ${result[2]}, 0.2)`;
     }
-    
+
     // PICTURE-IN-PICTURE FUNCTIONALITY
-    
+
     // Check if Picture-in-Picture is supported
     function isPipSupported() {
         return 'documentPictureInPicture' in window;
     }
-    
+
     // Create PiP button
     function createPipButton(container) {
         if (!isPipSupported()) {
             return null;
         }
-        
+
         // Remove existing PiP button if any
         const existingButton = container.querySelector('.pip-button');
         if (existingButton) {
             existingButton.remove();
         }
-        
+
         const pipButton = document.createElement('button');
         pipButton.className = 'pip-button';
         pipButton.innerHTML = `
-            <span class="pip-icon">📱</span>
+            <span class="pip-icon"><span class="rt-emo">📱</span></span>
             <span class="pip-text">Float</span>
         `;
-        
+
         pipButton.addEventListener('click', togglePictureInPicture);
         container.appendChild(pipButton);
         pipButton.style.display = 'flex';
         pipButton.style.alignItems = 'center';
         return pipButton;
     }
-    
+
     // Toggle Picture-in-Picture mode
     async function togglePictureInPicture() {
         try {
@@ -17754,11 +20606,11 @@
                 pipWindow.close();
                 return;
             }
-            
+
             // Calculate optimal window size based on screen size
             const screenWidth = window.screen.width;
             const screenHeight = window.screen.height;
-            
+
             // Responsive window sizing
             let windowWidth, windowHeight;
             if (screenWidth <= 480) {
@@ -17774,19 +20626,19 @@
                 windowWidth = 320;
                 windowHeight = 480;
             }
-            
+
             // Create compact PiP window with dynamic sizing
             pipWindow = await documentPictureInPicture.requestWindow({
                 width: windowWidth,
                 height: windowHeight,
                 disallowReturnToOpener: false
             });
-            
+
             isPipActive = true;
-            
+
             // Copy styles to PiP window
             copyStylesToPip(pipWindow);
-            
+
             // Move content to PiP window
             const attendanceSummary = document.getElementById('total-time-summary');
             if (attendanceSummary) {
@@ -17797,75 +20649,70 @@
                     isPipActive = false;
                     return;
                 }
-                
+
                 // Create a wrapper for PiP
                 const summaryClone = document.createElement('div');
                 summaryClone.className = 'attendance-summary pip-window-content';
-                
+
                 // Clone only the main attendance content
                 const mainContentClone = mainContent.cloneNode(true);
                 summaryClone.appendChild(mainContentClone);
-                
+
                 // Apply user's selected theme to PiP window
                 if (userPreferences.displayTheme === 'retro-futuristic') {
                     summaryClone.classList.add('retro-theme');
                 }
-                
+
                 // Remove PiP button from cloned content
                 const pipButtonClone = summaryClone.querySelector('.pip-button');
                 if (pipButtonClone) {
                     pipButtonClone.remove();
                 }
-                
+
                 // Remove developer info from cloned content for more space
                 const developerInfoClone = summaryClone.querySelector('.developer-info');
                 if (developerInfoClone) {
                     developerInfoClone.remove();
                 }
-                
+
                 // Remove settings button from cloned content
                 const settingsButtonClone = summaryClone.querySelector('.settings-button');
                 if (settingsButtonClone) {
                     settingsButtonClone.remove();
                 }
-                
+
                 // Add compact mode button to PiP window
                 const compactButton = document.createElement('button');
                 compactButton.className = 'pip-compact-button';
                 compactButton.innerHTML = '[≡]';
                 compactButton.title = 'Toggle Compact Mode';
                 compactButton.onclick = () => toggleCompactMode(pipWindow, summaryClone);
-                
+
                 summaryClone.appendChild(compactButton);
-                
+
                 // Append to PiP window
                 pipWindow.document.body.appendChild(summaryClone);
-                
-                // Adjust window size to content after a brief delay
-                setTimeout(() => {
-                    adjustPipWindowSize(pipWindow, summaryClone);
-                }, 100);
-                
+
                 // Show placeholder in main window
                 showPipPlaceholder(attendanceSummary);
-                
+
                 // Update PiP button state
                 updatePipButtonState(true);
-                
+
                 // Set up PiP window event listeners
                 setupPipEventListeners(pipWindow, attendanceSummary);
-                
+
                 // Start PiP update loop
                 startPipUpdateLoop(summaryClone);
             }
-            
+
         } catch (error) {
             console.error('Failed to open Picture-in-Picture window:', error);
             isPipActive = false;
             updatePipButtonState(false);
         }
     }
-    
+
     // Copy styles to PiP window
     function copyStylesToPip(pipWindow) {
         // Add color-scheme meta tag for proper theme inheritance
@@ -17873,7 +20720,7 @@
         metaColorScheme.name = 'color-scheme';
         metaColorScheme.content = 'light dark';
         pipWindow.document.head.appendChild(metaColorScheme);
-        
+
         // Copy the custom styles
         const styleElement = document.getElementById('attendance-modern-styles');
         if (styleElement) {
@@ -17881,10 +20728,10 @@
             pipStyleElement.innerHTML = styleElement.innerHTML;
             pipWindow.document.head.appendChild(pipStyleElement);
         }
-        
+
         // Detect current color scheme from browser/OS
         const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        
+
         // Determine background based on user's theme preference
         let backgroundStyle;
         if (userPreferences.displayTheme === 'retro-futuristic') {
@@ -17904,7 +20751,7 @@
                 background: linear-gradient(135deg, #ddd6fe 0%, #8b5cf6 100%);
             `;
         }
-        
+
         // Set body styles for PiP window - borderless and theme-aware
         pipWindow.document.body.style.cssText = `
             margin: 0;
@@ -17918,7 +20765,7 @@
             color-scheme: ${isDarkMode ? 'dark' : 'light'};
             transition: background 0.3s ease, color 0.3s ease;
         `;
-        
+
         // Set html styles to remove any default margins/padding
         pipWindow.document.documentElement.style.cssText = `
             margin: 0;
@@ -17927,18 +20774,18 @@
             overflow: hidden;
             color-scheme: ${isDarkMode ? 'dark' : 'light'};
         `;
-        
+
         // Listen for browser/OS color scheme changes and update PiP window accordingly
         const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
         colorSchemeQuery.addEventListener('change', (e) => {
             updatePipColorScheme(pipWindow, e.matches);
         });
     }
-    
+
     // Update PiP window color scheme dynamically
     function updatePipColorScheme(pipWindow, isDark) {
         if (!pipWindow || pipWindow.closed) return;
-        
+
         let newBg;
         if (userPreferences.displayTheme === 'retro-futuristic') {
             const bg1 = userPreferences.cyberBgPrimary   || '#07091a';
@@ -17957,16 +20804,16 @@
             background: newBg,
             colorScheme: isDark ? 'dark' : 'light'
         });
-        
+
         pipWindow.document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
     }
-    
+
     // Toggle compact mode in PiP window
     function toggleCompactMode(pipWindow, summaryElement) {
         if (!pipWindow || pipWindow.closed || !summaryElement) return;
-        
+
         const isCompact = summaryElement.classList.contains('compact-mode');
-        
+
         if (isCompact) {
             // Switch back to full mode - regenerate content instead of cloning from placeholder
             const hadRetroTheme = summaryElement.classList.contains('retro-theme');
@@ -17976,7 +20823,7 @@
             if (hadRetroTheme || userPreferences.displayTheme === 'retro-futuristic') {
                 summaryElement.classList.add('retro-theme');
             }
-            
+
             // Trigger a fresh calculation and render
             const tableDiv = document.querySelector('.main-attendance-table');
             if (tableDiv) {
@@ -17984,52 +20831,52 @@
                 const tempContainer = document.createElement('div');
                 tempContainer.id = 'temp-pip-content';
                 tempContainer.className = 'attendance-summary';
-                
+
                 // Calculate and render fresh content to temp container
                 calculateTotalTime(tempContainer);
-                
+
                 // Copy the fresh content to PiP window
                 if (tempContainer.innerHTML) {
                     summaryElement.innerHTML = tempContainer.innerHTML;
-                    
+
                     // Remove PiP button, developer info, and settings button from PiP content
                     const pipButtonClone = summaryElement.querySelector('.pip-button');
                     if (pipButtonClone) pipButtonClone.remove();
-                    
+
                     const developerInfoClone = summaryElement.querySelector('.developer-info');
                     if (developerInfoClone) developerInfoClone.remove();
-                    
+
                     const settingsButtonClone = summaryElement.querySelector('.settings-button');
                     if (settingsButtonClone) settingsButtonClone.remove();
-                    
+
                     // Add compact button back
                     const compactButton = document.createElement('button');
                     compactButton.className = 'pip-compact-button';
                     compactButton.innerHTML = '[≡]';
                     compactButton.title = 'Toggle Compact Mode';
                     compactButton.onclick = () => toggleCompactMode(pipWindow, summaryElement);
-                    
+
                     summaryElement.appendChild(compactButton);
                 }
-                
+
                 // Clean up temp container
                 tempContainer.remove();
             }
         } else {
             // Switch to compact mode
             summaryElement.classList.add('compact-mode');
-            
+
             // Apply retro theme to compact mode if user preference is set
             if (userPreferences.displayTheme === 'retro-futuristic') {
                 summaryElement.classList.add('retro-theme');
             }
-            
+
             // Get current remaining time and emoji from the actual content
             const remainingTimeElement = summaryElement.querySelector('#remaining-time');
             const emojiElement = summaryElement.querySelector('.emoji-display');
             const remainingTime = remainingTimeElement ? remainingTimeElement.textContent : '00:00:00';
             const currentEmoji = emojiElement ? emojiElement.textContent : '⏰';
-            
+
             // Create compact display
             const compactHTML = `
                 <div class="pip-compact-display" title="Click to expand">
@@ -18037,9 +20884,9 @@
                     <div class="pip-compact-label">Time until freedom</div>
                 </div>
             `;
-            
+
             summaryElement.innerHTML = compactHTML;
-            
+
             // Minimize body space for compact mode
             if (pipWindow && !pipWindow.closed) {
                 pipWindow.document.body.style.overflow = 'hidden';
@@ -18047,46 +20894,19 @@
                 pipWindow.document.body.style.height = 'auto';
                 pipWindow.document.documentElement.style.overflow = 'hidden';
             }
-            
+
             // Add expand functionality to the compact display
             const compactDisplay = summaryElement.querySelector('.pip-compact-display');
             if (compactDisplay) {
                 compactDisplay.onclick = () => toggleCompactMode(pipWindow, summaryElement);
             }
-            
-            // Resize window for compact mode
-            try {
-                console.log('Compact mode activated - content optimized for minimal space');
-            } catch (error) {
-                console.log('Could not resize PiP window:', error);
-            }
         }
     }
-    
-    // Adjust PiP window size to fit content
-    function adjustPipWindowSize(pipWindow, content) {
-        try {
-            // Get content dimensions
-            const contentHeight = content.scrollHeight;
-            const contentWidth = content.scrollWidth;
-            
-            // Calculate optimal window size with some padding
-            const optimalWidth = Math.min(Math.max(contentWidth + 32, 280), 380);
-            const optimalHeight = Math.min(contentHeight + 32, window.screen.height * 0.8);
-            
-            // Note: The Document Picture-in-Picture API doesn't support dynamic resizing
-            // But we can optimize the initial size based on screen size
-            console.log(`Optimal PiP size would be: ${optimalWidth}x${optimalHeight}`);
-            
-        } catch (error) {
-            console.log('Could not adjust PiP window size:', error);
-        }
-    }
-    
+
     // Show placeholder in main window when content is in PiP
     function showPipPlaceholder(container) {
         container.classList.add('pip-active');
-        
+
         // Hide all content except PiP button
         const allChildren = container.children;
         for (let child of allChildren) {
@@ -18094,29 +20914,29 @@
                 child.style.display = 'none';
             }
         }
-        
+
         // Create placeholder content
         const placeholder = document.createElement('div');
         placeholder.className = 'pip-placeholder active';
         placeholder.innerHTML = `
-            <div class="pip-placeholder-icon">📱</div>
+            <div class="pip-placeholder-icon"><span class="rt-emo">📱</span></div>
             <div class="pip-placeholder-text">Floating Window Active</div>
             <div class="pip-placeholder-desc">Your attendance summary is now floating above other windows</div>
         `;
-        
+
         container.appendChild(placeholder);
     }
-    
+
     // Hide placeholder and restore content
     function hidePipPlaceholder(container) {
         container.classList.remove('pip-active');
-        
+
         // Remove placeholder
         const placeholder = container.querySelector('.pip-placeholder');
         if (placeholder) {
             placeholder.remove();
         }
-        
+
         // Show all content
         const allChildren = container.children;
         for (let child of allChildren) {
@@ -18125,7 +20945,7 @@
             }
         }
     }
-    
+
     // Update PiP button state
     function updatePipButtonState(isActive) {
         const pipButton = document.querySelector('.pip-button');
@@ -18133,19 +20953,19 @@
             if (isActive) {
                 pipButton.classList.add('active');
                 pipButton.innerHTML = `
-                    <span class="pip-icon">🔲</span>
+                    <span class="pip-icon"><span class="rt-emo">🔲</span></span>
                     <span class="pip-text">Close Float</span>
                 `;
             } else {
                 pipButton.classList.remove('active');
                 pipButton.innerHTML = `
-                    <span class="pip-icon">📱</span>
+                    <span class="pip-icon"><span class="rt-emo">📱</span></span>
                     <span class="pip-text">Float</span>
                 `;
             }
         }
     }
-    
+
     // Set up PiP window event listeners
     function setupPipEventListeners(pipWindow, originalContainer) {
         // Handle window close
@@ -18155,7 +20975,7 @@
             hidePipPlaceholder(originalContainer);
             updatePipButtonState(false);
         });
-        
+
         // Handle window unload
         pipWindow.addEventListener('unload', () => {
             isPipActive = false;
@@ -18163,7 +20983,7 @@
             hidePipPlaceholder(originalContainer);
             updatePipButtonState(false);
         });
-        
+
         // Handle color scheme changes from the main window
         const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
         const handleColorSchemeChange = (e) => {
@@ -18171,52 +20991,52 @@
                 updatePipColorScheme(pipWindow, e.matches);
             }
         };
-        
+
         colorSchemeQuery.addEventListener('change', handleColorSchemeChange);
-        
+
         // Clean up color scheme listener when PiP window closes
         pipWindow.addEventListener('pagehide', () => {
             colorSchemeQuery.removeEventListener('change', handleColorSchemeChange);
         });
     }
-    
+
     // Start update loop for PiP content
     function startPipUpdateLoop(pipContent) {
         const updatePipContent = () => {
             if (!isPipActive || !pipWindow || pipWindow.closed) {
                 return;
             }
-            
+
             // Get current data from the original container
             const originalContainer = document.getElementById('total-time-summary');
             if (originalContainer) {
-                
+
                 // Check if we're in compact mode
                 if (pipContent.classList.contains('compact-mode')) {
                     // Update compact mode display
                     const compactTimeElement = pipContent.querySelector('.pip-compact-time');
                     const compactDisplay = pipContent.querySelector('.pip-compact-display');
-                    
+
                     const originalRemainingTime = originalContainer.querySelector('#remaining-time');
                     const originalEmojiDisplay = originalContainer.querySelector('.emoji-display');
                     const originalTotalWorked = originalContainer.querySelector('#total-worked-time');
-                    
+
                     if (compactTimeElement && originalRemainingTime) {
                         const remainingTime = originalRemainingTime.textContent;
                         const emoji = originalEmojiDisplay ? originalEmojiDisplay.textContent : '⏰';
                         compactTimeElement.innerHTML = `${remainingTime}<span class="pip-compact-emoji">${emoji}</span>`;
-                        
+
                         // Dynamic background gradient based on progress
                         if (originalTotalWorked && compactDisplay) {
                             const totalSeconds = timeToSeconds(originalTotalWorked.textContent);
                             const progress = Math.min(totalSeconds / getShiftSeconds(), 1);
-                            
+
                             const startColor = [225, 112, 85]; // Red-ish
                             const endColor = [0, 184, 148];   // Green-ish
-                            
+
                             const bgColor = interpolateColor(startColor, endColor, progress);
                             const borderColor = bgColor.replace('0.2)', '0.4)');
-                            
+
                             compactDisplay.style.background = bgColor;
                             compactDisplay.style.borderColor = borderColor;
                         }
@@ -18228,13 +21048,13 @@
                     const pipCompletionTime = pipContent.querySelector('#completion-time');
                     const pipEmojiDisplay = pipContent.querySelector('.emoji-display');
                     const pipProgressFill = pipContent.querySelector('.progress-fill');
-                    
+
                     const originalTotalWorked = originalContainer.querySelector('#total-worked-time');
                     const originalRemainingTime = originalContainer.querySelector('#remaining-time');
                     const originalCompletionTime = originalContainer.querySelector('#completion-time');
                     const originalEmojiDisplay = originalContainer.querySelector('.emoji-display');
                     const originalProgressFill = originalContainer.querySelector('.progress-fill');
-                    
+
                     // Sync content if original elements exist (not in placeholder mode)
                     if (originalTotalWorked && pipTotalWorked) {
                         pipTotalWorked.textContent = originalTotalWorked.textContent;
@@ -18253,36 +21073,69 @@
                     }
                 }
             }
-            
+
             // Continue updating every second
             setTimeout(updatePipContent, 1000);
         };
-        
+
         // Start the update loop
         setTimeout(updatePipContent, 1000);
     }
-    
+
     // Check if game panel should be preserved (games are initialized and active)
     function shouldPreserveGamePanel() {
         return featuresInitialized;
     }
-    
+
     function renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today) {
         // Get emoji for current progress
         const currentEmoji = getEmojiForProgress(totalWorkedTime);
         const progress = Math.min((totalWorkedTime / getShiftSeconds()) * 100, 100);
+        // Hoisted: the header ident, the timeline ruler and the log caption
+        // all read it. It used to be declared beside the progress bar, which
+        // is now the third of three places that need it.
+        const shiftCode = String(userPreferences.shiftDuration || '8h').toUpperCase();
 
         // Create header with emoji and title
+        //
+        // .rt-sweep and .rt-subcode are Cyberpunk-only chrome. They are
+        // emitted for every theme because there is one markup tree, and
+        // hidden by .attendance-summary:not(.retro-theme) in the theme
+        // block. Adding one here without adding it there leaves unstyled
+        // text sitting in the middle of the Glassmorphic widget.
+        //
+        // .rt-subcode stays a direct child of .summary-header rather than
+        // being wrapped together with the h2: a wrapper would re-flow the
+        // header for both themes, and this is decoration for one of them.
         const headerHTML = `
+            <div class="rt-sweep" aria-hidden="true"></div>
             <div class="summary-header">
                 <div class="emoji-display" id="game-mode-emoji-toggle" title="🎮 Game Mode ON — click to turn off">${currentEmoji}</div>
                 <h2 class="summary-title">Attendance Summary</h2>
+                <span class="rt-subcode" aria-hidden="true">// SHIFT.${shiftCode}</span>
             </div>
         `;
 
         // Create modern table
+        // The caption and the tfoot go INSIDE the table on purpose: the
+        // theme draws .modern-table as one clipped plate, so a sibling div
+        // above it would sit outside that plate.
+        //
+        // Both keep their TABLE display and hold an inner row element that
+        // does the flex layout. Setting a caption or a colspan td to
+        // display:flex stops it being a proper table child — the browser
+        // wraps it in an anonymous cell, the caption narrows to one column
+        // and the colspan is dropped. Neither fails loudly.
         let tableHTML = `
             <table class="modern-table">
+                <caption class="rt-sec" aria-hidden="true">
+                    <span class="rt-sec-row">
+                        <span class="rt-sec-glyph"></span>
+                        <span class="rt-sec-name">Punch Log</span>
+                        <span class="rt-sec-fill"></span>
+                        <span class="rt-sec-meta">${checkInOutList.length} SESSIONS &middot; TGT ${shiftCode}</span>
+                    </span>
+                </caption>
                 <thead>
                     <tr>
                         <th>#</th>
@@ -18294,22 +21147,22 @@
                 </thead>
                 <tbody>
         `;
-        
+
         checkInOutList.forEach((item, index) => {
             let durationDifference = '';
             let isSixHourGap = false;
-            
+
             if (index > 0) {
                 const prevItem = checkInOutList[index - 1];
                 // Debug logging like original script
                 console.log(prevItem.checkOut + '    ' + item.checkIn);
                 durationDifference = calculateTimeDifference(prevItem.checkOut, item.checkIn);
-                if (durationDifference >= 21600) { 
+                if (durationDifference >= 21600) {
                     isSixHourGap = true;
                 }
                 durationDifference = secondsToHHMMSS(durationDifference);
             }
-            
+
             if (isSixHourGap) {
                 tableHTML += `
                     <tr>
@@ -18319,14 +21172,14 @@
                     </tr>
                 `;
             }
-            
+
             // Add ID to the last row's worked time cell if it's the current active session
             const isLastRow = index === checkInOutList.length - 1;
             const isCurrentSession = item.checkOut === 'Current';
             const workedTimeCellId = (isLastRow && isCurrentSession) ? ' id="current-worked-time"' : '';
-            
+
             tableHTML += `
-                <tr>
+                <tr class="${isCurrentSession ? 'rt-active' : ''}">
                     <td>${index + 1}</td>
                     <td>${item.checkIn}</td>
                     <td>${item.checkOut}</td>
@@ -18336,12 +21189,68 @@
             `;
         });
 
-        tableHTML += '</tbody></table>';
+        // Real values only. The reference packs its footers and tickers with
+        // invented serial numbers; anything shown here has to be something
+        // the user could act on, or it is noise wearing a HUD costume.
+        //
+        // The total carries an id because updateDynamicContent() patches the
+        // widget in place rather than re-rendering it — without that, this
+        // number would freeze at whatever it was when the page loaded.
+        tableHTML += `</tbody>
+            <tfoot>
+                <tr>
+                    <td class="rt-tbl-foot" colspan="5">
+                        <span class="rt-foot-row">
+                            <span>Day Total</span>
+                            <span id="rt-day-total">${secondsToHHMMSS(totalWorkedTime)} / ${secondsToHHMMSS(getShiftSeconds())}</span>
+                        </span>
+                    </td>
+                </tr>
+            </tfoot>
+        </table>`;
 
         // Create progress bar
+        //
+        // HOUR RULER. The reference labels its day meter with wall-clock
+        // hours, which is the difference between "62% done" and "you are at
+        // 13:00 of an 08:00-16:00 shift". Derived from the first check-in
+        // and the shift length, so it needs no data the widget lacks.
+        //
+        // Check-in strings are 24h "HH:MM:SS" — the same form
+        // calculateTimeDifference() hands to Date — so timeToSeconds() reads
+        // them directly. With an empty list there is nothing to anchor to,
+        // and the ruler is omitted rather than guessed.
+        const shiftHours = Math.max(1, Math.round(getShiftSeconds() / 3600));
+        let rulerHTML = '';
+        if (checkInOutList.length) {
+            const startHour = Math.floor(timeToSeconds(checkInOutList[0].checkIn) / 3600);
+            let marks = '';
+            for (let h = 0; h <= shiftHours; h++) {
+                marks += '<span>' + String((startHour + h) % 24).padStart(2, '0') + '</span>';
+            }
+            rulerHTML = `<div class="rt-ruler" aria-hidden="true">${marks}</div>`;
+        }
         const progressBarHTML = `
-            <div class="progress-bar">
+            <div class="rt-hud-rail" aria-hidden="true">
+                <span class="rt-code is-block">SHIFT ${shiftCode}</span>
+                <span class="rt-code">LOAD ${Math.round(progress)}%</span>
+                <span class="rt-hazard-strip"></span>
+                <span class="rt-ticks"></span>
+                <span class="rt-code is-live">&#9679; LIVE</span>
+                <span class="rt-code">BUILD ${BUILD_LABEL}</span>
+            </div>
+            ${rulerHTML}
+            <!-- --rt-progress duplicates the fill width as a custom property.
+                 The Cyberpunk playhead is drawn on the TRACK rather than the
+                 fill (the fill has to clip its own highlight sweep, and the
+                 playhead has to overhang), so the track needs to know the
+                 percentage too. Unused by every other theme. -->
+            <div class="progress-bar" style="--rt-progress: ${progress}%">
                 <div class="progress-fill" style="width: ${progress}%"></div>
+            </div>
+            <div class="cyber-eq-wrap">
+                <canvas id="cyber-eq" aria-hidden="true"></canvas>
+                <button type="button" class="cyber-eq-btn" id="cyber-eq-btn">OFF</button>
             </div>
         `;
 
@@ -18358,8 +21267,9 @@
             </div>
             <div class="stat-card remaining-time-card">
                 <div class="stat-label">Remaining</div>
+                <span class="rt-live" aria-hidden="true">&#9679; LIVE</span>
                 <div id="remaining-time" class="stat-value remaining-time">${remainingTimeFormatted}</div>
-                <div class="remaining-desc">⏰ Time until freedom</div>
+                <div class="remaining-desc"><span class="rt-emo">⏰</span> Time until freedom</div>
             </div>
         `;
 
@@ -18377,12 +21287,14 @@
 
         timeStatsHTML += '</div>';
 
-        // Completion message
+        // Completion message. shiftHours (declared above, for the ruler) was
+        // hardcoded to "8-hour" here regardless of the actual shiftDuration
+        // setting — a 4h or 9h user always saw "8-hour shift" at completion.
         let completionHTML = '';
         if (remainingTime <= 0) {
             completionHTML = `
                 <div class="completion-message">
-                    🎉 Congratulations! You've completed your 8-hour shift! 🎉
+                    🎉 Congratulations! You've completed your ${shiftHours}-hour shift! 🎉
                 </div>
             `;
         }
@@ -18394,18 +21306,18 @@
                 <div class="snake-game-container">
                     <!-- Game Switcher -->
                     <div class="game-switcher">
-                        <button id="game-switch-snake" class="game-switch-btn active" onclick="window.switchGame('snake')" title="Snake Game">🐍</button>
-                        <button id="game-switch-flappy" class="game-switch-btn" onclick="window.switchGame('flappy')" title="Flappy Bird">🐦</button>
-                        <button id="game-switch-tetris" class="game-switch-btn" onclick="window.switchGame('tetris')" title="Tetris">🧱</button>
-                        <button id="game-switch-reflex" class="game-switch-btn" onclick="window.switchGame('reflex')" title="RefleX Game">⚡</button>
-                        <button id="game-switch-aim" class="game-switch-btn" onclick="window.switchGame('aim')" title="Chaos Aim">💥</button>
-                        <button id="game-switch-breakout" class="game-switch-btn" onclick="window.switchGame('breakout')" title="Breakout">🏓</button>
-                        <button id="game-switch-pool" class="game-switch-btn" onclick="window.switchGame('pool')" title="8-Ball Pool">🎱</button>
-                        <button id="game-switch-ludo" class="game-switch-btn" onclick="window.switchGame('ludo')" title="Ludo">🎲</button>
-                        <button id="game-switch-prayer" class="game-switch-btn" onclick="window.switchGame('prayer')" title="Prayer Counter">📿</button>
-                        <button id="game-switch-leaderboard" class="game-switch-btn" onclick="window.switchGame('leaderboard')" title="Leaderboard">🏆</button>
+                        <button id="game-switch-snake" class="game-switch-btn active" onclick="window.switchGame('snake')" title="Snake Game"><span class="rt-emo">🐍</span></button>
+                        <button id="game-switch-flappy" class="game-switch-btn" onclick="window.switchGame('flappy')" title="Flappy Bird"><span class="rt-emo">🐦</span></button>
+                        <button id="game-switch-tetris" class="game-switch-btn" onclick="window.switchGame('tetris')" title="Tetris"><span class="rt-emo">🧱</span></button>
+                        <button id="game-switch-reflex" class="game-switch-btn" onclick="window.switchGame('reflex')" title="RefleX Game"><span class="rt-emo">⚡</span></button>
+                        <button id="game-switch-aim" class="game-switch-btn" onclick="window.switchGame('aim')" title="Chaos Aim"><span class="rt-emo">💥</span></button>
+                        <button id="game-switch-breakout" class="game-switch-btn" onclick="window.switchGame('breakout')" title="Breakout"><span class="rt-emo">🏓</span></button>
+                        <button id="game-switch-pool" class="game-switch-btn" onclick="window.switchGame('pool')" title="8-Ball Pool"><span class="rt-emo">🎱</span></button>
+                        <button id="game-switch-ludo" class="game-switch-btn" onclick="window.switchGame('ludo')" title="Ludo"><span class="rt-emo">🎲</span></button>
+                        <button id="game-switch-prayer" class="game-switch-btn" onclick="window.switchGame('prayer')" title="Prayer Counter"><span class="rt-emo">📿</span></button>
+                        <button id="game-switch-leaderboard" class="game-switch-btn" onclick="window.switchGame('leaderboard')" title="Leaderboard"><span class="rt-emo">🏆</span></button>
                     </div>
-                    
+
                     <!-- Game Header (Dynamic) -->
                     <div class="snake-game-header">
                         <span id="game-title" class="snake-game-title">🐍 Snake</span>
@@ -18484,20 +21396,20 @@
                             <span class="snake-score">📿 Count: <span id="prayer-hdr-count">0</span></span>
                         </div>
                     </div>
-                    
+
                     <!-- Snake Canvas -->
                     <canvas id="snake-canvas" class="snake-canvas" width="368" height="368"></canvas>
-                    
+
                     <!-- Flappy Bird Canvas -->
                     <canvas id="flappy-canvas" class="snake-canvas" width="368" height="368" style="display:none;"></canvas>
-                    
+
                     <!-- Tetris Canvas -->
                     <canvas id="tetris-canvas" class="snake-canvas" width="368" height="368" style="display:none;"></canvas>
                     <canvas id="breakout-canvas" class="snake-canvas" width="368" height="368" style="display:none; cursor:none;"></canvas>
                     <canvas id="pool-canvas" width="368" height="368" style="display:none; cursor:crosshair;"></canvas>
                     <!-- Ludo is 344×416, not 368² — a square board plus HUD strips. -->
                     <canvas id="ludo-canvas" width="344" height="416" style="display:none; cursor:pointer;"></canvas>
-                    
+
                     <!-- Multi-Game Area (for RefleX and AimTrainer) -->
                     <div id="multi-game-area" class="multi-game-area" style="display: none;"></div>
 
@@ -18511,7 +21423,7 @@
                         <button class="prayer-plus-btn" onclick="window.prayerIncrementBtn()">+1</button>
                         <button class="prayer-reset-btn" onclick="window.prayerResetBtn()" title="Reset counter">🔄</button>
                     </div>
-                    
+
                     <!-- Game Stats -->
                     <div id="reflex-stats" style="display: none;"></div>
                     <div id="aim-stats" style="display: none;">
@@ -18522,7 +21434,7 @@
                             <div><strong>Hits:</strong> <span id="aim-hits-display">0</span>/<span id="aim-shots-display">0</span></div>
                         </div>
                     </div>
-                    
+
                     <!-- Snake Controls -->
                     <div id="snake-controls" class="snake-controls">
                         <button id="snake-mode-btn" class="snake-btn" onclick="window.cycleSnakeModeBtn()" title="Walls are lethal">🧱 Walled</button>
@@ -18537,32 +21449,32 @@
                     <!-- Per-game leaderboard, shown over whichever board is active.
                          One element for all panels: only one game is ever visible. -->
                     <div id="game-lb-overlay" class="game-lb-overlay" style="display:none;"></div>
-                    
+
                     <!-- RefleX Controls -->
                     <div id="reflex-controls" class="snake-controls" style="display: none;">
                         <button class="snake-btn" onclick="window.toggleReflexModeBtn()">🔄 Switch Mode</button>
                         <button id="reflex-play-btn" class="snake-btn" onclick="window.startReflexGameBtn()">▶ Play</button>
                         <button class="snake-btn" onclick="window.resetReflexGameBtn()">🔄 Reset</button>
                     </div>
-                    
+
                     <!-- AimTrainer Controls -->
                     <div id="aim-controls" class="snake-controls" style="display: none;">
                         <button id="aim-play-btn" class="snake-btn" onclick="window.startAimGameBtn()">▶ Play</button>
                         <button class="snake-btn" onclick="window.resetAimGameBtn()">🔄 Reset</button>
                     </div>
-                    
+
                     <!-- Flappy Bird Controls -->
                     <div id="flappy-controls" class="snake-controls" style="display: none;">
                         <button class="snake-btn" onclick="window.startFlappyGameBtn()">▶ Play</button>
                         <button class="snake-btn" onclick="window.resetFlappyGameBtn()">🔄 Reset</button>
                     </div>
-                    
+
                     <!-- Tetris Controls -->
                     <div id="tetris-controls" class="snake-controls" style="display: none;">
                         <button class="snake-btn" onclick="window.startTetrisGameBtn()">▶ Play</button>
                         <button class="snake-btn" onclick="window.resetTetrisGameBtn()">🔄 Reset</button>
                     </div>
-                    
+
                     <!-- Breakout Controls -->
                     <div id="breakout-controls" class="snake-controls" style="display: none;">
                         <button class="snake-btn" onclick="window.startBreakoutGameBtn()">▶ Play</button>
@@ -18594,7 +21506,7 @@
                     <div id="leaderboard-scoreboard" class="snake-scoreboard" style="display: none;">
                         <button class="lb-sync-btn" onclick="window.lbSync()" title="Sync & Refresh">🔄</button>
                     </div>
-                    
+
                     <!-- Game Over Overlays -->
                     <div id="snake-game-over" class="snake-game-over">
                         <h3>Game Over!</h3>
@@ -18603,11 +21515,11 @@
                         <p>Auto restarting...</p>
                     </div>
                 </div>
-                
+
                 <!-- Results Modals -->
                 <div id="reflex-results"></div>
                 <div id="aim-results"></div>
-                
+
                 <!-- Quotes Box -->
                 <div class="quotes-container">
                     <div class="quotes-header">
@@ -18623,8 +21535,45 @@
                 </div>
             </div>
         `;
-        
+
+        // SYS TICKER — the strip that closes the reference frame off along
+        // its bottom edge.
+        //
+        // The run holds its text TWICE. The marquee travels exactly -50%,
+        // so the loop point lands on the start of the second copy and the
+        // seam is invisible; with one copy it would visibly snap back.
+        //
+        // Every field is a real reading. The reference fills this strip with
+        // invented idents (GEOFENCE HQ-04, PAYROLL CYCLE 08) and it is the
+        // one thing in the sheets worth refusing: decoration that looks like
+        // telemetry teaches the user to stop reading the parts that are.
+        // Decorative in role, so aria-hidden and pointer-transparent — but
+        // the numbers in it are true.
+        const tickerRun = [
+            `${checkInOutList.length} SESSIONS LOGGED`,
+            `WORKED ${totalTimeFormatted}`,
+            `REMAINING ${remainingTimeFormatted}`,
+            `TARGET ${shiftCode}`,
+            `LOAD ${Math.round(progress)}%`,
+            `BUILD ${BUILD_LABEL}`
+        ].join(' &middot; ') + ' &middot; ';
+
+        const tickerHTML = `
+            <div class="rt-ticker" aria-hidden="true">
+                <span class="rt-code is-block">SYS</span>
+                <span class="rt-ticker-track">
+                    <span class="rt-ticker-run">${tickerRun}${tickerRun}</span>
+                </span>
+                <span class="rt-code">${shiftCode} SHIFT</span>
+            </div>
+        `;
+
         // Center panel - Main attendance content
+        //
+        // The ticker sits inside .main-attendance-content, not at the
+        // container edge, for the same reason the EQ rail does: Game Mode
+        // collapses .left-panel and .right-panel only, so anything that
+        // should survive it has to live in the centre column.
         const mainContentHTML = `
             <div class="main-attendance-content">
                 ${headerHTML}
@@ -18632,9 +21581,10 @@
                 ${tableHTML}
                 ${timeStatsHTML}
                 ${completionHTML}
+                ${tickerHTML}
             </div>
         `;
-        
+
         // Right panel - XP System & Image Box
         const rightPanelHTML = `
             <div class="right-panel">
@@ -18677,7 +21627,7 @@
                         <!-- Achievement badges will be dynamically inserted here -->
                     </div>
                 </div>
-                
+
                 <!-- Image Box -->
                 <div class="image-box-container">
                     <div class="image-box-header">
@@ -18699,12 +21649,12 @@
         // Check if we should preserve the game panel to prevent blinking
         const preserveGames = shouldPreserveGamePanel();
         const existingLeftPanel = totalTimeDiv.querySelector('.left-panel');
-        
+
         if (preserveGames && existingLeftPanel) {
             // Games are running - only update center and right panels, leave games untouched
             let centerPanel = totalTimeDiv.querySelector('.main-attendance-content');
             let rightPanel = totalTimeDiv.querySelector('.right-panel');
-            
+
             if (centerPanel) {
                 centerPanel.innerHTML = mainContentHTML.replace(/<div class="main-attendance-content">/, '').replace(/<\/div>$/, '');
             } else {
@@ -18713,7 +21663,7 @@
                 centerPanel = tempDiv.firstElementChild;
                 totalTimeDiv.appendChild(centerPanel);
             }
-            
+
             if (rightPanel) {
                 rightPanel.innerHTML = rightPanelHTML.replace(/<div class="right-panel">/, '').replace(/<\/div>$/, '');
             } else {
@@ -18726,7 +21676,7 @@
             // First render or games not initialized - build everything
             totalTimeDiv.innerHTML = leftPanelHTML + mainContentHTML + rightPanelHTML;
         }
-        
+
         // Wire emoji click → Game Mode toggle
         const _emojiToggle = totalTimeDiv.querySelector('#game-mode-emoji-toggle');
         if (_emojiToggle) {
@@ -18753,10 +21703,10 @@
         addSettingsButton(_controlBar);
         createPipButton(_controlBar);
         addDeveloperInfo(_controlBar);
-        
+
         // Add parallax effect
         addParallaxEffect(totalTimeDiv);
-        
+
         // Initialize all new features after DOM is ready (only once)
         if (!featuresInitialized) {
             setTimeout(() => {
@@ -18767,16 +21717,16 @@
                 // Pre-load high scores for new games
                 flappyHighScore = loadFlappyHighScore();
                 tetrisHighScore = loadTetrisHighScore();
-                
+
                 // Award XP based on hours worked
                 const hoursWorked = totalWorkedTime / 3600;
                 awardXP(hoursWorked);
-                
+
                 // Add global keyboard shortcuts
                 document.addEventListener('keydown', (e) => {
                     // Only handle shortcuts if not in an input field
                     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-                    
+
                     switch(e.key) {
                         case '1': window.switchGame('snake'); break;
                         case '2': window.switchGame('flappy'); break;
@@ -18804,7 +21754,7 @@
                             break;
                     }
                 });
-                
+
                 featuresInitialized = true;
             }, 100);
         } else {
@@ -18812,7 +21762,7 @@
             const hoursWorked = totalWorkedTime / 3600;
             awardXP(hoursWorked);
         }
-        
+
         // Expose functions to window for onclick handlers
         window.snakePlayPause = () => {
             if (!snakeGameRunning) {
@@ -18840,29 +21790,29 @@
         window.addQuote = addCustomQuote;
         window.changeImageBox = changeImage;
         window.changeImageAspectRatio = changeAspectRatio;
-        
+
         // Multi-game system window functions
         window.switchGame = (gameKey) => {
             switchToGame(gameKey);
             updateGameTitle(gameKey);
         };
-        
+
         window.startReflexGameBtn = () => {
             startReflexGame();
         };
-        
+
         window.resetReflexGameBtn = () => {
             resetReflexGame();
         };
-        
+
         window.toggleReflexModeBtn = () => {
             toggleReflexMode();
             updateGameTitle('reflex');
         };
-        
+
         window.startAimGameBtn = () => { startAimGame(); };
         window.resetAimGameBtn = () => { resetAimGame(); };
-        
+
         window.startFlappyGameBtn = () => { startFlappyGame(); };
         window.resetFlappyGameBtn = () => { resetFlappyGame(); };
         window.startTetrisGameBtn = () => { startTetrisGame(); };
@@ -18967,12 +21917,12 @@
             renderLeaderboardPanel();
             showXPNotification('✅ Leaderboard updated!', 'hourly');
         };
-        
+
         // Helper function to update game title
         function updateGameTitle(gameKey) {
             const titleElement = document.getElementById('game-title');
             if (!titleElement) return;
-            
+
             switch (gameKey) {
                 case 'snake':
                     // Short: the header also carries a mode chip and the score
@@ -19009,7 +21959,7 @@
                     break;
             }
         }
-        
+
         // Reset cached values for new render
         cachedValues = {
             totalWorked: totalTimeFormatted,
@@ -19019,7 +21969,7 @@
             progress: progress
         };
     }
-    
+
     function updateDynamicContent(totalWorkedTime, today, checkInOutList = []) {
         // Batch all DOM reads first, then all writes to prevent layout thrashing
         const totalTimeFormatted = secondsToHHMMSS(totalWorkedTime);
@@ -19027,17 +21977,17 @@
         const remainingTimeFormatted = remainingTime > 0 ? secondsToHHMMSS(remainingTime) : "00:00:00";
         const currentEmoji = getEmojiForProgress(totalWorkedTime);
         const progress = Math.min((totalWorkedTime / getShiftSeconds()) * 100, 100);
-        
+
         let futureTimeFormatted = '';
         if (remainingTime > 0) {
             const futureTime = new Date(today.getTime() + remainingTime * 1000);
             futureTimeFormatted = formatTime12Hour(futureTime);
         }
-        
+
         // Update XP based on hours worked
         const hoursWorked = totalWorkedTime / 3600;
         awardXP(hoursWorked);
-        
+
         // Get or cache DOM elements (do this ONCE to avoid repeated queries)
         if (!cachedElements.totalWorkedTime) {
             cachedElements.totalWorkedTime = document.getElementById('total-worked-time');
@@ -19045,8 +21995,10 @@
             cachedElements.completionTime = document.getElementById('completion-time');
             cachedElements.emojiDisplay = document.querySelector('.emoji-display');
             cachedElements.progressFill = document.querySelector('.progress-fill');
+            cachedElements.progressBar = document.querySelector('.progress-bar');
+            cachedElements.dayTotal = document.getElementById('rt-day-total');
         }
-        
+
         // Update "Current" row in the table if it exists (for active check-in)
         if (checkInOutList.length > 0) {
             const lastEntry = checkInOutList[checkInOutList.length - 1];
@@ -19062,10 +22014,10 @@
                 }
             }
         }
-        
+
         // Only update if values have actually changed
         const updates = [];
-        
+
         if (cachedValues.totalWorked !== totalTimeFormatted) {
             const element = cachedElements.totalWorkedTime;
             if (element) {
@@ -19075,9 +22027,19 @@
                     value: totalTimeFormatted
                 });
             }
+            // The Cyberpunk punch-log footer shows the same running total.
+            // It is absent in Glassmorphic, so this is guarded rather than
+            // assumed.
+            if (cachedElements.dayTotal) {
+                updates.push({
+                    element: cachedElements.dayTotal,
+                    property: 'textContent',
+                    value: totalTimeFormatted + ' / ' + secondsToHHMMSS(getShiftSeconds())
+                });
+            }
             cachedValues.totalWorked = totalTimeFormatted;
         }
-        
+
         if (cachedValues.remaining !== remainingTimeFormatted) {
             const element = cachedElements.remainingTime;
             if (element) {
@@ -19089,7 +22051,7 @@
             }
             cachedValues.remaining = remainingTimeFormatted;
         }
-        
+
         if (cachedValues.completion !== futureTimeFormatted && futureTimeFormatted) {
             const element = cachedElements.completionTime;
             if (element) {
@@ -19101,7 +22063,7 @@
             }
             cachedValues.completion = futureTimeFormatted;
         }
-        
+
         if (cachedValues.emoji !== currentEmoji) {
             const element = cachedElements.emojiDisplay;
             if (element) {
@@ -19113,7 +22075,7 @@
             }
             cachedValues.emoji = currentEmoji;
         }
-        
+
         // Only update progress if it changed by at least 0.1% to avoid constant updates
         const roundedProgress = Math.round(progress * 10) / 10;
         if (Math.abs(cachedValues.progress - roundedProgress) >= 0.1) {
@@ -19125,9 +22087,20 @@
                     value: `${roundedProgress}%`
                 });
             }
+            // The Cyberpunk playhead reads this off the track. It has to move
+            // in the same frame as the fill or the two visibly disagree —
+            // nothing re-renders this markup, so a missed update leaves the
+            // marker parked wherever the page happened to load.
+            if (cachedElements.progressBar) {
+                updates.push({
+                    element: cachedElements.progressBar,
+                    property: '--rt-progress',
+                    value: `${roundedProgress}%`
+                });
+            }
             cachedValues.progress = roundedProgress;
         }
-        
+
         // Batch all DOM writes together using RAF for smooth, non-blocking updates
         // RAF ensures updates happen during browser's repaint cycle, not during animations
         if (updates.length > 0) {
@@ -19137,6 +22110,11 @@
                     if (update.element) {
                         if (update.property === 'width') {
                             update.element.style.width = update.value;
+                        } else if (update.property.startsWith('--')) {
+                            // A custom property is not a style key and not an
+                            // element property — assigning it either way is a
+                            // silent no-op.
+                            update.element.style.setProperty(update.property, update.value);
                         } else {
                             update.element[update.property] = update.value;
                         }
@@ -19149,7 +22127,7 @@
     // Optimized update loop using requestAnimationFrame
     function startUpdateLoop() {
         let lastUpdateTime = 0;
-        
+
         function updateLoop(currentTime) {
             // Throttle updates to once per second
             if (currentTime - lastUpdateTime >= 1000) {
@@ -19159,13 +22137,13 @@
                 }
                 lastUpdateTime = currentTime;
             }
-            
+
             animationFrameId = requestAnimationFrame(updateLoop);
         }
-        
+
         animationFrameId = requestAnimationFrame(updateLoop);
     }
-    
+
     function stopUpdateLoop() {
         if (animationFrameId) {
             cancelAnimationFrame(animationFrameId);
@@ -19177,11 +22155,11 @@
     window.addEventListener('load', () => {
         // Load user preferences
         loadPreferences();
-        
+
         const checkUrlAndRun = () => {
             const currentUrl = window.location.href;
             if (currentUrl !== targetUrl) {
-                return; 
+                return;
             }
 
             insertAndCalculate();
@@ -19198,7 +22176,7 @@
         // Start optimized update loop
         startUpdateLoop();
     });
-    
+
     // Cleanup animation frames when page unloads
     window.addEventListener('beforeunload', () => {
         stopUpdateLoop();

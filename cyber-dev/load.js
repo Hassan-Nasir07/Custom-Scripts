@@ -1,12 +1,12 @@
-// Shared loader: evaluates cyber-hud.js + cyber-audio.js as one unit and hands
-// back their internals. Both files are indented blocks of the userscript's IIFE
-// body, so they have no exports of their own — wrapping them in a Function is
-// what makes the same source both drop-in-able and testable, the trick
-// ludo-dev/ and snake-dev/ use.
+// Shared loader: evaluates cyber-hud.js as an isolated unit and hands back its
+// internals. The file is an indented block of the userscript's IIFE body, so
+// it has no exports of its own — wrapping it in a Function is what makes the
+// same source both drop-in-able and testable, the trick ludo-dev/ and
+// snake-dev/ use.
 const fs   = require('fs');
 const path = require('path');
 
-const FILES = ['cyber-hud.js', 'cyber-audio.js'];
+const FILES = ['cyber-hud.js'];
 
 const DEFAULT_PREFS = {
     displayTheme: 'retro-futuristic',
@@ -20,7 +20,6 @@ const DEFAULT_PREFS = {
     cyberBorder: '#fff200',
     cyberGlowIntensity: 0.6,
     cyberPanelShape: 'rounded',
-    cyberAudioSource: 'off',
     gameFps: 60
 };
 
@@ -121,7 +120,6 @@ function stubEnvironment(prefs) {
     global.cancelAnimationFrame = noop;
     global.setTimeout = global.setTimeout || noop;
     global.clearTimeout = global.clearTimeout || noop;
-    global.navigator = { mediaDevices: {}, permissions: null };
     global.console = console;
 
     global.userPreferences = Object.assign({}, DEFAULT_PREFS, prefs || {});
@@ -143,14 +141,17 @@ function stubEnvironment(prefs) {
 
 // Names the modules expose back to the test. Extend when a suite needs more.
 const EXPORTS = [
-    'CYBER_PANEL_SHAPES', 'CYBER_TOKENS', 'CYBER_EQ_BARS', 'CYBER_EQ_SOURCES',
+    'CYBER_PANEL_SHAPES', 'CYBER_TOKENS', 'CYBER_PALETTES',
     'cyberTokenVarNames', 'applyCyberTokens', 'clearCyberTokens',
     'cyberPanelShape', 'applyCyberShape', 'clearCyberShape',
-    'relativeLuminance', 'contrastRatio', 'cyberTextContrast', 'updateCyberContrastChip',
+    'CYBER_GLOW_DEFAULT', 'CYBER_GLOW_MAX_PCT', 'cyberGlowScale',
+    'cyberGlowToPct', 'cyberGlowFromPct',
+    'relativeLuminance', 'contrastRatio', 'cyberTextContrast', 'cyberSwatchContrast',
+    'cyberWorstContrast', 'CYBER_TEXT_SWATCHES', 'updateCyberContrastChip',
     'updateCyberTitleGhosts', 'triggerCyberBoot',
     'applyCyberpunkTheme', 'clearCyberpunkTheme',
-    'cyberEqSource', 'cyberSimBar', 'cyberEqReadBars', 'cyberEqUpdateBeat',
-    'initCyberEq', 'cleanupCyberAudio', 'cyberEqUpdateButton'
+    'CYBER_EMOJI_RUN_RE', 'cyberEmojiSkipAncestor', 'cyberWrapEmojiTextNode',
+    'cyberSweepEmoji', 'cyberWatchEmoji'
 ];
 
 function load(prefs) {

@@ -38,12 +38,6 @@ const BLOCKS = [
         files: ['cyber-hud.js'],
         open:  '    // ═══ CYBERPUNK HUD — generated from cyber-dev/cyber-hud.js, do not edit here ═══',
         close: '    // ═══ END CYBERPUNK HUD ═══'
-    },
-    {
-        name:  'audio module',
-        files: ['cyber-audio.js'],
-        open:  '    // ═══ CYBERPUNK AUDIO — generated from cyber-dev/cyber-audio.js, do not edit here ═══',
-        close: '    // ═══ END CYBERPUNK AUDIO ═══'
     }
 ];
 

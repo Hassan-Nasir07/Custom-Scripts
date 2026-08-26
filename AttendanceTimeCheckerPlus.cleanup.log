@@ -1,0 +1,158 @@
+ATTENDANCE TIME CHECKER PLUS — CLEANUP / DEAD-CODE AUDIT LOG
+==============================================================
+Generated: 2026-08-25
+Scope: AttendanceTimeCheckerPlus.js (22,217 lines before, 22,184 after)
+Method: static grep/AST-ish scan for commented-out code, no-op blocks,
+        unused top-level functions, trailing whitespace and blank-line runs,
+        cross-checked against the project's own dev/test tooling before
+        anything was deleted.
+
+--------------------------------------------------------------------------
+0. IMPORTANT — THIS FILE IS PARTLY GENERATED. DO NOT HAND-EDIT EVERYWHERE.
+--------------------------------------------------------------------------
+Before touching anything, the file was mapped against the repo's own build
+convention: several large sections are a verbatim, byte-identical copy of
+source that is actually maintained in sibling `*-dev/` folders, and gets
+stamped back in by a `reinsert.js` script. `cyber-dev/README.md` says it
+outright: "Edit here, never the copy in the userscript. Drift is silent
+until the next reinsert." Two of the three blocks even carry explicit
+sentinel comments saying so in the file itself.
+
+Protected / generated regions (verified byte-identical to their source
+before AND after this cleanup, via `node snake-dev/reinsert.js`,
+`node cyber-dev/reinsert.js`, `node ludo-dev/reinsert.js`, all of which
+reported "already up to date"):
+
+  Lines 5166–6734    SNAKE ENGINE          <- snake-dev/snake-core.js + snake-ui.js
+  Lines 8279–10323   LUDO GAME             <- ludo-dev/ludo-core.js + ludo-ui.js
+  Lines 14058–16178  CYBERPUNK HUD THEME   <- cyber-dev/cyber-theme.css
+  Lines 19007–19719  CYBERPUNK HUD MODULE  <- cyber-dev/cyber-hud.js
+  Lines 19721–20190  CYBERPUNK AUDIO       <- cyber-dev/cyber-audio.js
+
+No line inside these ranges was modified. Any future dead-code/whitespace
+cleanup that touches them must be made in the corresponding `*-dev/` file
+and then re-synced with that folder's `reinsert.js`, not edited here
+directly — otherwise it silently reverts (or worse, breaks the exact-match
+reinsert/verify scripts) on the next sync.
+
+Everything below happened only in the ~15,600 unprotected lines (core
+attendance/XP/admin logic, PiP window handling, Breakout/Pool/RefleX/
+AimTrainer/FlappyBird/Tetris game code, settings modal, etc.) which have no
+separate source of truth.
+
+--------------------------------------------------------------------------
+1. DEAD CODE — REMOVED
+--------------------------------------------------------------------------
+
+[REMOVED] toggleCompactMode() — inert try/catch (was ~line 20910-20915)
+  Original:
+      // Resize window for compact mode
+      try {
+          console.log('Compact mode activated - content optimized for minimal space');
+      } catch (error) {
+          console.log('Could not resize PiP window:', error);
+      }
+  Why dead: the try body is a single console.log with a static string — it
+  cannot throw, so the catch branch is unreachable. The comment ("Resize
+  window for compact mode") doesn't match what the code does (nothing is
+  resized). Pure debug leftover with no observable effect.
+  Action: deleted both branches.
+
+[REMOVED] adjustPipWindowSize(pipWindow, content) — whole function (was
+  ~line 20919-20937) + its only call site (was ~line 20697-20700, a
+  setTimeout wrapper in the PiP-open flow).
+  Original function computed `optimalWidth` / `optimalHeight` from the
+  content's scroll dimensions and then only console.log'd them — the values
+  were never applied to anything (no window.resizeTo, no style write). The
+  function's own comment admits why: "The Document Picture-in-Picture API
+  doesn't support dynamic resizing." So the function did real work
+  (layout reads + arithmetic) purely to produce a debug log line that
+  nothing consumed.
+  Action: deleted the function and the setTimeout(() => adjustPipWindowSize
+  (...), 100) call site that invoked it.
+
+Net: 32 lines removed, syntax-checked clean afterward (`node -c`).
+
+--------------------------------------------------------------------------
+2. LOOKED DEAD BUT ARE NOT — LEFT ALONE (do not remove)
+--------------------------------------------------------------------------
+A grep-based "declared but only referenced once" scan flagged three
+functions as apparently unused inside AttendanceTimeCheckerPlus.js. Each
+was individually verified against the project's test/dev tooling before
+being ruled out — none should be deleted:
+
+  - updateSnakeGame() (line ~5834 pre-cleanup)
+    Comment above it: "Kept so any stray caller from v1 still resolves."
+    This is a deliberate backward-compatibility shim, kept on purpose.
+
+  - snakeFreeRegionConnected() (line ~5321 pre-cleanup)
+    Has zero callers inside the userscript itself, but is exercised by
+    snake-dev/snake-verify.js (`S.snakeFreeRegionConnected(walls, wrap)`),
+    which flood-fills every stage in SNAKE_STAGES at test time to catch an
+    unwinnable sealed-off pocket before it ships. Load-bearing test
+    infrastructure, not dead code.
+
+  - cyberTextContrast() (line ~19261 pre-cleanup)
+    Same story: unused inside the userscript, but asserted directly by
+    cyber-dev/cyber-verify.js (`m.cyberTextContrast() > 4.5` / `< 3`) as
+    part of the WCAG contrast checks for the Cyberpunk HUD palette.
+
+Lesson for any future pass: a "no callers in this file" grep is not
+sufficient for this repo — always also grep the matching `*-dev/*verify*.js`
+/ `*-dev/load.js` before deleting anything that looks orphaned.
+
+--------------------------------------------------------------------------
+3. COMMENTS — AUDITED, NONE REMOVED
+--------------------------------------------------------------------------
+Searched for boilerplate/restate-the-code comments (e.g. "// increment i"
+above `i++`), stale TODO/FIXME/HACK markers, and disabled code kept in
+`//`/`/* */` blocks. Result: none of substance. The comments in this file
+are overwhelmingly rationale/history notes (why a value is what it is, what
+regression a check prevents, what a v1 bug looked like) rather than
+redundant restatements, so there was nothing safe to cut here without
+losing real information. Examples deliberately left in place: the
+BUILD_SEED/BUILD_LABEL block at the top (release-process instructions), and
+the assorted "legacy scalar" comments around lines 620-1675/5188-5497
+(explain why an old storage key is still being read).
+
+--------------------------------------------------------------------------
+4. WHITESPACE / BLANK-LINE TRIM
+--------------------------------------------------------------------------
+  - Trailing whitespace removed from 820 lines (blank lines that were
+    actually spaces/tabs, and a handful of code lines with a trailing
+    space before `;`/`,`). Zero semantic effect; pure byte/line hygiene.
+  - Collapsed the file's one run of 2 consecutive blank lines (around the
+    Snake/Breakout section boundary, pre-cleanup ~line 2793-2794) to a
+    single blank line.
+  - Left ordinary single blank lines alone — they're used consistently as
+    paragraph breaks between statements/comments throughout the file, not
+    padding, and removing them would hurt readability without saving
+    anything meaningful (only ~1 run in 22k lines was ever doubled up).
+  - No changes made to blank lines/whitespace inside the 5 protected
+    regions listed in section 0 (they had none anyway — confirmed by scan
+    before editing).
+
+--------------------------------------------------------------------------
+5. VERIFICATION PERFORMED AFTER EVERY CHANGE
+--------------------------------------------------------------------------
+  node -c AttendanceTimeCheckerPlus.js          -> syntax OK
+  node snake-dev/reinsert.js                    -> "already up to date"
+  node cyber-dev/reinsert.js                    -> "already up to date" (x3 blocks)
+  node ludo-dev/reinsert.js                     -> "already up to date"
+  node snake-dev/snake-verify.js                -> 367 passed, 0 failed
+  node cyber-dev/cyber-verify.js                -> 605 passed, 0 failed
+  node ludo-dev/verify-all.js                   -> 1642 passed, 0 failed
+  Line endings re-checked: file remains 100% CRLF (22,184 CRLF, 0 lone LF).
+
+--------------------------------------------------------------------------
+6. NOT DONE / OUT OF SCOPE FOR THIS PASS
+--------------------------------------------------------------------------
+  - No functional refactors, no renamed variables, no logic changes beyond
+    the two dead-code deletions in section 1.
+  - console.log/console.error calls elsewhere in the file (~30 remaining)
+    were reviewed and left in place — they gate on actual state (admin
+    actions, catch blocks, an explicit debug toggle) rather than being
+    inert like the two removed above.
+  - Did not touch the ~15,600 unprotected lines' larger structural
+    questions (e.g. whether some of the mini-games could share more code)
+    — that's a redesign, not a cleanup, and outside what was asked.

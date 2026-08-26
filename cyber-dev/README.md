@@ -9,7 +9,7 @@ iterating on 600 lines of CSS inside it is slow — the same reason `ludo-dev/` 
 
 ```
 node cyber-dev/reinsert.js           # splice cyber-dev/ into the userscript
-node cyber-dev/cyber-verify.js       # 220 assertions
+node cyber-dev/cyber-verify.js       # ~300 assertions
 node ludo-dev/verify-all.js          # all 11 suites, this one included
 start cyber-dev/cyber-harness.html   # judge the look
 ```
@@ -22,50 +22,99 @@ chaining). The default `node` here is 10 — use the Volta image, the way
 "$LOCALAPPDATA/Volta/tools/image/node/22.22.2/node.exe" cyber-dev/cyber-verify.js
 ```
 
-### Source — spliced at three separate sentinel pairs
+### Source — spliced at two separate sentinel pairs
 
 | File | Purpose |
 |---|---|
 | `cyber-theme.css` | The whole theme, as real CSS. Lands **inside** the `modernStyles` template literal at its 12-space indent, so it drops in verbatim. |
 | `cyber-hud.js` | Tokens, panel shape, contrast guard, title ghosts, boot-in. Written at the userscript's 4-space IIFE indent. |
-| `cyber-audio.js` | Analyser, spectrum rail, `--rt-beat`. Same indent. |
 
-Split three ways because they land in three different places: the CSS goes in the style
-template, and the two JS blocks go in the IIFE body. Neither JS file has exports of its
-own — `load.js` wraps them in a `Function` to make the same source both drop-in-able and
+Split two ways because they land in two different places: the CSS goes in the style
+template, and the JS block goes in the IIFE body. The JS file has no exports of its
+own — `load.js` wraps it in a `Function` to make the same source both drop-in-able and
 testable, the trick `ludo-dev/` uses.
 
 ### Tooling
 
 | File | Purpose |
 |---|---|
-| `reinsert.js` | Splices all three blocks. Refuses on missing, duplicated or out-of-order sentinels. Adds two checks `snake-dev/reinsert.js` does not need — see *The reinsert contract*. |
-| `load.js` | Evaluates both JS modules against a stub DOM and returns their internals. Its stub `style` object records every `setProperty`/`removeProperty`, which is what lets the suite assert the token write list and the teardown list are the same list. |
+| `reinsert.js` | Splices both blocks. Refuses on missing, duplicated or out-of-order sentinels. Adds two checks `snake-dev/reinsert.js` does not need — see *The reinsert contract*. |
+| `load.js` | Evaluates the JS module against a stub DOM and returns its internals. Its stub `style` object records every `setProperty`/`removeProperty`, which is what lets the suite assert the token write list and the teardown list are the same list. |
 | `cyber-verify.js` | Static audit of the host wiring + headless module checks. |
 | `cyber-harness.html` | The visual authority. See below. |
-| `ref/` | The reference sheets the visual language is authored against. Read them before changing how anything looks. |
+| `snapshot.js` | Builds a self-contained copy of the harness with the CSS and module inlined, for reading computed styles out of a real browser. See *What a browser can tell you* below. |
+| `ref/` | The motif sheets **and** `ref/design/` — the Claude Design canvas that is the authoritative composition. Read both before changing how anything looks; see `ref/README.md`. |
 
 **There is no `preview.js`.** `ludo-dev/preview.js` is a canvas software rasterizer — it
 cannot render DOM or CSS, so the trick Snake and Ludo use to judge their art in a PNG does
 not transfer to a stylesheet. `cyber-harness.html` in a real browser is the only honest
 renderer here.
 
+### What a browser can tell you without a screenshot
+
+"A human has to look at it" is true of whether this theme looks *good*. It is not true of
+whether the CSS does what it says. A browser can be driven far enough to read back
+**computed styles**, and that answers a class of question no static check can:
+
+- Does the whole stylesheet parse, or did one bad declaration discard everything after it?
+- Does `caption.rt-sec` still compute to `display: table-caption`, and does the footer cell
+  still report `colSpan: 5`? Flex either and the browser silently wraps it in an anonymous
+  cell — the caption narrows to one column, the colspan vanishes, nothing throws.
+- Do the caption, the footer and the table all measure the *same width*?
+- Do `--rt-clip` and `--rt-clip-alt` resolve to genuinely different polygons under each of
+  the four shapes?
+- Does the container still compute `filter: none`?
+
+```
+node cyber-dev/snapshot.js       # -> cyber-dev/_snapshot.html, then open it and
+                                 #    read computed styles; delete when done
+```
+
+Two constraints, both learned the hard way and both enforced or documented in
+`snapshot.js`:
+
+1. **The file must be self-contained.** A local file gets loaded by inlining it, so a
+   relative `<link href="cyber-theme.css">` resolves against the wrong base and loads
+   nothing. The harness then renders completely unstyled and every value you read back is
+   the host base sheet — which looks like a passing check. `snapshot.js` refuses to run if
+   the tags it inlines have moved, rather than producing that silently.
+2. **It must sit inside the project folder.** Outside it, the page renders as a
+   non-scriptable snapshot and evaluation fails outright.
+
+Script evaluation runs in an **isolated world**, so page globals (`userPreferences`,
+`applyCyberpunkTheme`) are not reachable. Anything needing to call into the modules belongs
+in `cyber-verify.js` against `load.js`. Shape switching *is* testable here, because the
+shape classes are pure CSS — toggle `rt-shape-*` on the container.
+
+This is a supplement, not a replacement. It proved the table-display trap and caught it
+before it shipped; it says nothing about whether the result looks right.
+
 ### cyber-harness.html
 
-Loads `cyber-theme.css`, `cyber-hud.js` and `cyber-audio.js` **directly** — not copies.
-The two JS files are valid standalone classic scripts (no top-level `return`), so a
-`<script src>` evaluates them exactly as the userscript does. Anything wrong in the harness
-is wrong in the widget.
+Loads `cyber-theme.css` and `cyber-hud.js` **directly** — not copies. The JS file is a
+valid standalone classic script (no top-level `return`), so a `<script src>` evaluates it
+exactly as the userscript does. Anything wrong in the harness is wrong in the widget.
 
 It carries a deliberately minimal *host base* stylesheet: the handful of glassmorphic rules
 the theme overrides rather than replaces (`.stat-card::before`'s `content`/`position`/
 `opacity`, the container's `::before`, layout). Without those the theme's pseudo-elements
 have nothing to inherit and the harness would be lying about how it renders.
 
-Controls: all eight swatches, glow intensity, the three panel shapes, all four audio
-sources, six one-click palettes, boot-in and a Game Mode toggle. The palette list ends with
+Controls: all eight swatches, glow intensity, meter position, all four panel shapes, six
+one-click palettes, boot-in and a Game Mode toggle. The palette list ends with
 **Dark-on-dark ✗**, which exists to prove the contrast guard fires rather than the theme
 silently becoming unreadable.
+
+**Every control drives the real thing, and the suite checks it.** Section C7 asserts that
+each id in the rig markup is read or written by the rig script, and that each class the rig
+toggles is selected by some loaded stylesheet. That second check exists because the Game
+Mode button used to toggle `.gm-off` — a class no stylesheet anywhere defines — and fake
+the visible part with inline `display: none`, so it looked like it worked while exercising
+none of the real collapse path. It uses `.game-mode-hidden` / `.game-mode-off` now, the
+widget's own names, and the base sheet carries their rules.
+
+**Meter** exists because the playhead reads `--rt-progress` and never moved on its own —
+it writes exactly the property `renderFullContent()` writes.
 
 ## The reinsert contract
 
@@ -76,8 +125,6 @@ Sentinels, one pair per block:
             /* ═══ END CYBERPUNK HUD THEME ═══ */
     // ═══ CYBERPUNK HUD — generated from cyber-dev/cyber-hud.js, do not edit here ═══
     // ═══ END CYBERPUNK HUD ═══
-    // ═══ CYBERPUNK AUDIO — generated from cyber-dev/cyber-audio.js, do not edit here ═══
-    // ═══ END CYBERPUNK AUDIO ═══
 ```
 
 The CSS pair must stay CSS comments at the 12-space indent — it is inside a template
@@ -120,7 +167,12 @@ carry text, so an accent-derived bracket cannot hide information.
 
 Authored against `ref/`. The first pass of this theme was rejected as *"sci-fi, not
 cyberpunk-ish"*, which was correct, so what separates the two is written down here rather
-than left to taste. In order of how much each contributes:
+than left to taste.
+
+Items 1–6 are the **vocabulary**, settled in pass 2 against the motif sheets. Items 7–10
+are **composition**, settled in pass 3 against `ref/design/` — the sheets are a catalogue
+of parts and say nothing about how the parts go together, which is why it took a finished
+canvas to get them. In order of how much each contributes:
 
 1. **Asymmetry.** Not one frame in the reference is a rounded rectangle. Step notches cut
    from a *single* corner, opposite-corner diagonals, terraced two-jump corners. Symmetry
@@ -130,9 +182,11 @@ than left to taste. In order of how much each contributes:
 2. **45° hazard hatching** on container edges, meter tracks and tabs. `--rt-hazard`,
    `--rt-hazard-dim`. The single most cyberpunk motif, and the one a generic sci-fi HUD
    never has.
-3. **Solid plates with knocked-out glyphs.** Title, table header, stat labels, level badge,
-   every active control. Outline-and-glow alone has no mass, and mass is what stops it
-   looking like a wireframe.
+3. **Solid plates with knocked-out glyphs** — `.rt-code.is-block`, `.stat-label`, the
+   hexagonal level badge, every active control. Outline-and-glow alone has no mass, and
+   mass is what stops it looking like a wireframe. **But mass goes on the small things.**
+   Pass 2 also plated the title and the table header; pass 3 took both back off, because a
+   heading that looks identical to a button is a hierarchy bug wearing a style. See item 9.
 4. **Flat.** No `backdrop-filter`, no glass, near-zero mid-tones. `--rt-glow` is a 7px halo,
    not 18px: a small hard halo reads as a lit filament, a wide soft one reads as fog.
 5. **Greeble** — `.rt-hud-rail`, mono codes, tick rows. It shows *real* values (shift length,
@@ -140,6 +194,27 @@ than left to taste. In order of how much each contributes:
    numbers is clutter; the same data in mono is characterful.
 6. **Schematic terminal dots** at two of the bracket ends. Two, not four — four reads as a
    border.
+7. **One composition, repeated.** Every panel in the canvas opens the same way: glyph bar,
+   display name, hazard filler, right-aligned mono readout. That is `.rt-sec`, one rule
+   with `--rt-sec-c` per panel. The rhythm is what makes a stack of unrelated boxes read
+   as one instrument, and it is the single thing pass 2 was most obviously missing.
+8. **A hero, not a row of equals.** The canvas picks the number you actually came to read
+   and spends everything on it — tinted fill, solid accent border, wide bloom, biggest
+   type — and draws the others as reference values. `.remaining-time-card` is the hero.
+   Three equally weighted cards read as a spec sheet.
+9. **Chromatic aberration on the one display word.** `--rt-aberr`: a warm ghost 2px one
+   way, a cool one 2px the other, on the title only. Cheapest item on this list, most
+   recognisably cyberpunk. Asserted to be used exactly once — a second aberrated element
+   reads as a rendering fault rather than a style. Offsets stay at 2px; past ~3px it stops
+   reading as a mis-converged tube and becomes a drop shadow.
+10. **Colour by meaning, and measure what you colour.** `--rt-accent` is "targeted"
+    (remaining, live); `--rt-data` is "measured" (worked, elapsed). Reading one against the
+    other is the widget's whole job. **Any swatch that colours type must be in
+    `CYBER_TEXT_SWATCHES`** — see *Things not to break*.
+
+Asymmetry, in pass 3, is mostly by **arrangement** rather than by silhouette:
+`--rt-clip-alt` mirrors each shape so neighbouring panels cut opposite corners. The canvas
+is not made of weird shapes — it is made of plain shapes whose cuts never line up.
 
 `clip-path` removes the border along a cut edge, which leaves the silhouette unfinished.
 `--rt-outline` draws it back with four 1px `drop-shadow`s that follow the clip exactly, so
@@ -147,9 +222,31 @@ one token outlines every shape without needing a wrapper element.
 
 ## Things not to break
 
-- **Defaults must not change the look.** `cyberText`/`cyberGlow`/`cyberBorder` default to
-  `#fff200` and `cyberPanelShape` to `rounded`. An upgrade that silently restyles the
-  widget reads as a bug. The suite asserts each default.
+- **The colour defaults must not change.** `cyberText`/`cyberGlow`/`cyberBorder` all
+  default to `#fff200`, so an existing user keeps their yellow HUD — now changeable. The
+  suite asserts each default.
+
+  **`cyberPanelShape` is a deliberate exception, and it is `notched`, not `rounded`.**
+  Pass 2 moved it, because reshaping the panels *was* the request; pass 3 left it there.
+  Noted because the rule above used to be absolute and the old wording outlived the change.
+- **The emoji tint filter id is spelled in two files.** `CYBER_EMOJI_FILTER_ID` in
+  `cyber-hud.js` builds it; `url(#…)` in `cyber-theme.css` reaches it. Nothing links them but
+  a matching string, and a mismatch is silent — Chrome ignores an unresolvable filter
+  reference and paints the emoji untinted. Section H3 asserts they agree, for the same reason
+  H2 exists.
+- **If you colour type with a swatch, add it to `CYBER_TEXT_SWATCHES`** in `cyber-hud.js`.
+  `cyber-verify.js` section C2 resolves every `color: var(--rt-*)` back to its swatch
+  (following one hop of aliasing) and fails if the contrast guard is not measuring it. An
+  unmeasured swatch on type is the original "dark pick hides a number" bug in a new hat.
+- **Never change the `display` of a table-structural element.** The punch-log header and
+  footer are a `<caption>` and a `<tfoot>` cell so they land inside the clipped plate; both
+  keep their table display and hold an inner `.rt-sec-row` / `.rt-foot-row` that does the
+  flexing. Flexing the caption itself narrows it to one column, and flexing the `colspan`
+  cell drops the span — silently, both times, and only in a browser.
+- **Every `rt-*` element the host renders needs a hide rule under
+  `.attendance-summary:not(.retro-theme)`.** One markup tree serves both themes, so an
+  unhidden element lays out as unstyled text in the middle of the Glassmorphic widget. The
+  suite checks the list in both directions, including for stale entries.
 - **Never animate `box-shadow`.** An animated property beats the static declaration
   outright. The original `animation: neonPulse 5s … !important` on `.retro-theme
   .stat-card` is why all four declared shadow layers, and every per-card shadow below them,
@@ -161,43 +258,24 @@ one token outlines every shape without needing a wrapper element.
   outer container and the side panels keep `border-radius` only: they hold tooltips at
   z-index 9999, game canvases, trays and popovers. Clipping those is how the original ended
   up with two dead `clip-path: none !important` resets cancelling its own chamfer.
-- **The EQ rail must stay in `.main-attendance-content`.** Game Mode collapses
-  `.left-panel` and `.right-panel`; anything in the centre column survives it.
+- **A glow needs a big base radius AND radius scaling.** `--rt-glow-k` is the 0-1 intensity
+  and every glow multiplies *both* its radius and its alpha by it, from zero. Two separate
+  mistakes here, both of which looked fixed at the time:
+  scaling alpha alone (opacity saturates long before a slider does), and then scaling a 7px
+  base (there is no halo there to scale — widening the slider's range to compensate just
+  moved the dead zone). `--rt-glow` is **layered** now — a 6px core, a 22px bloom, a 48px
+  spill — because one blur wide enough to spread does turn to fog, but a small bright layer
+  under a large dim one does not. Section C6 fails any shadow that scales one channel and
+  not the other, fails `--rt-glow` if it stops being layered or drops under 30px of reach,
+  and forbids reading the raw `--rt-glow-mul` from CSS.
 - **No `filter` on the container or the side panels.** A filter on an ancestor becomes the
   containing block for `position: fixed` descendants, and the widget has two:
   `#aim-results` and `.lb-ach-popover`. Both would start positioning against the widget
-  instead of the viewport. The container couples the beat through `box-shadow` instead — a
-  plain declaration re-resolving off `--rt-beat`, not an animation, so it overrides nothing.
-  `--rt-outline` goes only on panels with no fixed descendants; the suite asserts this.
+  instead of the viewport. `--rt-outline` goes only on panels with no fixed descendants;
+  the suite asserts this.
 - **Knocked-out type runs one direction only.** A `--rt-text` plate carrying `--rt-bg-1`
   glyphs is safe by the same guarantee the contrast chip measures — that exact pair with the
   roles swapped. An **accent** plate carrying text is never allowed: a dark Highlight would
   hide the label with no warning and nothing that could undo it.
-- **Nothing may request a permission without a click.** There is no gesture at page load,
-  so `cyberEqAutoResume()` never opens the share picker and only reconnects the mic when
-  the permission is *already* granted. A declined tier does not auto-escalate — firing a
-  microphone prompt straight after someone cancelled a screen-share prompt is a second
-  surprise, so the tier is marked failed and the next click moves on.
-- **`cleanupCyberAudio()` must run on every exit path.** A capture stream that outlives a
-  theme switch leaves the user a permanent screen-share banner for a rail that is no longer
-  on screen.
 - **Edit here, never the copy in the userscript.** Drift is silent until the next reinsert
   refuses to run.
-
-## What a browser can actually do with system audio
-
-Worth recording, because it constrains the feature rather than the implementation.
-
-There is **no system-loopback tap** in the Web Audio API. The only route to "whatever is
-playing on this machine" is `getDisplayMedia({ audio: true })`, which needs a gesture every
-session, shows the share picker, requires a video constraint (audio-only is rejected, so the
-video track is stopped and dropped immediately), leaves a screen-share banner up while it
-runs, and on Windows only carries system output if the user ticks *"Also share system
-audio"*. Sharing a surface without that tick yields a stream with no audio track at all,
-which is detected and reported rather than silently drawn as a flat rail.
-
-The mic tier is the pragmatic fallback: one prompt, it persists across reloads, and it
-hears whatever the speakers play — but it also hears the room, and with headphones on it
-reads flat. `echoCancellation`, `noiseSuppression` and `autoGainControl` are all forced
-**off**; left on, the browser gates and levels the signal for speech and the analyser sees a
-flattened version of the music rather than the music.

@@ -28,9 +28,18 @@
   }
   .summary-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
   .emoji-display { font-size: 2rem; }
+  .rt-emo-demo, .rt-emo-raw { display: flex; gap: 7px; font-size: 1.35rem; margin: 6px 0 2px; }
+  .rt-emo-raw { opacity: .85; }
+  .rig-note { font-size: 11px; opacity: .55; margin: 4px 0 0; }
   .summary-title { font-size: 1.4rem; margin: 0; font-weight: 700; }
   .modern-table { width: 100%; border-collapse: collapse; margin: 0 0 14px; font-size: .82rem; }
   .modern-table th, .modern-table td { padding: 9px 11px; text-align: left; }
+  /* A caption centres and a tfoot cell keeps its table box by default; the
+     real host sheet does not style either, so the resets that the theme
+     relies on are stated here rather than assumed. */
+  .modern-table caption { caption-side: top; text-align: left; }
+  .stat-card { display: flex; flex-direction: column; gap: 4px; position: relative; }
+  .remaining-desc { font-size: .7rem; opacity: .8; }
   .progress-bar { height: 12px; margin: 0 0 4px; position: relative; overflow: hidden; border-radius: 6px; }
   .progress-fill { height: 100%; border-radius: inherit; }
   .time-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 14px 0; }
@@ -44,7 +53,17 @@
   .completion-message { padding: 10px 14px; margin-top: 10px; text-align: center; }
   .main-attendance-content { position: relative; }
   .attendance-body { display: flex; gap: 16px; align-items: flex-start; }
-  .left-panel, .right-panel { width: 240px; flex: 0 0 240px; display: flex; flex-direction: column; gap: 14px; }
+  /* width + flex-shrink:0, NOT `flex: 0 0 240px` — a definite flex-basis
+     (the "0" in that shorthand) survives .game-mode-hidden's
+     `width: 0 !important` untouched, because flex-basis governs main-axis
+     size once it is a definite length and stops consulting `width` at
+     all. Checked in a real engine: with the shorthand, Game Mode OFF only
+     shrank the panels from 240px to ~174px, never to 0 — the exact
+     "control that looks wired and exercises nothing" this suite exists to
+     catch. The host's own rule has always been width + flex-shrink:0
+     (flex-basis defaults to auto, which DOES fall back to width), so this
+     just brings the mirror back in line with it. */
+  .left-panel, .right-panel { width: 240px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; }
   .main-attendance-content { flex: 1 1 auto; min-width: 0; }
   .snake-game-container, .quotes-container, .xp-container, .image-box-container { padding: 13px; border-radius: 16px; }
   .snake-game-title, .quotes-title, .xp-title, .image-box-title { font-size: .72rem; margin: 0 0 9px; font-weight: 700; }
@@ -66,6 +85,17 @@
     border: 1px solid transparent; border-radius: 12px; display: inline-block;
   }
   .bottom-bar { display: flex; gap: 9px; justify-content: center; margin-top: 14px; }
+  /* Game Mode, copied from the host sheet rather than approximated. The rig
+     used to fake this with inline display:none and a .gm-off class that
+     nothing styles — so the button appeared to work while exercising none of
+     the real code path. These are the class names the widget actually uses. */
+  .left-panel.game-mode-hidden, .right-panel.game-mode-hidden {
+    width: 0 !important; min-width: 0 !important; opacity: 0 !important;
+    overflow: hidden !important; margin: 0 !important; padding: 0 !important;
+    pointer-events: none !important; flex-shrink: 1 !important; gap: 0 !important;
+    max-height: 0 !important; height: 0 !important;
+  }
+  #total-time-summary.game-mode-off { width: fit-content; }
 
   /* ────────────────────────────────────────────────────────────────
      HARNESS CHROME — never inside .attendance-summary, so it cannot be
@@ -142,21 +172,17 @@
         </div>
       </div>
 
+      <!-- Element order matches renderFullContent() exactly: sweep, header,
+           rail + ruler + meter + EQ, table, stats, completion, ticker. It did
+           not before, which made the harness lie about vertical rhythm — the
+           one thing it exists to show. -->
       <div class="main-attendance-content">
+        <div class="rt-sweep" aria-hidden="true"></div>
         <div class="summary-header">
           <span class="emoji-display">😌</span>
           <h2 class="summary-title">Attendance Summary</h2>
+          <span class="rt-subcode" aria-hidden="true">// SHIFT.8H</span>
         </div>
-
-        <table class="modern-table">
-          <thead>
-            <tr><th>#</th><th>Check-In</th><th>Check-Out</th><th>Worked Time</th><th>Break</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>1</td><td>08:00:36</td><td>Current</td><td>04:11:46</td><td>—</td></tr>
-            <tr><td>2</td><td>13:12:04</td><td>17:40:11</td><td>04:28:07</td><td>00:19:22</td></tr>
-          </tbody>
-        </table>
 
         <div class="rt-hud-rail" aria-hidden="true">
           <span class="rt-code is-block">SHIFT 8H</span>
@@ -164,17 +190,44 @@
           <span class="rt-hazard-strip"></span>
           <span class="rt-ticks"></span>
           <span class="rt-code is-live">&#9679; LIVE</span>
-          <span class="rt-code">BUILD v5</span>
+          <span class="rt-code">BUILD v6</span>
         </div>
 
-        <div class="progress-bar"><div class="progress-fill" style="width:52%"></div></div>
-
-        <!-- The EQ rail. Inside .main-attendance-content on purpose: Game Mode
-             collapses .left-panel and .right-panel only, so the rail survives it. -->
-        <div class="cyber-eq-wrap">
-          <canvas id="cyber-eq" aria-hidden="true"></canvas>
-          <button type="button" class="cyber-eq-btn" id="cyber-eq-btn">OFF</button>
+        <div class="rt-ruler" aria-hidden="true">
+          <span>08</span><span>09</span><span>10</span><span>11</span><span>12</span>
+          <span>13</span><span>14</span><span>15</span><span>16</span>
         </div>
+        <div class="progress-bar" style="--rt-progress:52%"><div class="progress-fill" style="width:52%"></div></div>
+
+        <!-- caption + tfoot, not sibling divs: they have to land inside the
+             clipped plate the theme draws for .modern-table. -->
+        <table class="modern-table">
+          <caption class="rt-sec" aria-hidden="true">
+            <span class="rt-sec-row">
+              <span class="rt-sec-glyph"></span>
+              <span class="rt-sec-name">Punch Log</span>
+              <span class="rt-sec-fill"></span>
+              <span class="rt-sec-meta">2 SESSIONS &middot; TGT 8H</span>
+            </span>
+          </caption>
+          <thead>
+            <tr><th>#</th><th>Check-In</th><th>Check-Out</th><th>Worked Time</th><th>Break</th></tr>
+          </thead>
+          <tbody>
+            <tr class="rt-active"><td>1</td><td>08:00:36</td><td>Current</td><td>04:11:46</td><td>—</td></tr>
+            <tr><td>2</td><td>13:12:04</td><td>17:40:11</td><td>04:28:07</td><td>00:19:22</td></tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="rt-tbl-foot" colspan="5">
+                <span class="rt-foot-row">
+                  <span>Day Total</span>
+                  <span id="rt-day-total">04:11:46 / 08:00:00</span>
+                </span>
+              </td>
+            </tr>
+          </tfoot>
+        </table>
 
         <div class="time-stats">
           <div class="stat-card worked-time-card">
@@ -183,7 +236,9 @@
           </div>
           <div class="stat-card remaining-time-card">
             <span class="stat-label">Remaining</span>
+            <span class="rt-live" aria-hidden="true">&#9679; LIVE</span>
             <span class="stat-value remaining-time">03:48:14</span>
+            <span class="remaining-desc"><span class="rt-emo">⏰</span> Time until freedom</span>
           </div>
           <div class="stat-card completion-time-card">
             <span class="stat-label">Complete At</span>
@@ -192,6 +247,14 @@
         </div>
 
         <div class="completion-message">Shift complete — 8h logged</div>
+
+        <div class="rt-ticker" aria-hidden="true">
+          <span class="rt-code is-block">SYS</span>
+          <span class="rt-ticker-track">
+            <span class="rt-ticker-run">2 SESSIONS LOGGED &middot; WORKED 04:11:46 &middot; REMAINING 03:48:14 &middot; TARGET 8H &middot; LOAD 52% &middot; BUILD v6 &middot; 2 SESSIONS LOGGED &middot; WORKED 04:11:46 &middot; REMAINING 03:48:14 &middot; TARGET 8H &middot; LOAD 52% &middot; BUILD v6 &middot; </span>
+          </span>
+          <span class="rt-code">8H SHIFT</span>
+        </div>
 
         <div class="bottom-bar">
           <span class="developer-info">⚙</span>
@@ -238,9 +301,35 @@
   <h2>Glow intensity</h2>
   <div class="row">
     <input type="range" min="0" max="100" value="60" id="glow">
-    <span class="k" style="flex:0 0 34px;text-align:right" id="glowOut">60%</span>
+    <span class="k" style="flex:0 0 40px;text-align:right" id="glowOut">60%</span>
   </div>
   <span class="cyber-contrast-chip is-pass" id="cyber-contrast-chip">Text vs BG</span>
+
+  <h2>Meter</h2>
+  <div class="row">
+    <span class="k">Progress</span>
+    <input type="range" min="0" max="100" value="52" id="prog">
+    <span class="k" style="flex:0 0 34px;text-align:right" id="progOut">52%</span>
+  </div>
+
+  <h2>Emoji tint</h2>
+  <div class="rt-emo-demo" aria-hidden="true">
+    <span class="rt-emo">⏰</span><span class="rt-emo">⚙️</span><span class="rt-emo">📱</span>
+    <span class="rt-emo">🎮</span><span class="rt-emo">🏆</span><span class="rt-emo">💡</span>
+    <span class="rt-emo">📐</span><span class="rt-emo">🎵</span><span class="rt-emo">🐍</span>
+    <span class="rt-emo">🎲</span>
+  </div>
+  <div class="rt-emo-raw" aria-hidden="true">
+    <span>⏰</span><span>⚙️</span><span>📱</span><span>🎮</span><span>🏆</span>
+    <span>💡</span><span>📐</span><span>🎵</span><span>🐍</span><span>🎲</span>
+  </div>
+  <p class="rig-note">Tinted above, untouched below. The tint follows <em>Accent</em>.</p>
+
+  <h2>Emoji set</h2>
+  <select id="emojiset">
+    <option value="fun">Fun — faces, mood is shape (tints)</option>
+    <option value="none">None — no glyph at all</option>
+  </select>
 
   <h2>Panel shape</h2>
   <select id="shape">
@@ -248,14 +337,6 @@
     <option value="chamfered">Chamfered — cut corners</option>
     <option value="stepped">Stepped — terraced</option>
     <option value="rounded">Rounded — soft</option>
-  </select>
-
-  <h2>Audio visualizer</h2>
-  <select id="audio">
-    <option value="off">Off</option>
-    <option value="system">System audio</option>
-    <option value="mic">Microphone</option>
-    <option value="sim">Procedural</option>
   </select>
 
   <h2>Palettes</h2>
@@ -269,14 +350,9 @@
   <div class="readout" id="readout"></div>
 
   <div class="note">
-    <b>This loads the real files.</b> <code>cyber-theme.css</code>,
-    <code>cyber-hud.js</code> and <code>cyber-audio.js</code> are the exact
-    sources <code>reinsert.js</code> splices into the userscript — not copies.
-    <br><br>
-    <b>System audio</b> needs a click on the rail's own button, and on Windows
-    only carries sound if you tick <i>"Also share system audio"</i> in Chrome's
-    share picker. Cancelling is normal: the tier is marked <code>!</code> and the
-    next click moves on to mic, then to the procedural rail.
+    <b>This loads the real files.</b> <code>cyber-theme.css</code> and
+    <code>cyber-hud.js</code> are the exact sources <code>reinsert.js</code>
+    splices into the userscript — not copies.
     <br><br>
     <b>The reported bug:</b> set <i>Accent</i> to grey and leave <i>Text</i>
     yellow. The type must stay yellow.
@@ -299,7 +375,6 @@ var userPreferences = Object.assign({
     cyberBorder: '#fff200',
     cyberGlowIntensity: 0.6,
     cyberPanelShape: 'notched',
-    cyberAudioSource: 'off',
     gameFps: 60
 }, JSON.parse(localStorage.getItem(PREF_KEY) || '{}'));
 
@@ -314,11 +389,10 @@ function hexToRgbStr(hex) {
 }
 </script>
 
-<!-- The real modules. They are indented IIFE-body fragments with no top-level
-     return, so a classic script tag evaluates them exactly as the userscript
+<!-- The real module. It is an indented IIFE-body fragment with no top-level
+     return, so a classic script tag evaluates it exactly as the userscript
      does — no duplication, no drift. -->
 <script src="cyber-hud.js"></script>
-<script src="cyber-audio.js"></script>
 
 <script>
 const SWATCHES = [
@@ -332,44 +406,62 @@ const SWATCHES = [
     ['cyberBorder',      'Border']
 ];
 
-const PALETTES = {
-    'Yellow / Cyan': { cyberBgPrimary:'#07091a', cyberBgSecondary:'#11142b', cyberAccent:'#fff200',
-                       cyberHighlight:'#00e5ff', cyberPanelTint:'#00e5ff',
-                       cyberText:'#fff200', cyberGlow:'#fff200', cyberBorder:'#fff200' },
-    'Blade Amber':   { cyberBgPrimary:'#0b0705', cyberBgSecondary:'#1c1209', cyberAccent:'#ffa227',
-                       cyberHighlight:'#ffd08a', cyberPanelTint:'#c9741f',
-                       cyberText:'#ffcf9b', cyberGlow:'#ff8c1a', cyberBorder:'#e2872b' },
-    'Magenta Noir':  { cyberBgPrimary:'#0a0512', cyberBgSecondary:'#170a26', cyberAccent:'#ff2a6d',
-                       cyberHighlight:'#d16bff', cyberPanelTint:'#8a2be2',
-                       cyberText:'#ffd6e8', cyberGlow:'#ff2a6d', cyberBorder:'#ff5c94' },
-    'Acid Green':    { cyberBgPrimary:'#04100a', cyberBgSecondary:'#082114', cyberAccent:'#05ffa1',
-                       cyberHighlight:'#b4ff3a', cyberPanelTint:'#00c98a',
-                       cyberText:'#c8ffe6', cyberGlow:'#05ffa1', cyberBorder:'#3affb0' },
-    'Ghost Mono':    { cyberBgPrimary:'#0c0c0f', cyberBgSecondary:'#16161c', cyberAccent:'#9aa4b8',
-                       cyberHighlight:'#e6ebf5', cyberPanelTint:'#6b7488',
-                       cyberText:'#eef2fa', cyberGlow:'#c3ccdd', cyberBorder:'#7d879c' },
-    // Deliberately broken, to prove the guard fires rather than the theme
-    // silently becoming unreadable.
-    'Dark-on-dark ✗':{ cyberBgPrimary:'#07091a', cyberBgSecondary:'#11142b', cyberAccent:'#1a1a2e',
-                       cyberHighlight:'#20204a', cyberPanelTint:'#1a1a3a',
-                       cyberText:'#0d0d1a', cyberGlow:'#101024', cyberBorder:'#15152c' }
+// Built from CYBER_PALETTES (declared in the real cyber-hud.js, loaded above
+// as a classic script — so it is a bare global here, same as
+// applyCyberpunkTheme or cyberPanelShape). This used to be a second,
+// hand-typed copy of the same six swatch sets; the settings modal in the
+// userscript is the other consumer, and two hand-typed copies of the same
+// palette is exactly the shape of drift that made cyberGlowFromPct/ToPct
+// necessary in the first place. One entry, 'Dark-on-dark ✗', is added ONLY
+// here — it is deliberately broken to prove the contrast guard fires, and a
+// broken palette has no business being something a real user can pick from
+// the shipped settings modal.
+const PALETTES = {};
+Object.keys(CYBER_PALETTES).forEach(function (key) {
+    const p = CYBER_PALETTES[key];
+    PALETTES[p.label] = {
+        cyberBgPrimary: p.cyberBgPrimary, cyberBgSecondary: p.cyberBgSecondary,
+        cyberAccent: p.cyberAccent, cyberHighlight: p.cyberHighlight, cyberPanelTint: p.cyberPanelTint,
+        cyberText: p.cyberText, cyberGlow: p.cyberGlow, cyberBorder: p.cyberBorder
+    };
+});
+PALETTES['Dark-on-dark ✗'] = {
+    cyberBgPrimary: '#07091a', cyberBgSecondary: '#11142b', cyberAccent: '#1a1a2e',
+    cyberHighlight: '#20204a', cyberPanelTint: '#1a1a3a',
+    cyberText: '#0d0d1a', cyberGlow: '#101024', cyberBorder: '#15152c'
 };
 
 const widget = document.getElementById('total-time-summary');
+
+// The two progressions the widget ships. 'none' renders no glyph at all —
+// the empty string is deliberate, not a missing lookup entry, so the case
+// below reads it explicitly rather than falling through to 'fun'.
+const EMOJI_SETS = { fun: '😌', none: '' };
+const emojiSetSel = document.getElementById('emojiset');
+emojiSetSel.value = userPreferences.emojiSet || 'fun';
+emojiSetSel.addEventListener('change', function () {
+    userPreferences.emojiSet = this.value;
+    const glyph = widget.querySelector('.emoji-display');
+    if (glyph) glyph.textContent = this.value in EMOJI_SETS ? EMOJI_SETS[this.value] : EMOJI_SETS.fun;
+    repaint();
+});
 
 function repaint() {
     applyCyberpunkTheme(widget);
     updateCyberContrastChip(document);
     document.getElementById('glowOut').textContent =
-        Math.round(userPreferences.cyberGlowIntensity * 100) + '%';
+        cyberGlowToPct(userPreferences.cyberGlowIntensity) + '%';
     const cs = getComputedStyle(widget);
+    // The contrast line reports the WORST text-carrying swatch, the same one
+    // the chip names. Reporting Text alone here while the chip flagged
+    // Highlight would make the rig disagree with itself.
+    const worst = cyberWorstContrast();
     document.getElementById('readout').textContent =
-        'shape   ' + cyberPanelShape() + '\n' +
-        'radius  ' + cs.getPropertyValue('--rt-radius').trim() + '\n' +
-        'clip    ' + (cs.getPropertyValue('--rt-clip').trim().slice(0, 22) || 'none') + '\n' +
-        'contrast ' + cyberTextContrast().toFixed(2) + ':1\n' +
-        'audio   ' + cyberEqSource() + '\n' +
-        'beat    ' + (cs.getPropertyValue('--rt-beat').trim() || '0');
+        'shape    ' + cyberPanelShape() + '\n' +
+        'radius   ' + cs.getPropertyValue('--rt-radius').trim() + '\n' +
+        'clip     ' + (cs.getPropertyValue('--rt-clip').trim().slice(0, 22) || 'none') + '\n' +
+        'glow k   ' + (cs.getPropertyValue('--rt-glow-k').trim() || '1') + '\n' +
+        'contrast ' + worst.ratio.toFixed(2) + ':1 (' + worst.label + ')';
     savePreferences();
 }
 
@@ -398,12 +490,30 @@ function syncSwatches() {
     });
 }
 
-// Glow
+// Glow. Deliberately routed through the module's own converters rather than
+// doing the arithmetic here — if cyberGlowFromPct/ToPct ever disagree with
+// the real settings panel, this slider stops matching and you see it.
 const glow = document.getElementById('glow');
-glow.value = Math.round(userPreferences.cyberGlowIntensity * 100);
+glow.max = String(CYBER_GLOW_MAX_PCT);
+glow.value = String(cyberGlowToPct(userPreferences.cyberGlowIntensity));
 glow.addEventListener('input', function () {
-    userPreferences.cyberGlowIntensity = parseInt(this.value, 10) / 100;
+    userPreferences.cyberGlowIntensity = cyberGlowFromPct(this.value);
     repaint();
+});
+
+// Meter position. The playhead is drawn on the TRACK and reads --rt-progress,
+// so moving this is the only way to see that it tracks the fill — and the only
+// way to check the two agree at 0% and 100%, where they are easiest to get
+// wrong. Both values are set together, exactly as renderFullContent() and
+// updateDynamicContent() do it.
+const prog = document.getElementById('prog');
+const bar = document.querySelector('.progress-bar');
+const fill = document.querySelector('.progress-fill');
+prog.addEventListener('input', function () {
+    const pct = parseInt(this.value, 10) + '%';
+    bar.style.setProperty('--rt-progress', pct);
+    fill.style.width = pct;
+    document.getElementById('progOut').textContent = pct;
 });
 
 // Shape
@@ -411,18 +521,6 @@ const shape = document.getElementById('shape');
 shape.value = cyberPanelShape();
 shape.addEventListener('change', function () {
     userPreferences.cyberPanelShape = this.value;
-    repaint();
-});
-
-// Audio — the select mirrors the setting; the rail's own button does the
-// granting, exactly as in the widget.
-const audio = document.getElementById('audio');
-audio.value = cyberEqSource();
-audio.addEventListener('change', function () {
-    userPreferences.cyberAudioSource = this.value;
-    savePreferences();
-    cleanupCyberAudio();
-    initCyberEq();
     repaint();
 });
 
@@ -442,24 +540,20 @@ Object.keys(PALETTES).forEach(function (name) {
 document.getElementById('btnBoot').addEventListener('click', function () {
     triggerCyberBoot(widget);
 });
+// Game Mode OFF collapses the side panels and shrinks the widget, using the
+// same two class names the widget uses. The ticker must survive it — it
+// lives in .main-attendance-content for exactly that reason, and this
+// button is how you check.
 document.getElementById('btnGameMode').addEventListener('click', function () {
-    const on = widget.classList.toggle('gm-off');
+    const off = widget.classList.toggle('game-mode-off');
     document.querySelectorAll('.left-panel, .right-panel').forEach(function (p) {
-        p.style.display = on ? 'none' : '';
+        p.classList.toggle('game-mode-hidden', off);
     });
-    this.classList.toggle('on', on);
+    this.classList.toggle('on', off);
     triggerCyberBoot(widget);
 });
 
-initCyberEq();
 repaint();
-// Keep the readout's beat value live without re-running the whole repaint.
-setInterval(function () {
-    const cs = getComputedStyle(widget);
-    const r = document.getElementById('readout');
-    r.textContent = r.textContent.replace(/beat    .*/, 'beat    ' +
-        (cs.getPropertyValue('--rt-beat').trim() || '0'));
-}, 200);
 </script>
 </body>
 </html>

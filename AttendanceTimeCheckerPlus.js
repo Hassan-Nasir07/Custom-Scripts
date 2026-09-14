@@ -2,26 +2,16 @@
     'use strict';
 
     // ENHANCED ATTENDANCE TIME CHECKER 2026
-    // Build Identity
-    // BUILD_SEED is a per-release nonce. The actual sync-acceptance token is
-    // derived at runtime by combining the seed with the dispatcher PAT and a
-    // salt; the GitHub Actions workflow holds the matching token as a repo
-    // secret. Editing the seed locally will produce a bad token and the server
-    // will silently reject the dispatch.
-    //
-    // To cut a new release:
-    //   1. Replace BUILD_SEED below with a fresh random hex string.
-    //   2. Bump BUILD_LABEL (cosmetic only — shown in the update banner).
-    //   3. Compute the new token (see comment in sync.yml) and rotate the
-    //      BUILD_TOKEN_CURRENT / BUILD_TOKEN_PREVIOUS repo secrets.
+    // BUILD_SEED: per-release nonce. Sync token = seed + dispatcher PAT + salt,
+    // derived at runtime; the Actions workflow holds the match as BUILD_TOKEN_CURRENT.
+    // Editing the seed alone makes every dispatch fail silently server-side.
+    // Release: 1) fresh random hex seed  2) bump BUILD_LABEL (banner text only)
+    //          3) recompute token (see sync.yml), rotate BUILD_TOKEN_CURRENT/PREVIOUS
     const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
-    // The seed is deliberately UNCHANGED: rotating it without also rotating
-    // BUILD_TOKEN_CURRENT in the bot repo would make every sync fail
-    // silently, and the label alone is what the update banner reads.
+    // Seed UNCHANGED on purpose: rotating it without BUILD_TOKEN_CURRENT breaks every sync.
     const BUILD_LABEL = 'v8';
 
-    // Ordinal parse of a 'v<N>' label. Returns null for anything that doesn't fit
-    // the convention, which callers below treat conservatively (assume behind).
+    // Ordinal of a 'v<N>' label; null if malformed (callers then assume behind).
     function _buildOrdinal(label) {
         const m = /^v(\d+)$/i.exec(String(label || '').trim());
         return m ? parseInt(m[1], 10) : null;
@@ -57,20 +47,16 @@
     // Feature initialization flags to prevent re-initialization
     let featuresInitialized = false;
 
-    // XP system ready flag — prevents awardXP from running before loadUserXP() has been called,
-    // which would overwrite saved data with default values and reset progress to Level 1.
+    // Guards awardXP until loadUserXP() has run — else defaults overwrite saved XP.
     let xpSystemReady = false;
 
-    // Snake's state, storage helpers and render timestamp all live in the
-    // SNAKE ENGINE block below, so the copy there stays byte-identical to
-    // snake-dev/. Nothing outside that block reads them before initSnakeGame()
-    // runs, which is the first thing the featuresInitialized bootstrap does.
+    // Snake state/storage/render-ts live in the SNAKE ENGINE block (byte-identical to
+    // snake-dev/). Nothing outside it reads them before initSnakeGame().
 
     // MULTI-GAME SYSTEM VARIABLES
     let currentGame = 'snake'; // 'snake' | 'reflex' | 'aim'
     let gameAreaElement = null;
 
-    // REFLEX GAME VARIABLES
     let reflexGameStarted = false;
     let reflexGameFinished = false;
     let reflexIsWaiting = false;
@@ -87,15 +73,12 @@
     const REFLEX_CLICK_DEBOUNCE_MS = 80; // ignore back-to-back clicks within this window (spam clicker)
     const REFLEX_FALSE_START_LIMIT = 3;  // hard fail the game after this many false starts
 
-    // RefleX target state
     let reflexShowTarget = false;
     let reflexTargetPosition = { x: 0, y: 0 };
     let reflexTargetColor = '#ef4444';
 
-    // RefleX timeout reference
     let reflexTimeoutRef = null;
 
-    // RefleX game modes configuration
     const reflexGameModes = {
         screen: {
             name: 'Screen Mode',
@@ -117,7 +100,6 @@
         }
     };
 
-    // AIM TRAINER GAME VARIABLES
     let aimGameStarted = false;
     let aimGameFinished = false;
     let aimTimer = 30;
@@ -128,11 +110,9 @@
     let aimHits = 0;
     let aimBulletHoles = [];
 
-    // AimTrainer timer reference
     let aimTimerRef = null;
     let aimRenderFrameId = null;
 
-    // AimTrainer chaos mode configuration
     const aimChaosMode = {
         name: 'Chaos Mode',
         icon: '💥',
@@ -143,7 +123,6 @@
         timeLimit: 30
     };
 
-    // FLAPPY BIRD GAME VARIABLES
     let flappyCanvas, flappyCtx;
     let flappyGameRunning = false;
     let flappyGameOver = false;
@@ -162,7 +141,6 @@
     const FLAPPY_PIPE_INTERVAL = 90; // frames
     let flappyStarted = false; // waiting for first tap
 
-    // TETRIS GAME VARIABLES
     let tetrisCanvas, tetrisCtx;
     let tetrisBoard = [];
     let tetrisCurrentPiece = null;
@@ -190,13 +168,11 @@
         { shape: [[0,0,1],[1,1,1]], color: '#0000f0' },      // L
     ];
 
-    // QUOTES SYSTEM VARIABLES
     let quotesArray = [];
     let currentQuoteIndex = 0;
     let quoteInterval = null;
     let quotesInitialized = false; // Track if quotes system is already set up
 
-    // XP SYSTEM VARIABLES
     let userXP = {
         level: 1,
         currentXP: 0,
@@ -216,17 +192,12 @@
     // XP System Constants (Research-proven values)
     const XP_PER_HOUR = 15;           // Base hourly reward (increased from 10)
     const STREAK_BONUS = 20;          // Daily streak bonus (per streak day, capped below)
-    // Streak economics. The bonus is STREAK_BONUS * min(streak, STREAK_BONUS_MAX_DAYS),
-    // paid once per work day. Uncapped it grew linearly forever: at a 23-day streak a
-    // single day paid 460 XP, more than three full 8h shifts of hourly XP, which made
-    // streak length the dominant term on the leaderboard and dwarfed every other
-    // activity. Capping at 7 keeps the habit incentive without letting it snowball.
+    // Bonus = STREAK_BONUS * min(streak, STREAK_BONUS_MAX_DAYS), once per work day.
+    // Capped: uncapped it grew linearly and dominated the leaderboard.
     const STREAK_BONUS_MAX_DAYS = 7;
-    // A day only counts toward the streak once this many hours are logged. Previously
-    // any new calendar day with the portal open counted, including zero-hour days.
+    // Min hours logged before a day counts toward the streak.
     const STREAK_MIN_HOURS = 1;
-    // Iteration ceiling for the level-curve loops — a runaway backstop, not a limit
-    // anyone can reach in practice (level 10000 needs ~1.2e11 XP).
+    // Runaway backstop for the level-curve loops (level 10000 needs ~1.2e11 XP).
     const LEVEL_LOOP_GUARD = 10000;
     const MILESTONE_BONUSES = {
         2: { xp: 10, label: '2-Hour Checkpoint' },
@@ -235,8 +206,7 @@
         8: { xp: 50, label: '8-Hour Full Day' }
     };
 
-    // Achievement Definitions (work-life-balance friendly — weekends are sacred 🙅)
-    // Each achievement requires actual user action — no freebies.
+    // Achievements — every one requires real user action; weekends never count.
     const ACHIEVEMENTS = {
         // Shift completion
         firstDay:     { icon: '🎯', name: 'Day One',          desc: 'Complete a full shift for the first time' },
@@ -262,9 +232,8 @@
         gamer:        { icon: '🎮', name: 'Office Gamer',      desc: 'Earn XP in 50 game sessions' },
         gamer50:      { icon: '🕹️', name: 'Game Addict',       desc: 'Earn XP in 100 game sessions' },
         snakeCharmer: { icon: '🐍', name: 'Snake Charmer',     desc: 'Score 40+ in Snake' },
-        // Snake v2. The first two also unlock skins, so retiring or renaming a
-        // key here makes the matching skin permanently unobtainable —
-        // snake-verify.js asserts every SNAKE_SKINS.unlock still resolves.
+        // Snake v2. First two also unlock skins: renaming a key orphans its skin
+        // (snake-verify.js asserts every SNAKE_SKINS.unlock still resolves).
         snakeEndless:   { icon: '♾️', name: 'Round Trip',    desc: 'Score 40+ in Endless mode' },
         snakeWalled:    { icon: '🧱', name: 'Wallflower',    desc: 'Score 40+ in Walled mode' },
         snakeGourmand:  { icon: '🍯', name: 'Gourmand',      desc: 'Eat 10 golden bites in one run' },
@@ -288,11 +257,9 @@
         teamPlayer:   { icon: '🤝', name: 'Team Player',       desc: 'Join the leaderboard' }
     };
 
-    // IMAGE BOX VARIABLES
     let currentImageURL = '';
     let currentAspectRatio = '16:9'; // Default: Widescreen ratio
 
-    // Aspect ratio configurations
     const aspectRatios = {
         '1:1': { name: 'Square', icon: '◻', paddingBottom: '100%', use: 'Profile pics, badges' },
         '16:9': { name: 'Widescreen', icon: '▬', paddingBottom: '56.25%', use: 'Videos, monitors' },
@@ -300,7 +267,6 @@
         '9:16': { name: 'Portrait', icon: '▯', paddingBottom: '177.78%', use: 'Phone screens, stories' }
     };
 
-    // User preferences for hyper-personalization
     let userPreferences = {
         neumorphicDepth: true,
         fluidGradients: true,
@@ -310,26 +276,17 @@
         shiftDuration: '8h', // '4h' = short leave, '8h' = standard, '9h' = overtime
         poolTableColor: 'green', // 'green', 'red', 'blue', 'lightgrey'
         gameFps: 60, // 30 or 60 — half or full vsync
-        // Ludo rule toggles. Stored flat, not nested, because the generic
-        // .toggle-switch handler writes userPreferences[data-pref] directly.
-        // ludoRules() reads these live, so changes apply mid-match.
+        // Ludo rule toggles — flat, not nested: .toggle-switch writes
+        // userPreferences[data-pref] directly. ludoRules() reads them live (mid-match).
         ludoBlocks: true,       // 2+ own tokens bar opponents (never on a safe square)
-        // Whether a block also seals the track. On (the Ludo Star rule) a pair
-        // directly in front of a token leaves it with no legal roll at all;
-        // off, you may hop over a block but still may not land on it.
+        // on = block also seals the track (Ludo Star); off = hop over, never land on
         ludoBlockPassing: true,
         ludoThreeSixes: true,   // three 6s forfeit the whole banked sequence
         ludoExactHome: true,    // exact roll needed to finish
         ludoFreeRelease: false, // leave base on any roll, not just a 6
-        // 0-3 counter-clockwise quarter-turns of the board, so a player can put
-        // their own colour nearest them. Purely presentational — see the board
-        // rotation notes in the LUDO block.
+        // 0-3 CCW quarter-turns of the board; presentational only
         ludoRotation: 0,
-        // 'adaptive' | 'easy' | 'normal' | 'hard'. Adaptive is the original
-        // behaviour: the CPU is promoted on your win rate. It is kept as the
-        // default but it is no longer the only option, because a silent
-        // promotion to 'hard' is indistinguishable from the game cheating —
-        // see ludoDifficultyTier.
+        // 'adaptive' | 'easy' | 'normal' | 'hard'; adaptive promotes on win rate — see ludoDifficultyTier
         ludoDifficulty: 'adaptive',
         // Cyberpunk HUD customizable colors (only applied when displayTheme === 'retro-futuristic')
         cyberBgPrimary: '#07091a',
@@ -337,18 +294,13 @@
         cyberAccent: '#fff200',
         cyberHighlight: '#00e5ff',
         cyberPanelTint: '#00e5ff',  // tint for inner glass panels (table, side containers)
-        // Legibility swatches. Deliberately NOT derived from cyberAccent or
-        // either background: a dark Accent used to drag the type down with it,
-        // leaving dark text on a dark panel with no control that could undo
-        // it. These three are the only things that colour type, bloom and
-        // frames, and nothing else feeds them. See CYBER_TOKENS.
+        // Legibility swatches — NOT derived from cyberAccent or either bg, and the only
+        // source for type/bloom/frame colour. See CYBER_TOKENS.
         cyberText: '#fff200',       // all type
         cyberGlow: '#fff200',       // every bloom / glow / drop-shadow
         cyberBorder: '#fff200',     // frames, corner brackets, grid, scanlines
         cyberGlowIntensity: 0.6,    // 0–1 multiplier on every glow
-        // 'notched' | 'chamfered' | 'stepped' | 'rounded' — see CYBER_PANEL_SHAPES.
-        // Defaults to the asymmetric one: symmetry is most of what made the
-        // first pass read as clean sci-fi rather than cyberpunk.
+        // 'notched' | 'chamfered' | 'stepped' | 'rounded' — see CYBER_PANEL_SHAPES
         cyberPanelShape: 'notched',
         cyberBgImage: '',       // URL for custom background image
         cyberBgOpacity: 0.15    // 0–1 opacity for background image overlay
@@ -387,7 +339,6 @@
     let poolAccumulator = 0;
     let tetrisLastFrameMs = 0;
 
-    // Load saved preferences
     function loadPreferences() {
         const saved = localStorage.getItem('attendancePrefs');
         if (saved) {
@@ -395,14 +346,11 @@
         }
     }
 
-    // Save preferences
     function savePreferences() {
         localStorage.setItem('attendancePrefs', JSON.stringify(userPreferences));
     }
 
-    // LOCALSTORAGE MANAGEMENT
 
-    // Quotes Storage
     function loadQuotes() {
         const saved = localStorage.getItem('customQuotes');
         const defaultQuotes = [
@@ -415,7 +363,6 @@
         localStorage.setItem('customQuotes', JSON.stringify(quotes));
     }
 
-    // XP System Storage
     function loadUserXP() {
         const saved = localStorage.getItem('userXP');
         if (saved) {
@@ -432,8 +379,7 @@
                 gameSessions: data.gameSessions || 0,
                 lastAttendanceDate: data.lastAttendanceDate || null,
                 lastShiftCompletedDate: data.lastShiftCompletedDate || null,
-                // Absent on records written before the streak-bonus fix. Leaving it
-                // null just means today's bonus is still claimable, which is correct.
+                // Absent on pre-streak-bonus-fix records; null = today's bonus still claimable.
                 lastStreakBonusDate: data.lastStreakBonusDate || null,
                 hadStreakReset: !!data.hadStreakReset,
                 longestStreak: data.longestStreak || 0,
@@ -466,7 +412,6 @@
         try { _saveXPIntegrity(); } catch(_) {}
     }
 
-    // Image URL Storage
     function loadImageURL() {
         return localStorage.getItem('customImageURL') || '';
     }
@@ -475,7 +420,6 @@
         localStorage.setItem('customImageURL', url);
     }
 
-    // Aspect Ratio Storage
     function loadAspectRatio() {
         return localStorage.getItem('customImageAspectRatio') || '16:9';
     }
@@ -484,11 +428,8 @@
         localStorage.setItem('customImageAspectRatio', ratio);
     }
 
-    // RefleX Game Storage
-    // One-time migration: wipe RefleX high scores invalidated by the anti-cheat
-    // hardening patch (v2026-05-25, re-run 05-26 to clear gist→localStorage re-infection).
-    // While this flag is set, applyPlayerRecordToLocal() will refuse to restore reflex
-    // scores from the gist, breaking the contamination loop.
+    // RefleX storage. One-time wipe of scores invalidated by the 2026-05-25 anti-cheat
+    // patch (re-run 05-26). While set, applyPlayerRecordToLocal() refuses gist reflex restores.
     const REFLEX_RESET_FLAG = 'reflexScoresReset_20260526';
     (function _reflexScoreReset() {
         if (!localStorage.getItem(REFLEX_RESET_FLAG)) {
@@ -508,17 +449,9 @@
         }
     })();
 
-    // Infinity does not survive JSON — JSON.stringify(Infinity) is the string
-    // "null". The unset sentinel was Infinity, so the first time this blob was
-    // persisted (which happens on the first Screen-mode record) every mode that
-    // had not scored yet came back as { best: null, avg: null }. finishReflexGame
-    // then asks `time < stored`, and `x < null` coerces to `x < 0` — false for
-    // every real reaction time. Target mode could therefore never record a score
-    // again, which is exactly what the gist shows: target has been
-    // {"avg":null,"best":null} across every revision despite being played.
-    //
-    // Normalising on the way in fixes it for every blob already in the wild,
-    // including the ones restored from the gist, without a migration.
+    // Infinity does not survive JSON (stringifies to null), and 'time < null' coerces to
+    // 'time < 0' — false for every real time, so an unscored mode could never record again.
+    // Normalising on read fixes every blob already in the wild, with no migration.
     function _reflexModeScores(raw) {
         const n = v => (typeof v === 'number' && isFinite(v) && v > 0) ? v : Infinity;
         const src = (raw && typeof raw === 'object') ? raw : {};
@@ -533,9 +466,7 @@
     }
 
     function saveReflexHighScores(scores) {
-        // Written as an explicit null rather than an Infinity that silently
-        // becomes one, so the shape in localStorage and in the gist means the
-        // same thing to every reader: null = this mode has never scored.
+        // Explicit null, never Infinity: null = this mode has never scored, in localStorage and gist alike.
         const num = v => (typeof v === 'number' && isFinite(v) && v > 0) ? v : null;
         const out = {};
         ['screen', 'target'].forEach(m => {
@@ -545,7 +476,6 @@
         localStorage.setItem('reflexHighScores', JSON.stringify(out));
     }
 
-    // AimTrainer Game Storage
     function loadAimHighScore() {
         const saved = localStorage.getItem('aimChaosHighScore');
         return saved ? parseInt(saved) : 0;
@@ -555,7 +485,6 @@
         localStorage.setItem('aimChaosHighScore', score.toString());
     }
 
-    // Flappy Bird Storage
     function loadFlappyHighScore() {
         const saved = localStorage.getItem('flappyHighScore');
         return saved ? parseInt(saved) : 0;
@@ -564,7 +493,6 @@
         localStorage.setItem('flappyHighScore', score.toString());
     }
 
-    // Tetris Storage
     function loadTetrisHighScore() {
         const saved = localStorage.getItem('tetrisHighScore');
         return saved ? parseInt(saved) : 0;
@@ -572,7 +500,6 @@
     function saveTetrisHighScore(score) {
         localStorage.setItem('tetrisHighScore', score.toString());
     }
-    // Breakout Storage
     function loadBreakoutHighScore() {
         const saved = localStorage.getItem('breakoutHighScore');
         return saved ? parseInt(saved) : 0;
@@ -581,7 +508,6 @@
         localStorage.setItem('breakoutHighScore', score.toString());
     }
 
-    // Pool Game Storage
     function loadPoolHighScore() {
         const saved = localStorage.getItem('poolGamesWon');
         return saved ? parseInt(saved) : 0;
@@ -589,10 +515,8 @@
     function savePoolHighScore(score) {
         localStorage.setItem('poolGamesWon', score.toString());
     }
-    // poolGamesWon counts every P1 win in BOTH modes, so on its own it can't
-    // say whether a win came against the CPU or the other half of a hot seat.
-    // Seeded once with the legacy total in the cpu bucket, since that is what
-    // the number has mostly meant.
+    // poolGamesWon spans BOTH modes, so it cannot attribute a win; seeded once into the
+    // cpu bucket, which is what the number has mostly meant.
     function loadPoolWinsByMode() {
         let rec = null;
         try { rec = JSON.parse(localStorage.getItem('poolWinsByMode') || 'null'); } catch (_) {}
@@ -615,41 +539,30 @@
     function savePoolRecord(rec) {
         localStorage.setItem('poolRecord', JSON.stringify(rec));
     }
-    // Ludo's equivalents (ludoGamesWon / ludoRecord) live inside the LUDO GAME
-    // block below as ludoLoadWins/ludoSaveWins/ludoLoadRecord/ludoSaveRecord.
-    // They stay there so the code running here is byte-identical to the copy in
-    // ludo-dev/ that the headless XP tests exercise.
+    // ludoGamesWon / ludoRecord live in the LUDO block (ludoLoad*/ludoSave*) so that code
+    // stays byte-identical to ludo-dev/, which the headless XP tests exercise.
     // Prayer Counter Storage
     function loadPrayerCount() { return parseInt(localStorage.getItem('prayerCount') || '0', 10); }
     function savePrayerCount(n) { localStorage.setItem('prayerCount', String(n)); }
 
-    // LEADERBOARD SYSTEM (GitHub Actions Bot Proxy)
-    // Reads go directly to api.github.com/gists/<id> (allowed by corp firewall).
-    // Writes are dispatched to a GitHub Actions workflow via repository_dispatch
-    // (also api.github.com — allowed). The Action runs server-side anti-cheat
-    // (blocklist, sticky flag, XP rate limits) before patching the gist.
-    //
-    // The "dispatcher" PAT below has Contents: write on ONE empty bot repo only.
-    // Even if extracted from this script, it cannot write to the gist directly —
-    // only trigger the validated workflow. The real gist-write PAT lives as a
-    // repo secret accessible only to the workflow at runtime.
-    //
-    // See ./github-actions-bot/.github/workflows/sync.yml for the proxy source.
+    // LEADERBOARD (GitHub Actions bot proxy)
+    // Reads: api.github.com/gists/<id> direct (corp firewall allows it). Writes:
+    // repository_dispatch -> workflow, which runs server-side anti-cheat (blocklist,
+    // sticky flag, XP rate limits) before patching the gist.
+    // The dispatcher PAT below is Contents:write on ONE empty bot repo — extracted, it still
+    // cannot write the gist; the real gist PAT is a workflow-only repo secret.
+    // Source: ./github-actions-bot/.github/workflows/sync.yml
     const REGISTRY_GIST_ID = 'b97357da4f32cfea822c9db36cd48088';
     const REGISTRY_GIST_FILE = 'attendance_widget_registry.json';
     const GH_BOT_REPO = 'Hassan-Nasir07/github-actions-bot';
     const GH_DISPATCHER_PAT = String.fromCharCode(103,105,116,104,117,98,95,112,97,116,95,49,49,65,55,74,53,73,72,65,48,109,52,73,68,109,106,82,113,104,72,75,122,95,88,119,51,112,83,106,120,71,110,49,106,48,70,115,122,56,49,118,104,82,81,83,111,103,75,104,68,118,55,68,113,100,76,52,69,68,98,76,109,120,116,68,103,69,89,90,88,73,79,68,84,89,114,120,74,49,71,54,119);
     const SYNC_PROPAGATION_MS = 25000; // Action takes ~15-30s; we surface this in the UI.
 
-    // Anti-Cheat: XP Integrity System
-    // Keyed hash prevents raw localStorage edits from being accepted by sync.
-    // The signing key is derived at runtime so it's not a plain string in source.
+    // Anti-cheat: keyed hash rejects raw localStorage edits at sync. Key derived at runtime.
     const _ACS = [97,116,99,95,105,110,116,101,103,114,105,116,121,95,50,48,50,54].map(c => String.fromCharCode(c)).join('');
     const _ACK = GH_DISPATCHER_PAT + 'atc_xp_2026'; // signing key derived from dispatcher PAT
 
-    // Simple keyed hash (FNV-1a variant with key mixing) — not cryptographic but
-    // prevents casual localStorage tampering. An attacker must read + understand the
-    // source to forge a valid hash.
+    // FNV-1a variant with key mixing. Not cryptographic — stops casual tampering only.
     function _xpHash(totalXP, level, gameSessions, totalWorkDays) {
         const msg = `${_ACK}:${totalXP}:${level}:${gameSessions}:${totalWorkDays}:${_ACS}`;
         let h = 0x811c9dc5;
@@ -674,18 +587,12 @@
         return stored === expected;
     }
 
-    // Build Token Derivation
-    // Derives the per-build sync-acceptance token from BUILD_SEED + dispatcher
-    // PAT + a fixed salt. The matching token is stored as a repo secret
-    // (BUILD_TOKEN_CURRENT) in the bot repo; the workflow rejects any dispatch
-    // whose token doesn't match. The salt and derivation steps below MUST be
-    // mirrored by the helper used to produce the secret (see sync.yml).
+    // Build token = BUILD_SEED + dispatcher PAT + fixed salt; the workflow rejects a mismatch.
+    // Salt and derivation MUST mirror the helper that produced BUILD_TOKEN_CURRENT (see sync.yml).
     const _BLD_SALT = [98,108,100,95,116,107,110,95,50,48,50,54,95,118,49].map(c => String.fromCharCode(c)).join('');
     function _buildToken() {
         const msg = `${BUILD_SEED}|${GH_DISPATCHER_PAT}|${_BLD_SALT}`;
-        // Double FNV-1a with bit-rotation between rounds — small variation on the
-        // same primitive used for XP integrity, just enough that an attacker can't
-        // reuse the XP hash to forge a build token.
+        // Double FNV-1a with a rotate between rounds, so the XP hash cannot be reused as a build token.
         let h1 = 0x811c9dc5, h2 = 0xcbf29ce4;
         for (let i = 0; i < msg.length; i++) {
             const c = msg.charCodeAt(i);
@@ -698,23 +605,17 @@
     }
     const BUILD_TOKEN = _buildToken();
 
-    // Anti-cheat constants (client-side gates only — server is the source of truth)
-    // The client NEVER writes flags to the gist; it only refuses to sync. This
-    // prevents false positives from permanently locking out legit users, since
-    // the workflow has a sticky-flag rule the client can't clear.
+    // Client-side gates only; the server is the source of truth. The client never writes flags,
+    // only refuses to sync — a false positive cannot brick an account (workflow flags are sticky).
     const AC_SYNC_COOLDOWN_MS = 120000; // 2 minutes minimum between syncs
-    // XP budget mirror of the server's model (see sync.yml). Every XP source is tied
-    // to a counter that ships in the snapshot, so a legitimate gain is always bounded
-    // by elapsed days + games played + achievements unlocked. Set ~20% looser than the
-    // server so the server, not the client, is the thing that actually flags — a
-    // client-side false positive only pauses syncing, which is recoverable.
+    // Mirrors sync.yml's XP budget: gain is bounded by elapsed days + games + achievements.
+    // ~20% looser than the server so the server does the flagging; the client only pauses sync.
     const AC_MAX_XP_PER_DAY = 720;
     const AC_MAX_XP_PER_GAME = 300;
     const AC_MAX_XP_PER_ACHIEVEMENT = 600;
     const AC_XP_BURST_ALLOWANCE = 500;
 
-    // Client-side blocklist — defense in depth. Even if the Action somehow
-    // fails to strip a banned player, the local UI will never show them.
+    // Defense in depth — if the Action fails to strip a banned player, the UI still will not show them.
     const AC_BLOCKLIST = new Set([
         'a74c2f27-8824-42e3-8c59-4427ea5c8ad1' // abbassii
     ]);
@@ -728,7 +629,6 @@
     let lbLastLocalSyncMs = 0; // Local cooldown — prevents rapid-fire syncs regardless of gist propagation delay
     let lbAchPopoverInit = false; // guards the one-time delegated hover-popover listeners
 
-    // Leaderboard localStorage helpers
     function loadLeaderboardProfile() {
         const saved = localStorage.getItem('atc_lb_profile');
         if (saved) {
@@ -776,20 +676,14 @@
         }
     }
 
-    // Auto-purge blocklisted players from the gist on every fetch.
-    // The Action already strips blocked players on write, so this is a no-op
-    // kept for backwards compatibility with any code still calling it.
+    // No-op kept for back-compat: the Action already strips blocked players on write.
     async function purgeBlockedPlayers() {
         return; // Action handles blocklist enforcement server-side.
     }
 
-    // Fire-and-forget: dispatch returns 204 immediately, then the workflow
-    // takes ~15-30s to run validation and patch the gist. Resolves on accept.
-    // Push a single player record. The dispatch used to carry the ENTIRE registry,
-    // which meant any player could rewrite or delete every other player's entry —
-    // the workflow merged whatever array it was handed. Sending only our own record
-    // makes that impossible from the client side; the server merges it into the
-    // stored registry itself.
+    // Fire-and-forget: dispatch returns 204, the workflow patches the gist ~15-30s later.
+    // Sends only our own record — the server merges it. (A full-registry dispatch let any
+    // player rewrite or delete every other entry.)
     async function patchPlayer(player) {
         const res = await fetch(`https://api.github.com/repos/${GH_BOT_REPO}/dispatches`, {
             method: 'POST',
@@ -826,15 +720,10 @@
         };
     }
 
-    // Per-game-mode bests, keyed "<game>:<mode>". This is a NEW field rather
-    // than a reshape of gameBests: older clients still in the wild send
-    // gameBests.snake as a scalar, and turning that field into an object is
-    // exactly what would let the only-raise merge silently mangle it. The
-    // leaderboard falls back to gameBests for anyone who hasn't synced this
-    // build yet, so the boards aren't empty on day one.
-    //
-    // sync.yml's validatePlayer() does not whitelist fields, so this round-trips
-    // with no workflow change — and, equally, with no server validation.
+    // Per-mode bests keyed '<game>:<mode>'. A NEW field, not a reshape of gameBests: old
+    // clients send gameBests.snake as a scalar and the only-raise merge would mangle it.
+    // Boards fall back to gameBests for un-synced clients.
+    // sync.yml validatePlayer() does not whitelist fields — round-trips with no server validation.
     function collectGameModeBests() {
         const out = {};
         const put = (k, v) => { const n = parseInt(v, 10) || 0; if (n > 0) out[k] = n; };
@@ -842,14 +731,10 @@
         let snakeModes = null;
         try { snakeModes = JSON.parse(localStorage.getItem('snakeHighScores') || 'null'); } catch (_) {}
         if (!snakeModes || typeof snakeModes !== 'object') {
-            // The same trap loadPoolWinsByMode() was written to avoid, and Snake
-            // had it too: snakeHighScores is only written once the Snake panel
-            // has been opened on this build, so reading it raw emits a
-            // gameModeBests with no snake keys at all — and lbBoardValue treats a
-            // present gameModeBests as authoritative, so the gameBests.snake
-            // fallback never fires and the player vanishes from the Snake board.
-            // The pre-v2 game had lethal edges, so the legacy scalar belongs to
-            // Walled, matching what snakeLoadHighScores() migrates it to.
+            // Via the loader: snakeHighScores exists only once the Snake panel has opened, and
+            // lbBoardValue treats a present gameModeBests as authoritative — a raw read would emit
+            // no snake keys and drop the player off the board. Legacy scalar belongs to Walled
+            // (pre-v2 had lethal edges), matching snakeLoadHighScores().
             snakeModes = { walled: parseInt(localStorage.getItem('snakeHighScore') || '0', 10) || 0 };
         }
         put('snake:endless', snakeModes.endless);
@@ -857,9 +742,8 @@
         put('snake:levels',  snakeModes.levels);
         put('snake:levelsStage', localStorage.getItem('snakeLevelsBest'));
 
-        // Mirrors loadReflexHighScores()' normalisation: a mode that has never
-        // scored is null here (Infinity does not survive JSON), and null is not
-        // a score. Emitting it would put a 0 on an ascending board.
+        // null = never scored (Infinity does not survive JSON); emitting it would put a 0 on an
+        // ascending board.
         let reflex = {};
         try { reflex = JSON.parse(localStorage.getItem('reflexHighScores') || '{}') || {}; } catch (_) {}
         ['screen', 'target'].forEach(m => {
@@ -867,25 +751,18 @@
             if (typeof best === 'number' && isFinite(best) && best > 0) out['reflex:' + m] = best;
         });
 
-        // Via the loader, not localStorage directly: poolWinsByMode is only
-        // written once Pool has been opened, so reading the raw key would omit
-        // pool:cpu for anyone who upgraded and synced without touching Pool —
-        // and since lbBoardValue treats a present gameModeBests as
-        // authoritative, they would vanish from the Pool board entirely rather
-        // than falling back to gameBests.pool.
+        // Via the loader: poolWinsByMode exists only once Pool has opened; a raw read would omit
+        // pool:cpu and drop the player off the Pool board (gameModeBests outranks gameBests).
         const poolModes = loadPoolWinsByMode();
         put('pool:cpu', poolModes.cpu);
         put('pool:pvp', poolModes.pvp);
 
-        // Ludo is CPU-only by construction: ludoSaveWins is called under
-        // `if (vsCPU)`, so hot-seat wins have never been recorded anywhere.
-        // `ludo:cpu` stays the flat all-time total — older clients read it, and
-        // it is the only home for wins set before the difficulty split.
+        // Ludo is CPU-only by construction (ludoSaveWins runs under 'if (vsCPU)'). 'ludo:cpu' is
+        // the flat all-time total: old clients read it, and it is the only home for pre-split wins.
         put('ludo:cpu', localStorage.getItem('ludoGamesWon'));
 
-        // Per-tier wins. Read inline rather than through ludoLoadWinsByTier()
-        // because that lives in the Ludo engine block, which is only present
-        // once the panel has loaded — and collectGameModeBests runs on any sync.
+        // Read inline, not via ludoLoadWinsByTier(): that lives in the Ludo block, which may not be
+        // loaded when collectGameModeBests runs.
         let ludoTiers = {};
         try { ludoTiers = JSON.parse(localStorage.getItem('ludoWinsByTier') || '{}') || {}; } catch (_) {}
         put('ludo:easy',   ludoTiers.easy);
@@ -917,18 +794,14 @@
             milestonesReached: Array.isArray(userXP.milestonesReached) ? userXP.milestonesReached.slice() : [],
             gameBests: collectGameBests(),
             gameModeBests: collectGameModeBests(),
-            // Which scoring rules these numbers were set under. Without a stamp,
-            // a later rule change silently makes old and new scores incomparable
-            // and nothing records which is which.
+            // Scoring-rules stamp — without it a rule change makes old and new scores incomparable.
             rulesetVersion: { snake: parseInt(localStorage.getItem('snakeRulesetVer') || '1', 10) || 1 },
             // Pool extended record (W/L/win-rate)
             poolRecord: JSON.parse(localStorage.getItem('poolRecord') || 'null') || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 },
-            // Ludo W/L vs CPU — also what drives the adaptive difficulty tier,
-            // so restoring it on a fresh browser restores the right difficulty.
+            // Ludo W/L vs CPU; also drives the adaptive difficulty tier, so a fresh browser restores it.
             ludoRecord: JSON.parse(localStorage.getItem('ludoRecord') || 'null') || { wins: 0, losses: 0 },
             // Reflex full blob (screen + target modes)
             reflexHighScores: JSON.parse(localStorage.getItem('reflexHighScores') || 'null') || null,
-            // Personalisation
             prayerCount: parseInt(localStorage.getItem('prayerCount') || '0', 10),
             customImageURL: localStorage.getItem('customImageURL') || '',
             customImageAspectRatio: localStorage.getItem('customImageAspectRatio') || '16:9',
@@ -997,44 +870,37 @@
             const registry = await fetchRegistry();
             if (!registry) return;
 
-            // Build Version Gate (informational only)
-            // The authoritative gate lives in sync.yml: dispatches carrying a
-            // stale BUILD_TOKEN are rejected server-side. This client check just
-            // surfaces a refresh banner before the user wastes a dispatch.
+            // Informational only — sync.yml rejects a stale BUILD_TOKEN server-side. This just surfaces
+            // a refresh banner before the user wastes a dispatch.
             if (registry.latestBuild && registry.latestBuild !== BUILD_LABEL && _clientIsBehindBuild(BUILD_LABEL, registry.latestBuild)) {
                 console.warn(`[Sync] Outdated build (local: ${BUILD_LABEL}, latest: ${registry.latestBuild}). Sync will be rejected by server.`);
                 showXPNotification(`🔄 Script outdated (${BUILD_LABEL} → ${registry.latestBuild}). Refresh your tab!`, 'hourly');
                 showBuildUpdateBanner(registry.latestBuild);
                 return;
             }
-            // Mismatch with local ahead-or-equal falls through here deliberately:
-            // this sync is what will advance the gist's stamp to BUILD_LABEL.
+            // Local ahead-or-equal falls through: this sync is what advances the gist stamp to BUILD_LABEL.
             const idx = registry.players.findIndex(p => p.clientId === lbClientId);
             if (idx === -1) return;
 
             const prev = registry.players[idx];
 
-            // Anti-Cheat Checks
-            // 1. If player is already flagged, block all syncs
+            // Anti-cheat gate 1: an already-flagged player never syncs.
             if (prev.flagged) {
                 console.warn('[AntiCheat] Account frozen — sync blocked.');
                 showXPNotification('🚫 Sync disabled — account flagged', 'hourly');
                 return;
             }
 
-            // 2. Integrity hash check — detects raw localStorage edits.
-            // Refuse-to-sync only. We do NOT flag the gist from the client because
-            // a stale/missing local hash (e.g. after restore or first run on a new
-            // browser) is a false positive that would otherwise brick the account.
+            // 2. Integrity hash — detects raw localStorage edits. Refuse-to-sync only: a stale or missing
+            // local hash (after a restore, or first run on a new browser) is a false positive.
             if (!_verifyXPIntegrity()) {
                 console.warn('[AntiCheat] XP integrity check FAILED — sync blocked locally (not flagging gist).');
                 showXPNotification('⚠️ Local integrity check failed — sync blocked', 'hourly');
                 return;
             }
 
-            // 3. Sync cooldown — prevent rapid-fire syncing.
-            // Anchored on serverSync (workflow-stamped) rather than lastSync (client-
-            // supplied), so backdating a snapshot can't shorten the cooldown.
+            // 3. Cooldown, anchored on serverSync (workflow-stamped) not lastSync (client-supplied),
+            // so backdating a snapshot cannot shorten it.
             const prevSyncAt = prev.serverSync || prev.lastSync;
             if (prevSyncAt) {
                 const msSinceLast = Date.now() - new Date(prevSyncAt).getTime();
@@ -1045,12 +911,8 @@
                 }
             }
 
-            // 4. XP budget sanity gate — refuse-to-sync only, never self-flags.
-            // Mirrors the server's activity budget: elapsed days bound the per-day
-            // sources (hourly, milestones, capped streak bonus) while the game-session
-            // and achievement counters bound the rest. The previous version scaled
-            // purely with elapsed time, so a long gap authorised an effectively
-            // unlimited gain.
+            // 4. XP budget gate — refuse-to-sync, never self-flags. Elapsed days bound the per-day sources
+            // (hourly, milestones, capped streak bonus); game-session and achievement counters bound the rest.
             const snapshot = buildPlayerSnapshot();
             const xpDelta = (snapshot.totalXP || 0) - (prev.totalXP || 0);
             if (xpDelta > 0 && prevSyncAt) {
@@ -1069,16 +931,13 @@
                     return;
                 }
             }
-            // End Anti-Cheat
 
             // Preserve the original joinedAt so re-syncs don't change the join date
             snapshot.joinedAt = prev.joinedAt || new Date().toISOString().split('T')[0];
             // Carry forward the integrity hash
             snapshot.xpSig = _xpHash(snapshot.totalXP, snapshot.level, snapshot.gameSessions, snapshot.totalWorkDays);
 
-            // latestBuild is set server-side by the workflow on successful writes;
-            // never written from the client. Only our own record goes over the wire —
-            // the server merges it into the stored registry.
+            // latestBuild is workflow-written only. Only our own record goes over the wire; the server merges.
             await patchPlayer(snapshot);
         } catch (e) {
             console.warn('[Leaderboard] sync error:', e);
@@ -1087,15 +946,10 @@
         }
     }
 
-    // A personal best is only real once it is in the gist, and nothing used to
-    // push it there: every game commits its record to localStorage and stops, so
-    // a mode could sit at a genuine local high and simply be absent from the
-    // board everyone else reads until the player happened to press 🔄.
-    //
-    // Debounced, because a death is usually followed straight by another game.
-    // Re-armed rather than dropped when the anti-cheat cooldown would bite —
-    // syncMyScore() returns silently in that case, which is precisely how a
-    // record goes missing.
+    // Pushes a new personal best straight to the gist — games otherwise only write localStorage,
+    // so a record could sit at a local high and never reach the board. Debounced (a death is usually
+    // followed by another game) and re-armed, not dropped, when the anti-cheat cooldown makes
+    // syncMyScore() return silently.
     let lbScoreSyncTimer = null;
     const LB_SCORE_SYNC_DEBOUNCE_MS = 8000;
 
@@ -1113,12 +967,11 @@
         }, wait);
     }
 
-    // Overlay a registry player record onto local storage (XP + game bests).
-    // Returns true on success. Designed to be safe: only writes when source values look valid.
+    // Overlay a registry record onto localStorage (XP + game bests). True on success;
+    // only writes source values that look valid.
     function applyPlayerRecordToLocal(rec) {
         if (!rec || typeof rec !== 'object') return false;
 
-        // Rehydrate XP
         userXP.level             = (typeof rec.level === 'number' && rec.level > 0) ? rec.level : (userXP.level || 1);
         userXP.totalXP           = (typeof rec.totalXP === 'number') ? rec.totalXP : (userXP.totalXP || 0);
         userXP.currentXP         = (typeof rec.currentXP === 'number') ? rec.currentXP : 0;
@@ -1135,17 +988,12 @@
         if (Array.isArray(rec.achievements))               userXP.achievements = rec.achievements.slice();
         if (Array.isArray(rec.milestonesReached))          userXP.milestonesReached = rec.milestonesReached.slice();
 
-        // The three XP fields above were copied independently, so a record whose
-        // level was already inconsistent with its totalXP (from an earlier restore,
-        // an admin rollback, or the old multi-level bug in checkLevelUp) would carry
-        // that inconsistency straight into localStorage and stay wrong forever.
-        // Re-derive level/currentXP from totalXP so every restore self-heals.
+        // Re-derive level/currentXP from totalXP: the three XP fields are copied independently, so an
+        // already-inconsistent record would otherwise keep that inconsistency forever.
         reconcileLevelState('cloud restore');
 
-        // Same reasoning one field over: consecutiveDays and longestStreak are
-        // copied independently above, so a record where the high-water mark is
-        // below the current streak — which the old calculateStreak produced on a
-        // user's first day — would be carried back in and kept forever.
+        // Same for streaks: longestStreak is copied independently, so clamp it to never sit below
+        // consecutiveDays.
         raiseLongestStreak();
 
         saveUserXP(userXP);
@@ -1165,22 +1013,16 @@
         raise('ludoGamesWon',       gb.ludo);
         raise('aimChaosHighScore',  gb.aim);
 
-        // Per-mode bests. Only-raise like everything else above, and gated on
-        // the same per-mode invalidation flags the engine uses — otherwise one
-        // bad score in the gist would re-infect every clean client forever,
-        // which is the hole REFLEX_RESET_FLAG had to be retrofitted to close.
+        // Per-mode bests, only-raise, gated on the engine's per-mode invalidation flags — else one bad
+        // gist score re-infects every clean client (the hole REFLEX_RESET_FLAG closes).
         applySnakeModeBests(rec.gameModeBests);
 
-        // Reflex restores from three sources, merged into one blob and only ever
-        // lowered — RefleX ranks ascending, so better means smaller:
-        //   gameBests.reflex        legacy scalar, speaks for Screen only
-        //   gameModeBests['reflex:*'] per-mode, what the boards actually rank on
-        //   reflexHighScores        the full blob, best AND avg per mode
-        // The middle source used to be write-only: collectGameModeBests emitted
-        // reflex:target but nothing ever read it back, so a Target record could
-        // reach the gist and still not survive a restore onto a fresh browser.
-        // GUARD: If the reset flag is set, skip reflex restoration entirely to prevent
-        // the gist from re-infecting localStorage with pre-patch exploited scores.
+        // Reflex restores from three sources, merged and only ever lowered (ascending: smaller is better):
+        //   gameBests.reflex          legacy scalar, speaks for Screen only
+        //   gameModeBests['reflex:*'] per-mode, what the boards rank on
+        //   reflexHighScores          full blob, best AND avg per mode
+        // GUARD: reset flag set skips reflex restore entirely, so the gist cannot re-infect
+        // localStorage with pre-patch exploited scores.
         const _reflexResetActive = !!localStorage.getItem(REFLEX_RESET_FLAG);
         if (!_reflexResetActive) {
           const localReflex = loadReflexHighScores();
@@ -1276,9 +1118,8 @@
         return true;
     }
 
-    // Merge a cloud record's gameModeBests into localStorage, raising only.
-    // Split out of applyPlayerRecordToLocal because the snake half needs the
-    // invalidation gate and the pool half does not.
+    // Merge a cloud record's gameModeBests into localStorage, raising only. Split out because the
+    // snake half needs the invalidation gate and the pool half does not.
     function applySnakeModeBests(gmb) {
         if (!gmb || typeof gmb !== 'object') return;
 
@@ -1290,8 +1131,7 @@
 
         let changed = false;
         ['endless', 'walled', 'levels'].forEach(mode => {
-            // snakeModeInvalidated lives in the SNAKE ENGINE block. Guarded so a
-            // restore triggered before initSnakeGame() can't throw.
+            // snakeModeInvalidated lives in the SNAKE ENGINE block; guarded for restores before initSnakeGame().
             const blocked = (typeof snakeModeInvalidated === 'function') && snakeModeInvalidated(mode);
             if (blocked) return;
             const v = parseInt(gmb['snake:' + mode], 10) || 0;
@@ -1313,10 +1153,8 @@
         });
         if (poolChanged) localStorage.setItem('poolWinsByMode', JSON.stringify(pool));
 
-        // Ludo's per-tier wins, same only-raise merge. The all-time total is
-        // restored separately via raise('ludoGamesWon', gb.ludo), and the two are
-        // independent on purpose: a tier count can never exceed the total, but
-        // the total can exceed the tiers by however many wins predate the split.
+        // Ludo per-tier wins, only-raise. The all-time total restores separately and may exceed the
+        // tier sum by however many wins predate the split.
         let ludoTiers = {};
         try { ludoTiers = JSON.parse(localStorage.getItem('ludoWinsByTier') || '{}') || {}; } catch (_) {}
         let ludoChanged = false;
@@ -1327,8 +1165,7 @@
         if (ludoChanged) localStorage.setItem('ludoWinsByTier', JSON.stringify(ludoTiers));
     }
 
-    // Restore the current client's progress from the gist.
-    // Returns true if a matching record was found and applied.
+    // Restore this client's progress from the gist. True if a matching record was applied.
     async function restoreFromGist() {
         if (!lbClientId) return false;
         const registry = await fetchRegistry();
@@ -1343,9 +1180,9 @@
         return ok;
     }
 
-    // Manual recovery: paste in console with the original clientId from the gist to re-claim a wiped account.
+    // Manual recovery — re-claim a wiped account with its original clientId:
     //   await window.atcRestoreByClientId('fc847975-8ca3-49fc-a5d2-6ccaea28fd6b');
-    // Optionally pass a displayName as the second arg to overwrite locally.
+    // Second arg optionally overwrites displayName locally.
     async function atcRestoreByClientId(clientId, displayName) {
         if (!clientId || typeof clientId !== 'string') {
             console.error('[Restore] usage: atcRestoreByClientId("<your-gist-clientId>")');
@@ -1372,14 +1209,9 @@
     window.atcRestoreFromGist = restoreFromGist;
     window.syncMyScore = syncMyScore;
 
-    // Admin Tools (via GitHub Actions dispatch)
-    // The admin key is NEVER stored in the script. You paste it once per session:
+    // Admin tools (GitHub Actions dispatch). The admin key is never stored — paste once per session:
     //   window.atcAdminLogin('your-admin-key')
-    // After that, the rollback / unflag / blocklist commands work for that
-    // tab only. Closing the tab clears the key.
-    //
-    // Admin actions dispatch to the bot repo workflow; the workflow validates
-    // the admin_key against the ADMIN_KEY repo secret before applying.
+    // Valid for that tab only. The workflow validates it against the ADMIN_KEY repo secret.
     let _adminKey = null;
     function atcAdminLogin(key) {
         if (typeof key !== 'string' || !key) {
@@ -1414,9 +1246,9 @@
         return { ok: true, queued: true };
     }
 
-    // Rollback a player's stats. Usage:
+    // Rollback a player's stats:
     //   await window.atcAdminRollback('clientId', { totalXP: 19818, level: 11, flagged: false })
-    // NOTE: dispatch is async — actual gist update lands ~15-30s later.
+    // Dispatch is async — the gist updates ~15-30s later.
     async function atcAdminRollback(clientId, overrides) {
         if (!clientId || !overrides || typeof overrides !== 'object') {
             console.error('[Admin] usage: atcAdminRollback("clientId", { totalXP: N, level: N, ... })');
@@ -1428,10 +1260,8 @@
             const prev = reg?.players?.find(p => p.clientId === clientId) || {};
             const merged = { ...prev, ...overrides };
 
-            // Never let a rollback write a level that disagrees with totalXP —
-            // hand-setting { totalXP, level } as a pair is precisely how records end
-            // up permanently inconsistent. totalXP is the input; level and currentXP
-            // are derived from it.
+            // totalXP is the input; level and currentXP derive from it. Hand-setting the pair is how
+            // records end up permanently inconsistent.
             if ('totalXP' in overrides) {
                 const derived = deriveLevelFromTotalXP(merged.totalXP);
                 if ('level' in overrides && overrides.level !== derived.level) {
@@ -1463,8 +1293,7 @@
         return false;
     }
 
-    // Strip a clientId from the gist. Action removes them server-side.
-    // For permanent ban, also add the clientId to the BLOCKLIST set in sync.yml.
+    // Strip a clientId from the gist (server-side). Permanent ban: also add it to BLOCKLIST in sync.yml.
     async function atcAdminBlocklist(clientId, reason) {
         if (!clientId) { console.error('[Admin] usage: atcAdminBlocklist("clientId", "reason")'); return false; }
         const result = await _adminDispatch('admin-blocklist', { client_id: clientId, reason: reason || null });
@@ -1504,7 +1333,6 @@
         }
     }
 
-    // Leaderboard UI
     function renderLeaderboardPanel() {
         const panel = document.getElementById('leaderboard-panel');
         if (!panel) return;
@@ -1521,24 +1349,20 @@
             return;
         }
 
-        // Build leaderboard table
         const achTotal = Object.keys(ACHIEVEMENTS).length;
         let rows = '';
         leaderboardData.forEach((p, i) => {
             const rank = i + 1;
             const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
             const isMe = p.clientId === lbClientId;
-            // Game scores moved to the per-game boards below — this table is
-            // now identity and progression only, which is what fits the panel.
-            // Achievement count — earned/total, same figures as the "View All" button.
-            // Only keys still present in ACHIEVEMENTS count, so a retired/renamed key
-            // synced from an older client build can't inflate the total.
+            // Identity and progression only — game scores live in the per-game boards below.
+            // Achievement count uses keys still present in ACHIEVEMENTS, so a retired or renamed key
+            // synced from an older build cannot inflate the total.
             const achKeys = (Array.isArray(p.achievements) ? p.achievements : []).filter(k => ACHIEVEMENTS[k]);
             const achBadge = `<span class="lb-ach-badge" tabindex="0" data-ach-keys="${achKeys.join(',')}">🏆${achKeys.length}/${achTotal}</span>`;
             const nameHtml = escapeHtml(p.displayName);
-            // escapeHtml only encodes &/</> (safe for text content); the title
-            // attribute below also needs quotes encoded or a name containing one
-            // could break out of the attribute.
+            // escapeHtml encodes text-content characters only; the title attribute below also needs
+            // quotes encoded, or a name containing one breaks out of the attribute.
             const nameAttr = nameHtml.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
             rows += `<tr class="${isMe ? 'lb-row-me' : ''}">
                 <td class="lb-rank">${medal}</td>
@@ -1575,28 +1399,20 @@
                     modes: { screen: 'Screen', target: 'Target' } },
         pool:     { icon: '🎱', label: 'Pool',     unit: 'wins',
                     modes: { cpu: 'vs CPU', pvp: 'Hot-seat' } },
-        // Ludo splits by CPU difficulty, not by game mode — hot-seat wins have
-        // never been recorded at all (`ludoSaveWins` runs only under `if (vsCPU)`),
-        // but a win against `easy` and a win against `hard` were being counted
-        // into the same total, and `easy` is a settings dropdown. `cpu` is the
-        // pre-split total: those wins are real but their difficulty was never
-        // recorded, so they rank on their own board rather than being assigned a
-        // tier that nobody measured.
+        // Ludo ranks by CPU tier, not game mode (hot-seat wins are never recorded: ludoSaveWins runs
+        // only under 'if (vsCPU)'). 'cpu' is the pre-split total — real wins whose difficulty was never
+        // recorded, so they rank on their own board rather than an unmeasured tier.
         ludo:     { icon: '🎲', label: 'Ludo',     unit: 'wins',
                     modes: { hard: '🔥 Hard', normal: '⚔️ Normal', easy: '🌱 Easy',
                              cpu: '📚 All-time' } }
     };
 
-    // A player who hasn't run this build has no gameModeBests. Fall back to the
-    // legacy scalar for each game's primary mode so the boards aren't empty on
-    // day one, and show nothing for the modes it can't speak to.
+    // No gameModeBests (client has not run this build): fall back to the legacy scalar for each
+    // game's primary mode, and show nothing for the modes it cannot speak to.
     const LB_PRIMARY_MODE = { snake: 'walled', reflex: 'screen', pool: 'cpu', ludo: 'cpu' };
 
-    // RefleX is the one game whose per-mode figures are synced in their own
-    // right, independently of gameModeBests: buildPlayerSnapshot has always sent
-    // the whole reflexHighScores blob, and it is keyed by mode. So unlike the
-    // snake scalar it can answer for Target without guessing, and there is no
-    // reason for a record that carries it to read as "no score".
+    // RefleX per-mode figures sync independently of gameModeBests — buildPlayerSnapshot has always
+    // sent the whole reflexHighScores blob, keyed by mode, so it answers for Target without guessing.
     function lbReflexBlobBest(player, mode) {
         const blob = player.reflexHighScores;
         if (!blob || typeof blob !== 'object') return 0;
@@ -1614,9 +1430,8 @@
         const key = mode || primary;
         const gmb = player.gameModeBests;
 
-        // Merged rather than preferred, and for RefleX better means smaller. A
-        // pre-v2 record can hold a genuine Target best in the blob and nothing in
-        // gameModeBests; a v2 record can hold the reverse.
+        // Merged, not preferred, and smaller wins: a pre-v2 record may hold a Target best only in the
+        // blob, a v2 record only in gameModeBests.
         if (game === 'reflex') {
             const fromModes = (gmb && typeof gmb === 'object')
                 ? (parseInt(gmb['reflex:' + key], 10) || 0) : 0;
@@ -1625,11 +1440,8 @@
             if (fromModes || fromBlob) return fromModes || fromBlob;
         }
 
-        // A record that carries gameModeBests is authoritative for every mode of
-        // that game. Falling back per-mode would print one mode's score under
-        // another's heading — a v2 player who has only played Levels would show
-        // their Levels score under Walled, because the legacy scalar is the max
-        // across modes.
+        // A record carrying gameModeBests is authoritative for every mode of that game — per-mode
+        // fallback would print one mode's score under another's heading (the legacy scalar is a max).
         if (gmb && typeof gmb === 'object') {
             return parseInt(gmb[game + ':' + key], 10) || 0;
         }
@@ -1639,9 +1451,8 @@
         return parseInt(gb[game], 10) || 0;
     }
 
-    // The ranked table for one game+mode. Shared verbatim with the in-game
-    // overlay the Snake panel opens, so the two can never disagree about
-    // ranking, units or who is in first.
+    // Ranked table for one game+mode. Shared verbatim with the in-game overlay, so the two cannot
+    // disagree on ranking, units or who is first.
     function lbBoardRowsHtml(game, mode) {
         const cfg = LB_BOARDS[game];
         if (!cfg) return '';
@@ -1657,8 +1468,7 @@
             const isMe = r.p.clientId === lbClientId;
             const nameHtml = escapeHtml(r.p.displayName);
             const nameAttr = nameHtml.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-            // Snake's campaign is scored on two axes — the stage reached sits
-            // alongside the score, not instead of it.
+            // Snake campaign scores on two axes: stage reached sits alongside the score, not instead of it.
             let extra = '';
             if (game === 'snake' && mode === 'levels') {
                 const stage = lbBoardValue(r.p, 'snake', 'levelsStage');
@@ -1678,9 +1488,7 @@
 
     let gameLbOpen = null;
 
-    // Which board a game is currently showing. Reads live game state so the
-    // overlay always matches the mode being played, rather than a remembered
-    // preference that may have drifted from it.
+    // Which board a game is showing. Reads live game state, not a stored preference.
     function gameLbMode(game) {
         const cfg = LB_BOARDS[game];
         if (!cfg || !cfg.modes) return null;
@@ -1688,18 +1496,15 @@
             if (game === 'snake')  return snakeMode;
             if (game === 'reflex') return reflexMode;
             if (game === 'pool')   return poolMode === 'pvp' ? 'pvp' : 'cpu';
-            // Ludo splits by CPU tier rather than by game mode. ludoCpuTier is
-            // locked at match start, which is also what decides where a win is
-            // filed — so the board shown is always the board being played for.
+            // Ludo splits by CPU tier; ludoCpuTier locks at match start and decides where a win is filed,
+            // so the board shown is always the one being played for.
             if (game === 'ludo')   return LB_BOARDS.ludo.modes[ludoCpuTier] ? ludoCpuTier : 'normal';
         } catch (_) {}
         return Object.keys(cfg.modes)[0];
     }
 
-    // A board the player picked by hand. Cleared every time the overlay opens, so
-    // it lands on the mode being played and a stale pick can never outlive the
-    // moment it was made — the reason gameLbMode reads live state in the first
-    // place. Only the tab strip writes it.
+    // Hand-picked board. Cleared on every overlay open so a stale pick cannot outlive the moment
+    // it was made. Only the tab strip writes it.
     let gameLbModeOverride = null;
 
     function gameLbActiveMode(game) {
@@ -1709,17 +1514,15 @@
         return gameLbMode(game);
     }
 
-    // Ludo's four tiers are only reachable by changing a setting otherwise, which
-    // is a poor way to answer "how do I rank on hard?". The strip is generic, so
-    // Snake, RefleX and Pool get the same thing.
+    // Tab strip — Ludo's four tiers are otherwise only reachable through settings. Generic, so
+    // Snake, RefleX and Pool get it too.
     function gameLbTabsHtml(game, active) {
         const cfg = LB_BOARDS[game];
         if (!cfg || !cfg.modes) return '';
         const live = gameLbMode(game);
         return '<div class="game-lb-tabs">' + Object.keys(cfg.modes).map(m =>
             '<button class="game-lb-tab' + (m === active ? ' is-active' : '') + '"' +
-            // The mode being played is marked, so switching tabs to compare can't
-            // leave you unsure which board your next win actually lands on.
+            // Mark the mode being played, so switching tabs cannot leave the next win's board ambiguous.
             ' title="' + escapeHtml(cfg.modes[m] + (m === live ? ' — playing now' : '')) + '"' +
             ' onclick="window.setGameLeaderboardMode(\'' + m + '\')">' +
             escapeHtml(cfg.modes[m]) + (m === live ? '<span class="game-lb-live">•</span>' : '') +
@@ -1739,9 +1542,7 @@
             '</div>' +
             gameLbTabsHtml(game, mode) +
             '<div class="game-lb-body">' + lbBoardRowsHtml(game, mode) + '</div>' +
-            // Only Ludo carries a board whose numbers predate the split, so only
-            // Ludo needs to say so. Silently ranking unclassified wins beside
-            // classified ones is the confusion this whole change is undoing.
+            // Only Ludo has a board whose numbers predate the split, so only Ludo says so.
             (game === 'ludo' && mode === 'cpu'
                 ? '<div class="game-lb-foot">every CPU win — older wins predate the difficulty split</div>'
                 : '');
@@ -1757,13 +1558,11 @@
 
         // Snake's skin tray shares this corner of the panel.
         if (typeof toggleSnakeSkinTray === 'function') toggleSnakeSkinTray(false);
-        // Opening always lands on the mode being played, whatever was browsed
-        // last time.
+        // Opening always lands on the mode being played, whatever was browsed last time.
         gameLbModeOverride = null;
         renderGameLeaderboard(game);
 
-        // The Leaderboard panel may never have been opened, in which case there
-        // is nothing cached to rank. Fetch once, then re-render in place.
+        // Panel may never have been opened, so nothing is cached: fetch once, then re-render in place.
         if (!leaderboardData.length) {
             const body = box.querySelector('.game-lb-body');
             if (body) body.innerHTML = '<div class="game-lb-empty">Loading scores…</div>';
@@ -1773,23 +1572,17 @@
         }
     }
 
-    // Called by each game's score-display function so an open overlay tracks
-    // mode switches and new records without the player reopening it.
+    // Called by each game's score display so an open overlay tracks mode switches and new records.
     function refreshGameLeaderboard(game) {
         if (gameLbOpen === game) renderGameLeaderboard(game);
     }
 
-    // Pool and Ludo are ranked on career wins rather than a per-run score, so
-    // they have no update*ScoreDisplay that fires as the number changes. Ludo's
-    // scoreboard function also lives inside the byte-identical engine block and
-    // can't be edited, so both are refreshed from here instead — on panel entry
-    // and at the end of a match, which is the only time a win count moves.
+    // Pool and Ludo rank on career wins, so they have no update*ScoreDisplay; Ludo's scoreboard
+    // also sits in the locked engine block. Both refresh from here: on panel entry and match end.
     function refreshGameScoreBtn(game) {
         try {
             if (game === 'ludo') {
-                // The tier's own wins, because that is the board this button
-                // opens and the board the next win will land on. The all-time
-                // total stays reachable one tab away.
+                // The tier's own wins — the board this button opens and where the next win lands.
                 updateGameScoreBtn('ludo', null, ludoTierWins(gameLbMode('ludo')));
             } else if (game === 'pool') {
                 const byMode = loadPoolWinsByMode();
@@ -1798,10 +1591,8 @@
         } catch (_) {}
     }
 
-    // Fills a game's scoreboard button. `cur` is the live figure, `best` the one
-    // to beat; either may be null for games where it doesn't apply. `suffix` is
-    // glued to both numbers for games whose figure is meaningless bare (RefleX
-    // milliseconds).
+    // Fills a game's scoreboard button. cur = live figure, best = the one to beat (either may be
+    // null); suffix is glued to both, for games whose figure is meaningless bare (RefleX ms).
     function updateGameScoreBtn(game, cur, best, suffix) {
         const btn = document.getElementById(game + '-lb-btn');
         if (!btn) return;
@@ -1831,12 +1622,9 @@
         return div.innerHTML;
     }
 
-    // Achievement-badge hover popover
-    // The leaderboard panel scrolls both ways (narrow widget, wide table), so a
-    // CSS-only absolutely-positioned popover would get clipped by the scroll
-    // containers whenever a row sits near an edge. Instead we keep one shared
-    // popover fixed to the viewport and position it from getBoundingClientRect
-    // on hover/focus, which sidesteps the clipping entirely.
+    // Achievement-badge hover popover. One shared popover fixed to the viewport and positioned
+    // from getBoundingClientRect on hover/focus — an absolutely-positioned one gets clipped by
+    // the panel's two scroll containers.
     function ensureLbAchPopover() {
         let pop = document.getElementById('lb-ach-popover');
         if (!pop) {
@@ -1857,9 +1645,8 @@
                 return a ? `<span class="lb-ach-emoji" title="${escapeHtml(a.name)}">${a.icon}</span>` : '';
             }).join('')
             : '<span class="lb-ach-empty">No achievements yet</span>';
-        // Same shape as the achievements modal: a.icon comes from data, set
-        // fresh on every hover, so the sweep call belongs here, not at
-        // ensureLbAchPopover()'s one-time element creation above.
+        // a.icon comes from data and is set fresh on every hover, so the sweep belongs here, not in
+        // ensureLbAchPopover()'s one-time element creation.
         cyberSweepEmoji(pop);
         pop.style.display = 'flex';
 
@@ -1917,16 +1704,13 @@
         }
     }
 
-    // Build Version Checker (UX only)
-    // Compares local BUILD_LABEL against the gist's latestBuild label (set by
-    // the workflow on every successful write). Server-side BUILD_TOKEN check
-    // is the real enforcement; this just shows the refresh banner.
+    // UX only: compares local BUILD_LABEL against the gist's latestBuild (workflow-written).
+    // The server-side BUILD_TOKEN check is the real enforcement; this just shows the banner.
     async function checkBuildVersion() {
         try {
             const registry = await fetchRegistry();
             if (!registry || !registry.latestBuild) return;
-            // Only warn when genuinely behind — see _clientIsBehindBuild for why an
-            // equal-or-newer client hitting a stale gist stamp isn't "outdated".
+            // Only warn when genuinely behind — see _clientIsBehindBuild.
             if (registry.latestBuild !== BUILD_LABEL && _clientIsBehindBuild(BUILD_LABEL, registry.latestBuild)) {
                 showBuildUpdateBanner(registry.latestBuild);
             }
@@ -1962,7 +1746,6 @@
         document.getElementById('atc-update-dismiss-btn').addEventListener('click', () => banner.remove());
     }
 
-    // 8-BALL POOL GAME VARIABLES
     let poolCanvas, poolCtx;
     let poolAnimFrame = null;
     let poolGameRunning = false;
@@ -1976,10 +1759,8 @@
     let poolRecord = { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
     let poolBgTime = 0; // animated background time counter
 
-    // PRAYER COUNTER VARIABLES
     let prayerCount = 0;
 
-    // Cue stick aiming state
     let poolAiming = false;
     let poolDragging = false;
     let poolCueAngle = 0;
@@ -1993,7 +1774,6 @@
     let poolAimLocked = false;  // true while mouse button held
     let poolLockedAngle = 0;    // the aim angle frozen at mouse-down
 
-    // Ball-in-hand state
     let poolBallInHand = false;
     let poolPlacingBall = false;
 
@@ -2018,7 +1798,6 @@
     let poolShotTimer = POOL_SHOT_CLOCK;
     let poolShotTimerFrame = 0; // frame counter for 1-second ticks
 
-    // Physics constants
     const POOL_W = 368;
     const POOL_H = 184; // 2:1 table ratio
     const POOL_CANVAS_H = 368; // Match other games for consistent canvas height
@@ -2036,7 +1815,6 @@
     const POOL_CUSHION_Y2 = POOL_H - 16;
     const POOL_BAULK_X = Math.round(POOL_W * 0.25); // head string — kitchen boundary for break shot
 
-    // Table color definitions
     const POOL_TABLE_COLORS = {
         green:     { felt: '#2d8a4e', cushion: '#1a5c32', border: '#5c3a1e', pocket: '#111' },
         red:       { felt: '#8b3a3a', cushion: '#5c1a1a', border: '#5c3a1e', pocket: '#111' },
@@ -2219,7 +1997,6 @@
         breakoutAccumulator = 0;
         breakoutLastFrameMs = 0;
         breakoutAnimFrame = requestAnimationFrame(breakoutLoop);
-        // click to release sticky ball
         breakoutCanvas.addEventListener('click', brkHandleClick);
     }
 
@@ -2246,7 +2023,6 @@
     }
 
     function brkHandleClick() {
-        // Release sticky ball on click
         if (brkPU.stuckBallIdx >= 0 && brkPU.stuckBallIdx < breakoutBalls.length && breakoutBalls[brkPU.stuckBallIdx]) {
             const b = breakoutBalls[brkPU.stuckBallIdx];
             if (b.stuck) {
@@ -2257,7 +2033,6 @@
                 brkPU.stuckBallIdx = -1;
             }
         }
-        // Fire laser if active
         if (brkPU.laserTimer > 0 && brkPU.laserCooldown <= 0) {
             const pad = breakoutPaddle;
             breakoutLasers.push({ x: pad.x + 8,      y: pad.y - 6, vy:-12 });
@@ -2325,18 +2100,15 @@
         pad.w = brkPaddleWidth();
         pad.x = Math.max(0, Math.min(BRK_W - pad.w, pad.x));
 
-        // Paddle follow mouse / touch
         if (breakoutMouseX !== null) {
             const targetX = breakoutMouseX - pad.w/2;
             pad.x += (targetX - pad.x) * 0.35;
             pad.x = Math.max(0, Math.min(BRK_W - pad.w, pad.x));
         }
 
-        // Update falling powerup capsules
         for (let i = breakoutPowerupDrops.length-1; i >= 0; i--) {
             const d = breakoutPowerupDrops[i];
             d.y += d.vy;
-            // Caught by paddle
             if (d.y + 10 > pad.y && d.y < pad.y + pad.h &&
                 d.x > pad.x - 16 && d.x < pad.x + pad.w + 16) {
                 brkApplyPowerup(d.pu);
@@ -2347,12 +2119,10 @@
             if (d.y > BRK_H + 10) breakoutPowerupDrops.splice(i,1);
         }
 
-        // Update lasers
         for (let i = breakoutLasers.length-1; i >= 0; i--) {
             const l = breakoutLasers[i];
             l.y += l.vy;
             if (l.y < -10) { breakoutLasers.splice(i,1); continue; }
-            // Laser-brick collision
             let hit = false;
             for (const b of breakoutBricks) {
                 if (!b.alive) continue;
@@ -2364,7 +2134,6 @@
             if (hit) breakoutLasers.splice(i,1);
         }
 
-        // Update each ball
         const now = performance.now();
         const isFireball = brkPU.fireballTimer > 0;
         const isThrough  = brkPU.throughTimer  > 0;
@@ -2381,20 +2150,16 @@
                 continue;
             }
 
-            // Trail
             ball.trail.push({ x:ball.x, y:ball.y });
             if (ball.trail.length > 9) ball.trail.shift();
 
-            // Move
             ball.x += ball.vx;
             ball.y += ball.vy;
 
-            // Wall bounces
             if (ball.x - ball.r < 0) { ball.x = ball.r; ball.vx = Math.abs(ball.vx); }
             if (ball.x + ball.r > BRK_W) { ball.x = BRK_W-ball.r; ball.vx = -Math.abs(ball.vx); }
             if (ball.y - ball.r < 0) { ball.y = ball.r; ball.vy = Math.abs(ball.vy); }
 
-            // Lost bottom
             if (ball.y + ball.r > BRK_H) {
                 // Clear stuck index if removing the stuck ball
                 if (brkPU.stuckBallIdx === bi) {
@@ -2422,7 +2187,6 @@
                 continue;
             }
 
-            // Paddle collision
             if (ball.vy > 0 &&
                 ball.x + ball.r > pad.x && ball.x - ball.r < pad.x + pad.w &&
                 ball.y + ball.r > pad.y && ball.y - ball.r < pad.y + pad.h) {
@@ -2441,7 +2205,6 @@
                 }
             }
 
-            // Brick collisions
             let bricksHitThisFrame = 0;
             for (let i = breakoutBricks.length-1; i >= 0; i--) {
                 const b = breakoutBricks[i];
@@ -2477,7 +2240,6 @@
             updateBreakoutScoreboard();
         }
 
-        // Decrement flash timers & particles
         breakoutBricks.forEach(b => { if (b.flashTimer>0) b.flashTimer--; });
         for (let i = breakoutParticles.length-1; i >= 0; i--) {
             const p = breakoutParticles[i];
@@ -2553,14 +2315,12 @@
         const W = BRK_W, H = BRK_H;
         const pad = breakoutPaddle;
 
-        // Background
         const bg = ctx.createLinearGradient(0,0,0,H);
         bg.addColorStop(0,'#0d0d1a'); bg.addColorStop(1,'#0a0a14');
         ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
         ctx.fillStyle='rgba(0,0,0,0.06)';
         for (let y=0; y<H; y+=4) ctx.fillRect(0,y,W,2);
 
-        // Bricks
         breakoutBricks.forEach(b => {
             if (!b.alive) return;
             const [c1,c2] = BRK_BRICK_COLORS[b.row];
@@ -2588,7 +2348,6 @@
             ctx.fillRect(b.x+3,b.y+2,b.w-6,3);
         });
 
-        // Falling powerup capsules
         breakoutPowerupDrops.forEach(d => {
             ctx.shadowColor = d.pu.color; ctx.shadowBlur = 10;
             ctx.fillStyle = d.pu.color + 'cc';
@@ -2601,7 +2360,6 @@
             ctx.textBaseline='alphabetic';
         });
 
-        // Lasers
         breakoutLasers.forEach(l => {
             ctx.shadowColor='#ff79a8'; ctx.shadowBlur=12;
             ctx.fillStyle='#ff79a8';
@@ -2609,7 +2367,6 @@
             ctx.shadowBlur=0;
         });
 
-        // Particles
         breakoutParticles.forEach(p => {
             ctx.globalAlpha = p.life/p.maxLife;
             ctx.fillStyle=p.color;
@@ -2617,13 +2374,11 @@
         });
         ctx.globalAlpha=1;
 
-        // Ball trails + balls
         const isFireball = brkPU.fireballTimer>0;
         const isThrough  = brkPU.throughTimer>0;
         const isExplode  = brkPU.explodeTimer>0;
         breakoutBalls.forEach(ball => {
             if (!ball || ball.x===undefined) return;
-            // Trail color
             const trailColor = isFireball?'#e17055': isThrough?'#00cec9': isExplode?'#fdcb6e':'#a8edff';
             ball.trail.forEach((pt,i) => {
                 ctx.globalAlpha = (i/ball.trail.length)*0.35;
@@ -2644,7 +2399,6 @@
             ctx.shadowBlur=0;
         });
 
-        // Paddle
         if (!breakoutGameOver && pad && pad.x!==undefined) {
             const isLaser  = brkPU.laserTimer>0;
             const isSticky = brkPU.stickyTimer>0;
@@ -2658,7 +2412,6 @@
             ctx.beginPath(); ctx.roundRect(pad.x,pad.y,pad.w,pad.h,5); ctx.fill();
             ctx.fillStyle='rgba(255,255,255,0.25)';
             ctx.fillRect(pad.x+4,pad.y+2,pad.w-8,3);
-            // Laser emitters
             if (isLaser) {
                 ctx.fillStyle='#ff79a8';
                 ctx.beginPath(); ctx.arc(pad.x+8,pad.y,4,0,Math.PI*2); ctx.fill();
@@ -2682,7 +2435,6 @@
             const bx = 6 + i*28, by = H - 30;
             ctx.fillStyle='rgba(0,0,0,0.5)';
             ctx.beginPath(); ctx.roundRect(bx,by,22,22,5); ctx.fill();
-            // timer arc
             ctx.strokeStyle=ap.color; ctx.lineWidth=2.5;
             ctx.beginPath();
             ctx.arc(bx+11,by+11,9,-Math.PI/2,-Math.PI/2+Math.PI*2*(ap.t/ap.max));
@@ -2692,7 +2444,6 @@
             ctx.textBaseline='alphabetic';
         });
 
-        // Combo display
         if (breakoutCombo>1 && breakoutGameRunning) {
             ctx.font=`bold ${12+Math.min(breakoutCombo,8)}px sans-serif`;
             ctx.fillStyle=`hsl(${50+breakoutCombo*10},100%,65%)`;
@@ -2700,7 +2451,6 @@
             ctx.fillText(`${breakoutCombo}x COMBO!`,W-8,28);
         }
 
-        // Idle overlay
         if (!breakoutGameRunning && !breakoutGameOver) {
             ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,0,W,H);
             ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.font='bold 16px sans-serif';
@@ -2710,7 +2460,6 @@
             ctx.fillText('Move mouse  •  Click to launch / fire laser',W/2,H/2+10);
         }
 
-        // Game-over overlay
         if (breakoutGameOver) {
             ctx.fillStyle='rgba(0,0,0,0.75)'; ctx.fillRect(0,0,W,H);
             ctx.fillStyle='#ff4757'; ctx.font='bold 22px sans-serif';
@@ -2742,7 +2491,6 @@
         breakoutMouseX = e.touches[0].clientX - rect.left;
     }
 
-    // 8-BALL POOL GAME LOGIC
 
     function poolGetPockets() {
         const x1 = POOL_CUSHION_X1, y1 = POOL_CUSHION_Y1;
@@ -2774,11 +2522,9 @@
         // Row 3: 4 balls (corners: one solid one stripe, rest random)
         // Row 4: 5 balls (corners: one solid one stripe, rest random)
 
-        // Separate balls into groups
         let solids = [1, 2, 3, 4, 5, 6, 7];
         let stripes = [9, 10, 11, 12, 13, 14, 15];
 
-        // Shuffle each group
         for (let i = solids.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [solids[i], solids[j]] = [solids[j], solids[i]];
@@ -2805,7 +2551,6 @@
         // Corners of row 4 (positions 10 and 14): one solid, one stripe
         rackIds[4] = 8; // 8-ball in center of row 2
 
-        // Corners of last row
         if (Math.random() < 0.5) {
             rackIds[10] = solids.pop();
             rackIds[14] = stripes.pop();
@@ -2814,7 +2559,6 @@
             rackIds[14] = solids.pop();
         }
 
-        // Fill remaining positions
         let remaining = [...solids, ...stripes];
         for (let i = remaining.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
@@ -2828,7 +2572,6 @@
             }
         }
 
-        // Create cue ball
         const cueDef = POOL_BALL_DEFS[0];
         balls.push({
             id: 0, x: POOL_W * 0.25, y: POOL_H / 2,
@@ -2837,7 +2580,6 @@
             rotation: 0, spinX: 0, spinY: 0
         });
 
-        // Create racked balls
         for (let i = 0; i < 15; i++) {
             const def = POOL_BALL_DEFS[rackIds[i]];
             balls.push({
@@ -2871,7 +2613,6 @@
                 b.y += b.vy / POOL_SUB_STEPS;
             }
 
-            // Ball-cushion collisions
             for (const b of activeBalls) {
                 if (b.x - b.r < POOL_CUSHION_X1) {
                     b.x = POOL_CUSHION_X1 + b.r;
@@ -2923,7 +2664,6 @@
                 }
             }
 
-            // Ball-ball collisions
             for (let i = 0; i < activeBalls.length; i++) {
                 for (let j = i + 1; j < activeBalls.length; j++) {
                     const a = activeBalls[i];
@@ -2952,10 +2692,8 @@
                         // Don't resolve if separating
                         if (dvn <= 0) continue;
 
-                        // Capture cue ball speed BEFORE elastic collision for spin calculation.
-                        // On head-on shots the collision transfers ALL velocity to the object ball,
-                        // leaving postSpeed ≈ 0 — which would kill follow/draw entirely.
-                        // Pre-collision speed correctly scales spin with shot power.
+                        // Capture cue speed BEFORE the elastic collision: a head-on shot leaves postSpeed ~0, which
+                        // would kill follow/draw. Pre-collision speed scales spin with shot power.
                         let cueBallPreSpeed = 0;
                         if (a.id === 0) {
                             cueBallPreSpeed = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
@@ -3024,7 +2762,6 @@
                 }
             }
 
-            // Ball-pocket collisions
             for (const b of activeBalls) {
                 if (b.pocketed) continue;
                 for (const p of poolPockets) {
@@ -3047,9 +2784,8 @@
         // Apply friction and rotation once per frame (after all sub-steps)
         const postBalls = poolBalls.filter(b => !b.pocketed);
         for (const b of postBalls) {
-            // Apply residual spin drift from cloth friction (gradual follow/draw/english curve)
-            // This makes the cue ball arc realistically after collision rather than
-            // snapping instantly to its final trajectory.
+            // Residual spin drift from cloth friction — the cue ball arcs after collision instead of
+            // snapping straight to its final trajectory.
             if (b.id === 0 && b.spinDriftVx !== undefined &&
                 (b.spinDriftVx !== 0 || b.spinDriftVy !== 0)) {
                 b.vx += b.spinDriftVx * 0.12;
@@ -3112,10 +2848,8 @@
         const cueScratched   = cueBall.pocketed || pocketed.includes(0);
         const eightPocketed  = pocketed.includes(8);
 
-        // 0. 8-BALL POCKETED → IMMEDIATE GAME END
-        // Every scenario where the 8 leaves the table ends the game on this
-        // shot. Decide win vs loss up front so nothing in the regular pocket
-        // loop can override it.
+        // 0. 8-BALL POCKETED -> IMMEDIATE GAME END. Win vs loss is decided up front so nothing in
+        // the regular pocket loop can override it.
         if (eightPocketed) {
             // Clean the flag so the post-game render doesn't show a missing cue ball
             if (cueBall.pocketed) cueBall.pocketed = false;
@@ -3207,19 +2941,15 @@
             poolFoulMessage = 'Foul! No rail after contact';
         }
 
-        // 5. PROCESS POCKETED BALLS
-        // NOTE: The 8-ball case is handled in section 0 (early game-end). The
-        // cue ball case is handled in section 1 (scratch). This loop only
-        // credits group balls (1–7, 9–15) to their owners.
+        // 5. PROCESS POCKETED BALLS. The 8-ball case is handled in 0, the cue ball in 1; this loop
+        // credits only group balls (1-7, 9-15) to their owners.
         let legalPocket  = false;
         let legalPotCount = 0;
 
         for (const bid of pocketed) {
             if (bid === 0 || bid === 8) continue; // cue & 8-ball handled above
 
-            // Assign groups on first pocket (stays, even on foul)
-            // Balls pocketed on a foul stay down; groups are assigned so the
-            // off-table balls are always correctly attributed.
+            // Assign groups on first pocket. Balls pocketed on a foul stay down, so attribution holds.
             if (!poolFirstPocket) {
                 const isSolid = bid >= 1 && bid <= 7;
                 poolFirstPocket = true;
@@ -3291,7 +3021,6 @@
         updatePoolScoreboard();
     }
 
-    // POOL AI
 
     function poolAIPlaceBall() {
         const cueBall = poolBalls.find(b => b.id === 0);
@@ -3329,11 +3058,9 @@
                     const posX = target.x + dirX * dist;
                     const posY = target.y + dirY * dist;
 
-                    // Check bounds
                     if (posX < POOL_CUSHION_X1 + POOL_BALL_R + 2 || posX > POOL_CUSHION_X2 - POOL_BALL_R - 2 ||
                         posY < POOL_CUSHION_Y1 + POOL_BALL_R + 2 || posY > POOL_CUSHION_Y2 - POOL_BALL_R - 2) continue;
 
-                    // Check overlap with other balls
                     let valid = true;
                     for (const b of poolBalls) {
                         if (b.pocketed || b.id === 0) continue;
@@ -3360,7 +3087,6 @@
                         }
                     }
 
-                    // Score this position
                     let score = 0;
                     if (pathClear) score += 100;
                     score -= tpDist * 0.1; // prefer targets close to pocket
@@ -3407,13 +3133,11 @@
                 tx += tvx / POOL_SUB_STEPS;
                 ty += tvy / POOL_SUB_STEPS;
 
-                // Cushion bounce for target ball
                 if (tx - POOL_BALL_R < POOL_CUSHION_X1) { tx = POOL_CUSHION_X1 + POOL_BALL_R; tvx = Math.abs(tvx) * POOL_RESTITUTION; }
                 if (tx + POOL_BALL_R > POOL_CUSHION_X2) { tx = POOL_CUSHION_X2 - POOL_BALL_R; tvx = -Math.abs(tvx) * POOL_RESTITUTION; }
                 if (ty - POOL_BALL_R < POOL_CUSHION_Y1) { ty = POOL_CUSHION_Y1 + POOL_BALL_R; tvy = Math.abs(tvy) * POOL_RESTITUTION; }
                 if (ty + POOL_BALL_R > POOL_CUSHION_Y2) { ty = POOL_CUSHION_Y2 - POOL_BALL_R; tvy = -Math.abs(tvy) * POOL_RESTITUTION; }
 
-                // Cushion bounce for cue ball
                 if (cx - POOL_BALL_R < POOL_CUSHION_X1) { cx = POOL_CUSHION_X1 + POOL_BALL_R; cvx = Math.abs(cvx) * POOL_RESTITUTION; }
                 if (cx + POOL_BALL_R > POOL_CUSHION_X2) { cx = POOL_CUSHION_X2 - POOL_BALL_R; cvx = -Math.abs(cvx) * POOL_RESTITUTION; }
                 if (cy - POOL_BALL_R < POOL_CUSHION_Y1) { cy = POOL_CUSHION_Y1 + POOL_BALL_R; cvy = Math.abs(cvy) * POOL_RESTITUTION; }
@@ -3434,7 +3158,6 @@
                             tvx += dvn * nx;
                             tvy += dvn * ny;
                         }
-                        // Separate overlap
                         const overlap = R2 - dist;
                         cx -= (overlap * 0.5) * nx;
                         cy -= (overlap * 0.5) * ny;
@@ -3443,14 +3166,12 @@
                     }
                 }
 
-                // Check if target entered pocket
                 const pdx = tx - pocketX, pdy = ty - pocketY;
                 if (Math.sqrt(pdx * pdx + pdy * pdy) < POOL_POCKET_R) {
                     return { potted: true, finalDist: 0 };
                 }
             }
 
-            // Friction
             cvx *= POOL_FRICTION; cvy *= POOL_FRICTION;
             tvx *= POOL_FRICTION; tvy *= POOL_FRICTION;
             if (Math.abs(cvx) < POOL_MIN_VEL) cvx = 0;
@@ -3458,7 +3179,6 @@
             if (Math.abs(tvx) < POOL_MIN_VEL) tvx = 0;
             if (Math.abs(tvy) < POOL_MIN_VEL) tvy = 0;
 
-            // Early exit if both stopped
             if (cvx === 0 && cvy === 0 && tvx === 0 && tvy === 0) break;
         }
 
@@ -3470,11 +3190,9 @@
     // Given a base angle, try micro-adjustments to find one that pots.
     // Returns the corrected angle or the original if none work.
     function poolAIRefineAngle(cueX, cueY, targetX, targetY, pocketX, pocketY, baseAngle, power) {
-        // Try the base angle first
         const base = poolTrialSim(cueX, cueY, targetX, targetY, pocketX, pocketY, baseAngle, power);
         if (base.potted) return baseAngle;
 
-        // Try progressively larger micro-adjustments
         const adjustments = [0.004, -0.004, 0.008, -0.008, 0.013, -0.013, 0.018, -0.018, 0.025, -0.025];
         let bestAngle = baseAngle;
         let bestDist = base.finalDist;
@@ -3496,7 +3214,6 @@
         const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
         if (!cueBall) return;
 
-        // Find legal target balls
         let targetGroup = poolPlayer2Group;
         let targets = poolBalls.filter(b => !b.pocketed && b.id !== 0 && b.id !== 8);
 
@@ -3716,7 +3433,6 @@
             }
         }
 
-        // Absolute fallback
         if (!bestShot) {
             const nearest = targets[0];
             if (nearest) {
@@ -3743,7 +3459,6 @@
         bestShot.power *= 0.995 + Math.random() * 0.01;
         bestShot.power  = Math.max(3.5, Math.min(POOL_CUE_MAX_POWER, bestShot.power));
 
-        // Apply computed spin
         poolCueSpinX = bestShot.spinX || 0;
         poolCueSpinY = bestShot.spinY || 0;
 
@@ -3781,7 +3496,6 @@
         poolShotTimerFrame = 0;
     }
 
-    // POOL RENDERING
 
     function poolGetTableColors() {
         const key = userPreferences.poolTableColor || 'green';
@@ -3865,11 +3579,9 @@
 
         const colors = poolGetTableColors();
 
-        // Draw outer wood border
         ctx.fillStyle = colors.border;
         ctx.fillRect(0, 0, POOL_W, POOL_H);
 
-        // Draw felt
         const cx1 = POOL_CUSHION_X1 - 2;
         const cy1 = POOL_CUSHION_Y1 - 2;
         const cx2 = POOL_CUSHION_X2 + 2;
@@ -3877,14 +3589,12 @@
         ctx.fillStyle = colors.felt;
         ctx.fillRect(cx1, cy1, cx2 - cx1, cy2 - cy1);
 
-        // Draw cushion rails
         ctx.fillStyle = colors.cushion;
         ctx.fillRect(cx1, 0, cx2 - cx1, POOL_CUSHION_Y1);
         ctx.fillRect(cx1, POOL_CUSHION_Y2, cx2 - cx1, POOL_H - POOL_CUSHION_Y2);
         ctx.fillRect(0, cy1, POOL_CUSHION_X1, cy2 - cy1);
         ctx.fillRect(POOL_CUSHION_X2, cy1, POOL_W - POOL_CUSHION_X2, cy2 - cy1);
 
-        // Draw diamond markers on rails
         ctx.fillStyle = 'rgba(255,255,255,0.3)';
         const diamondSize = 2;
         for (let i = 1; i <= 6; i++) {
@@ -3900,7 +3610,6 @@
             ctx.fill();
         }
 
-        // Draw pockets
         for (const p of poolPockets) {
             ctx.fillStyle = colors.pocket;
             ctx.beginPath();
@@ -3946,7 +3655,6 @@
             ctx.setLineDash([]);
         }
 
-        // Draw balls
         for (const b of poolBalls) {
             if (b.pocketed) continue;
             poolDrawBall(ctx, b);
@@ -4005,7 +3713,6 @@
         // HUD in top & bottom margins
         poolDrawHUD(ctx);
 
-        // Spin indicator in bottom margin
         if (cueBall && !cueBall.pocketed && poolAllStopped() && !poolGameOver && isHumanTurn && !poolPlacingBall) {
             poolDrawSpinIndicator(ctx);
         }
@@ -4028,8 +3735,7 @@
 
     function poolDrawBall(ctx, ball) {
         const x = ball.x, y = ball.y, r = ball.r;
-        // Calculate rolling offset — the label/stripe orbits around the ball center
-        // This simulates the label appearing to roll toward movement direction
+        // Rolling offset — the label orbits the ball centre so it appears to roll toward movement.
         const rollAngle = ball.rotation || 0;
         // Offset for the number circle "orbiting" the surface
         const orbitR = r * 0.25; // how far the label can shift from center
@@ -4038,7 +3744,6 @@
         // Visibility factor — label fades as it "rotates" to the back
         const labelVis = Math.max(0, Math.cos(rollAngle));
 
-        // Ball body
         if (ball.stripe) {
             // Stripe ball: white base with colored band
             ctx.fillStyle = '#f5f5f5';
@@ -4060,7 +3765,6 @@
             ctx.fill();
             ctx.restore();
         } else {
-            // Solid ball or cue ball
             ctx.fillStyle = ball.color;
             ctx.beginPath();
             ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -4097,7 +3801,6 @@
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fill();
 
-        // Ball outline
         ctx.strokeStyle = 'rgba(0,0,0,0.3)';
         ctx.lineWidth = 0.5;
         ctx.beginPath();
@@ -4125,10 +3828,8 @@
             angle = poolCueAngle;
         }
 
-        // Aiming line (dotted)
-        // Determine if the aimed ball is illegal for the current player
-        // (mirrors poolProcessTurnResult foul checks)
-        // Cast ahead to find hitBall first, then choose guide colours.
+        // Aiming line (dotted). Cast ahead for hitBall, flag an illegal target (mirrors the
+        // poolProcessTurnResult foul checks), then pick guide colours.
 
         // Cast line from cue ball in shot direction until hitting something
         const dirX = Math.cos(angle);
@@ -4161,7 +3862,6 @@
             }
         }
 
-        // Check cushion intersections
         if (dirX > 0) lineLen = Math.min(lineLen, (POOL_CUSHION_X2 - cueBall.x) / dirX);
         else if (dirX < 0) lineLen = Math.min(lineLen, (POOL_CUSHION_X1 - cueBall.x) / dirX);
         if (dirY > 0) lineLen = Math.min(lineLen, (POOL_CUSHION_Y2 - cueBall.y) / dirY);
@@ -4169,7 +3869,6 @@
 
         lineLen = Math.max(0, lineLen);
 
-        // Illegal ball check
         let aimIllegal = false;
         if (hitBall) {
             const curGroup = poolTurn === 1 ? poolPlayer1Group : poolPlayer2Group;
@@ -4213,14 +3912,12 @@
                 // PROHIBITION SIGN (NOT ALLOWED)
                 const prohibR = POOL_BALL_R;
 
-                // Red circle
                 ctx.strokeStyle = 'rgba(255,50,50,0.92)';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
                 ctx.arc(ghostX, ghostY, prohibR, 0, Math.PI * 2);
                 ctx.stroke();
 
-                // Translucent red fill
                 ctx.fillStyle = 'rgba(255,40,40,0.18)';
                 ctx.beginPath();
                 ctx.arc(ghostX, ghostY, prohibR, 0, Math.PI * 2);
@@ -4236,7 +3933,6 @@
                 ctx.stroke();
 
             } else {
-                // NORMAL GHOST BALL & TRAJECTORY GUIDES
 
                 // Ghost ball outline (where cue ball will be at contact)
                 ctx.strokeStyle = 'rgba(255,255,255,0.92)';
@@ -4280,7 +3976,6 @@
                         ctx.stroke();
                         ctx.setLineDash([]);
 
-                        // Arrow head dot
                         const arrowX = hitBall.x + targetDirX * projLen;
                         const arrowY = hitBall.y + targetDirY * projLen;
                         ctx.fillStyle = 'rgba(255,220,0,0.95)';
@@ -4310,12 +4005,10 @@
             }
         }
 
-        // Draw cue stick
         const pullBack = poolDragging ? poolCuePower * 2 : 0;
         const cueStart = POOL_BALL_R + 2 + pullBack;
         const cueLen = 100;
 
-        // Cue stick colors
         const cueEndX = cueBall.x - Math.cos(angle) * (cueStart + cueLen);
         const cueEndY = cueBall.y - Math.sin(angle) * (cueStart + cueLen);
         const cueStartX = cueBall.x - Math.cos(angle) * cueStart;
@@ -4349,7 +4042,6 @@
         ctx.lineTo(cueEndX, cueEndY);
         ctx.stroke();
 
-        // Power indicator
         if (poolDragging) {
             const powerPct = poolCuePower / POOL_CUE_MAX_POWER;
             ctx.fillStyle = `rgba(${Math.round(255 * powerPct)}, ${Math.round(255 * (1 - powerPct))}, 0, 0.7)`;
@@ -4366,13 +4058,11 @@
         const ix = POOL_W / 2;
         const iy = POOL_TABLE_OFFSET_Y + POOL_H + 46;
 
-        // Background circle
         ctx.fillStyle = 'rgba(255,255,255,0.12)';
         ctx.beginPath();
         ctx.arc(ix, iy, indicatorR + 3, 0, Math.PI * 2);
         ctx.fill();
 
-        // White ball
         ctx.fillStyle = '#ddd';
         ctx.beginPath();
         ctx.arc(ix, iy, indicatorR, 0, Math.PI * 2);
@@ -4381,7 +4071,6 @@
         ctx.lineWidth = 0.5;
         ctx.stroke();
 
-        // Crosshairs
         ctx.strokeStyle = 'rgba(0,0,0,0.2)';
         ctx.lineWidth = 0.5;
         ctx.beginPath();
@@ -4399,7 +4088,6 @@
         ctx.arc(dotX, dotY, 2.5, 0, Math.PI * 2);
         ctx.fill();
 
-        // Label
         ctx.fillStyle = 'rgba(255,255,255,0.6)';
         ctx.font = '7px Inter, sans-serif';
         ctx.textAlign = 'center';
@@ -4415,7 +4103,6 @@
         const p1Active = poolTurn === 1;
         const p2Active = poolTurn === 2;
 
-        // Shot clock
         const showTimer = poolGameRunning && !poolGameOver && poolAllStopped() && !poolShotFired && !poolPlacingBall;
         const timerPct = poolShotTimer / POOL_SHOT_CLOCK;
         let timerBarColor;
@@ -4481,7 +4168,6 @@
             ctx.fill();
         }
 
-        // Active badge border
         if (p1Active) {
             ctx.strokeStyle = 'rgba(120,255,150,0.5)';
             ctx.lineWidth = 0.8;
@@ -4497,7 +4183,6 @@
             ctx.stroke();
         }
 
-        // Player names
         ctx.font = 'bold 11px Inter, sans-serif';
         ctx.textAlign = 'left';
         ctx.fillStyle = '#fff';
@@ -4505,7 +4190,6 @@
         ctx.textAlign = 'right';
         ctx.fillText(p2Name, POOL_W - 22, badgeY + 17);
 
-        // W/L record labels inside badges
         ctx.font = '8px Inter, sans-serif';
         ctx.fillStyle = 'rgba(255,255,255,0.60)';
         const p1WL = `${poolRecord.p1Wins}W ${poolRecord.p1Losses}L`;
@@ -4515,7 +4199,6 @@
         ctx.textAlign = 'left';
         ctx.fillText(p2WL, POOL_W - 14 - badgeW + 6, badgeY + 10);
 
-        // Group indicators below badges
         if (p1Group) {
             const groupY = badgeY + badgeH + 14;
             ctx.font = 'bold 8px Inter, sans-serif';
@@ -4623,7 +4306,6 @@
         ctx.textBaseline = 'alphabetic';
     }
 
-    // POOL INPUT HANDLERS
 
     function handlePoolMouseDown(e) {
         if (!poolGameRunning || poolGameOver) return;
@@ -4648,7 +4330,6 @@
             return;
         }
 
-        // Ball in hand placement
         if (poolPlacingBall) {
             const cueBall = poolBalls[0];
             // Check valid placement (not overlapping other balls)
@@ -4667,7 +4348,6 @@
                 valid = false;
             }
 
-            // Check overlap with other balls
             for (const b of poolBalls) {
                 if (b.pocketed || b.id === 0) continue;
                 const d = Math.sqrt((placeX - b.x) ** 2 + (placeY - b.y) ** 2);
@@ -4715,16 +4395,14 @@
             const scaleRatioY = rect.height / POOL_CANVAS_H;
             const mx = poolMouseX / scaleRatioX;
             const my = poolMouseY / scaleRatioY - POOL_TABLE_OFFSET_Y;
-            // Shot direction unit vector
             const shotDirX = Math.cos(poolLockedAngle);
             const shotDirY = Math.sin(poolLockedAngle);
             // Pull vector: from mouse toward cue ball along shot axis
             const pullX = cueBall.x - mx;
             const pullY = cueBall.y - my;
             const projection = pullX * shotDirX + pullY * shotDirY;
-            // Use absolute value — power builds whether the mouse is pulled
-            // behind the cue ball OR dragged forward toward the target.
-            // This removes the canvas-bounds restriction for corner shots.
+            // Absolute value: power builds whether the mouse is pulled back or dragged forward, which
+            // lifts the canvas-bounds restriction on corner shots.
             poolCuePower = Math.min(POOL_CUE_MAX_POWER, Math.max(0, (Math.abs(projection) - 5) * 0.20));
             // Angle stays locked — do NOT update poolCueAngle here
         }
@@ -4736,7 +4414,6 @@
 
         const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
         if (cueBall && poolCuePower > 0.5 && poolAllStopped()) {
-            // Fire at the locked angle
             poolFireShot(cueBall, poolLockedAngle, poolCuePower);
         }
         // Whether shot or not — always release the drag/lock
@@ -4767,7 +4444,6 @@
         handlePoolMouseUp({});
     }
 
-    // POOL GAME LIFECYCLE
 
     function initPoolGame() {
         poolCanvas = document.getElementById('pool-canvas');
@@ -4819,9 +4495,8 @@
 
     function startPoolGame() {
         if (poolGameRunning) return;
-        // If the previous game ended, force a full reset before starting a new one.
-        // This prevents the XP farm exploit where clicking Play without Reset
-        // would immediately re-trigger endPoolGame with the same winner.
+        // Force a full reset if the previous game ended — otherwise Play re-triggers endPoolGame
+        // with the same winner (XP farm).
         if (poolGameOver) {
             resetPoolGame();
         }
@@ -4955,19 +4630,12 @@
         resetPoolGame();
     }
 
-    // SHARED "MAXIMIZE TO MODAL" HELPER
-    // Pool and Ludo both blow their canvas up into a 2× modal, and the mechanics
-    // are identical: drop an invisible placeholder so the panel doesn't collapse,
-    // build overlay + panel, move the real canvas across, scale its backing
-    // store, then put everything back on close. Each game supplies only its own
-    // ids and buffer size.
-    //
-    // Both renderers derive their internal scale from canvas.width, so doubling
-    // the buffer is all it takes to redraw crisp — drawPoolFrame divides by
-    // POOL_W, ludoRender by LUDO_CANVAS_W.
-    //
-    // State is keyed by canvasId so two games can never cross wires. Returns the
-    // new maximized state, which callers store in their own flag.
+    // SHARED MAXIMIZE-TO-MODAL HELPER (Pool + Ludo)
+    // Invisible placeholder keeps the panel from collapsing; overlay + panel are built, the real
+    // canvas moves across, its backing store scales 2x, and everything is restored on close.
+    // Callers supply only their ids and buffer size. Both renderers derive scale from
+    // canvas.width (drawPoolFrame / POOL_W, ludoRender / LUDO_CANVAS_W).
+    // State is keyed by canvasId, so two games cannot cross wires. Returns the new maximized state.
     const _gameMaxModals = {};
 
     function toggleGameMaxModal(cfg) {
@@ -4976,7 +4644,6 @@
         const openState = _gameMaxModals[cfg.canvasId];
 
         if (!openState) {
-            // Open modal
             const gameContainer = canvas.closest('.snake-game-container') || canvas.parentElement;
 
             const placeholder = document.createElement('div');
@@ -5049,7 +4716,6 @@
             return true;
         }
 
-        // Close modal
         const overlay = openState.overlay;
         const placeholder = openState.placeholder;
         const original = openState.original;
@@ -5084,7 +4750,6 @@
         return false;
     }
 
-    // POOL MAXIMIZE
     function togglePoolMaximize() {
         poolMaximized = toggleGameMaxModal({
             canvasId: 'pool-canvas',
@@ -6666,13 +6331,11 @@
     }
     // ═══ END SNAKE ENGINE ═══
 
-    // REFLEX GAME LOGIC
 
     function initReflexGame() {
         gameAreaElement = document.getElementById('multi-game-area');
         if (!gameAreaElement) return;
 
-        // Load high scores
         const highScores = loadReflexHighScores();
         updateReflexScoreDisplay();
         updateReflexDisplay();
@@ -6698,7 +6361,6 @@
             y: Math.random() * availableHeight + margin
         };
 
-        // Bounds validation
         position.x = Math.max(minX, Math.min(maxX, position.x));
         position.y = Math.max(minY, Math.min(maxY, position.y));
 
@@ -6744,9 +6406,8 @@
         }, delay);
     }
 
-    // Centralised false-start handler. Cancels any pending GO timer, increments
-    // the counter, and either ends the game (if over the limit) or re-arms the
-    // wait phase with a longer cool-off so a click-spam burst can't carry over.
+    // Centralised false-start: cancels the pending GO timer, increments the counter, then either
+    // ends the game or re-arms the wait with a longer cool-off so a click burst cannot carry over.
     function reflexHandleFalseStart() {
         reflexFalseStarts++;
         reflexCanClick = false;
@@ -6775,9 +6436,8 @@
     function handleReflexClick(event) {
         if (!reflexGameStarted || reflexGameFinished) return;
 
-        // 1. Click-spam debounce — ignore back-to-back clicks. Returning before
-        //    any state mutation means a spam stream can't false-start, can't
-        //    score, and can't traverse states.
+        // 1. Click-spam debounce — returns before any state mutation, so a spam stream cannot
+        // false-start, score, or traverse states.
         const now = Date.now();
         if (now - reflexLastClickMs < REFLEX_CLICK_DEBOUNCE_MS) {
             return;
@@ -6792,9 +6452,8 @@
 
         if (!reflexCanClick) return;
 
-        // Reaction time. Lucky prefires that land just after GO (even sub-100ms)
-        // are legitimate — the wait-phase false-start gate + click debounce
-        // already block the spam-click exploit, so no floor is needed here.
+        // Lucky prefires that land just after GO (even sub-100ms) are legitimate; the false-start
+        // gate and click debounce already block spam, so no floor is needed here.
         const reactionTime = now - reflexStartTime;
 
         // 4. TARGET MODE — require the click to land on the target.
@@ -6833,21 +6492,18 @@
             reflexTimeoutRef = null;
         }
 
-        // Calculate statistics
         const avgTime = reflexReactionTimes.length > 0
             ? Math.round(reflexReactionTimes.reduce((a, b) => a + b, 0) / reflexReactionTimes.length)
             : 0;
         const bestTime = reflexReactionTimes.length > 0 ? Math.min(...reflexReactionTimes) : 0;
 
-        // Check and update high scores. loadReflexHighScores() normalises the
-        // never-scored sentinel back to Infinity, so a mode whose stored value
-        // round-tripped through JSON as null can beat it again.
+        // loadReflexHighScores() normalises the never-scored sentinel back to Infinity, so a value
+        // that round-tripped through JSON as null can be beaten again.
         const highScores = loadReflexHighScores();
         let newHighScore = false;
 
-        // A finished run with no recorded reaction leaves both figures at 0, and
-        // RefleX ranks ascending — storing that would plant an unbeatable 0 ms
-        // record at the top of the board.
+        // A finished run with no recorded reaction leaves both figures at 0, and RefleX ranks
+        // ascending — storing it would plant an unbeatable 0 ms record at the top.
         if (reflexReactionTimes.length > 0) {
             if (avgTime > 0 && avgTime < highScores[reflexMode].avg) {
                 highScores[reflexMode].avg = avgTime;
@@ -6865,7 +6521,6 @@
             queueScoreSync();
         }
 
-        // Award XP based on performance
         awardGameXP('reflex', { avgTime, bestTime, falseStarts: reflexFalseStarts, isHighScore: newHighScore });
 
         updateReflexDisplay();
@@ -6890,9 +6545,8 @@
             reflexTimeoutRef = null;
         }
 
-        // The run's live figure is gone, so the score button has to be told —
-        // otherwise it keeps showing the last run's best next to a board that
-        // has been reset out from under it.
+        // The run's live figure is gone, so the score button must be told — else it shows the last
+        // run's best beside a board that was reset underneath it.
         updateReflexScoreDisplay();
         updateReflexDisplay();
         hideReflexResults();
@@ -6906,7 +6560,6 @@
         reflexCurrentRound = 0;
         reflexFalseStarts = 0;
 
-        // Ensure click listener is attached
         if (gameAreaElement) {
             gameAreaElement.removeEventListener('click', handleReflexClick);
             gameAreaElement.addEventListener('click', handleReflexClick);
@@ -6920,11 +6573,8 @@
         if (reflexGameStarted) return; // Can't change mode during game
 
         reflexMode = reflexMode === 'screen' ? 'target' : 'screen';
-        // updateReflexDisplay() only repaints the play area. The mode chip, the
-        // best/current button and the leaderboard overlay all live behind
-        // updateReflexScoreDisplay(), so without this the header kept naming the
-        // previous mode and an open board kept ranking it — the title said
-        // Target while the chip and the scores underneath were still Screen.
+        // updateReflexDisplay() repaints only the play area; the mode chip, the best/current button
+        // and the leaderboard overlay all sit behind updateReflexScoreDisplay(), so both must run.
         updateReflexScoreDisplay();
         updateReflexDisplay();
     }
@@ -6955,10 +6605,8 @@
             gameAreaElement.style.background = 'rgba(0, 0, 0, 0.3)';
         }
 
-        // Clear previous content
         gameAreaElement.innerHTML = '';
 
-        // Show instructions or state text
         const stateText = document.createElement('div');
         stateText.style.cssText = `
             position: absolute;
@@ -6992,7 +6640,6 @@
 
         gameAreaElement.appendChild(stateText);
 
-        // Show target if in target mode and can click
         if (reflexShowTarget && config.targets && reflexCanClick) {
             const target = document.createElement('div');
             target.className = 'reflex-target';
@@ -7015,7 +6662,6 @@
             gameAreaElement.appendChild(target);
         }
 
-        // Update stats display
         updateReflexStatsDisplay();
     }
 
@@ -7089,13 +6735,11 @@
         }
     }
 
-    // AIM TRAINER CHAOS MODE LOGIC
 
     function initAimTrainerGame() {
         gameAreaElement = document.getElementById('multi-game-area');
         if (!gameAreaElement) return;
 
-        // Reset game state
         aimGameStarted = false;
         aimGameFinished = false;
         aimTimer = aimChaosMode.timeLimit;
@@ -7106,7 +6750,6 @@
         aimHits = 0;
         aimBulletHoles = [];
 
-        // Load high score
         const highScore = loadAimHighScore();
         updateAimScoreDisplay();
         renderAimGame();
@@ -7160,7 +6803,6 @@
         aimHits++;
         aimShots++;
 
-        // Add green bullet hole
         aimBulletHoles.push({
             id: Date.now() + Math.random(),
             x: clickX,
@@ -7173,7 +6815,6 @@
         aimTargets = aimTargets.filter(target => target.id !== targetId);
         aimTargets.push(createAimTarget());
 
-        // Update accuracy
         aimAccuracy = aimShots > 0 ? Math.round((aimHits / aimShots) * 100) : 0;
 
         // Clean up old bullet holes (keep last 20)
@@ -7188,7 +6829,6 @@
     function handleAimMissedShot(clickX, clickY) {
         aimShots++;
 
-        // Add gray bullet hole
         aimBulletHoles.push({
             id: Date.now() + Math.random(),
             x: clickX,
@@ -7197,10 +6837,8 @@
             createdAt: Date.now()
         });
 
-        // Update accuracy
         aimAccuracy = aimShots > 0 ? Math.round((aimHits / aimShots) * 100) : 0;
 
-        // Clean up old bullet holes
         if (aimBulletHoles.length > 20) {
             aimBulletHoles = aimBulletHoles.slice(-20);
         }
@@ -7218,7 +6856,6 @@
 
         let targetHit = false;
 
-        // Check all targets for hit
         for (const target of aimTargets) {
             const distance = Math.sqrt(
                 Math.pow(clickX - target.x, 2) + Math.pow(clickY - target.y, 2)
@@ -7264,7 +6901,6 @@
             aimRenderFrameId = null;
         }
 
-        // Check high score
         const highScore = loadAimHighScore();
         const isNewHighScore = aimScore > highScore;
 
@@ -7273,7 +6909,6 @@
             updateAimScoreDisplay();
         }
 
-        // Award XP based on score
         awardGameXP('aim', { score: aimScore, accuracy: aimAccuracy, hits: aimHits, isHighScore: isNewHighScore });
 
         showAimResults(isNewHighScore);
@@ -7300,7 +6935,6 @@
     }
 
     function startAimGame() {
-        // Clear previous state
         aimGameStarted = true;
         aimGameFinished = false;
         aimTimer = aimChaosMode.timeLimit;
@@ -7311,25 +6945,20 @@
         aimHits = 0;
         aimBulletHoles = [];
 
-        // Clear any existing timers
         if (aimTimerRef) {
             clearInterval(aimTimerRef);
             aimTimerRef = null;
         }
 
-        // Ensure click listener is attached
         if (gameAreaElement) {
             gameAreaElement.removeEventListener('click', handleAimClick);
             gameAreaElement.addEventListener('click', handleAimClick);
         }
 
-        // Spawn initial targets
         spawnMultipleTargets(aimChaosMode.targetCount);
 
-        // Start timer
         aimTimerRef = setInterval(updateAimTimer, 1000);
 
-        // Initial render
         renderAimGame();
 
         updateAimStatsDisplay();
@@ -7380,7 +7009,6 @@
             }
         });
 
-        // Add new bullet holes
         aimBulletHoles.forEach(hole => {
             const existingHole = gameAreaElement.querySelector(`[data-hole-id="${hole.id}"]`);
             if (!existingHole) {
@@ -7499,7 +7127,6 @@
         }
     }
 
-    // FLAPPY BIRD GAME LOGIC
     function initFlappyGame() {
         flappyCanvas = document.getElementById('flappy-canvas');
         if (!flappyCanvas) return;
@@ -7579,7 +7206,6 @@
     function updateFlappy() {
         if (!flappyStarted) return;
         flappyFrame++;
-        // Gravity
         flappyBird.vy += FLAPPY_GRAVITY;
         flappyBird.y += flappyBird.vy;
 
@@ -7617,7 +7243,6 @@
             }
         }
 
-        // Ground/ceiling
         if (flappyBird.y + flappyBird.height >= groundY || flappyBird.y < 0) {
             endFlappyGame(); return;
         }
@@ -7628,7 +7253,6 @@
         const cw = flappyCanvas.width, ch = flappyCanvas.height;
         const groundY = ch - 40;
 
-        // Sky gradient
         const sky = flappyCtx.createLinearGradient(0, 0, 0, groundY);
         sky.addColorStop(0, '#1a1a3e');
         sky.addColorStop(1, '#2d1b69');
@@ -7643,9 +7267,7 @@
             flappyCtx.fillRect(sx, sy, 1, 1);
         }
 
-        // Draw pipes
         for (const pipe of flappyPipes) {
-            // Top pipe
             const topH = pipe.gapY;
             const grad1 = flappyCtx.createLinearGradient(pipe.x, 0, pipe.x + FLAPPY_PIPE_WIDTH, 0);
             grad1.addColorStop(0, '#1aaa1a');
@@ -7653,14 +7275,11 @@
             grad1.addColorStop(1, '#0d7a0d');
             flappyCtx.fillStyle = grad1;
             flappyCtx.fillRect(pipe.x, 0, FLAPPY_PIPE_WIDTH, topH);
-            // Top cap
             flappyCtx.fillStyle = '#1acc1a';
             flappyCtx.fillRect(pipe.x - 4, topH - 22, FLAPPY_PIPE_WIDTH + 8, 22);
-            // Border highlights
             flappyCtx.fillStyle = 'rgba(255,255,255,0.2)';
             flappyCtx.fillRect(pipe.x + 2, 0, 4, topH);
 
-            // Bottom pipe
             const botY = pipe.gapY + (pipe.gap ?? FLAPPY_PIPE_GAP_BASE);
             const botH = groundY - botY;
             const grad2 = flappyCtx.createLinearGradient(pipe.x, 0, pipe.x + FLAPPY_PIPE_WIDTH, 0);
@@ -7669,37 +7288,31 @@
             grad2.addColorStop(1, '#0d7a0d');
             flappyCtx.fillStyle = grad2;
             flappyCtx.fillRect(pipe.x, botY, FLAPPY_PIPE_WIDTH, botH);
-            // Bottom cap
             flappyCtx.fillStyle = '#1acc1a';
             flappyCtx.fillRect(pipe.x - 4, botY, FLAPPY_PIPE_WIDTH + 8, 22);
             flappyCtx.fillStyle = 'rgba(255,255,255,0.2)';
             flappyCtx.fillRect(pipe.x + 2, botY, 4, botH);
         }
 
-        // Ground
         flappyCtx.fillStyle = '#3d8b2a';
         flappyCtx.fillRect(0, groundY, cw, 40);
         flappyCtx.fillStyle = '#4da832';
         flappyCtx.fillRect(0, groundY, cw, 6);
 
-        // Bird
         const bx = flappyBird.x, by = flappyBird.y;
         const bw = flappyBird.width, bh = flappyBird.height;
         const angle = Math.min(Math.max(flappyBird.vy * 0.06, -0.5), 1.0);
         flappyCtx.save();
         flappyCtx.translate(bx + bw / 2, by + bh / 2);
         flappyCtx.rotate(angle);
-        // Body
         flappyCtx.fillStyle = '#f0c030';
         flappyCtx.beginPath();
         flappyCtx.ellipse(0, 0, bw / 2, bh / 2, 0, 0, Math.PI * 2);
         flappyCtx.fill();
-        // Wing
         flappyCtx.fillStyle = '#e0a820';
         flappyCtx.beginPath();
         flappyCtx.ellipse(-2, 4, 8, 5, -0.3, 0, Math.PI * 2);
         flappyCtx.fill();
-        // Eye
         flappyCtx.fillStyle = 'white';
         flappyCtx.beginPath();
         flappyCtx.arc(6, -3, 5, 0, Math.PI * 2);
@@ -7712,14 +7325,12 @@
         flappyCtx.beginPath();
         flappyCtx.arc(8, -4, 1, 0, Math.PI * 2);
         flappyCtx.fill();
-        // Beak
         flappyCtx.fillStyle = '#ff8800';
         flappyCtx.beginPath();
         flappyCtx.moveTo(12, 0); flappyCtx.lineTo(18, -2); flappyCtx.lineTo(18, 3); flappyCtx.closePath();
         flappyCtx.fill();
         flappyCtx.restore();
 
-        // Score overlay
         if (flappyGameRunning || flappyGameOver) {
             flappyCtx.fillStyle = 'rgba(255,255,255,0.95)';
             flappyCtx.font = 'bold 28px monospace';
@@ -7727,7 +7338,6 @@
             flappyCtx.fillText(flappyScore, cw / 2, 40);
         }
 
-        // Start prompt
         if (!flappyStarted && !flappyGameOver && flappyGameRunning) {
             flappyCtx.fillStyle = 'rgba(255,255,255,0.85)';
             flappyCtx.font = 'bold 16px sans-serif';
@@ -7743,7 +7353,6 @@
             flappyCtx.fillText('Click PLAY to start', cw / 2, ch / 2);
         }
 
-        // Game over overlay
         if (flappyGameOver) {
             flappyCtx.fillStyle = 'rgba(0,0,0,0.55)';
             flappyCtx.fillRect(0, 0, cw, ch);
@@ -7775,7 +7384,6 @@
         updateGameScoreBtn('flappy', flappyScore, flappyHighScore);
     }
 
-    // TETRIS GAME LOGIC
     function initTetrisGame() {
         tetrisCanvas = document.getElementById('tetris-canvas');
         if (!tetrisCanvas) return;
@@ -7821,10 +7429,8 @@
         tetrisLoop();
     }
 
-    // 7-bag randomizer (modern Tetris standard): every 7 pieces contains exactly
-    // one of each shape, eliminating long S/Z or I-piece droughts. This makes the
-    // game fair — the previous Math.random() approach could (and did) deal 8+ S/Z
-    // pieces in a row with no possible opening, which is purely a luck loss.
+    // 7-bag randomizer (modern Tetris standard): every 7 pieces holds exactly one of each shape,
+    // so no long S/Z or I droughts. Plain Math.random() could deal 8+ S/Z with no possible opening.
     function spawnTetrisPiece() {
         if (tetrisBag.length === 0) {
             tetrisBag = [0, 1, 2, 3, 4, 5, 6];
@@ -7962,7 +7568,6 @@
         const offX = Math.floor((cw - boardW) / 2); // 94px — centers horizontally
         const offY = Math.floor((ch - boardH) / 2); // 4px — centers vertically
 
-        // Background
         ctx.fillStyle = '#0a0a1a';
         ctx.fillRect(0, 0, cw, ch);
 
@@ -7979,7 +7584,6 @@
         ctx.fillStyle = rightGrad;
         ctx.fillRect(offX + boardW, 0, cw - (offX + boardW), ch);
 
-        // Board border glow
         ctx.save();
         ctx.shadowColor = '#7c3aed';
         ctx.shadowBlur = 20;
@@ -8004,7 +7608,6 @@
             ctx.stroke();
         }
 
-        // Locked board cells
         for (let r = 0; r < TETRIS_ROWS; r++) {
             for (let c = 0; c < TETRIS_COLS; c++) {
                 if (tetrisBoard[r][c]) drawTetrisCell(ctx, offX, offY, c, r, tetrisBoard[r][c]);
@@ -8048,7 +7651,6 @@
             }
         }
 
-        // Current piece
         if (tetrisCurrentPiece) {
             const { shape, x, y, color } = tetrisCurrentPiece;
             for (let r = 0; r < shape.length; r++) {
@@ -8070,13 +7672,11 @@
             const boxX = gutterX + Math.floor((gutterW - previewW - boxPad * 2) / 2);
             const boxY = offY + 20;
 
-            // Label
             ctx.fillStyle = 'rgba(167,139,250,0.85)';
             ctx.font = 'bold 10px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText('NEXT', boxX + (previewW + boxPad * 2) / 2, boxY - 6);
 
-            // Box background + border
             ctx.fillStyle = 'rgba(20,15,40,0.7)';
             ctx.fillRect(boxX, boxY, previewW + boxPad * 2, previewH + boxPad * 2);
             ctx.save();
@@ -8109,7 +7709,6 @@
             }
         }
 
-        // Idle overlay
         if (!tetrisGameRunning && !tetrisGameOver) {
             ctx.fillStyle = 'rgba(0,0,0,0.55)';
             ctx.fillRect(offX, offY, boardW, boardH);
@@ -8123,7 +7722,6 @@
             ctx.fillText('Space = Hard Drop', cw / 2, ch / 2 + 28);
         }
 
-        // Game over overlay
         if (tetrisGameOver) {
             ctx.fillStyle = 'rgba(0,0,0,0.75)';
             ctx.fillRect(offX, offY, boardW, boardH);
@@ -8148,7 +7746,6 @@
         grad.addColorStop(1, shadeColor(color, -40));
         ctx.fillStyle = grad;
         ctx.fillRect(x + 1, y + 1, TETRIS_CELL - 2, TETRIS_CELL - 2);
-        // Highlight shimmer
         ctx.fillStyle = 'rgba(255,255,255,0.3)';
         ctx.fillRect(x + 2, y + 2, TETRIS_CELL - 8, 3);
     }
@@ -8169,7 +7766,6 @@
         updateGameScoreBtn('tetris', tetrisScore, tetrisHighScore);
     }
 
-    // PRAYER COUNTER LOGIC
 
     function initPrayerCounter() {
         prayerCount = loadPrayerCount();
@@ -8187,7 +7783,6 @@
             setTimeout(() => btn.classList.remove('prayer-tap-flash'), 150);
         }
 
-        // Devoted achievement
         if (xpSystemReady && prayerCount >= 1000 && !userXP.achievements.includes('meditative')) {
             unlockAchievement('meditative');
         }
@@ -10253,21 +9848,18 @@
         return LUDO_MODE_LABEL[ludoMode];
     }
 
+
     // GAME SWITCHING SYSTEM
 
     function switchToGame(gameKey) {
         if (currentGame === gameKey) return;
 
-        // Cleanup current game
         cleanupCurrentGame();
 
-        // Update current game
         currentGame = gameKey;
 
-        // Initialize new game
         initCurrentGame();
 
-        // Update UI
         updateGameSwitcher();
         updateGameControls();
     }
@@ -10278,14 +9870,10 @@
         if (gameLbOpen) toggleGameLeaderboard(gameLbOpen, false);
         switch (currentGame) {
             case 'snake':
-                // Death is a 1.4s animation and the run is only committed when it
-                // finishes, in snakeFinalizeDeath. Tearing the loop down inside
-                // that window threw the whole run away — the mode high score and
-                // the XP both — and the window is easy to hit: die, switch panel.
-                // A backgrounded tab makes it wider still, since rAF stops and the
-                // animation never reaches its end on its own. Commit first, then
-                // tear down. snakeFinalizeDeath cancels the frame itself and arms
-                // the restart timer that the next lines clear.
+                // Death is a 1.4s animation and the run commits only at its end, in snakeFinalizeDeath.
+                // Tearing the loop down inside that window discards the run — mode high score and XP both —
+                // and a backgrounded tab widens it, since rAF stops. Commit first, then tear down;
+                // snakeFinalizeDeath cancels the frame and arms the restart timer the next lines clear.
                 if (snakeDying) { try { snakeFinalizeDeath(); } catch (_) {} }
                 if (snakeGameRunning) {
                     snakeGameRunning = false;
@@ -10348,10 +9936,8 @@
                 if (poolMaximized) togglePoolMaximize();
                 break;
             case 'ludo':
-                // cleanupLudoGame cancels ludoAnimFrame, drains the pending
-                // loop-timer, detaches both pointer listeners and closes the
-                // Max modal. Ludo schedules everything off the animation loop
-                // rather than setTimeout precisely so this one call stops it all.
+                // cleanupLudoGame cancels ludoAnimFrame, drains the pending loop-timer, detaches both pointer
+                // listeners and closes the Max modal. Ludo schedules off the animation loop so one call stops all.
                 cleanupLudoGame();
                 break;
             case 'prayer':
@@ -10366,7 +9952,6 @@
         const flappyCv = document.getElementById('flappy-canvas');
         const tetrisCv = document.getElementById('tetris-canvas');
         const gameArea = document.getElementById('multi-game-area');
-        // Hide all first
         const breakoutCv = document.getElementById('breakout-canvas');
         const poolCv = document.getElementById('pool-canvas');
         const ludoCv = document.getElementById('ludo-canvas');
@@ -10505,7 +10090,6 @@
         }
     }
 
-    // QUOTES SYSTEM LOGIC
 
     function initQuotesSystem() {
         // Prevent re-initialization to avoid resetting animations
@@ -10531,7 +10115,6 @@
             quoteTextElement.classList.add('fade-out');
 
             setTimeout(() => {
-                // Update content
                 quoteTextElement.textContent = `"${quote.text}"`;
                 if (quoteAuthorElement) {
                     quoteAuthorElement.textContent = `— ${quote.author}`;
@@ -10546,7 +10129,6 @@
             if (quoteAuthorElement) {
                 quoteAuthorElement.textContent = `— ${quote.author}`;
             }
-            // Ensure element is visible immediately
             quoteTextElement.style.opacity = '1';
         }
     }
@@ -10574,37 +10156,30 @@
         quotesArray.push(newQuote);
         saveQuotes(quotesArray);
 
-        // Show the new quote
         currentQuoteIndex = quotesArray.length - 1;
         displayCurrentQuote();
 
-        // Restart cycling
         startQuoteCycling();
 
-        // Curator achievement
         if (xpSystemReady && !userXP.achievements.includes('curator')) {
             unlockAchievement('curator');
         }
     }
 
-    // XP SYSTEM LOGIC
 
     function initXPSystem() {
         userXP = loadUserXP();
         xpSystemReady = true; // Must be set AFTER loadUserXP() so awardXP never runs on default values
 
-        // Repair any pre-existing level/totalXP mismatch before the first render, so
-        // accounts already damaged by a restore or by the old checkLevelUp bug are
-        // corrected on next page load without the user having to do anything.
+        // Repair a pre-existing level/totalXP mismatch before first render, so accounts damaged by a
+        // restore or the old checkLevelUp bug self-correct on load.
         if (reconcileLevelState('startup check')) saveUserXP(userXP);
 
         updateXPDisplay();
 
-        // Auto-recovery: if a registered client comes back with a fully wiped local state
-        // (Level 1 with 0 XP), pull the authoritative copy from the gist. This only fires
-        // on true wipes — not on legitimate Level 1 accounts that simply haven't earned XP.
-        // If the clientId itself was lost, the user must run
-        // window.atcRestoreByClientId('<their-original-id>') once to re-bind.
+        // Auto-recovery: a registered client returning fully wiped (Level 1, 0 XP) pulls the
+        // authoritative copy from the gist. Legitimate Level 1 accounts are unaffected. If the
+        // clientId itself was lost, run window.atcRestoreByClientId('their-original-id') once to re-bind.
         try { loadLeaderboardProfile(); } catch (_) {}
         if (lbRegistered && lbClientId && (userXP.level || 1) <= 1 && (userXP.totalXP || 0) === 0) {
             restoreFromGist().then(ok => {
@@ -10628,18 +10203,11 @@
         return Math.floor(Math.pow(level, 1.5) * 120);
     }
 
-    // Level state is DERIVED, never independently stored
-    // totalXP is the only authoritative number. level and currentXP are a
-    // projection of it onto the level curve, so they can always be recomputed:
-    //
+    // Level state is DERIVED, never independently stored. totalXP is the only authoritative
+    // number; level and currentXP are its projection onto the level curve:
     //     totalXP === sum(calculateXPForNextLevel(l) for l in 1..level-1) + currentXP
-    //
-    // Several paths write all three fields independently — cloud restore
-    // (applyPlayerRecordToLocal), admin-rollback overrides, and restoring under a
-    // different clientId. Any of them can land a record where the stored level
-    // disagrees with totalXP, which is why a restored account shows the wrong
-    // level and a progress bar that never fills. Recomputing on load and after
-    // every restore makes those paths self-healing.
+    // Cloud restore, admin rollback and restore-under-another-clientId each write all three
+    // fields independently, so recomputing on load and after every restore makes them self-heal.
     function deriveLevelFromTotalXP(totalXP) {
         let level = 1;
         let remaining = Math.max(0, Math.floor(Number(totalXP) || 0));
@@ -10654,9 +10222,8 @@
         return { level, currentXP: remaining };
     }
 
-    // Repair userXP.level / userXP.currentXP if they disagree with totalXP.
-    // Returns true when a repair was applied. Never touches totalXP, so no XP is
-    // ever created or destroyed — this only re-slices what the user already has.
+    // Repair userXP.level / userXP.currentXP when they disagree with totalXP. True if repaired.
+    // Never touches totalXP — re-slices what the user already has, creating no XP.
     function reconcileLevelState(reason) {
         const derived = deriveLevelFromTotalXP(userXP.totalXP);
         const storedLevel = userXP.level || 1;
@@ -10677,9 +10244,8 @@
     }
 
     function awardXP(hoursWorked) {
-        // Guard: do NOT run before initXPSystem() has loaded data from localStorage.
-        // Without this, the default userXP values get saved to localStorage on every
-        // page load (during the ~100ms before the setTimeout fires), wiping all progress.
+        // Guard: must not run before initXPSystem() has loaded localStorage, or the ~100ms window
+        // before the setTimeout fires saves default userXP over real progress.
         if (!xpSystemReady) return;
 
         const currentHour = Math.floor(hoursWorked);
@@ -10711,27 +10277,15 @@
             // otherwise the very first call of the day (lastHourTracked === -1) inflates it.
             userXP.todayHours = currentHour;
 
-            // Show hourly XP notification
             if (hoursToAward > 0) {
                 showXPNotification(`+${xpGained} XP for ${hoursToAward} hour(s)!`, 'hourly');
             }
 
-            // Check for milestone bonuses
             checkMilestones(currentHour);
 
-            // Award streak bonus (once per day, and only for a day with real hours).
-            //
-            // Two problems used to live here. The multiplier was uncapped, and the
-            // payout was gated on `lastDay !== today` while sitting inside the
-            // `currentHour > lastHourTracked` block — on a new day lastHourTracked is
-            // reset to -1, so `0 > -1` passed and the bonus paid out at zero hours
-            // worked. Opening the portal on a weekend was worth 20 x streak for
-            // nothing, and each freebie raised the next day's payout.
-            //
-            // Tracking the award date explicitly (rather than piggybacking on
-            // xpLastDay, which line ~6644 has already advanced by this point) means
-            // the bonus can wait for the first real hour of the day and still fire
-            // exactly once.
+            // Award streak bonus — once per day, and only for a day with real hours. The award date is
+            // tracked explicitly rather than piggybacked on xpLastDay (already advanced by this point),
+            // so the bonus can wait for the first real hour of the day and still fire exactly once.
             if (userXP.consecutiveDays > 1 && hoursToAward > 0 && userXP.lastStreakBonusDate !== today) {
                 userXP.lastStreakBonusDate = today;
                 const streakMultiplier = Math.min(userXP.consecutiveDays, STREAK_BONUS_MAX_DAYS);
@@ -10742,13 +10296,11 @@
                 showXPNotification(`🔥 ${userXP.consecutiveDays}-Day Streak! +${streakBonus} Bonus XP!${capNote}`, 'streak');
             }
 
-            // Check for level up
             checkLevelUp();
         }
 
-        // Achievements/shift-completion are evaluated on every call (not only on hour
-        // boundaries) so the exact-shift "Badge of Balance" window can be detected
-        // even if it falls between integer-hour ticks.
+        // Evaluated on every call, not only on hour boundaries, so the exact-shift Badge of Balance
+        // window is still caught when it falls between integer-hour ticks.
         checkAchievements(hoursWorked);
 
         saveUserXP(userXP);
@@ -10760,11 +10312,8 @@
         const today = now.toDateString();
         const dayOfWeek = now.getDay();
 
-        // Weekends are inert: they neither advance nor reset a streak.
-        // Previously ANY new calendar day advanced it, because the skipped-work-day
-        // scan below looks *strictly between* the two dates and so returns 0 for
-        // Fri→Sat, Sat→Sun and Sun→Mon alike. A tab left open over a weekend banked
-        // three free streak days and three streak bonuses.
+        // Weekends are inert: they neither advance nor reset a streak. The skipped-work-day scan below
+        // looks strictly between the two dates, so it returns 0 for Fri-Sat, Sat-Sun and Sun-Mon alike.
         if (dayOfWeek === 0 || dayOfWeek === 6) return;
 
         // A day only counts once real hours are on the clock. Without this, merely
@@ -10773,9 +10322,8 @@
         if (hours < STREAK_MIN_HOURS) return;
 
         if (!userXP.lastAttendanceDate) {
-            // First time the widget sees this user — start a streak of 1.
-            // Note: totalWorkDays is NOT incremented here. It only ticks up once the
-            // user actually completes a full shift (see checkAchievements).
+            // First time the widget sees this user — start a streak of 1. totalWorkDays is NOT incremented
+            // here; it ticks only once a full shift completes (see checkAchievements).
             userXP.consecutiveDays = 1;
             raiseLongestStreak();
             userXP.lastAttendanceDate = today;
@@ -10788,7 +10336,6 @@
         const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
         if (diffDays === 0) {
-            // Same day, no change
             return;
         }
 
@@ -10813,11 +10360,8 @@
             userXP.hadStreakReset = true;
         }
 
-        // Raised on every path rather than only inside the increment branch. The
-        // two places that *set* consecutiveDays to 1 — the first day a user is
-        // ever seen, and a reset — used to leave longestStreak alone, so a brand
-        // new user showed "current 1, longest 0" and stayed that way until their
-        // second day. Six records in the registry are still sitting in that state.
+        // Raised on every path, not only inside the increment branch: the two places that set
+        // consecutiveDays to 1 (first sighting, and a reset) would otherwise leave longestStreak behind.
         raiseLongestStreak();
 
         userXP.lastAttendanceDate = today;
@@ -10842,24 +10386,21 @@
     }
 
     function checkAchievements(hoursWorked) {
-        // hoursWorked is a float (e.g. 7.42). All shift-completion checks use this
-        // precise value rather than the truncated userXP.todayHours, so achievements
-        // never fire early on partial work.
+        // hoursWorked is a float (e.g. 7.42). Shift-completion checks use it, not the truncated
+        // userXP.todayHours, so achievements never fire early on partial work.
         if (typeof hoursWorked !== 'number') hoursWorked = (userXP.todayHours || 0);
 
         const shiftHours = getShiftSeconds() / 3600;
         const today = new Date().toDateString();
         const shiftCompletedToday = hoursWorked >= shiftHours;
 
-        // Once per day: if the user has completed a full shift today and we haven't
-        // already counted today, bump totalWorkDays. This is the SINGLE source of
-        // truth for "shift completed", used by Day One / Full Week / Month Done.
+        // Once per day: bump totalWorkDays on a completed shift. SINGLE source of truth for
+        // shift completed — used by Day One / Full Week / Month Done.
         if (shiftCompletedToday && userXP.lastShiftCompletedDate !== today) {
             userXP.lastShiftCompletedDate = today;
             userXP.totalWorkDays = (userXP.totalWorkDays || 0) + 1;
         }
 
-        // Shift-completion achievements
         if (!userXP.achievements.includes('firstDay') && shiftCompletedToday) {
             unlockAchievement('firstDay');
         }
@@ -10880,7 +10421,6 @@
             unlockAchievement('onTime');
         }
 
-        // Single-day endurance achievements
         if (!userXP.achievements.includes('overtimeHero') && hoursWorked >= shiftHours + 2) {
             unlockAchievement('overtimeHero');
         }
@@ -10888,7 +10428,6 @@
             unlockAchievement('marathon');
         }
 
-        // Streak achievements
         if (!userXP.achievements.includes('streak7') && (userXP.consecutiveDays || 0) >= 7) {
             unlockAchievement('streak7');
         }
@@ -10900,7 +10439,6 @@
             unlockAchievement('comeback');
         }
 
-        // Level achievements
         if (!userXP.achievements.includes('level10') && userXP.level >= 10) {
             unlockAchievement('level10');
         }
@@ -10914,7 +10452,6 @@
             unlockAchievement('level100');
         }
 
-        // Gaming volume achievements
         if (!userXP.achievements.includes('gamer') && (userXP.gameSessions || 0) >= 50) {
             unlockAchievement('gamer');
         }
@@ -10923,9 +10460,8 @@
         }
     }
 
-    // Re-check ALL data-verifiable achievements against current stats.
-    // Called on load and after restore so that achievements lost during a wipe
-    // are automatically re-awarded when the underlying data supports them.
+    // Re-check all data-verifiable achievements against current stats. Called on load and after
+    // restore, so badges lost during a wipe are re-awarded when the data supports them.
     function revalidateAchievements() {
         const a = userXP.achievements || [];
         const has = id => a.includes(id);
@@ -10933,24 +10469,20 @@
         // XP was already earned when the achievement was first unlocked during gameplay.
         const S = true;
 
-        // Shift / work-day based
         if (!has('firstDay')    && (userXP.totalWorkDays || 0) >= 1)   unlockAchievement('firstDay', S);
         if (!has('week1')       && (userXP.totalWorkDays || 0) >= 5)   unlockAchievement('week1', S);
         if (!has('workdays20')  && (userXP.totalWorkDays || 0) >= 20)  unlockAchievement('workdays20', S);
         if (!has('centurion')   && (userXP.totalWorkDays || 0) >= 100) unlockAchievement('centurion', S);
 
-        // Streak based
         const bestStreak = Math.max(userXP.consecutiveDays || 0, userXP.longestStreak || 0);
         if (!has('streak7')     && bestStreak >= 7)  unlockAchievement('streak7', S);
         if (!has('streak30')    && bestStreak >= 30) unlockAchievement('streak30', S);
 
-        // Level based
         if (!has('level10')     && (userXP.level || 1) >= 10)  unlockAchievement('level10', S);
         if (!has('level25')     && (userXP.level || 1) >= 25)  unlockAchievement('level25', S);
         if (!has('level50')     && (userXP.level || 1) >= 50)  unlockAchievement('level50', S);
         if (!has('level100')    && (userXP.level || 1) >= 100) unlockAchievement('level100', S);
 
-        // Gaming volume
         if (!has('gamer')       && (userXP.gameSessions || 0) >= 50)  unlockAchievement('gamer', S);
         if (!has('gamer50')     && (userXP.gameSessions || 0) >= 100) unlockAchievement('gamer50', S);
 
@@ -10967,10 +10499,9 @@
 
         if (!has('snakeCharmer') && snakeHS >= 40)     unlockAchievement('snakeCharmer', S);
 
-        // Snake per-mode bests and campaign progress survive a wipe, so these
-        // four can be rebuilt. snakeGourmand ("10 golden bites in one run") and
-        // snakeLong ("60 segments") cannot — they are per-run facts and nothing
-        // in localStorage can reconstruct them after the fact.
+        // Snake per-mode bests and campaign progress survive a wipe, so these four rebuild.
+        // snakeGourmand (10 golden bites in one run) and snakeLong (60 segments) are per-run facts
+        // with no localStorage trace, so they cannot.
         let snakeModeHS = { endless: 0, walled: 0, levels: 0 };
         try {
             const parsed = JSON.parse(localStorage.getItem('snakeHighScores') || 'null');
@@ -10985,22 +10516,16 @@
         if (!has('flapMaster')   && flappyHS >= 50)    unlockAchievement('flapMaster', S);
         if (!has('poolShark')    && poolWon >= 100)    unlockAchievement('poolShark', S);
         if (!has('ludoChamp')    && ludoWon >= 100)    unlockAchievement('ludoChamp', S);
-        // tetrisMaster, sharpshooter, brickBuster, lightning require session-specific
-        // metrics (lines, accuracy, level, avgTime) that aren't in localStorage high-scores,
-        // so they can only be granted during live gameplay via checkGameAchievements().
-        // ludoFlawless and ludoHunter are the same: "lost no token" and "5 captures
-        // in one match" are per-match facts, not running totals, so nothing in
-        // localStorage can reconstruct them after the fact.
+        // tetrisMaster, sharpshooter, brickBuster and lightning need session metrics (lines, accuracy,
+        // level, avgTime) absent from localStorage; ludoFlawless and ludoHunter are per-match facts.
+        // All are granted live via checkGameAchievements() only.
         if (!has('sharpshooter') && aimHS >= 600)      unlockAchievement('sharpshooter', S);
         if (!has('lightning')    && reflexBest <= 200 && reflexBest > 0) unlockAchievement('lightning', S);
 
-        // Team/social
         if (!has('teamPlayer') && lbRegistered) unlockAchievement('teamPlayer', S);
 
-        // Custom image
         if (!has('picturePerfect') && localStorage.getItem('customImageURL')) unlockAchievement('picturePerfect', S);
 
-        // Prayer / meditation
         const prayerCount = parseInt(localStorage.getItem('prayerCount') || '0', 10);
         if (!has('meditative') && prayerCount >= 1000) unlockAchievement('meditative', S);
 
@@ -11021,19 +10546,16 @@
                 if (p.mode === 'walled' && !userXP.achievements.includes('snakeWalled') && (p.score || 0) >= 40) {
                     unlockAchievement('snakeWalled');
                 }
-                // Per-run facts with no localStorage trace, so — like
-                // tetrisMaster and ludoFlawless — these can only be granted
-                // live and are never backfilled by revalidateAchievements.
+                // Per-run facts with no localStorage trace — granted live only, never backfilled.
                 if (!userXP.achievements.includes('snakeGourmand') && (p.bigEaten || 0) >= 10) {
                     unlockAchievement('snakeGourmand');
                 }
                 if (!userXP.achievements.includes('snakeLong') && (p.maxLength || 0) >= 60) {
                     unlockAchievement('snakeLong');
                 }
-                // Stages cleared, not the stage number reached: the badge says
-                // "clear stage 6" and the backfill below reads snakeLevelsBest,
-                // which is only written on a clear. Gating on the stage you died
-                // *on* would hand out 110 XP the revalidator could never rebuild.
+                // Stages cleared, not the stage reached: the badge says clear stage 6 and the backfill reads
+                // snakeLevelsBest, which is written only on a clear. Gating on the stage died on would hand
+                // out 110 XP the revalidator could never rebuild.
                 if (!userXP.achievements.includes('snakeCampaign') && (p.stagesCleared || 0) >= 6) {
                     unlockAchievement('snakeCampaign');
                 }
@@ -11094,21 +10616,17 @@
 
     // XP rewards per achievement tier
     const ACHIEVEMENT_XP = {
-        // Shift completion
         firstDay: 50, week1: 100, workdays20: 200, centurion: 500,
         onTime: 75, marathon: 150, overtimeHero: 120,
-        // Streaks
         streak7: 100, streak30: 300, comeback: 80,
         // Leveling (smaller — you already gained XP to reach the level)
         level10: 50, level25: 100, level50: 200, level100: 500,
-        // Gaming
         gamer: 100, gamer50: 200,
         snakeCharmer: 80, flapMaster: 100, tetrisMaster: 120,
         snakeEndless: 80, snakeWalled: 90, snakeGourmand: 100,
         snakeCampaign: 110, snakeConqueror: 200, snakeLong: 90,
         sharpshooter: 100, lightning: 120, brickBuster: 100, poolShark: 150,
         ludoChamp: 150, ludoFlawless: 120, ludoHunter: 80,
-        // Engagement
         curator: 40, picturePerfect: 40, meditative: 200, teamPlayer: 60
     };
 
@@ -11133,7 +10651,6 @@
         updateXPDisplay();
     }
 
-    // Achievements "View All" Modal
     function openAchievementsModal() {
         let overlay = document.getElementById('achievements-modal-overlay');
         let modal = document.getElementById('achievements-modal');
@@ -11179,9 +10696,8 @@
             <div class="achievements-modal-grid">${cards}</div>
         `;
         modal.querySelector('.achievements-modal-close').onclick = closeAchievementsModal;
-        // Every card icon comes from ACHIEVEMENTS[key].icon, interpolated at
-        // render time — a regex over this file's source can never find it,
-        // only a sweep of what actually landed in the DOM can.
+        // Card icons come from ACHIEVEMENTS[key].icon, interpolated at render time — only a sweep of
+        // what landed in the DOM finds them, never a regex over this source.
         cyberSweepEmoji(modal);
 
         requestAnimationFrame(() => {
@@ -11201,11 +10717,9 @@
     window.closeAchievementsModal = closeAchievementsModal;
 
     function checkLevelUp() {
-        // xpNeeded MUST be recomputed on every iteration — the requirement grows
-        // with level. It used to be a const captured before the loop (the
-        // recomputed value was assigned to an unused local), so one large award
-        // could grant several levels at the cheapest level's price, desyncing
-        // level/currentXP from totalXP.
+        // xpNeeded MUST be recomputed on every iteration — the requirement grows with level. Captured
+        // as a const before the loop, one large award grants several levels at the cheapest price and
+        // desyncs level/currentXP from totalXP.
         let xpNeeded = calculateXPForNextLevel(userXP.level);
         let guard = 0;
 
@@ -11273,7 +10787,6 @@
             achievementsContainer.appendChild(viewAll);
         }
 
-        // Show next milestone
         if (nextMilestoneElement) {
             const nextHour = Math.ceil((userXP.lastHourTracked + 1));
             const milestoneHours = [2, 4, 6, 8];
@@ -11294,14 +10807,12 @@
         notification.className = `xp-milestone-notification xp-notif-${type}`;
         notification.textContent = message;
 
-        // Position stacked notifications
         const existingNotifications = document.querySelectorAll('.xp-milestone-notification');
         const offset = existingNotifications.length * 70;
         notification.style.top = `${20 + offset}px`;
 
-        // A fresh element every call — a one-shot sweep, not cyberWatchEmoji:
-        // this node is gone in 3s, and an observer with nothing left to watch
-        // would just leak.
+        // Fresh element per call — a one-shot sweep, not cyberWatchEmoji: the node is gone in 3s and
+        // an observer with nothing left to watch would leak.
         cyberSweepEmoji(notification);
         document.body.appendChild(notification);
 
@@ -11310,7 +10821,6 @@
         }, 3000);
     }
 
-    // Game XP Reward System
     function awardGameXP(gameType, performance) {
         let xpGained = 0;
         let message = '';
@@ -11332,9 +10842,8 @@
                 } else {
                     xpGained = 2;
                 }
-                // Levels pays for progress as well as score: twelve stages of
-                // authored layouts are the harder thing to do, and scoring alone
-                // would pay a long Endless run more than clearing the campaign.
+                // Levels pays for progress as well as score: scoring alone would pay a long Endless run more
+                // than clearing the twelve authored stages.
                 const snakeStages = performance.stagesCleared || 0;
                 if (snakeStages > 0) xpGained += Math.min(snakeStages * 10, 60);
                 if (performance.isHighScore) xpGained += 15;
@@ -11435,7 +10944,6 @@
                 } else {
                     xpGained = 12;
                 }
-                // Accuracy bonuses
                 if (aimAcc >= 90) {
                     xpGained += 25;
                     message = `🎯 +${xpGained} XP (Aim: ${aimScoreVal} pts + ${Math.round(aimAcc)}% accuracy 🔥)!`;
@@ -11484,11 +10992,9 @@
             }
 
             case 'ludo': {
-                // The award itself is computed in endLudoGame — placement, tokens
-                // home, captures, difficulty tier and board size — because that is
-                // where the headless XP tests pin it. Re-clamped here because
-                // AC_MAX_XP_PER_GAME is the host's contract with the sync
-                // anti-cheat budget, and this is the last point before it lands.
+                // The award is computed in endLudoGame (placement, tokens home, captures, tier, board size),
+                // where the headless XP tests pin it. Re-clamped here because AC_MAX_XP_PER_GAME is the host's
+                // contract with the sync anti-cheat budget, and this is the last point before it lands.
                 xpGained = Math.max(0, Math.min(AC_MAX_XP_PER_GAME, Math.round(performance.xp || 0)));
                 const ludoSeats = performance.players || 2;
                 if (!performance.vsCPU) {
@@ -11502,16 +11008,13 @@
             }
         }
 
-        // Apply XP gain
         if (xpGained > 0) {
             userXP.currentXP += xpGained;
             userXP.totalXP += xpGained;
             userXP.gameSessions = (userXP.gameSessions || 0) + 1;
 
-            // Check for level up
             checkLevelUp();
 
-            // Check gamer achievement
             checkAchievements();
             // Per-game performance achievements (Snake Charmer, Sharpshooter, etc.)
             checkGameAchievements(gameType, performance);
@@ -11522,17 +11025,13 @@
             refreshGameScoreBtn(gameType);
             updateXPDisplay();
             showXPNotification(message, 'game');
-            // Every game writes its record to localStorage before calling this,
-            // so this is the one point that knows a personal best just landed and
-            // has the storage to prove it. Without it a record only reached the
-            // gist if the player happened to press 🔄 afterwards — which is why a
-            // mode could be a genuine local best and still be absent from the
-            // board everyone else sees.
+            // Every game writes its record to localStorage before calling this, so this is the one point
+            // that knows a personal best just landed and has the storage to prove it. Without it a record
+            // reached the gist only if the player happened to press the refresh button.
             if (performance && performance.isHighScore) queueScoreSync();
         }
     }
 
-    // IMAGE BOX LOGIC
 
     function initImageBox() {
         currentImageURL = loadImageURL();
@@ -11549,7 +11048,6 @@
             saveImageURL(currentImageURL);
             updateImageDisplay();
 
-            // Picture Perfect achievement
             if (xpSystemReady && !userXP.achievements.includes('picturePerfect')) {
                 unlockAchievement('picturePerfect');
             }
@@ -11560,7 +11058,6 @@
         const imageDisplay = document.getElementById('image-display');
         if (!imageDisplay) return;
 
-        // Apply aspect ratio
         const ratio = aspectRatios[currentAspectRatio];
         if (ratio) {
             imageDisplay.style.paddingBottom = ratio.paddingBottom;
@@ -11600,7 +11097,6 @@
         });
     }
 
-    // Cache for preventing unnecessary updates
     let cachedValues = {
         totalWorked: '',
         remaining: '',
@@ -11619,7 +11115,6 @@
         currentWorkedTime: null
     };
 
-    // Mouse position for parallax effects
     let mouseX = 0;
     let mouseY = 0;
 
@@ -12557,11 +12052,8 @@
                 cursor: pointer !important;
                 position: relative !important;
                 overflow: hidden !important;
-                /* Was "neonGlowPulse", which animates box-shadow and border-color
-                   from hardcoded cyan/magenta/green — so the box-shadow declared
-                   three lines up never rendered and the glow ignored the user's
-                   swatches. rtGlowBreathe animates filter only, so it composites
-                   over the declaration and follows the Glow tokens. */
+                /* rtGlowBreathe animates filter only, so it composites over the declared box-shadow and
+                                   follows the Glow tokens. (neonGlowPulse animated box-shadow from hardcoded hues.) */
                 animation: rtGlowBreathe 4s ease-in-out infinite !important;
             }
 
@@ -13977,55 +13469,32 @@
             }
 
             /* ═══ CYBERPUNK HUD THEME — generated from cyber-dev/cyber-theme.css, do not edit here ═══ */
-            /* ============================================================
-               CYBERPUNK HUD THEME
-               Generated from cyber-dev/cyber-theme.css. Do not edit the copy
-               in the userscript; run node cyber-dev/reinsert.js.
-
-               ── THE TOKEN CONTRACT ──────────────────────────────────────
-               Three groups of user-set tokens. NO token in one group is ever
-               derived from a token in another:
-
+            /* CYBERPUNK HUD THEME
+               Generated from cyber-dev/cyber-theme.css. Do not edit the copy in the
+               userscript; run node cyber-dev/reinsert.js.
+            
+               THE TOKEN CONTRACT
+               Three groups of user-set tokens. NO token in one group is ever derived
+               from a token in another:
+            
                  STRUCTURE   --rt-bg-1  --rt-bg-2
                  ACCENTS     --rt-accent  --rt-cyber-hl  --rt-cyber-panel
                  LEGIBILITY  --rt-text  --rt-glow-color  --rt-border-color
-
-               Dim variants derive from their OWN parent by opacity alone,
-               never by mixing in another hue. Linking type to Accent or BG is
-               what made the yellow unchangeable: a dark Accent then puts dark
-               text on a dark panel with no control that can undo it.
-
+            
+               Dim variants derive from their OWN parent by opacity alone, never by
+               mixing in another hue.
+            
                  ALL TYPE   -> var(--rt-text) / var(--rt-text-dim)
                  ALL BLOOM  -> var(--rt-glow) / rgba(var(--rt-glow-rgb), a)
                  ALL FRAMES -> var(--rt-border*) / var(--rt-outline)
-
-               KNOCKED-OUT TYPE is the one inversion allowed, and only in one
-               direction: a --rt-text fill carrying --rt-bg-1 glyphs. That is
-               legibility-safe by the same guarantee the contrast chip already
-               measures, because it is the identical pair of colours with the
-               roles swapped. An ACCENT fill carrying text is never allowed —
-               a dark Highlight would hide the label with nothing to warn you.
-
-               ── THE VISUAL LANGUAGE ─────────────────────────────────────
-               Authored against cyber-dev/ref/. What separates this from a
-               generic sci-fi HUD, in order of how much it matters:
-
-                 1. ASYMMETRY. No panel is a rounded rectangle. Step notches
-                    cut out of one corner, opposite-corner diagonals,
-                    terraced corners. Every silhouette is lopsided.
-                 2. 45-degree HAZARD HATCHING on edges, tracks and tabs.
-                 3. SOLID accent blocks with knocked-out glyphs, so there is
-                    real mass on screen and not only outline and glow.
-                 4. FLAT. No backdrop-filter, no glass, near-zero mid-tones.
-                    Hard colour on hard black.
-                 5. GREEBLE — mono codes, tick rows, segment counters.
-                 6. SCHEMATIC connector dots at the bracket ends.
-
-               clip-path removes the border along a cut edge, which leaves the
-               silhouette unfinished. --rt-outline draws it back with four
-               1px drop-shadows that follow the clip exactly, so one token
-               outlines every shape without a wrapper element.
-               ============================================================ */
+            
+               KNOCKED-OUT TYPE is the one allowed inversion, and in one direction
+               only: a --rt-text fill carrying --rt-bg-1 glyphs. An ACCENT fill
+               carrying text is never allowed — a dark Highlight would hide the label.
+            
+               clip-path removes the border along a cut edge; --rt-outline draws it
+               back with four 1px drop-shadows that follow the clip exactly, so one
+               token outlines every shape without a wrapper element. */
 
             .retro-theme {
                 /* -- STRUCTURE (user-set) -- */
@@ -14037,17 +13506,9 @@
                 /* -- ACCENTS (user-set) -- */
                 --rt-accent: #fff200;
                 --rt-accent-rgb: 255, 242, 0;
-                /* Highlight + Panel default to cyan until applyPreferences()
-                   writes them. Without these, every rule that consumes them
-                   would resolve to an invalid value.
-
-                   Panel has no -rgb companion because nothing takes Panel at
-                   partial alpha — it is used whole, as a gradient stop and as
-                   the bracket colour. It used to have one anyway: declared
-                   here, written on every repaint, torn down on every theme
-                   switch, and read by nothing. Removed when section H2 went
-                   in. Add it back only alongside the rule that consumes it,
-                   or H2 will fail it again in the other direction. */
+                /* Highlight + Panel default to cyan until applyPreferences() writes them;
+                   without these every rule consuming them resolves to an invalid value.
+                   Panel has no -rgb companion: nothing takes it at partial alpha. */
                 --rt-cyber-hl: var(--rt-cyan, #00e5ff);
                 --rt-cyber-hl-rgb: var(--rt-cyan-rgb, 0, 229, 255);
                 --rt-cyber-panel: var(--rt-cyan, #00e5ff);
@@ -14060,44 +13521,18 @@
                 --rt-border-color: #fff200;
                 --rt-border-rgb: 255, 242, 0;
 
-                /* --rt-cyan is the fallback the Highlight and Panel swatches
-                   resolve to before applyPreferences() has run. It is NOT a
-                   colour anything paints with directly.
-
-                   THE OTHER FIXED HUES ARE GONE. There used to be a magenta,
-                   a lime and a warn here, described as "status only, never
-                   load-bearing for text" — and then four rules coloured text
-                   with them anyway: the two title ghosts, the HUD rail's
-                   LIVE tag, and the EQ button's sim state.
-
-                   Reported as: set every swatch to black and the LIVE tag is
-                   still bright. Exactly right, and worse than the bug this
-                   whole rework exists to fix — a dark Accent at least has a
-                   control the user could move, whereas a literal in the
-                   stylesheet has none at all.
-
-                   Status now reads through form, not through a private
-                   palette: the LIVE tag blinks, the EQ button knocks out.
-                   Both survive any palette, including all-black. */
+                /* --rt-cyan is the fallback Highlight and Panel resolve to before
+                   applyPreferences() runs. It is NOT a colour anything paints with
+                   directly. No other fixed hue exists: a hue no swatch can reach is one
+                   the user cannot fix. */
                 --rt-cyan: #00e5ff;
                 --rt-cyan-rgb: 0, 229, 255;
 
-                /* -- SEMANTIC ROLES ------------------------------------
-                   The reference console is bi-chromatic, and the second
-                   hue does real work: accent marks what is TARGETED
-                   (remaining, live, the thing you are waiting for) and
-                   data marks what is MEASURED (worked, elapsed, logged).
-                   Reading one number against the other is the whole job
-                   of this widget, so the two roles get names rather than
-                   being spelled --rt-cyber-hl at forty call sites.
-
-                   --rt-data aliases the Highlight swatch, so it stays
-                   user-settable and stays in the teardown list. It is a
-                   role, not a new token to clear.
-
-                   Roles are for FILLS, RULES and GLYPHS only. Numbers and
-                   labels stay on --rt-text: a dark Highlight must never be
-                   able to hide a readout, and no control could undo it. */
+                /* -- SEMANTIC ROLES --
+                   Two roles, both derived from user swatches: accent marks what is
+                   TARGETED (remaining, live, awaited), data marks what is MEASURED
+                   (worked, elapsed, logged). Reading one against the other is the
+                   widget's whole job, so they get names rather than bare swatch refs. */
                 --rt-data: var(--rt-cyber-hl);
                 --rt-data-rgb: var(--rt-cyber-hl-rgb);
 
@@ -14107,41 +13542,16 @@
                 --rt-border: rgba(var(--rt-border-rgb), 0.38);
                 --rt-border-strong: rgba(var(--rt-border-rgb), 0.85);
                 --rt-grid: rgba(var(--rt-border-rgb), 0.07);
-                /* The raw preference, 0 upward. Kept because it is what the
-                   setting stores and what the teardown list clears. Nothing
-                   in the CSS reads it directly any more — see below. */
+                /* Raw preference, 0 upward. Kept because it is what the setting stores and
+                   what the teardown list clears; no CSS rule reads it directly. */
                 --rt-glow-mul: 0.6;
 
-                /* GLOW SCALE — the Glow Intensity slider, 0 to 1.
-
-                   Written by applyCyberTokens() rather than derived in CSS,
-                   because the settings modal is body-level and cannot see a
-                   property declared on the widget. This declaration is the
-                   pre-JS fallback and mirrors the shipped default.
-
-                   RADIUS SCALES WITH IT, not just alpha, and it scales from
-                   ZERO — so 0% is genuinely off and 100% is genuinely a lot,
-                   with the whole travel in between doing visible work.
-
-                   TWO ROUNDS OF GETTING THIS WRONG, both worth recording.
-
-                   First the multiplier touched alpha only, against fixed
-                   radii — opacity saturates long before a slider does, so the
-                   top half did nothing.
-
-                   Then radius scaled, but off a 7px base. Pass 2 had tightened
-                   that from 18px on the reasoning that "a small hard halo
-                   reads as a lit filament, a wide soft one reads as fog". That
-                   was wrong for this widget: at 7px there is barely a halo to
-                   scale, so even tripling it changed almost nothing visible.
-                   The base was the problem the whole time, not the range.
-
-                   THREE LAYERS, not one big blur. A single wide blur really
-                   does turn to fog — the objection was right, the conclusion
-                   was not. Real neon has a hot core, a bloom, and a wide dim
-                   spill; stacking those keeps the glyph crisp while the light
-                   travels a long way from it. Both text-shadow and box-shadow
-                   take a layer list, so one token serves both. */
+                /* GLOW SCALE — the Glow Intensity slider, 0 to 1. Written by
+                   applyCyberTokens() rather than derived in CSS, because the settings
+                   modal is body-level and cannot see a property declared on the widget.
+                   This declaration is the pre-JS fallback and mirrors the shipped default.
+                   RADIUS scales with it, not just alpha, and it scales from ZERO — so 0%
+                   is genuinely no glow, not a dimmer one. */
                 --rt-glow-k: 0.6;
 
                 --rt-glow:
@@ -14152,8 +13562,7 @@
                     0 0 calc(48px * var(--rt-glow-k))
                         rgba(var(--rt-glow-rgb), calc(0.30 * var(--rt-glow-k)));
 
-                /* The restrained pair, for chrome that should be lit but not
-                   shouting. Same shape, two layers. */
+                /* Restrained pair for chrome that should be lit but not shouting. */
                 --rt-glow-soft:
                     0 0 calc(4px * var(--rt-glow-k))
                         rgba(var(--rt-glow-rgb), calc(0.75 * var(--rt-glow-k))),
@@ -14162,17 +13571,13 @@
                 --rt-scanline: rgba(var(--rt-border-rgb), 0.055);
 
                 /* -- RUNTIME: written from outside this stylesheet -- */
-                /* Per render, by renderFullContent(), as an inline style on
-                   .progress-bar — the track needs the percentage because the
-                   playhead is drawn on the track rather than on the fill.
-                   Declared here so the var is never unset: an unset var()
-                   invalidates the whole declaration it appears in, so a
-                   missing --rt-progress would drop the playhead entirely
-                   rather than putting it at zero. */
+                /* Written per render by renderFullContent() as an inline style on
+                   .progress-bar: the track needs the percentage because the playhead is
+                   drawn on the track, not the fill. Declared here so the var is never
+                   unset — an unset var() would invalidate the whole declaration. */
                 --rt-progress: 0%;
 
-                /* 45-degree hazard hatching. THE cyberpunk tell, and the one
-                   motif a clean sci-fi HUD never has. */
+                /* 45-degree hazard hatching. */
                 --rt-hazard: repeating-linear-gradient(
                     45deg,
                     var(--rt-border-color) 0 5px,
@@ -14187,19 +13592,13 @@
                     rgba(0, 0, 0, 0.55) 0 3px,
                     transparent 3px 9px);
 
-                /* CHROMATIC ABERRATION. Every display word in the
-                   reference sheets is split — a warm ghost one way, a cool
-                   ghost the other. It is the cheapest thing on this list
-                   and the most recognisably cyberpunk: one text-shadow,
-                   no pseudo-elements, no animation. Offsets stay at 2px;
-                   past about 3px it stops reading as a mis-converged tube
-                   and starts reading as a drop shadow. */
+                /* Chromatic aberration: one text-shadow, warm ghost one way, cool the
+                   other. Offsets stay at 2px. */
                 --rt-aberr:
                     2px 0 rgba(var(--rt-accent-rgb), 0.55),
                     -2px 0 rgba(var(--rt-data-rgb), 0.40);
 
-                /* 1px tick comb — the fine ruler under every scale and
-                   beside every ident block in the sheets. */
+                /* 1px tick comb. */
                 --rt-comb: repeating-linear-gradient(
                     90deg,
                     rgba(var(--rt-border-rgb), 0.75) 0 1px,
@@ -14207,26 +13606,22 @@
                     rgba(var(--rt-border-rgb), 0.40) 3px 4px,
                     transparent 4px 7px);
 
-                /* Coarse 4px dash — the segmented underline the reference
-                   puts beneath a stat block instead of a solid rule. */
+                /* Coarse 4px dash — segmented underline. */
                 --rt-dashrule: repeating-linear-gradient(
                     90deg,
                     var(--rt-border-color) 0 4px,
                     transparent 4px 8px);
 
-                /* POSITIVE chevron: a two-tone diagonal fill for meters.
-                   --rt-chevron above is subtractive (black notches cut out
-                   of whatever is behind); this one IS the fill, which is
-                   how the reference draws a loading bar. Sized 16px so
-                   rtHazardCrawl walks it exactly one period. */
+                /* POSITIVE chevron: two-tone diagonal fill for meters. --rt-chevron above
+                   is subtractive (notches cut out of what is behind); this one IS the fill.
+                   Sized 16px so rtHazardCrawl walks it exactly one period. */
                 --rt-chevron-fill: repeating-linear-gradient(
                     115deg,
                     var(--rt-data) 0 8px,
                     rgba(var(--rt-data-rgb), 0.35) 8px 16px);
 
-                /* One token that outlines whatever silhouette --rt-clip cuts.
-                   Opaque on purpose: stacked semi-transparent drop-shadows
-                   compound into a muddy double edge. */
+                /* One token outlining whatever silhouette --rt-clip cuts. Opaque on
+                   purpose: stacked semi-transparent drop-shadows compound into a muddy edge. */
                 --rt-outline:
                     drop-shadow(1px 0 0 var(--rt-border-color))
                     drop-shadow(-1px 0 0 var(--rt-border-color))
@@ -14234,28 +13629,19 @@
                     drop-shadow(0 -1px 0 var(--rt-border-color));
             }
 
-            /* ============================================================
-               PANEL SHAPE — userPreferences.cyberPanelShape, applied as
-               .rt-shape-* on #total-time-summary.
+            /* PANEL SHAPE — userPreferences.cyberPanelShape, applied as .rt-shape-* on
+               #total-time-summary.
+               clip-path clips overflow AND box-shadow, so it goes only on elements with
+               nothing escaping their box. The container therefore takes border-radius
+               only; --rt-outline supplies the edge the clip would otherwise remove. */
 
-               clip-path clips overflow AND box-shadow, so it goes only on
-               elements with nothing escaping their box. The container and the
-               side panels keep border-radius alone: they hold the developer
-               tooltip at z-index 9999, game canvases, the skin tray, and two
-               position:fixed descendants (#aim-results, .lb-ach-popover).
-               Clipping those is why the original theme ended up with two dead
-               "clip-path: none !important" resets.
-               ============================================================ */
-
-            /* Default is notched — the asymmetric one. The soft option is
-               still there under Panel Shape for anyone who wants it. */
+            /* Default is notched. */
             .retro-theme,
             .retro-theme.rt-shape-notched {
                 --rt-radius: 0px;
                 --rt-radius-sm: 0px;
                 --rt-cut: 26px;
-                /* A right-angle STEP cut out of the bottom-right only.
-                   Lopsided on purpose: symmetry is what reads as sci-fi. */
+                /* Right-angle STEP cut out of the bottom-right only. */
                 --rt-clip: polygon(
                     0 0,
                     100% 0,
@@ -14264,10 +13650,7 @@
                     calc(100% - var(--rt-cut)) 100%,
                     0 100%
                 );
-                /* Same step, mirrored into the top-left. Neighbouring panels
-                   alternate clip / clip-alt, which is how the reference gets
-                   its lopsided read: not one weird shape, but a run of plain
-                   shapes whose cuts never line up. */
+                /* Same step mirrored into the top-left; neighbouring panels alternate clip / clip-alt. */
                 --rt-clip-alt: polygon(
                     var(--rt-cut) 0,
                     100% 0,
@@ -14283,8 +13666,7 @@
                 --rt-radius: 2px;
                 --rt-radius-sm: 2px;
                 --rt-cut: 18px;
-                /* Top-right and bottom-left only — the classic cut-corner
-                   plate from the reference sheet. */
+                /* Top-right and bottom-left cut corners. */
                 --rt-clip: polygon(
                     0 0,
                     calc(100% - var(--rt-cut)) 0,
@@ -14343,16 +13725,10 @@
                 --rt-bk-inset: 7px;
             }
 
-            /* ============================================================
-               CORNER BRACKETS + SCHEMATIC DOTS — background layers, no DOM.
-
-               ::before and ::after are already spoken for on nearly every
-               panel (top rail, CRT layer, shimmer bar, sensor sweep), so the
-               brackets are composed as background layers. That also makes
-               them identical under all four shapes.
-
-               Usage:  background: var(--rt-brackets), <the panel fill>;
-               ============================================================ */
+            /* CORNER BRACKETS + SCHEMATIC DOTS — background layers, no DOM.
+               ::before and ::after are already taken on nearly every panel (top rail,
+               CRT layer, shimmer bar, sensor sweep), so these are painted as extra
+               background layers instead. */
 
             .retro-theme {
                 --rt-bk-len: 12px;
@@ -14381,8 +13757,7 @@
                     linear-gradient(var(--rt-bk-c), var(--rt-bk-c))
                         left var(--rt-bk-inset) bottom var(--rt-bk-inset) /
                         var(--rt-bk-w) var(--rt-bk-len) no-repeat,
-                    /* Schematic terminal dots, as in the reference's
-                       connector runs. Two only — four reads as a border. */
+                    /* Schematic terminal dots. Two only. */
                     radial-gradient(circle,
                         var(--rt-bk-c) 0 calc(var(--rt-bk-dot) / 2),
                         transparent calc(var(--rt-bk-dot) / 2 + 0.5px))
@@ -14396,34 +13771,20 @@
                         bottom calc(var(--rt-bk-inset) - 1px) /
                         var(--rt-bk-dot) var(--rt-bk-dot) no-repeat;
 
-                /* The container's ambient grid. A plain 44px square lattice,
-                   not the hex one: the reference consoles all sit on graph
-                   paper, and the diagonal lattice fights the 45-degree hazard
-                   hatching that is the theme's loudest motif. --rt-hex stays
-                   for panel interiors, where nothing is hatched. */
-                /* Position and size live IN the layer, the way --rt-studs and
-                   --rt-brackets already do. Mixing the two styles — sizes
-                   inside the shorthand for some layers and a separate
-                   background-size for others — means the longhand silently
-                   overrides every in-shorthand size, and the count has to be
-                   kept in step by hand forever. */
+                /* Container ambient grid: plain 44px square lattice, not the hex one — the
+                   diagonal lattice fights the 45-degree hazard hatching. --rt-hex stays for
+                   panel interiors, where nothing is hatched. */
+                /* Position and size live IN the layer, as --rt-studs and --rt-brackets do.
+                   Mixing the two styles (sizes inside the shorthand for some layers, a
+                   separate background-size for others) makes the longhand lists disagree. */
                 --rt-grid-sq:
                     linear-gradient(var(--rt-grid) 1px, transparent 1px)
                         left top / 44px 44px,
                     linear-gradient(90deg, var(--rt-grid) 1px, transparent 1px)
                         left top / 44px 44px;
 
-                /* EDGE STUDS. Short thick bars sitting ON the frame edge, at
-                   deliberately unrelated offsets. Two of the reference frames
-                   do exactly this and it is the single cheapest way to break
-                   a rectangle's symmetry without cutting its silhouette --
-                   which matters here, because the container is the one
-                   element that may never be clipped. Background layers, so
-                   no DOM and nothing to reparent.
-
-                   5px wide, not 4: the background paints inside the
-                   border-box, so the container's 1px border covers the
-                   outermost pixel of each stud. */
+                /* EDGE STUDS — short bars on the frame edge at unrelated offsets. Painted
+                   as background layers because the container may never be clipped. */
                 --rt-studs:
                     linear-gradient(var(--rt-accent), var(--rt-accent))
                         left 0 top 58px / 5px 120px no-repeat,
@@ -14440,16 +13801,10 @@
                         var(--rt-grid) 0 1px, transparent 1px 19px);
             }
 
-            /* ============================================================
-               KEYFRAMES — rt-prefixed so they cannot collide with the shared
-               glassmorphic set.
-
-               Every one animates transform, opacity, filter or
-               background-position ONLY. Nothing animates box-shadow: an
-               animated box-shadow overrides the static declaration outright,
-               which is how the old "neonPulse 5s" made all four declared
-               layers of the stat-card shadow invisible.
-               ============================================================ */
+            /* KEYFRAMES — rt-prefixed so they cannot collide with the shared
+               glassmorphic set. Every one animates transform, opacity, filter or
+               background-position ONLY. Nothing animates box-shadow: an animated
+               box-shadow overrides the static declaration outright. */
 
             @keyframes rtRailFlow {
                 0%   { background-position: 0% 50%; }
@@ -14461,19 +13816,15 @@
                 100% { background-position: 22px 0; }
             }
 
-            /* The scanline jitter. background-position-y, not transform: a
-               transform would drag the bottom hazard strip on the same
-               element vertically with it. Three layers, and only the middle
-               one moves. */
+            /* Scanline jitter via background-position-y, not transform: a transform
+               would drag the bottom hazard strip on the same element with it. */
             @keyframes rtScanDrift {
                 0%   { background-position-y: bottom, 0px, 0; }
                 100% { background-position-y: bottom, 4px, 0; }
             }
 
-            /* The bottom edge strip crawling sideways. One 22px tile per
-               cycle, so the loop point is invisible — the same period every
-               other hazard band in the theme uses. Only the first layer
-               moves. */
+            /* Bottom edge strip crawling sideways, one 22px tile per cycle — the same
+               period every hazard band uses, so the loop point is invisible. */
             @keyframes rtEdgeCrawl {
                 0%   { background-position-x: 0, 0, 0; }
                 100% { background-position-x: 22px, 0, 0; }
@@ -14486,24 +13837,20 @@
                 100% { transform: translateY(360%); opacity: 0; }
             }
 
-            /* Replaces the inherited glass cardShimmer, which animated "left"
-               and therefore triggered layout on every frame. */
+            /* Replaces the inherited glass cardShimmer, which animated left and so
+               triggered layout every frame. */
             @keyframes rtCardShimmer {
                 0%   { transform: translateX(-100%); }
                 100% { transform: translateX(220%); }
             }
 
-            /* One clean pass. The old range paired 280% with ease-in-out,
-               which spent most of the cycle parked off both ends and read as
-               hesitation rather than a sweep — obvious once the fill started
-               clipping it. Linear, and only far enough to clear the edges. */
+            /* One clean linear pass, far enough to clear the edges. */
             @keyframes rtMeterSweep {
                 0%   { transform: translateX(-100%); }
                 100% { transform: translateX(200%); }
             }
 
-            /* Mostly still, with brief bursts, so it reads as a signal fault
-               rather than a permanent wobble. */
+            /* Mostly still, with brief bursts. */
             @keyframes rtGlitch {
                 0%, 88%, 100% { transform: translate(0, 0) skewX(0deg); }
                 89% { transform: translate(-2px, 1px) skewX(-1.4deg); }
@@ -14544,12 +13891,9 @@
                 100% { transform: translateX(-50%); }
             }
 
-            /* translateY percentages resolve against the BAND's own height,
-               not the container's — so 2400% of a 64px band is 1536px of
-               travel. The centre column is routinely over 1000px tall with
-               the table expanded, and at 1400% the sweep visibly stopped
-               two thirds of the way down. Overshooting is free: the extra
-               is spent off-screen, which just spaces the passes out. */
+            /* translateY percentages resolve against the BAND's own height, not the
+               container's — 2400% of a 64px band is 1536px of travel, enough for a
+               centre column over 1000px tall with the table expanded. */
             @keyframes rtSweepDown {
                 0%   { transform: translateY(-100%); }
                 100% { transform: translateY(2400%); }
@@ -14561,13 +13905,9 @@
                 100%      { opacity: 1; }
             }
 
-            /* Used by the compact-PiP display, which lives outside this block
-               but still belongs to this theme. It previously ran
-               "neonGlowPulse", which animates box-shadow AND border-color
-               from hardcoded cyan/magenta/green — so its own declared shadow
-               never rendered and its glow ignored the user's swatches. This
-               animates filter only, so it composites over the declaration
-               instead of replacing it, and it reads the Glow tokens. */
+            /* Used by the compact-PiP display, which lives outside this block but
+               belongs to this theme. Animates filter only, so it composites over the
+               declared shadow and follows the Glow tokens. */
             @keyframes rtGlowBreathe {
                 0%, 100% {
                     filter: drop-shadow(0 0 calc(12px * var(--rt-glow-k))
@@ -14579,15 +13919,11 @@
                 }
             }
 
-            /* ============================================================
-               MAIN CONTAINER
-
-               No filter here, deliberately. A filter on an ancestor becomes
-               the containing block for position:fixed descendants, and the
-               widget has two — #aim-results and .lb-ach-popover — which would
-               both start positioning against the widget instead of the
-               viewport.
-               ============================================================ */
+            /* MAIN CONTAINER
+               No filter here, deliberately: a filter on an ancestor becomes the
+               containing block for position:fixed descendants, and the widget has two
+               (#aim-results and .lb-ach-popover) that must position against the
+               viewport. */
 
             .attendance-summary.retro-theme {
                 background:
@@ -14626,34 +13962,12 @@
                 opacity: 1;
             }
 
-            /* CRT layer + vignette + a hazard strip along the bottom edge,
-               the way the reference sheets close off a frame.
-
-               THREE LAYERS, TWO DIRECTIONS, NO TRANSFORM.
-
-               This element used to carry the scanline jitter as a
-               translateY() on the whole pseudo-element. A transform moves
-               every layer it paints — so the bottom hazard strip, which
-               shares this element, bobbed up and down 4px in lockstep with
-               the CRT jitter instead of crawling sideways like every other
-               hazard band in the theme. It read as the frame edge twitching.
-
-               The two motions are now separate properties on separate
-               animations, which is the only way to give them different
-               directions AND different timing on one element:
-
-                 background-position-x  ->  the hazard strip crawls right,
-                                            1.6s linear, matching .rt-sec-fill
-                                            and .rt-hazard-strip.
-                 background-position-y  ->  the scanlines jitter down,
-                                            1.1s in 4 steps, as before.
-
-               Both are per-layer lists, so each layer states its own value
-               and the ones that must not move say so explicitly. The strip
-               also had to become a repeating 22px tile — it was a single
-               no-repeat band stretched to 100%, which cannot crawl.
-
-               Still no transform, and still nothing animating box-shadow. */
+            /* CRT layer + vignette + a hazard strip along the bottom edge.
+               THREE LAYERS, TWO DIRECTIONS, NO TRANSFORM: a transform moves every
+               layer it paints, so the bottom hazard strip would travel with the
+               scanline jitter. Animate background-position instead — the scanlines
+               move vertically, the hazard strip horizontally, and the vignette is
+               static. */
             .attendance-summary.retro-theme::after {
                 content: '';
                 position: absolute;
@@ -14740,28 +14054,10 @@
                 animation-delay: 140ms;
             }
 
-            /* ============================================================
-               TITLE — aberrated display type, NOT a knocked-out plate.
-
-               Pass 2 made this a solid --rt-text plate with --rt-bg-1
-               glyphs, on the reasoning that mass is what separates
-               cyberpunk from clean sci-fi. The reference says that is right
-               about mass and wrong about where to put it: every sheet keeps
-               its ONE big display word as open type with a split colour
-               fringe, and spends its solid plates on the small things --
-               tags, ident codes, the primary button. A heading and a button
-               that look identical is the actual mistake, and pass 2 made it.
-
-               So the mass moved down to .rt-tag / .stat-label / th / the
-               level badge, and the title got the aberration instead.
-
-               The reference draws this word in pure white. It stays on
-               --rt-text here, because white is a colour no swatch can
-               reach and no contrast chip is measuring: the moment someone
-               picks a light BG, a hardcoded white title is unreadable with
-               nothing to warn them. Aberration is decoration layered ON the
-               measured colour, never a replacement for it.
-               ============================================================ */
+            /* TITLE — aberrated display type, NOT a knocked-out plate. The permanent
+               fringe is --rt-aberr; the glitch burst adds two transient RGB ghosts.
+               A solid plate here would collide with the .rt-sec header bar directly
+               below it. */
 
             .attendance-summary.retro-theme .summary-title {
                 font-family: 'Orbitron', sans-serif !important;
@@ -14781,10 +14077,8 @@
                 animation: rtGlitch 7s steps(1, end) infinite !important;
             }
 
-            /* The permanent fringe above is mis-convergence. These two are
-               the transient RGB split during a glitch burst — they sit at
-               opacity 0 for 88% of the cycle, so the two effects never
-               read as one smear. */
+            /* The fringe above is mis-convergence; these two are the transient RGB
+               split during a glitch burst, at opacity 0 for 88% of the cycle. */
             .attendance-summary.retro-theme .summary-title::before,
             .attendance-summary.retro-theme .summary-title::after {
                 content: attr(data-rt-text);
@@ -14796,9 +14090,8 @@
                 opacity: 0;
             }
 
-            /* The same warm/cool pair --rt-aberr uses, so the permanent fringe
-               and the glitch burst are obviously the same effect at two
-               intensities rather than two unrelated ones. */
+            /* Same warm/cool pair --rt-aberr uses, so the permanent fringe and the
+               glitch burst read as one effect at two intensities. */
             .attendance-summary.retro-theme .summary-title::before {
                 color: var(--rt-accent);
                 -webkit-text-fill-color: var(--rt-accent);
@@ -14811,10 +14104,8 @@
                 animation: rtGhostR 7s steps(1, end) infinite;
             }
 
-            /* The tint chains AHEAD of the shadows so the glyph is recoloured
-               first and the bloom is then thrown from the recoloured result.
-               Reversed, the drop-shadow would be tinted too and the halo
-               would stop following --rt-glow. */
+            /* The tint chains AHEAD of the shadows so the glyph is recoloured first and
+               the bloom thrown from the result; reversed, the halo stops following it. */
             .attendance-summary.retro-theme .emoji-display {
                 filter:
                     var(--rt-emo-progress, opacity(1))
@@ -14823,11 +14114,8 @@
                         rgba(var(--rt-glow-rgb), calc(0.85 * var(--rt-glow-k)))) !important;
             }
 
-            /* ============================================================
-               HUD CHROME — greeble. Decorative only: it carries nothing the
-               user needs, so it renders in the faint tone and is
-               pointer-transparent and unselectable.
-               ============================================================ */
+            /* HUD CHROME — decorative only: faint tone, pointer-transparent,
+               unselectable. */
 
             .attendance-summary.retro-theme .rt-hud-rail {
                 display: flex;
@@ -14853,10 +14141,7 @@
                 color: rgba(var(--rt-text-rgb), 0.9);
             }
 
-            /* "Live" is carried by the BLINK and the bullet glyph, not by a
-               hue. It used to be a hardcoded green that no swatch could
-               reach, which is how an all-black palette still had one bright
-               green tag in it. */
+            /* Live is carried by the BLINK and the bullet glyph, never by a hue. */
             .attendance-summary.retro-theme .rt-code.is-live {
                 color: var(--rt-text);
                 animation: rtBlink 2.4s steps(1, end) infinite;
@@ -14880,9 +14165,7 @@
                 animation: rtHazardCrawl 1.6s linear infinite;
             }
 
-            /* The two-tone comb: a tall tick every fourth, short ones
-               between. An even comb reads as a hatch; an uneven one reads
-               as a scale, which is what the reference is drawing. */
+            /* Two-tone comb: a tall tick every fourth, short ones between. */
             .attendance-summary.retro-theme .rt-ticks {
                 flex: 0 0 auto;
                 width: 52px;
@@ -14890,34 +14173,15 @@
                 background: var(--rt-comb);
             }
 
-            /* ------------------------------------------------------------
-               SECTION HEADER — the reference console's one repeated
-               composition.
+            /* SECTION HEADER — glyph bar, letterspaced caps, hazard filler, right
+               aligned mono readout. Repeated on every panel. */
 
-               Every panel in the reference opens the same way: a short
-               thick glyph bar in the panel's own hue, the name in
-               letterspaced display caps, a hazard-hatched filler that eats
-               the slack, and a right-aligned mono readout. Three panels,
-               one rule — and that rhythm is what makes a stack of
-               unrelated boxes read as one instrument.
-
-               The hue is a variable, so a panel sets --rt-sec-c once and
-               the glyph, the wash and the rule all follow it.
-               ------------------------------------------------------------ */
-
-            /* Rendered as a <caption> on .modern-table, so it sits inside the
-               clipped plate the theme draws — a sibling <div> above the table
-               would be outside it, and a wrapper element would re-flow
-               Glassmorphic.
-
-               THE DISPLAY MUST STAY table-caption. Setting a caption (or a
-               colspan td) to display:flex stops it being a proper table
-               child, so the browser wraps it in an anonymous table-cell: the
-               caption becomes a one-column-wide row instead of a full-width
-               header, and on a td the colspan is dropped entirely. Both fail
-               silently and only in the browser. So the caption keeps its
-               table display and carries the paint, and an inner .rt-sec-row
-               does the flex layout. */
+            /* Rendered as a caption element on .modern-table so it sits inside the
+               clipped plate; a sibling div above the table would be outside it, and a
+               wrapper would re-flow Glassmorphic.
+               THE DISPLAY MUST STAY table-caption: setting display:flex stops it being
+               a proper table child, so the browser wraps it in an anonymous box and it
+               narrows to one column. An inner element does the flex layout instead. */
             .attendance-summary.retro-theme .rt-sec {
                 --rt-sec-c: var(--rt-data);
                 border-bottom: 1px solid rgba(var(--rt-border-rgb), 0.30);
@@ -14942,8 +14206,7 @@
                 padding: 9px 14px;
             }
 
-            /* The glyph bar. Taller than it is wide, and glowing: the
-               reference uses it as a "this panel is live" tell. */
+            /* The glyph bar — taller than wide, and glowing. */
             .attendance-summary.retro-theme .rt-sec-glyph {
                 flex: 0 0 auto;
                 width: 6px;
@@ -14984,10 +14247,7 @@
                 white-space: nowrap;
             }
 
-            /* ------------------------------------------------------------
-               TITLE CHROME — the mono ident that runs beside the big word,
-               and the operator line beneath it.
-               ------------------------------------------------------------ */
+            /* TITLE CHROME — mono ident beside the big word, operator line beneath. */
 
             .attendance-summary.retro-theme .rt-subcode {
                 font-family: 'Share Tech Mono', monospace;
@@ -14999,14 +14259,9 @@
                 user-select: none;
             }
 
-            /* ------------------------------------------------------------
-               SYS TICKER — the scrolling status strip that closes the
-               reference frame off along its bottom edge.
-
-               translateX on a duplicated string, so it composites and the
-               loop is seamless: the run holds its text twice and travels
-               exactly -50%.
-               ------------------------------------------------------------ */
+            /* SYS TICKER — translateX on a duplicated string, so it composites. The run
+               holds its text twice and travels exactly -50%, putting the loop point on
+               the start of the second copy. */
 
             .attendance-summary.retro-theme .rt-ticker {
                 display: flex;
@@ -15025,35 +14280,16 @@
                 flex: 1 1 auto;
                 overflow: hidden;
                 white-space: nowrap;
-                /* Fade both ends so the text does not butt against the
-                   frame — the reference masks its ticker the same way. */
+                /* Fade both ends so the text does not butt against the frame. */
                 mask-image: linear-gradient(90deg,
                     transparent, #000 3%, #000 97%, transparent);
                 -webkit-mask-image: linear-gradient(90deg,
                     transparent, #000 3%, #000 97%, transparent);
-                /* Game Mode OFF sizes the whole widget with width:fit-content,
-                   which asks every descendant "how wide would you like to be
-                   with no constraint at all" — and a white-space:nowrap span
-                   answers with its full, un-wrapped text width. The run text
-                   is the whole ticker doubled (for the seamless -50% loop),
-                   so that answer was upward of 1000px, and the fit-content
-                   widget inherited it wholesale: confirmed in a real engine,
-                   hiding the ticker alone dropped Game-Mode-OFF width from
-                   ~1332px to ~634px, and neither min-width:0 nor a flex-basis
-                   change touched it — min-width only clamps a MINIMUM size
-                   during shrinking, and this was a MAX-CONTENT query, which
-                   flex-basis:0 is explicitly overridden away from
-                   (CSS Flexbox §9.9 substitutes "content" for a flex
-                   container's own intrinsic-size computation regardless of
-                   what flex-basis the item declares).
-                   contain:inline-size is the tool actually built for this: it
-                   stops the element's own content from feeding its width
-                   back into an ancestor's intrinsic-size query, while
-                   leaving its real, already-resolved-width layout (the
-                   marquee scrolling inside whatever space flex:1 1 auto
-                   hands it) completely untouched — verified: the track still
-                   stretches to fill its row exactly as before once Game Mode
-                   is back on. */
+                /* Game Mode OFF sizes the widget with width:fit-content, which asks every
+                   descendant how wide it would like to be unconstrained — and a
+                   white-space:nowrap span answers with its full un-wrapped width, blowing
+                   the widget out. The ticker is therefore width:0 / min-width:100% so it
+                   contributes nothing to the intrinsic measurement. */
                 contain: inline-size;
             }
 
@@ -15067,12 +14303,8 @@
                 animation: rtTicker 34s linear infinite;
             }
 
-            /* ------------------------------------------------------------
-               AMBIENT SWEEP — one soft band travelling down the whole
-               frame. Its own element because the container's ::before and
-               ::after are already the top rail and the CRT layer, and
-               ::after animates a transform of its own.
-               ------------------------------------------------------------ */
+            /* AMBIENT SWEEP — its own element because the container's ::before and
+               ::after are already the top rail and the CRT layer. */
 
             .attendance-summary.retro-theme .rt-sweep {
                 position: absolute;
@@ -15096,9 +14328,7 @@
                     transparent);
                 animation: rtSweepDown 9s linear infinite;
             }
-            /* ============================================================
-               TABLE — flat plate, solid knocked-out header, hazard edge
-               ============================================================ */
+            /* TABLE — flat plate, solid knocked-out header, hazard edge. */
 
             .attendance-summary.retro-theme .modern-table {
                 background:
@@ -15115,19 +14345,9 @@
                 overflow: hidden;
             }
 
-            /* The column header is DELIBERATELY quiet.
-
-               Pass 2 made it a solid --rt-text plate with knocked-out
-               glyphs. That was the right instinct in the wrong place: the
-               table now carries a .rt-sec header directly above it, and two
-               heavy bars stacked read as a mistake rather than a hierarchy.
-               In the reference the loud bar is the panel name and the column
-               row beneath it is a thin dim caption. So this is a caption
-               now, and the mass moved up into .rt-sec.
-
-               Rajdhani rather than Orbitron: at 0.62rem Orbitron's wide
-               forms collide once letterspaced, and the reference uses its
-               condensed face for exactly this row. */
+            /* The column header is deliberately quiet: the table already carries a
+               .rt-sec header directly above it, and two heavy bars stacked read as a
+               mistake rather than a hierarchy. */
             .attendance-summary.retro-theme .modern-table thead {
                 background:
                     var(--rt-hazard-dim) left top / 100% 3px no-repeat,
@@ -15151,19 +14371,9 @@
                 border-bottom: 1px dashed rgba(var(--rt-border-rgb), 0.20) !important;
             }
 
-            /* COLUMN COLOUR CODING.
-
-               The reference colours a log by MEANING, not by row: the time
-               you arrived, the time you have banked, and everything else.
-               Two hues and a dim tone across five columns, so a glance
-               lands on the two numbers that matter.
-
-               Column order is the host's: # / check-in / check-out /
-               worked / difference.
-
-               Scoped to tbody: the footer is a single colspan cell and
-               would otherwise be picked up by :nth-child(1) and rendered
-               faint and small. */
+            /* COLUMN COLOUR CODING — by meaning, not by row. Column order is the
+               host's: # / check-in / check-out / worked / difference. Two hues and a
+               dim tone across the five. Scoped to tbody so the footer is unaffected. */
             .attendance-summary.retro-theme .modern-table tbody td:nth-child(1) {
                 color: var(--rt-text-faint) !important;
                 font-size: 0.7rem !important;
@@ -15181,10 +14391,8 @@
                 color: var(--rt-text-faint) !important;
             }
 
-            /* The open session. Marked by the host, because CSS cannot see
-               that a cell says "Current" and the last row is not reliably
-               the live one. A hazard bite on the leading edge plus a wash,
-               the way the reference flags an active channel. */
+            /* The open session, marked by the host: CSS cannot see that a cell says
+               Current, and the last row is not reliably the live one. */
             .attendance-summary.retro-theme .modern-table tbody tr.rt-active td {
                 background: rgba(var(--rt-accent-rgb), 0.07) !important;
             }
@@ -15203,13 +14411,9 @@
                 border-bottom: 0 !important;
             }
 
-            /* The hazard-hatched footer the reference closes a log with.
-               A single colspan cell in <tfoot>, for the same reason the
-               header is a <caption>: it belongs inside the plate.
-
-               The cell keeps display:table-cell — see .rt-sec above. Setting
-               it to flex would drop the colspan and shrink the footer to one
-               column. The flex row is inside it. */
+            /* Hazard-hatched footer: a single colspan cell in tfoot, inside the plate
+               for the same reason the header is a caption. The cell keeps
+               display:table-cell; an inner element does the flex layout. */
             .attendance-summary.retro-theme .modern-table td.rt-tbl-foot {
                 padding: 0 !important;
                 border-top: 1px solid rgba(var(--rt-border-rgb), 0.30) !important;
@@ -15243,27 +14447,16 @@
                 color: var(--rt-accent);
             }
 
-            /* ============================================================
-               STAT CARDS
-
-               The old rule carried "animation: neonPulse 5s ... !important",
-               which animates box-shadow. An animated property beats the
-               static declaration, so all four declared shadow layers here and
-               every per-card shadow below never rendered, and the pulse
-               ignored the user's colours entirely. The breathing glow is a
-               filter now, which composites instead of replacing.
-
-               filter is safe on these: they contain only spans, so there is
-               no position:fixed descendant to reparent.
-               ============================================================ */
+            /* STAT CARDS
+               The breathing glow is a filter, not an animated box-shadow: an animated
+               property beats the static declaration outright, which would leave every
+               declared shadow layer here unrendered. */
 
             .attendance-summary.retro-theme .stat-card {
                 background:
                     var(--rt-brackets),
                     var(--rt-hazard-dim) right 0 top 0 / 26px 4px no-repeat,
-                    /* Segmented underline. The reference never closes a
-                       stat block with a solid rule — it uses a coarse 4px
-                       dash, which reads as a scale rather than a border. */
+                    /* Segmented underline — coarse 4px dash, not a solid rule. */
                     var(--rt-dashrule) left 14px bottom 11px / calc(100% - 28px) 3px no-repeat,
                     var(--rt-panel) !important;
                 border: 0 !important;
@@ -15287,10 +14480,8 @@
                 transform: translateY(-2px);
             }
 
-            /* Hover shimmer, retargeted off the glass keyframe that animated
-               "left". The base glass rule sets opacity:0 and reveals it only
-               on hover, which is why it read as "not animating" — it was
-               running the whole time, invisibly. */
+            /* Hover shimmer, retargeted off the glass keyframe that animated left.
+               The base glass rule sets opacity:0 and reveals it only on hover. */
             .attendance-summary.retro-theme .stat-card::before {
                 left: 0 !important;
                 width: 42% !important;
@@ -15339,14 +14530,9 @@
                 animation-delay: 3.6s;
             }
 
-            /* Per-card identity lives in the bracket, the border and the
-               hazard tab — never in the type. A dark Highlight must not be
-               able to hide a number, and no control could undo it if it did.
-
-               The two flanking cards take opposite clips. Three identical
-               silhouettes in a row is exactly the symmetry that reads as
-               clean sci-fi; alternating them costs nothing and is most of
-               what makes the reference row look hand-assembled. */
+            /* Per-card identity lives in the bracket, the border and the hazard tab —
+               never in the type. A dark Highlight must not be able to hide a number,
+               and no control could undo it if it did. */
             .attendance-summary.retro-theme .stat-card.worked-time-card {
                 --rt-bk-c: var(--rt-data);
                 border: 1px solid rgba(var(--rt-data-rgb), 0.35) !important;
@@ -15358,21 +14544,9 @@
                 clip-path: var(--rt-clip-alt);
             }
 
-            /* THE HERO CARD.
-
-               The reference does not lay three equal cards side by side. It
-               picks the one number you actually came to read — how long is
-               left — and spends everything on it: a tinted fill, a solid
-               accent border, a wide bloom, and the largest type in the
-               composition. The other two are reference values and are
-               drawn as reference values.
-
-               Pass 2 gave all three the same weight, which is why the row
-               read as a spec sheet instead of an instrument.
-
-               The fill and the frame follow Accent; the number stays on
-               --rt-text. Emphasis is allowed to be a swatch. Legibility is
-               not. */
+            /* THE HERO CARD — the time-remaining figure: tinted fill, solid accent
+               border, wide bloom, largest type. The two flanking cards are reference
+               values and stay quiet. */
             .attendance-summary.retro-theme .stat-card.remaining-time-card {
                 --rt-bk-c: var(--rt-accent);
                 background:
@@ -15395,10 +14569,8 @@
                         rgba(var(--rt-glow-rgb), calc(0.55 * var(--rt-glow-k))) !important;
             }
 
-            /* The sublabel the host already renders ("Time until freedom").
-               The reference sets this kind of line small, dim and wide — it
-               is a caption, and it must not compete with the number above
-               it. */
+            /* The sublabel the host renders. Small, dim and wide: it is a caption and
+               must not compete with the number above it. */
             .attendance-summary.retro-theme .remaining-desc {
                 font-family: 'Rajdhani', sans-serif !important;
                 font-weight: 600 !important;
@@ -15411,9 +14583,8 @@
                 z-index: 2;
             }
 
-            /* The blinking live tell, top-right of the hero card. Its own
-               element: ::before is the shimmer and ::after is the sensor
-               sweep, both already spoken for on every card. */
+            /* Blinking live tell on the hero card. Its own element: ::before is the
+               shimmer and ::after the sensor sweep, both already taken on every card. */
             .attendance-summary.retro-theme .rt-live {
                 position: absolute;
                 top: 7px;
@@ -15458,20 +14629,9 @@
                 z-index: 2;
             }
 
-            /* ============================================================
-               DAY TIMELINE — was "progress bar".
-
-               The reference does not draw a progress bar. It draws a
-               measuring instrument: an hour ruler, a fine tick comb, a
-               chevron-hatched fill that crawls, the break bitten out of it
-               in hazard stripes, and a hard playhead at the boundary. Same
-               one number, but you can read WHERE you are in the day off it
-               instead of just how far along.
-
-               The ruler and the comb are real elements (they carry the hour
-               labels); everything else is background layers on the two
-               elements the host already renders.
-               ============================================================ */
+            /* DAY TIMELINE — an hour ruler, a tick comb, a chevron-hatched fill, the
+               break bitten out in hazard stripes, and a hard playhead at the boundary,
+               so position in the day is readable, not just percentage done. */
 
             .attendance-summary.retro-theme .rt-ruler {
                 display: flex;
@@ -15487,9 +14647,7 @@
                 pointer-events: none;
             }
 
-            /* The comb sits between the labels and the track, so the labels
-               read as annotations ON the scale rather than a caption above
-               a bar. */
+            /* The comb sits between the labels and the track. */
             .attendance-summary.retro-theme .rt-ruler::after {
                 content: '';
                 position: absolute;
@@ -15503,9 +14661,8 @@
                     transparent 1px 12.5%);
             }
 
-            /* overflow stays VISIBLE so the playhead below can stand proud of
-               the track. Nothing else is allowed to escape: the shimmer is
-               clipped by .progress-fill instead. See the playhead note. */
+            /* overflow stays VISIBLE so the playhead can stand proud of the track.
+               Nothing else may escape: the shimmer is clipped by .progress-fill. */
             .attendance-summary.retro-theme .progress-bar {
                 background:
                     var(--rt-hazard-dim) !important;
@@ -15519,14 +14676,8 @@
                 position: relative;
             }
 
-            /* The fill is now ONE hue, not a four-stop rainbow.
-
-               Pass 2 ran the flowing accent-to-highlight-to-panel gradient
-               along it, which is pretty and says nothing: a meter whose
-               colour changes along its length cannot be read against the
-               track behind it. The reference fills a meter in the data hue
-               and lets the CHEVRONS carry the motion. So the gradient is
-               gone and the hatching crawls instead. */
+            /* The fill is ONE hue: a meter whose colour changes along its length cannot
+               be read against the track behind it. The chevrons carry the motion. */
             .attendance-summary.retro-theme .progress-fill {
                 background: var(--rt-chevron-fill) !important;
                 background-size: 22px 100% !important;
@@ -15537,40 +14688,17 @@
                     0 0 calc(26px * var(--rt-glow-k))
                         rgba(var(--rt-glow-rgb), calc(0.5 * var(--rt-glow-k))) !important;
                 position: relative;
-                /* HIDDEN, and this is the load-bearing bit. The highlight
-                   sweep is a child of this element and travels well past
-                   both ends of it; with overflow visible it ran out across
-                   the whole widget, entering from the left of the track and
-                   leaving off the right. Clipping it here confines the
-                   sweep to the filled portion of the meter, which is the
-                   only place a highlight on a meter means anything. */
+                /* HIDDEN, and load-bearing. The highlight sweep is a child of this element
+                   and travels well past both ends; with overflow visible it runs out across
+                   the whole widget. */
                 overflow: hidden;
                 border-radius: 0 !important;
             }
 
-            /* PLAYHEAD. A hard bright edge at the boundary, standing proud of
-               the track top and bottom. This is the detail that makes the
-               whole thing read as an instrument rather than a fill — the
-               reference puts one on every meter that tracks time.
-
-               It belongs to the TRACK, not the fill.
-
-               It started life as .progress-fill::before, riding the fill's
-               right edge so it needed no arithmetic. That forced the fill to
-               be overflow:visible — and the fill's other pseudo-element is
-               the sweep, which travels far outside it. One element cannot be
-               both clipped and not clipped, so the fill kept the sweep in and
-               the playhead moved up here, where the track is visible and the
-               3px overhang works.
-
-               The cost is that it needs the percentage, which only the host
-               knows: --rt-progress is written beside the fill's inline width,
-               and updateDynamicContent() keeps both in step. The fallback is
-               0% so a stale render puts it at the left edge rather than
-               dropping the declaration entirely.
-
-               margin-left centres the 2px bar ON the boundary, so it does not
-               hang off the right end at 100%. */
+            /* PLAYHEAD — a hard bright edge at the boundary, standing proud of the
+               track top and bottom. It belongs to the TRACK, not the fill: as a child
+               of .progress-fill it would be clipped by the fill's own overflow and
+               would ride the fill's width transition a frame behind the number. */
             .attendance-summary.retro-theme .progress-bar::after {
                 content: '';
                 position: absolute;
@@ -15604,16 +14732,10 @@
                 animation: rtMeterSweep 2.2s linear infinite !important;
             }
 
-            /* Everything the host renders FOR this theme has to disappear
-               in Glassmorphic. The markup is shared — renderFullContent()
-               emits one tree for both themes — so an rt-* element that is
-               only styled under .retro-theme still LAYS OUT under
-               Glassmorphic, as unstyled text in the middle of the widget.
-
-               This list and the rt-* elements in renderFullContent() are
-               the same list. cyber-verify.js asserts that in both
-               directions, because the failure mode is invisible from here:
-               you only see it by switching themes. */
+            /* Everything the host renders FOR this theme must disappear in Glassmorphic.
+               The markup is shared — renderFullContent() emits one tree for both themes —
+               so an rt-* element styled only under .retro-theme still needs an explicit
+               display:none under .attendance-summary:not(.retro-theme). */
             .attendance-summary:not(.retro-theme) .rt-hud-rail,
             .attendance-summary:not(.retro-theme) .rt-sec,
             .attendance-summary:not(.retro-theme) .rt-subcode,
@@ -15627,13 +14749,8 @@
                 display: none !important;
             }
 
-            /* ============================================================
-               BUTTONS / CHIPS — outlined, knocked out when active.
-
-               Never an accent fill carrying text: a dark Highlight would hide
-               the label with nothing to warn the user. Knocked-out states use
-               the --rt-text / --rt-bg-1 pair only.
-               ============================================================ */
+            /* BUTTONS / CHIPS — outlined, knocked out when active. Never an accent fill
+               carrying text: a dark Highlight would hide the label with no warning. */
 
             .attendance-summary.retro-theme .developer-info,
             .attendance-summary.retro-theme .settings-button {
@@ -15675,9 +14792,7 @@
                 text-shadow: none !important;
             }
 
-            /* ============================================================
-               COMPLETION MESSAGE
-               ============================================================ */
+            /* COMPLETION MESSAGE */
 
             .attendance-summary.retro-theme .completion-message {
                 background:
@@ -15696,13 +14811,9 @@
                 padding-top: 13px !important;
             }
 
-            /* ============================================================
-               SIDE PANELS
-               border-radius only, never clip-path or filter: these hold game
-               canvases, trays, popovers, and the two position:fixed elements
-               (#aim-results, .lb-ach-popover) that a filtered ancestor would
-               reparent.
-               ============================================================ */
+            /* SIDE PANELS — border-radius only, never clip-path or filter: these hold
+               game canvases, trays, popovers and the two position:fixed elements
+               (#aim-results, .lb-ach-popover). */
 
             .attendance-summary.retro-theme .snake-game-container,
             .attendance-summary.retro-theme .quotes-container,
@@ -15746,10 +14857,7 @@
                 border-radius: 0 !important;
             }
 
-            /* ============================================================
-               XP / QUOTES / IMAGE PANELS
-               (these were hardcoded glassmorphic purple)
-               ============================================================ */
+            /* XP / QUOTES / IMAGE PANELS */
 
             .attendance-summary.retro-theme .xp-progress-bar {
                 background: var(--rt-hazard-dim) !important;
@@ -15772,21 +14880,9 @@
                         rgba(var(--rt-glow-rgb), calc(0.45 * var(--rt-glow-k))) !important;
             }
 
-            /* SEGMENTED XP.
-
-               The reference never draws XP as a continuous fill — it is
-               always a row of discrete slabs with slanted ends, because a
-               segmented meter reads as "count" and a smooth one reads as
-               "proportion". XP is a count.
-
-               The host renders one continuous fill, so rather than ask it
-               for twenty elements this knocks the gaps back OUT over the
-               top in the background colour: 20 slices, a 2px gap, sheared
-               to 115deg to match every other diagonal in the theme. Same
-               look, no DOM, and it stays correct at any width.
-
-               --rt-bg-1 and not transparent: the gaps have to hide the fill
-               under them, not tint it. */
+            /* SEGMENTED XP — discrete slabs with slanted ends, because a segmented
+               meter reads as a count and XP is a count. The host renders one continuous
+               fill, so the gaps are knocked back out over the top. */
             .attendance-summary.retro-theme .xp-progress-bar::after {
                 content: '';
                 position: absolute;
@@ -15836,17 +14932,8 @@
                 color: var(--rt-bg-1) !important;
             }
 
-            /* Solid knocked-out badge, cut to a HEXAGON.
-
-               The reference gives its level/rank chip a six-sided
-               silhouette every single time — it is how a rank is
-               distinguished from a button at a glance, and it is the one
-               shape in the sheets that never appears anywhere else. Worth
-               spending it here rather than on another slanted rectangle,
-               which is what pass 2 had.
-
-               Padding has to clear the two side points or the text runs
-               under them. */
+            /* Solid knocked-out badge, cut to a HEXAGON — the one shape used nowhere
+               else, so a rank is never mistaken for a button. */
             .attendance-summary.retro-theme .level-badge {
                 background: var(--rt-text) !important;
                 border: 0 !important;
@@ -15891,9 +14978,7 @@
                 color: var(--rt-bg-1) !important;
             }
 
-            /* ============================================================
-               GAME CONTROLS
-               ============================================================ */
+            /* GAME CONTROLS */
 
             .attendance-summary.retro-theme .game-switch-btn {
                 background: transparent !important;
@@ -15930,51 +15015,22 @@
                 text-shadow: none !important;
             }
 
-            /* ============================================================
-               SETTINGS MODAL — body-level, so it reads the tokens
-               applyPreferences() mirrors onto documentElement.
-               ============================================================ */
+            /* SETTINGS MODAL — body-level, so it reads the tokens applyPreferences()
+               mirrors onto documentElement. */
 
-            /* ============================================================
-               EMOJI TINT handles.
-
-               Declared on the body scope, not inside .retro-theme, because
-               the settings modal is body-level and cannot see a property
-               declared on the widget - the same reason --rt-glow-k is
-               mirrored onto documentElement.
-
-               opacity(1) is the no-op stand-in for "off". 'none' cannot be
-               combined with other filter functions, so a rule that chains a
-               tint with drop-shadows needs a real function here or the whole
-               declaration is invalid and the glow goes with it.
-
-               The filter itself is injected by ensureCyberEmojiFilter(); the
-               id must match CYBER_EMOJI_FILTER_ID and section H3 asserts it.
-               ============================================================ */
+            /* EMOJI TINT handles. Declared on the body scope, not inside .retro-theme,
+               because the settings modal is body-level and cannot see a property
+               declared on the widget. Each set gets its own hue-rotate so the tint
+               lands on the same perceived colour whatever the source glyph. */
             body:has(.retro-theme) {
                 --rt-emo-tint: url(#rt-emoji-tint);
                 --rt-emo-progress: var(--rt-emo-tint);
             }
 
-            /* There was a [data-emoji-set="professional"] opt-out here: the
-               "professional" progression was a 🔴🟠🟡🟢🔵 traffic light whose
-               meaning WAS its hue, so tinting it to one colour would have
-               deleted the signal outright (confirmed by rendering it, not
-               guessed). That set is gone — nobody used it, and it needed its
-               own carve-out wherever emoji were themed. Its replacement,
-               'none', renders no glyph at all, so there is nothing left to
-               opt a tint out of; the rule is not reinstated under the new
-               name because it would be dead weight, not a safeguard. */
 
-            /* A bare wrapper around a single emoji, and deliberately nothing
-               else. A filter applies to everything its element paints, so
-               tinting .game-switch-btn directly would duotone its border and
-               its knocked-out --rt-text fill along with the glyph. The
-               wrapper paints nothing, so only the emoji is affected.
-
-               It stays an unstyled inline span in Glassmorphic - no hide
-               rule, because hiding it would hide the emoji. See RT_PASSTHROUGH
-               in cyber-verify.js. */
+            /* A bare wrapper around a single emoji and nothing else: a filter applies
+               to everything its element paints, so tinting .game-switch-btn directly
+               would duotone its border and its knocked-out glyphs too. */
             body:has(.retro-theme) .rt-emo {
                 display: inline-block;
                 filter: var(--rt-emo-tint, opacity(1));
@@ -15993,9 +15049,8 @@
                 background-clip: unset !important;
                 -webkit-text-fill-color: var(--rt-text, #fff200) !important;
                 color: var(--rt-text, #fff200) !important;
-                /* Body-level, so it reads the copy of the tokens that
-                   applyCyberTokens() mirrors onto documentElement. The
-                   fallbacks matter here and nowhere else. */
+                /* Body-level, so it reads the token copy applyCyberTokens() mirrors onto
+                   documentElement. The fallbacks matter here and nowhere else. */
                 text-shadow:
                     0 0 calc(6px * var(--rt-glow-k, 0.6))
                         rgba(var(--rt-glow-rgb, 255, 242, 0), calc(0.9 * var(--rt-glow-k, 0.6))),
@@ -16003,8 +15058,7 @@
                         rgba(var(--rt-glow-rgb, 255, 242, 0), calc(0.5 * var(--rt-glow-k, 0.6))) !important;
             }
 
-            /* Contrast guard readout in the Cyberpunk Colors row. It warns; it
-               never silently corrects a deliberate choice. */
+            /* Contrast guard readout. It warns; it never silently corrects. */
             .cyber-contrast-chip {
                 font-family: 'Share Tech Mono', monospace;
                 font-size: 0.66rem;
@@ -16287,10 +15341,8 @@
                 padding: 0 2px;
             }
             .game-lb-close:hover { color: #fff; }
-            /* One tab per mode. Ludo's four difficulty boards are otherwise only
-               reachable by changing a setting, which is a poor way to answer
-               "how do I rank on hard?". Scrolls sideways rather than wrapping —
-               the overlay is ~300px and a wrapped second row eats the table. */
+            /* One tab per mode; Ludo's four tiers are otherwise settings-only. Scrolls
+                           sideways — the overlay is ~300px and a wrapped second row eats the table. */
             .game-lb-tabs {
                 display: flex;
                 gap: 4px;
@@ -16346,9 +15398,7 @@
                 font-size: 0.75rem;
             }
 
-            /* Snake skin tray
-               Sits over the canvas rather than in the settings modal: the
-               skins are game state, and the modal is already long. */
+            /* Snake skin tray — over the canvas, not the settings modal: skins are game state. */
             .snake-skin-tray {
                 position: absolute;
                 left: 16px;
@@ -17421,10 +16471,9 @@
                 height: auto;
             }
 
-            /* 344/416, not 1/1 — the board is square but sits between two 58px
-               HUD strips. The backing store stays 344×416 while CSS scales the
-               element, so ludoRender divides canvas.width by LUDO_CANVAS_W and
-               hit-testing rescales pointer coords the same way. */
+            /* 344/416, not 1/1 — a square board between two 58px HUD strips. The backing
+                           store stays 344x416 while CSS scales the element, so ludoRender divides
+                           canvas.width by LUDO_CANVAS_W and hit-testing rescales pointer coords the same. */
             #ludo-canvas {
                 border-radius: 12px;
                 box-shadow: 0 0 20px rgba(124, 92, 252, 0.28), inset 0 2px 8px rgba(0, 0, 0, 0.4);
@@ -17483,10 +16532,8 @@
                 transform: scale(1.1);
             }
 
-            /* Cyberpunk HUD palette presets — a two-stop gradient swatch per
-               entry in CYBER_PALETTES, so picking one is a single click that
-               sets all eight tokens at once. The eight pickers below stay for
-               fine-tuning after a preset, not instead of it. */
+            /* Palette presets — one click sets all eight cyber* tokens from CYBER_PALETTES.
+                           The eight pickers below stay for fine-tuning after a preset, not instead of it. */
             .cyber-palette-swatches {
                 display: flex;
                 gap: 8px;
@@ -18074,10 +17121,9 @@
                 transition: background 0.2s;
             }
             .lb-sync-btn:hover { background: rgba(255,255,255,0.2); }
-            /* .lb-table-wrap is the ONE scroll container for both axes — sticky
-               positioning below sticks relative to whichever ancestor actually
-               scrolls, so header/rank/name must scroll (and stick) in the same
-               box, not a parent one level up. */
+            /* .lb-table-wrap is the ONE scroll container for both axes: sticky positions
+                           against whichever ancestor actually scrolls, so header/rank/name must stick
+                           in this box, not a parent one level up. */
             .lb-table-wrap {
                 max-height: 280px;
                 overflow: auto;
@@ -18133,10 +17179,9 @@
                 border-bottom: 1px solid rgba(255,255,255,0.05);
             }
             .lb-table tbody tr:last-child td { border-bottom: none; }
-            /* Sticky cells (.lb-rank/.lb-name below) get their own opaque
-               background and are excluded here — a translucent hover tint on
-               them would let the horizontally-scrolled score columns show
-               through, since they sit visually "in front of" that content. */
+            /* Sticky cells (.lb-rank/.lb-name) carry their own opaque background and are
+                           excluded here — a translucent hover tint would let the horizontally-scrolled
+                           score columns show through them. */
             .lb-table tbody tr:hover td:not(.lb-rank):not(.lb-name) {
                 background: rgba(255,255,255,0.045);
             }
@@ -18149,9 +17194,8 @@
                 font-weight: 600;
             }
             .lb-row-me td { border-color: rgba(102,126,234,0.2); }
-            /* Rank + name are frozen while the score columns scroll underneath,
-               so the player stays identifiable no matter how far the table is
-               scrolled — the disorienting part of a wide leaderboard table. */
+            /* Rank + name freeze while the score columns scroll underneath, so the player
+                           stays identifiable however far the table is scrolled. */
             .lb-rank {
                 position: sticky;
                 left: 0;
@@ -18297,7 +17341,6 @@
         </style>
     `;
 
-    // Inject modern styles
     function injectModernStyles() {
         if (!document.getElementById('attendance-modern-styles')) {
             document.head.insertAdjacentHTML('beforeend', modernStyles);
@@ -18306,10 +17349,8 @@
 
     // Calculate emoji based on work progress
     function getEmojiForProgress(workedSeconds, totalSeconds = getShiftSeconds()) {
-        // 'none' means no mood glyph at all — checked first and unconditionally,
-        // so it also silences the overtime clown/running glyphs below. A user
-        // who asked for no emoji should not still get one once their shift
-        // runs long.
+        // 'none' = no mood glyph at all. Checked first and unconditionally, so it also silences
+        // the overtime clown/running glyphs below.
         if (userPreferences.emojiSet === 'none') return '';
 
         const progress = Math.min(workedSeconds / totalSeconds, 1);
@@ -18330,9 +17371,7 @@
         return currentSet[Math.min(emojiIndex, currentSet.length - 1)];
     }
 
-    // Add developer info to the card
     function addDeveloperInfo(container) {
-        // Remove existing developer info if any
         const existingInfo = container.querySelector('.developer-info');
         if (existingInfo) {
             existingInfo.remove();
@@ -18391,7 +17430,6 @@
         container.appendChild(developerDiv);
     }
 
-    // Add settings button
     function addSettingsButton(container) {
         const existingButton = container.querySelector('.settings-button');
         if (existingButton) {
@@ -18407,7 +17445,6 @@
         container.appendChild(settingsButton);
     }
 
-    // Toggle settings modal
     function toggleSettingsModal() {
         let modal = document.getElementById('attendance-settings-modal');
         let overlay = document.getElementById('settings-modal-overlay');
@@ -18417,11 +17454,8 @@
             modal = document.getElementById('attendance-settings-modal');
             overlay = document.getElementById('settings-modal-overlay');
         }
-        // The modal element is built once and reused on every reopen — its
-        // content can be years stale relative to the current theme (built
-        // while Glassmorphic, never rebuilt since). A fresh sweep on every
-        // open catches that; cyberSweepEmoji() is idempotent, so this is
-        // cheap even when nothing changed.
+        // The modal element is built once and reused, so its content can be stale relative to the
+        // current theme. A fresh sweep on every open catches that; cyberSweepEmoji() is idempotent.
         cyberSweepEmoji(modal);
 
         const wasOpen = modal.classList.contains('active');
@@ -18434,16 +17468,13 @@
         }
     }
 
-    // Create settings modal
     function createSettingsModal() {
-        // Create overlay
         const overlay = document.createElement('div');
         overlay.id = 'settings-modal-overlay';
         overlay.className = 'settings-modal-overlay';
         overlay.addEventListener('click', toggleSettingsModal);
         document.body.appendChild(overlay);
 
-        // Create modal
         const modal = document.createElement('div');
         modal.id = 'attendance-settings-modal';
         modal.className = 'settings-modal';
@@ -18629,10 +17660,8 @@
 
         document.body.appendChild(modal);
 
-        // Add toggle listeners
         modal.querySelectorAll('.toggle-switch').forEach(toggle => {
             toggle.addEventListener('click', function() {
-                // Don't toggle if disabled
                 if (this.classList.contains('disabled')) {
                     return;
                 }
@@ -18645,7 +17674,6 @@
             });
         });
 
-        // Add select listeners
         modal.querySelectorAll('.settings-select').forEach(select => {
             select.addEventListener('change', function() {
                 const pref = this.getAttribute('data-pref');
@@ -18663,7 +17691,6 @@
             });
         });
 
-        // Function to update theme-dependent options
         function updateThemeDependentOptions(modal, theme) {
             const isGlassmorphic = theme === 'glassmorphic';
             const dependentOptions = modal.querySelectorAll('[data-theme-dependent="glassmorphic"]');
@@ -18685,11 +17712,9 @@
             });
         }
 
-        // Palette preset listeners. One click sets all eight cyber* swatches
-        // from CYBER_PALETTES — the same object the dev harness's quick-select
-        // row reads from, so the two cannot drift the way the glow converter
-        // once did. The eight individual pickers below stay live afterward:
-        // picking a preset is a starting point, not a lock.
+        // Palette presets set all eight cyber* swatches from CYBER_PALETTES — the same object the
+        // dev harness's quick-select row reads, so the two cannot drift. The eight individual
+        // pickers below stay live: a preset is a starting point, not a lock.
         modal.querySelectorAll('.cyber-palette-btn').forEach(btn => {
             btn.addEventListener('click', function () {
                 const preset = CYBER_PALETTES[this.dataset.palette];
@@ -18727,12 +17752,8 @@
             });
         });
 
-        // Glow intensity. Its own listener rather than the generic one because
-        // the slider is 0–100 and the stored value is 0–1.
-        //
-        // Routed through cyberGlowFromPct/ToPct so this panel and the dev
-        // harness cannot drift apart on the conversion — they were briefly in
-        // different units, and the harness was the one calibrated wrong.
+        // Glow intensity has its own listener: the slider is 0-100, the stored value 0-1. Routed
+        // through cyberGlowFromPct/ToPct so this panel and the dev harness share one conversion.
         const glowSlider = modal.querySelector('#cyber-glow-slider');
         if (glowSlider) {
             const onGlow = function (save) {
@@ -18749,7 +17770,6 @@
         // Seed the contrast readout for whatever the stored palette already is.
         updateCyberContrastChip(modal);
 
-        // Background image controls
         const bgChangeBtn = modal.querySelector('#cyber-bg-change-btn');
         const bgClearBtn = modal.querySelector('#cyber-bg-clear-btn');
         const bgOpacitySlider = modal.querySelector('#cyber-bg-opacity-slider');
@@ -18789,10 +17809,8 @@
             });
         }
 
-        // Add close button listener
         modal.querySelector('.close-modal-button').addEventListener('click', toggleSettingsModal);
 
-        // Add pool color swatch listeners
         modal.querySelectorAll('.pool-color-swatch').forEach(swatch => {
             swatch.addEventListener('click', function() {
                 const color = this.dataset.poolColor;
@@ -19517,37 +18535,27 @@
     }
     // ═══ END CYBERPUNK HUD ═══
 
-    // Apply user preferences
     function applyPreferences() {
         const container = document.getElementById('total-time-summary');
         if (!container) return;
 
-        // Apply display theme
         if (userPreferences.displayTheme === 'retro-futuristic') {
-            // Captured before the class goes on: the boot-in reveal should
-            // fire when the theme is switched INTO, not on every colour-slider
-            // move, and applyPreferences() runs on each of those.
+            // Captured before the class goes on: the boot-in reveal fires on switch-in, not on every
+            // colour-slider move (applyPreferences() runs on each of those).
             const enteringRetro = !container.classList.contains('retro-theme');
             container.classList.add('retro-theme');
 
-            // Tokens, panel shape, title ghosts and the PiP/root mirrors all
-            // live in cyber-dev/cyber-hud.js so that one place knows what
-            // "apply the cyberpunk theme" means, and so the write list and the
-            // teardown list are derived from a single array instead of being
-            // maintained by hand — which is how six tokens drifted out of the
-            // teardown list and made the yellow unchangeable.
+            // Tokens, panel shape, title ghosts and the PiP/root mirrors live in cyber-dev/cyber-hud.js,
+            // so one place defines what applying the theme means and the write and teardown lists both
+            // derive from a single array.
             applyCyberpunkTheme(container);
             if (enteringRetro) triggerCyberBoot(container);
-            // One full correcting sweep on the actual switch-in, not on every
-            // colour-slider tick (applyCyberpunkTheme()'s own cyberWatchEmoji()
-            // call is the cheap, idempotent, every-tick-safe half of this —
-            // see the comment beside it). Content that rendered while
-            // Glassmorphic was active — an achievement earned before the user
-            // ever tried Cyberpunk — has no reason to have fired a mutation
-            // since, so the observer alone would leave it unwrapped forever.
+            // One full correcting sweep on the actual switch-in, not on every colour-slider tick
+            // (applyCyberpunkTheme()'s own cyberWatchEmoji() is the cheap, idempotent half). Content
+            // rendered under Glassmorphic has fired no mutation since, so the observer alone would
+            // leave it unwrapped forever.
             if (enteringRetro) cyberSweepEmoji(container);
 
-            // Background image overlay
             let bgEl = container.querySelector('.cyber-bg-image');
             if (userPreferences.cyberBgImage) {
                 if (!bgEl) {
@@ -19562,9 +18570,8 @@
             }
         } else {
             container.classList.remove('retro-theme');
-            // Clears every property CYBER_TOKENS could have written, on both
-            // the container and documentElement. Anything left behind has no
-            // meaning under Glassmorphic but still wins over the stylesheet.
+            // Clears every property CYBER_TOKENS could have written, on both the container and
+            // documentElement — a leftover has no meaning under Glassmorphic but still beats the stylesheet.
             clearCyberpunkTheme(container);
             // Remove background image overlay if switching away
             const bgEl = container.querySelector('.cyber-bg-image');
@@ -19594,11 +18601,9 @@
             container.classList.remove('no-fluid');
         }
 
-        // Force update emoji
         const emojiDisplay = container.querySelector('.emoji-display');
         if (emojiDisplay) {
-            // We need to recalculate based on current time, but for now just trigger a refresh
-            // The next update loop will catch the correct emoji, but let's try to update immediately if possible
+            // Trigger a refresh; the next update loop picks up the correct emoji.
             const totalWorkedElement = document.getElementById('total-worked-time');
             if (totalWorkedElement) {
                 const timeStr = totalWorkedElement.textContent;
@@ -19607,7 +18612,6 @@
             }
         }
 
-        // Apply game mode panel visibility
         applyGameMode();
     }
 
@@ -19621,7 +18625,6 @@
         const leftPanel  = container.querySelector('.left-panel');
         const rightPanel = container.querySelector('.right-panel');
 
-        // Show or hide side panels
         [leftPanel, rightPanel].forEach(panel => {
             if (!panel) return;
             if (gameModeOn) {
@@ -19638,7 +18641,6 @@
             container.classList.add('game-mode-off');
         }
 
-        // Update emoji tooltip
         const emojiEl = container.querySelector('.emoji-display');
         if (emojiEl) {
             emojiEl.title = gameModeOn
@@ -19890,14 +18892,11 @@
         return `rgba(${result[0]}, ${result[1]}, ${result[2]}, 0.2)`;
     }
 
-    // PICTURE-IN-PICTURE FUNCTIONALITY
 
-    // Check if Picture-in-Picture is supported
     function isPipSupported() {
         return 'documentPictureInPicture' in window;
     }
 
-    // Create PiP button
     function createPipButton(container) {
         if (!isPipSupported()) {
             return null;
@@ -19923,11 +18922,9 @@
         return pipButton;
     }
 
-    // Toggle Picture-in-Picture mode
     async function togglePictureInPicture() {
         try {
             if (isPipActive && pipWindow && !pipWindow.closed) {
-                // Close existing PiP window
                 pipWindow.close();
                 return;
             }
@@ -19936,18 +18933,14 @@
             const screenWidth = window.screen.width;
             const screenHeight = window.screen.height;
 
-            // Responsive window sizing
             let windowWidth, windowHeight;
             if (screenWidth <= 480) {
-                // Extra small screens
                 windowWidth = Math.min(screenWidth * 0.9, 280);
                 windowHeight = Math.min(screenHeight * 0.7, 400);
             } else if (screenWidth <= 768) {
-                // Mobile screens
                 windowWidth = Math.min(screenWidth * 0.8, 320);
                 windowHeight = Math.min(screenHeight * 0.75, 450);
             } else {
-                // Desktop screens
                 windowWidth = 320;
                 windowHeight = 480;
             }
@@ -19961,10 +18954,8 @@
 
             isPipActive = true;
 
-            // Copy styles to PiP window
             copyStylesToPip(pipWindow);
 
-            // Move content to PiP window
             const attendanceSummary = document.getElementById('total-time-summary');
             if (attendanceSummary) {
                 // Clone only the main attendance content (center panel), not the side panels
@@ -19975,7 +18966,6 @@
                     return;
                 }
 
-                // Create a wrapper for PiP
                 const summaryClone = document.createElement('div');
                 summaryClone.className = 'attendance-summary pip-window-content';
 
@@ -20015,19 +19005,15 @@
 
                 summaryClone.appendChild(compactButton);
 
-                // Append to PiP window
                 pipWindow.document.body.appendChild(summaryClone);
 
-                // Show placeholder in main window
                 showPipPlaceholder(attendanceSummary);
 
-                // Update PiP button state
                 updatePipButtonState(true);
 
                 // Set up PiP window event listeners
                 setupPipEventListeners(pipWindow, attendanceSummary);
 
-                // Start PiP update loop
                 startPipUpdateLoop(summaryClone);
             }
 
@@ -20038,7 +19024,6 @@
         }
     }
 
-    // Copy styles to PiP window
     function copyStylesToPip(pipWindow) {
         // Add color-scheme meta tag for proper theme inheritance
         const metaColorScheme = pipWindow.document.createElement('meta');
@@ -20046,7 +19031,6 @@
         metaColorScheme.content = 'light dark';
         pipWindow.document.head.appendChild(metaColorScheme);
 
-        // Copy the custom styles
         const styleElement = document.getElementById('attendance-modern-styles');
         if (styleElement) {
             const pipStyleElement = pipWindow.document.createElement('style');
@@ -20069,7 +19053,6 @@
                 background: linear-gradient(135deg, #f4f6fb 0%, #e6ebf3 100%);
             `;
         } else {
-            // Use glassmorphic theme-aware background
             backgroundStyle = isDarkMode ? `
                 background: linear-gradient(135deg, #2d3436 0%, #636e72 100%);
             ` : `
@@ -20174,7 +19157,6 @@
                     const settingsButtonClone = summaryElement.querySelector('.settings-button');
                     if (settingsButtonClone) settingsButtonClone.remove();
 
-                    // Add compact button back
                     const compactButton = document.createElement('button');
                     compactButton.className = 'pip-compact-button';
                     compactButton.innerHTML = '[≡]';
@@ -20184,11 +19166,9 @@
                     summaryElement.appendChild(compactButton);
                 }
 
-                // Clean up temp container
                 tempContainer.remove();
             }
         } else {
-            // Switch to compact mode
             summaryElement.classList.add('compact-mode');
 
             // Apply retro theme to compact mode if user preference is set
@@ -20202,7 +19182,6 @@
             const remainingTime = remainingTimeElement ? remainingTimeElement.textContent : '00:00:00';
             const currentEmoji = emojiElement ? emojiElement.textContent : '⏰';
 
-            // Create compact display
             const compactHTML = `
                 <div class="pip-compact-display" title="Click to expand">
                     <div class="pip-compact-time">${remainingTime}<span class="pip-compact-emoji">${currentEmoji}</span></div>
@@ -20240,7 +19219,6 @@
             }
         }
 
-        // Create placeholder content
         const placeholder = document.createElement('div');
         placeholder.className = 'pip-placeholder active';
         placeholder.innerHTML = `
@@ -20252,17 +19230,14 @@
         container.appendChild(placeholder);
     }
 
-    // Hide placeholder and restore content
     function hidePipPlaceholder(container) {
         container.classList.remove('pip-active');
 
-        // Remove placeholder
         const placeholder = container.querySelector('.pip-placeholder');
         if (placeholder) {
             placeholder.remove();
         }
 
-        // Show all content
         const allChildren = container.children;
         for (let child of allChildren) {
             if (!child.classList.contains('pip-button')) {
@@ -20271,7 +19246,6 @@
         }
     }
 
-    // Update PiP button state
     function updatePipButtonState(isActive) {
         const pipButton = document.querySelector('.pip-button');
         if (pipButton) {
@@ -20293,7 +19267,6 @@
 
     // Set up PiP window event listeners
     function setupPipEventListeners(pipWindow, originalContainer) {
-        // Handle window close
         pipWindow.addEventListener('pagehide', () => {
             isPipActive = false;
             pipWindow = null;
@@ -20301,7 +19274,6 @@
             updatePipButtonState(false);
         });
 
-        // Handle window unload
         pipWindow.addEventListener('unload', () => {
             isPipActive = false;
             pipWindow = null;
@@ -20338,7 +19310,6 @@
 
                 // Check if we're in compact mode
                 if (pipContent.classList.contains('compact-mode')) {
-                    // Update compact mode display
                     const compactTimeElement = pipContent.querySelector('.pip-compact-time');
                     const compactDisplay = pipContent.querySelector('.pip-compact-display');
 
@@ -20399,11 +19370,9 @@
                 }
             }
 
-            // Continue updating every second
             setTimeout(updatePipContent, 1000);
         };
 
-        // Start the update loop
         setTimeout(updatePipContent, 1000);
     }
 
@@ -20413,22 +19382,15 @@
     }
 
     function renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today) {
-        // Get emoji for current progress
         const currentEmoji = getEmojiForProgress(totalWorkedTime);
         const progress = Math.min((totalWorkedTime / getShiftSeconds()) * 100, 100);
         const shiftCode = String(userPreferences.shiftDuration || '8h').toUpperCase();
 
-        // Create header with emoji and title
-        //
-        // .rt-sweep and .rt-subcode are Cyberpunk-only chrome. They are
-        // emitted for every theme because there is one markup tree, and
-        // hidden by .attendance-summary:not(.retro-theme) in the theme
-        // block. Adding one here without adding it there leaves unstyled
-        // text sitting in the middle of the Glassmorphic widget.
-        //
-        // .rt-subcode stays a direct child of .summary-header rather than
-        // being wrapped together with the h2: a wrapper would re-flow the
-        // header for both themes, and this is decoration for one of them.
+        // Header. .rt-sweep and .rt-subcode are Cyberpunk-only chrome, emitted for every theme
+        // (one markup tree) and hidden by .attendance-summary:not(.retro-theme) in the theme block —
+        // adding one here without adding it there leaves unstyled text in the Glassmorphic widget.
+        // .rt-subcode stays a direct child of .summary-header: wrapping it with the h2 would re-flow
+        // the header for both themes.
         const headerHTML = `
             <div class="rt-sweep" aria-hidden="true"></div>
             <div class="summary-header">
@@ -20438,16 +19400,11 @@
             </div>
         `;
 
-        // Create modern table
-        // The caption and the tfoot go INSIDE the table on purpose: the
-        // theme draws .modern-table as one clipped plate, so a sibling div
-        // above it would sit outside that plate.
-        //
-        // Both keep their TABLE display and hold an inner row element that
-        // does the flex layout. Setting a caption or a colspan td to
-        // display:flex stops it being a proper table child — the browser
-        // wraps it in an anonymous cell, the caption narrows to one column
-        // and the colspan is dropped. Neither fails loudly.
+        // Caption and tfoot go INSIDE the table: the theme draws .modern-table as one clipped plate,
+        // so a sibling div would sit outside it. Both keep TABLE display and hold an inner row that
+        // does the flex layout — display:flex on a caption or a colspan td stops it being a proper
+        // table child, so the browser wraps it in an anonymous cell, narrowing the caption and
+        // dropping the colspan. Neither fails loudly.
         let tableHTML = `
             <table class="modern-table">
                 <caption class="rt-sec" aria-hidden="true">
@@ -20476,7 +19433,6 @@
 
             if (index > 0) {
                 const prevItem = checkInOutList[index - 1];
-                // Debug logging like original script
                 console.log(prevItem.checkOut + '    ' + item.checkIn);
                 durationDifference = calculateTimeDifference(prevItem.checkOut, item.checkIn);
                 if (durationDifference >= 21600) {
@@ -20524,17 +19480,10 @@
             </tfoot>
         </table>`;
 
-        // Create progress bar
-        //
-        // HOUR RULER. The reference labels its day meter with wall-clock
-        // hours, which is the difference between "62% done" and "you are at
-        // 13:00 of an 08:00-16:00 shift". Derived from the first check-in
-        // and the shift length, so it needs no data the widget lacks.
-        //
-        // Check-in strings are 24h "HH:MM:SS" — the same form
-        // calculateTimeDifference() hands to Date — so timeToSeconds() reads
-        // them directly. With an empty list there is nothing to anchor to,
-        // and the ruler is omitted rather than guessed.
+        // HOUR RULER — labels the day meter with wall-clock hours, derived from the first check-in
+        // and the shift length. Check-in strings are 24h HH:MM:SS, the same form
+        // calculateTimeDifference() hands to Date, so timeToSeconds() reads them directly.
+        // With an empty list there is nothing to anchor to, so the ruler is omitted, not guessed.
         const shiftHours = Math.max(1, Math.round(getShiftSeconds() / 3600));
         let rulerHTML = '';
         if (checkInOutList.length) {
@@ -20565,7 +19514,6 @@
             </div>
         `;
 
-        // Create time statistics
         const totalTimeFormatted = secondsToHHMMSS(totalWorkedTime);
         const remainingTime = getShiftSeconds() - totalWorkedTime;
         const remainingTimeFormatted = remainingTime > 0 ? secondsToHHMMSS(remainingTime) : "00:00:00";
@@ -20598,9 +19546,7 @@
 
         timeStatsHTML += '</div>';
 
-        // Completion message. shiftHours (declared above, for the ruler) was
-        // hardcoded to "8-hour" here regardless of the actual shiftDuration
-        // setting — a 4h or 9h user always saw "8-hour shift" at completion.
+        // Completion message uses shiftHours (declared above for the ruler), not a hardcoded 8-hour.
         let completionHTML = '';
         if (remainingTime <= 0) {
             completionHTML = `
@@ -20847,19 +19793,9 @@
             </div>
         `;
 
-        // SYS TICKER — the strip that closes the reference frame off along
-        // its bottom edge.
-        //
-        // The run holds its text TWICE. The marquee travels exactly -50%,
-        // so the loop point lands on the start of the second copy and the
-        // seam is invisible; with one copy it would visibly snap back.
-        //
-        // Every field is a real reading. The reference fills this strip with
-        // invented idents (GEOFENCE HQ-04, PAYROLL CYCLE 08) and it is the
-        // one thing in the sheets worth refusing: decoration that looks like
-        // telemetry teaches the user to stop reading the parts that are.
-        // Decorative in role, so aria-hidden and pointer-transparent — but
-        // the numbers in it are true.
+        // SYS TICKER. The run holds its text TWICE and the marquee travels exactly -50%, so the
+        // loop point lands on the start of the second copy and the seam is invisible.
+        // Every field is a real reading. Decorative in role, so aria-hidden and pointer-transparent.
         const tickerRun = [
             `${checkInOutList.length} SESSIONS LOGGED`,
             `WORKED ${totalTimeFormatted}`,
@@ -20879,12 +19815,9 @@
             </div>
         `;
 
-        // Center panel - Main attendance content
-        //
-        // The ticker sits inside .main-attendance-content, not at the
-        // container edge, for the same reason the EQ rail does: Game Mode
-        // collapses .left-panel and .right-panel only, so anything that
-        // should survive it has to live in the centre column.
+        // Centre panel. The ticker sits inside .main-attendance-content, not at the container edge:
+        // Game Mode collapses .left-panel and .right-panel only, so anything that must survive it
+        // has to live in the centre column.
         const mainContentHTML = `
             <div class="main-attendance-content">
                 ${headerHTML}
@@ -21015,7 +19948,6 @@
         createPipButton(_controlBar);
         addDeveloperInfo(_controlBar);
 
-        // Add parallax effect
         addParallaxEffect(totalTimeDiv);
 
         // Initialize all new features after DOM is ready (only once)
@@ -21033,7 +19965,6 @@
                 const hoursWorked = totalWorkedTime / 3600;
                 awardXP(hoursWorked);
 
-                // Add global keyboard shortcuts
                 document.addEventListener('keydown', (e) => {
                     // Only handle shortcuts if not in an input field
                     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -21102,7 +20033,6 @@
         window.changeImageBox = changeImage;
         window.changeImageAspectRatio = changeAspectRatio;
 
-        // Multi-game system window functions
         window.switchGame = (gameKey) => {
             switchToGame(gameKey);
             updateGameTitle(gameKey);
@@ -21156,7 +20086,6 @@
         window.prayerIncrementBtn = prayerIncrement;
         window.prayerResetBtn = prayerReset;
 
-        // Leaderboard window functions
         window.lbRegister = async () => {
             const input = document.getElementById('lb-name-input');
             const name = (input ? input.value : '').trim();
@@ -21229,7 +20158,6 @@
             showXPNotification('✅ Leaderboard updated!', 'hourly');
         };
 
-        // Helper function to update game title
         function updateGameTitle(gameKey) {
             const titleElement = document.getElementById('game-title');
             if (!titleElement) return;
@@ -21338,9 +20266,7 @@
                     value: totalTimeFormatted
                 });
             }
-            // The Cyberpunk punch-log footer shows the same running total.
-            // It is absent in Glassmorphic, so this is guarded rather than
-            // assumed.
+            // The Cyberpunk punch-log footer shows the same running total; absent in Glassmorphic, so guarded.
             if (cachedElements.dayTotal) {
                 updates.push({
                     element: cachedElements.dayTotal,
@@ -21398,10 +20324,8 @@
                     value: `${roundedProgress}%`
                 });
             }
-            // The Cyberpunk playhead reads this off the track. It has to move
-            // in the same frame as the fill or the two visibly disagree —
-            // nothing re-renders this markup, so a missed update leaves the
-            // marker parked wherever the page happened to load.
+            // The Cyberpunk playhead reads this off the track and must move in the same frame as the fill —
+            // nothing re-renders this markup, so a missed update parks the marker where the page loaded.
             if (cachedElements.progressBar) {
                 updates.push({
                     element: cachedElements.progressBar,
@@ -21422,9 +20346,8 @@
                         if (update.property === 'width') {
                             update.element.style.width = update.value;
                         } else if (update.property.startsWith('--')) {
-                            // A custom property is not a style key and not an
-                            // element property — assigning it either way is a
-                            // silent no-op.
+                            // A custom property is neither a style key nor an element property — assigning it either
+                            // way is a silent no-op.
                             update.element.style.setProperty(update.property, update.value);
                         } else {
                             update.element[update.property] = update.value;
@@ -21435,7 +20358,6 @@
         }
     }
 
-    // Optimized update loop using requestAnimationFrame
     function startUpdateLoop() {
         let lastUpdateTime = 0;
 
@@ -21462,9 +20384,7 @@
         }
     }
 
-    // Initialize the enhanced attendance checker
     window.addEventListener('load', () => {
-        // Load user preferences
         loadPreferences();
 
         const checkUrlAndRun = () => {
@@ -21484,7 +20404,6 @@
 
         checkUrlAndRun();
 
-        // Start optimized update loop
         startUpdateLoop();
     });
 

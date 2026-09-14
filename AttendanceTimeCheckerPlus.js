@@ -11910,6 +11910,14 @@
                 border: none;
             }
 
+            .attendance-summary .modern-table thead th {
+                background-color: transparent !important;
+                background-image: none !important;
+                position: static !important;
+                top: auto !important;
+                z-index: auto !important;
+            }
+
             .modern-table td {
                 padding: 16px 20px;
                 border: none;

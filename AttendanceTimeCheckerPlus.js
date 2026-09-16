@@ -17222,6 +17222,21 @@
                 z-index: 3;
                 background: rgba(14,16,26,0.96);
             }
+            /* The portal stylesheet sets .emp-list-table table thead th to
+               position:sticky, top:0, z-index:1000 and background-color:#fff, all
+               !important, and the widget renders inside that container. Sticky is
+               what this table wants; the white fill is not, and z-index 1000 on every
+               header cell flattens the two corner cells, which have to stay above the
+               rest of the row while the score columns scroll under them. */
+            .lb-table-wrap .lb-table thead th {
+                background-color: rgba(14,16,26,0.92) !important;
+                z-index: 2 !important;
+            }
+            .lb-table-wrap .lb-table thead .lb-rank,
+            .lb-table-wrap .lb-table thead .lb-name {
+                background-color: rgba(14,16,26,0.96) !important;
+                z-index: 3 !important;
+            }
             .lb-row-me .lb-rank, .lb-row-me .lb-name {
                 background: linear-gradient(rgba(102,126,234,0.32), rgba(102,126,234,0.32)), rgba(16,18,28,0.94);
             }

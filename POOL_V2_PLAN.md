@@ -691,14 +691,23 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
       page errors, and a break sends 10 balls to a rail.
 - [x] Tested by the user in the harness: "the harness and physics are doing great".
       Committed as tested.
-- [ ] **Follow-up: rebuild `ppBuildTable` on the design's geometry** (the table under
-      *Rendering spec*) in place of the 62/64 u mouths, WPA jaw angles and r 30 capture
-      circles. Re-measure the pocket and break assertions against it.
+- [x] **Follow-up: `ppBuildTable` rebuilt on the design's geometry** (the table under
+      *Rendering spec*). The config is now `cushionWidth`, `cornerNose`/`cornerRailEnd`,
+      `sideNose`/`sideRailEnd`, and the hole offsets and radii, in place of mouth widths
+      and jaw angles. 72 assertions pass, including the 2,000-shot fuzz with 0 escapes.
+      - **Corner:** lines up to 10 u off centre (in start y on a 45° line) drop cleanly;
+        16–18 u drop off the jaw; from 20 u they rattle.
+      - **Side:** a line 21 u off centre drops slowly but **spits out at full pace**. That
+        is the pocket "spit" listed as missing below, and the design's jaw shape produces
+        it naturally.
+      - **Breaks:** they pot at the same rate as before (5% at 75% power, 11.5% at full),
+        so potting on the break is still a tuning item, not a geometry one.
+      - **Harness:** sliders are now `cornerNose` and `sideNose`; re-checked in headless
+        Chrome with no page errors.
 - [ ] **Tuning, by feel, in the harness (open).** Breaks pot a ball only 5–17% of the
-      time against about one per break on a real table. The levers are `cornerMouth`,
-      `cornerPocketR` and `muRoll`. Pocket "spit", a hard ball rejected by a jaw it would
-      drop off slowly, is not modelled yet: the jaw bounce scales with speed, so a line
-      drops or rattles the same fast or slow.
+      time against about one per break on a real table. The geometry is fixed by the design, so the levers are
+      `muRoll`, `ballE` and `maxSpeed`. (Pocket spit now appears on the side pockets with the
+      design geometry; see above.)
 
 ### Phase 2: rules v2
 - [ ] `judgeShot` with open table after the break, legal break, the 8 on the break,

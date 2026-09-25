@@ -25,14 +25,17 @@
         halfWidth: 250,
         ballR: 14,
         railWidth: 48,            // cushion + rail, for the off-table fail-safe
-        cornerMouth: 62,          // distance between the two nose points of a corner pocket
-        sideMouth: 64,
-        cornerJawAngle: 142,      // WPA-style angle between cushion face and jaw, degrees
-        sideJawAngle: 103,
-        cornerPocketR: 30,        // capture circle: a ball drops once its centre is inside
-        cornerPocketSetback: 12,  // capture centre, outward along the diagonal from the corner
-        sidePocketR: 30,
-        sidePocketSetback: 30,    // capture centre, outward from the nose line
+        // Pockets and cushion ends, straight from the final design (Table.dc.html). A jaw
+        // runs from a cushion's nose end to its rail end and on to the hole's edge.
+        cushionWidth: 12,         // nose line to rail line
+        cornerNose: 36,           // nose end, from the corner along each cushion (mouth 36·√2)
+        cornerRailEnd: 22,        // rail end, from the corner, on the rail line
+        sideNose: 30,             // nose end, either side of the side pocket's centre (mouth 60)
+        sideRailEnd: 24,
+        cornerPocketOffset: 4,    // hole centre (±(HL+4), ±(HW+4))
+        cornerPocketR: 27,        // a ball drops once its centre is inside the hole
+        sidePocketOffset: 16,     // hole centre (0, ±(HW+16))
+        sidePocketR: 24,
         // Cloth and collisions
         gravity: 3862,            // 9.81 m/s² in table units (1 u = 2.54 mm)
         muSlide: 0.2,             // ball–cloth sliding friction
@@ -65,7 +68,6 @@
     function ppBuildTable(cfg) {
         const HL = cfg.halfLength, HW = cfg.halfWidth;
         const segments = [], points = [], pockets = [];
-        const rad = d => d * Math.PI / 180;
 
         const addSeg = (ax, ay, bx, by, nx, ny, kind) => {
             const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
@@ -83,13 +85,10 @@
             return t > 0 ? { x: px + dx * t, y: py + dy * t } : null;
         };
 
-        // A jaw leaves nose point (px,py). `along` points along the cushion
-        // toward the pocket; `out` is the cushion's outward normal. The jaw
-        // turns from the cushion line toward the outside by (180 − angle).
-        const addJaw = (px, py, alongX, alongY, outX, outY, angle, pocket, otherX, otherY) => {
-            const turn = rad(180 - angle);
-            const dx = alongX * Math.cos(turn) + outX * Math.sin(turn);
-            const dy = alongY * Math.cos(turn) + outY * Math.sin(turn);
+        // A jaw leaves nose point (px,py) toward its rail end (rx,ry) and runs
+        // on until it meets the hole, which closes the throat.
+        const addJaw = (px, py, rx, ry, pocket, otherX, otherY) => {
+            const l = Math.hypot(rx - px, ry - py), dx = (rx - px) / l, dy = (ry - py) / l;
             const end = rayCircle(px, py, dx, dy, pocket.x, pocket.y, pocket.r);
             if (!end) throw new Error('pool table: a jaw misses its pocket; check the pocket settings');
             // Playable side of the jaw faces the opposite nose point.
@@ -100,16 +99,16 @@
             pocket.jaws.push([px, py, end.x, end.y]);
         };
 
-        const c = cfg.cornerMouth / Math.SQRT2;   // nose point distance from the corner along each cushion
-        const s = cfg.sideMouth / 2;
+        const c = cfg.cornerNose, s = cfg.sideNose;
+        const cr = cfg.cornerRailEnd, sr = cfg.sideRailEnd, CU = cfg.cushionWidth;
 
         // Pockets, in the order the old engine used: TL, top-side, TR, BL, bottom-side, BR.
         // y is up, so "top" is +HW.
         const corner = (sx, sy) => {
-            const k = cfg.cornerPocketSetback / Math.SQRT2;
+            const k = cfg.cornerPocketOffset;
             return { kind: 'corner', x: sx * (HL + k), y: sy * (HW + k), r: cfg.cornerPocketR, sx, sy, jaws: [] };
         };
-        const side = sy => ({ kind: 'side', x: 0, y: sy * (HW + cfg.sidePocketSetback), r: cfg.sidePocketR, sx: 0, sy, jaws: [] });
+        const side = sy => ({ kind: 'side', x: 0, y: sy * (HW + cfg.sidePocketOffset), r: cfg.sidePocketR, sx: 0, sy, jaws: [] });
         pockets.push(corner(-1, 1), side(1), corner(1, 1), corner(-1, -1), side(-1), corner(1, -1));
 
         // Long cushions (top and bottom), two runs each, split by the side pocket.
@@ -130,14 +129,14 @@
                 const ax = p.sx * (HL - c), ay = p.sy * HW;          // on the long cushion
                 const bx = p.sx * HL, by = p.sy * (HW - c);          // on the short cushion
                 addPoint(ax, ay, 'nose'); addPoint(bx, by, 'nose');
-                addJaw(ax, ay, p.sx, 0, 0, p.sy, cfg.cornerJawAngle, p, bx, by);
-                addJaw(bx, by, 0, p.sy, p.sx, 0, cfg.cornerJawAngle, p, ax, ay);
+                addJaw(ax, ay, p.sx * (HL - cr), p.sy * (HW + CU), p, bx, by);
+                addJaw(bx, by, p.sx * (HL + CU), p.sy * (HW - cr), p, ax, ay);
                 p.mouth = [ax, ay, bx, by];
             } else {
-                const y = p.sy * HW;
+                const y = p.sy * HW, yr = p.sy * (HW + CU);
                 addPoint(-s, y, 'nose'); addPoint(s, y, 'nose');
-                addJaw(-s, y, 1, 0, 0, p.sy, cfg.sideJawAngle, p, s, y);
-                addJaw(s, y, -1, 0, 0, p.sy, cfg.sideJawAngle, p, -s, y);
+                addJaw(-s, y, -sr, yr, p, s, y);
+                addJaw(s, y, sr, yr, p, -s, y);
                 p.mouth = [-s, y, s, y];
             }
         });

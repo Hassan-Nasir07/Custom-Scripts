@@ -4,7 +4,7 @@
 > deviation in the **Decision log** at the bottom. Attach this file as context in later
 > sessions.
 >
-> Status: `IN PROGRESS`, Phases 0–2 done · Last updated: 2026-09-25 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
+> Status: `IN PROGRESS`, Phases 0–3 done · Last updated: 2026-09-25 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
 
 ## Context
 
@@ -111,6 +111,11 @@ Most in-match states are one component, `InMatch.dc.html`, switched by a `varian
 8. **The YOU slot's name** comes from `lbDisplayName`, the leaderboard name the widget
    already registers ([:634](AttendanceTimeCheckerPlus.js#L634)). It falls back to
    "You" if the user never registered.
+9. **Shot camera setting** (not in the artboards; the user's call): *Overhead* (default,
+   as designed: ease up to the broadcast view while balls run) or *Stay 3D* (the camera
+   holds the view the shot was aimed from, then eases behind the cue ball when everything
+   stops). Lives in ⚙️ next to the difficulty pin, persisted in `userPreferences` as
+   `poolShotCam: 'overhead' | '3d'`. It only affects the 3D camera; 2D stays 2D.
 
 ### Rendering spec (from `Table.dc.html`, revision `1790325931-f598`)
 
@@ -380,10 +385,10 @@ harness. Every change goes in the Decision log.
 
 | Action | 3D camera | 2D camera |
 |---|---|---|
-| Aim | horizontal mouse or touch movement rotates the aim (0.3°/px) | point at a target |
+| Aim | horizontal mouse or touch movement rotates the aim (0.3°/px). **Keeps aiming after the mouse leaves the canvas** (up to 240 px out); lets go when the mouse moves onto another control, goes further, or presses elsewhere | point at a target, also from outside the canvas |
 | Fine aim | `Shift`+move = 0.05°/px; `←/→` = ±0.1° (only while the pool panel has focus) | same |
-| Power | press, drag any direction; distance → % with an ease-in curve; the gauge fills; the hint shows `Release to shoot · 62%` | same |
-| Cancel | drag back under 3% and release, or `Esc` | same |
+| Power | press, then **pull back or push forward along the shot line** (the old engine's rule; sideways movement adds nothing). Full power = the longer of the two runs from the press point to the canvas edge, at most 140 px, and the pointer is clamped to the canvas, so a full stroke always fits inside the table. The gauge fills; the hint shows `Release to shoot · 62%` | same |
+| Cancel | return to under 3% and release, or `Esc` | same |
 | Spin | tap **SPIN** → popover with the ball face; drag the dot inside the 0.6R ring; Center/Follow/Draw/Left/Right chips | same |
 | Lean | vertical slider, 3D only | – |
 | Ball in hand | camera auto-switches to top-down; drag the cue ball with a hand cursor; red where placement is illegal | same |
@@ -746,17 +751,38 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
     overlaps); 299/300 reach the 8. 44 s at 300, 6 s at the default 40
 - [x] `verify-all.js` runs it as *Pool rules*: **1,831 assertions, 0 failed**.
 
-### Phase 3: renderer
-- [ ] `pool-camera.js` (port of `Table.dc.html`) with an unprojection test: a screen click
-      maps back to the table point it came from.
-- [ ] Cached table layer; balls with quaternion rolling; shadows; cue with stroke;
-      spin-aware guides; pocket drop.
-- [ ] Paint in the *Rendering spec* layer order. The 3D pockets are clipped shafts with
-      banded, lamp-lit far walls and floor rings, drawn from `ppBuildTable` geometry.
-- [ ] Camera choreography: aim (chase) → shot (ease to broadcast) → rest (return) → ball
-      in hand (top-down).
-- [ ] DPR backing store; felt tints for the four table colours.
-- [ ] `preview.js` renders each scenario in both cameras. Compare against the artboards.
+### Phase 3: renderer — done 2026-09-25
+- [x] `pool-camera.js` (port of `Table.dc.html`). Checked against the design's own
+      projection code: 2D identical, 3D identical to 1e-9 px apart from the deliberate
+      left–right mirror (see the Decision log). Unprojection round-trips to 1e-12 u in
+      every camera, including mid-blend and at Max size.
+- [x] Cached table layer (per camera pose); balls rolled by the physics quaternion
+      (stripes and number discs are projected spherical caps, digits foreshortened with
+      their disc, hidden under 15 px as designed); contact shadows; the six-part cue
+      with pull-back and a 90 ms strike; pocket drop (sink, shrink, fade over 250 ms).
+- [x] **Guides on the real physics** (`pgGuide`): cue line to first contact with squirt,
+      object-ball line with throw, and the cue ball's own path after contact, so draw
+      bends back and follow runs through. Full / short / off. The prohibition sign on
+      an illegal first ball. Every coloured stroke on the felt has a dark underlay.
+- [x] Painted in the *Rendering spec* layer order. The 3D pockets are shafts clipped to
+      rail cut ∩ felt cut, with banded, lamp-lit far walls and floor rings, all from
+      `ppBuildTable`/`PP_DEFAULTS`, so drawn pockets are the playing pockets. No
+      `ctx.clip()` anywhere: a convex polygon clipper does it exactly.
+- [x] Camera director: aim (chase) → shot (650 ms ease to broadcast) → rest (500 ms ease
+      back, following aim live, no jump) → ball in hand (cut to 2D). The 2D camera stays
+      2D throughout. With the shot camera on *Stay 3D* the aim view holds while balls run.
+- [x] DPR: the renderer draws in CSS px under a `dpr` transform; the prototype uses a
+      backing store ×`min(devicePixelRatio, 2)`. Felt ramps for green, red, blue and grey.
+- [x] `render-verify.js`, **66 assertions**, in `verify-all.js` as *Pool render*
+      (1,897 total, 0 failed). Visual checks use `snapshot.js` (16 scenes in real
+      Chrome) instead of `preview.js`, whose rasterizer flattens gradients.
+- [x] `pool-table.html`: a playable prototype (renderer, camera, physics and rules with
+      a stand-in HUD) for testing by feel. Driven in headless Chrome through ball in
+      hand, a break and several shots with no page errors.
+- [x] First round of the user's feedback: the cue stays as designed; aiming keeps
+      working outside the canvas; power along the shot line both ways, always within
+      the bounds; the *Overhead / Stay 3D* shot-camera switch.
+- [x] The user's test of those changes: "Its a pass."
 
 ### Phase 4: HUD, controls, layouts
 - [ ] Panel DOM from `Main.dc.html`: header, player cards with group trackers, `FRAMES`,
@@ -767,6 +793,8 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
       as a toast over the table top.
 - [ ] Max layout from `Max.dc.html` through the new `cfg.build` hook. Ludo's Max stays
       byte-identical.
+- [ ] ⚙️ *Shot camera: Overhead / Stay 3D* (gap decision 9), persisted as
+      `userPreferences.poolShotCam`, defaulting to *Overhead*.
 - [ ] `pool-theme.css`: the `--pool-*` mappings for Glassmorphic (dark, and a light-mode
       override) and Cyberpunk; component CSS that uses only `--pool-*`.
 - [ ] Canvas bridge `poolThemeTokens()` plus `poolOnThemeChange()`, wired into
@@ -871,6 +899,13 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
 | 2026-09-25 | **Effective cushion friction 0.3, not 0.2** | At 0.2 the plain rebound already reached the sticking limit, so reverse English could not shorten it (39.9° vs 39.3°). 0.3 folds in the cloth friction under the ball during the cushion impact, which Mathavan's measurements include, and gives running 54.0° / plain 36.6° / reverse 31.5° at 45° |
 | 2026-09-25 | **Rolling resistance 0.016, above real cloth (~0.010)** | At 0.010 a firm shot rolls for over 10 s. 0.016 keeps a break under 6 s. It is a feel number and is exposed in the harness |
 | 2026-09-25 | **Fixed during Phase 1: a ball could be left `rolling` at v = 0** | Found by the fuzz, which caught NaN on 1 shot in 300. When a crawl's slip ended, the speed rounded to zero after the spin had already been derived from it. The leftover slip read as sliding, and a follow-up line forced the ball to rolling with a zero-length direction. The speed is now settled before the spin, the state is never forced, and both closed forms reclassify instead of dividing by zero |
+| 2026-09-25 | **The cue stays as designed in 3D**, even though past ~40% power at the default lean the pulled-back tip leaves the bottom of the frame | The user's call. The design's own camera math does the same; the power gauge and hint still show the stroke |
+| 2026-09-25 | **Power counts only movement along the shot line, both ways, scaled to fit inside the canvas; aiming keeps following the mouse outside the canvas** | The user's report from the prototype: aiming stopped at the canvas edge and pulling back ran out of room. The old engine already let you pull back or push forward; full power is now always reachable within the bounds. Checked in headless Chrome: a 200 px sweep below the table turns the aim exactly 60°, and sideways drags add 0% power |
+| 2026-09-25 | **A shot-camera setting: Overhead (default) or Stay 3D** | Players split on the ease to the overhead view; the user's call is to offer both (gap decision 9) |
+| 2026-09-25 | **Revised: the v2 engine goes into the userscript with the new HUD and input (end of Phase 5), not at Phase 3.** Phase 3 ships as `pool-dev/` modules plus the `pool-table.html` prototype | The live game's HUD is drawn on the canvas in the old 368 × 184 table space, and its input and rules glue read the old ball state. Swapping only the renderer would need throwaway adapters for all three. The prototype gives a real table to test by feel in the meantime |
+| 2026-09-25 | **The 3D view is not mirrored like the design's** | The design's frame is left-handed, so its 3D chase view is the mirror image of its 2D view: aiming up-table, the 2D top rail appears on the right. Ours keeps both views consistent. Measured: otherwise identical to the design's projection to 1e-9 px |
+| 2026-09-25 | **Broadcast camera: straight down, long lens (F = 4·H), framed exactly like 2D** | Watching the balls run then reads like the 2D view (0 px apart at the rail corners), and the ease from the chase camera needs no second framing |
+| 2026-09-25 | **Guides follow only the cue ball after first contact** | The guide shows where the cue ball's spin takes it, not what it collides with next. Simulating the rack scattering cost about 10× more for a line no one reads |
 | 2026-09-25 | **Rules choices where WPA offers options (Phase 2).** An illegal break is a plain foul with ball in hand anywhere, not WPA's re-rack-or-accept choice. The 8 on the break is always re-spotted, never re-racked. The 8 may not be hit first on an open table. A call names a pocket, not a ball. There is no three-foul rule | Each WPA option is an extra prompt at the table, and the design has screens for none of them. These are the Miniclip-style defaults the plan already names. Each is one line in `prJudge` if the user wants it the other way |
 | 2026-09-25 | **The judge derives everything from the world and its log; the frame state holds only turn, groups, break flag and ball in hand** | Today's engine keeps per-seat potted lists beside the balls, a second copy of the table. Deriving "on the 8" from the balls on the table means the two can never disagree, and the CPU can judge a cloned world with no extra bookkeeping |
 | 2026-09-25 | **The design's amber palette and Chakra Petch/Sora are dropped. Pool renders in the existing Glassmorphic Aurora and Cyberpunk HUD presets** through `--pool-*` tokens, with a canvas bridge. Table materials and ball colours stay physical and theme-independent | The user's call. It keeps pool consistent with the other panels and honours the user's Cyberpunk colour picks. No new font imports are needed |

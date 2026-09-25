@@ -173,15 +173,24 @@ function physics() {
 // The rules on top of the physics, in one scope as they will be in the
 // userscript: every pp*/PP_* and pr*/PR_* name.
 function rules() {
-    const src = ['pool-physics.js', 'pool-rules.js']
-        .map(f => fs.readFileSync(path.join(__dirname, f), 'utf8')).join('\n');
-    const names = [...src.matchAll(/^    (?:function|const)\s+((?:pp|PP_|pr|PR_)[\w$]*)/gm)].map(m => m[1]);
+    return v2(['pool-physics.js', 'pool-rules.js']);
+}
+
+// Physics, rules, camera and renderer together: every pp/pr/pc/pg name.
+function render() {
+    return v2(['pool-physics.js', 'pool-rules.js', 'pool-camera.js', 'pool-render.js']);
+}
+
+function v2(files) {
+    const src = files.map(f => fs.readFileSync(path.join(__dirname, f), 'utf8')).join('\n');
+    const names = [...src.matchAll(/^    (?:function|const)\s+((?:pp|PP_|pr|PR_|pc|PC_|pg|PG_)[\w$]*)/gm)].map(m => m[1]);
     return new Function(src + '\nreturn { ' + names.join(', ') + ' };')();
 }
 
 module.exports.source = source;
 module.exports.physics = physics;
 module.exports.rules = rules;
+module.exports.render = render;
 module.exports.stateNames = stateNames;
 module.exports.seededRandom = seededRandom;
 module.exports.makeCanvas = makeCanvas;

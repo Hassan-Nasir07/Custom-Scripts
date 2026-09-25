@@ -27,6 +27,8 @@ const SUITES = [
     ['Pool physics',   '../pool-dev/physics-verify.js'],
     // The v2 rules (pool-rules.js) on top of that physics, also headless until Phase 3.
     ['Pool rules',     '../pool-dev/rules-verify.js'],
+    // The v2 camera and renderer (pool-camera.js, pool-render.js), headless via the rasterizer.
+    ['Pool render',    '../pool-dev/render-verify.js'],
 ];
 
 const results = [];

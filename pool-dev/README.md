@@ -16,6 +16,9 @@ node pool-dev/reinsert.js --check         # exit 1 if the userscript copy differ
 node pool-dev/pool-verify.js              # the pool suite
 node pool-dev/physics-verify.js 2000      # the v2 physics, with a 2000-shot fuzz
 node pool-dev/rules-verify.js 300         # the v2 rules, with 300 whole frames
+node pool-dev/render-verify.js            # the v2 camera and renderer
+node pool-dev/snapshot.js [dir] [scene]   # real-Chrome PNGs of the v2 table, every scene by default
+start pool-dev/pool-table.html            # play the v2 table: renderer, camera, physics, rules
 node ludo-dev/verify-all.js               # every suite, pool included
 node pool-dev/baseline-check.js 1000 1    # today's CPU vs scripted humans
 node pool-dev/preview.js out.png all      # render the real canvas to a PNG
@@ -45,6 +48,32 @@ default `node` here is 10, so use the Volta image:
 | `pool-harness.html` | live table running the real `pool-physics.js`: shoot with a drag, set spin, tune every constant with sliders, see trails and the shot's events |
 | `pool-rules.js` | **v2 rules** (Phase 2): WPA 8-ball judged from the physics event log, seat-aware copy, cue-ball placement and re-spotting. Pure except the two table helpers. **Not spliced yet**, like the physics |
 | `rules-verify.js` | one case per rule row, the rules on real shots, and a fuzz of whole frames |
+| `pool-camera.js` | **v2 cameras** (Phase 3): chase, broadcast and 2D poses, projection, near-plane clipping, unprojection, and the director that eases between them. Pure |
+| `pool-render.js` | **v2 renderer** (Phase 3): the design's table, 3D pocket shafts, rolling balls, shadows, cue, physics-true guides, rings, ball in hand, pocket drops. Canvas only, no DOM |
+| `render-verify.js` | the cameras against the design's own projection code, unprojection round-trips, the director, the polygon clipper, the guides, and frames through the rasterizer |
+| `pool-table.html` | a playable prototype of the v2 table with a stand-in HUD; `?still=1&scene=…` renders one frame for `snapshot.js` |
+| `snapshot.js` | drives `pool-table.html` in headless Chrome and saves each scene as a PNG |
+
+## pool-camera.js and pool-render.js
+
+The chase camera is the design's, number for number. `render-verify.js` runs the
+design's own `toCam`/`toScr` beside ours and they agree to 1e-9 px. One thing differs
+on purpose: the design's world frame is left-handed, so its 3D view is the mirror image
+of its 2D view. Ours is not mirrored, so the table's right side is on your right in both
+cameras, and English goes the way it looks.
+
+The renderer paints only polygons. The pocket shafts and the ball markings are clipped
+with a convex polygon clipper, not `ctx.clip()`, so a frame also draws on the headless
+rasterizer. Ball markings come from the physics quaternion: stripes and number discs are
+spherical caps projected onto the disc, so they tumble as the ball rolls.
+
+The guides run the real physics on a cloned world: the cue ball's line to first contact
+(squirt included), the object ball's line off it (throw included), and the cue ball's
+own path after contact, so draw bends back and follow runs through. After contact the
+clone keeps only the cue ball: 1.4 ms on a full rack, 0.4 ms mid-frame.
+
+Judge the look with `snapshot.js` (real Chrome). The rasterizer flattens gradients, so
+its frames prove geometry and layer order, not finish.
 
 ## pool-rules.js
 

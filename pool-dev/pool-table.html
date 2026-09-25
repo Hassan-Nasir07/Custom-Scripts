@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pool v2 table prototype</title>
+<style>
+    :root { --bg: #0b0e10; --panel: #13181b; --line: #263036; --text: #e8e4da; --muted: #8e989d; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, sans-serif; display: flex; gap: 16px; padding: 16px; align-items: flex-start; }
+    #stage { display: flex; flex-direction: column; gap: 8px; }
+    #viewport { position: relative; overflow: hidden; border-radius: 14px; background: radial-gradient(ellipse 80% 70% at 50% 28%, #25383A 0%, #111819 55%, #07090A 100%); touch-action: none; user-select: none; }
+    #viewport.two { background: radial-gradient(ellipse 75% 75% at 50% 50%, #1C2628 0%, #0B0E0F 80%); }
+    #viewport canvas { position: absolute; left: 0; top: 0; display: block; }
+    #toast { position: absolute; left: 10px; right: 10px; top: 10px; display: none; padding: 8px 12px; border-radius: 12px; background: rgba(8, 10, 11, .78); border: 1px solid rgba(255, 255, 255, .12); }
+    #toast b { display: block; font-size: 13px; } #toast span { font-size: 12px; color: var(--muted); }
+    #toast.foul { border-color: rgba(255, 93, 115, .7); } #toast.foul b { color: #ff9aa8; }
+    #status { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 12px; min-height: 18px; }
+    #status b { color: var(--text); font-weight: 600; }
+    #side { display: flex; flex-direction: column; gap: 10px; width: 300px; }
+    fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 0; background: var(--panel); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    legend { color: var(--muted); padding: 0 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    button { background: #222a30; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; cursor: pointer; font: inherit; }
+    button:hover { background: #2b353c; } button.on { background: #3a4a55; border-color: #6d8796; }
+    label { display: flex; gap: 6px; align-items: center; }
+    input[type=range] { width: 150px; }
+    .hint { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="stage">
+    <div id="viewport"><canvas id="c"></canvas><div id="toast"><b></b><span></span></div></div>
+    <div id="status"><span id="who"></span><span id="hint"></span></div>
+</div>
+<div id="side">
+    <fieldset><legend>Camera</legend>
+        <button data-cam="3d">3D</button><button data-cam="2d">2D</button>
+        <label>Lean <input id="lean" type="range" min="0" max="100" value="35"></label>
+        <label>During the shot <select id="shotcam"><option value="overhead">Overhead</option><option value="3d">Stay 3D</option></select></label>
+    </fieldset>
+    <fieldset><legend>Spin</legend>
+        <button data-spin="0,0">Center</button><button data-spin="0,0.45">Follow</button><button data-spin="0,-0.55">Draw</button>
+        <button data-spin="-0.45,0">Left</button><button data-spin="0.45,0">Right</button>
+    </fieldset>
+    <fieldset><legend>Table</legend>
+        <label>Guides <select id="guides"><option>full</option><option>short</option><option>off</option></select></label>
+        <label>Felt <select id="felt"><option>green</option><option>red</option><option>blue</option><option>lightgrey</option></select></label>
+        <label><input id="every" type="checkbox"> Call every shot</label>
+        <button id="size">Max size</button>
+    </fieldset>
+    <fieldset><legend>Frame</legend>
+        <button id="new">New frame</button>
+        <button data-scene="mid">Mid-frame</button><button data-scene="eight">On the 8</button><button data-scene="bih">Ball in hand</button>
+    </fieldset>
+    <div class="hint">
+        3D: move the mouse sideways to aim (Shift for fine); it keeps aiming past the table's edge. 2D: point to aim.<br>
+        Press, then pull back or push forward along the shot line for power, release to shoot. Return to the start or press Esc to cancel.<br>
+        Ball in hand: drag the cue ball. When a call is needed, tap a pocket ring.<br>
+        This is the Phase 3 prototype: the real renderer, camera, physics and rules, with a stand-in HUD.
+    </div>
+</div>
+<script src="pool-physics.js"></script>
+<script src="pool-rules.js"></script>
+<script src="pool-camera.js"></script>
+<script src="pool-render.js"></script>
+<script>
+(() => {
+    const Q = new URLSearchParams(location.search);
+    const still = Q.has('still');                      // render one frame for snapshot.js, no loop
+    const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+    const vp = document.getElementById('viewport');
+    const $ = id => document.getElementById(id);
+    const NAMES = { 1: 'Ayesha', 2: 'Bilal' };
+    const DEG = Math.PI / 180;
+
+    let W = +Q.get('w') || 368, H = +Q.get('h') || 412;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cfg = ppCreateWorld().cfg;
+    let world, frame, director = pcDirector(W, H, cfg), cache = {};
+    let camera = Q.get('camera') === '2d' ? '2d' : '3d';
+    let lean = Q.has('lean') ? +Q.get('lean') : 35;
+    // What the 3D camera does while balls run: ease up to the overhead view, or stay in 3D.
+    let shotCam = Q.get('shotcam') || (() => { try { return localStorage.getItem('poolProtoShotCam'); } catch (_) { return null; } })() || 'overhead';
+    let aim = 0, power = 0, tip = { x: 0, y: 0 };
+    let phase = 'aim';                                  // aim | strike | moving | bih | over
+    let called = -1, guide = null, guideKey = '', drops = [], downPocketed = new Set();
+    let drag = null, strikeT = 0, breaker = 1, seed = +Q.get('seed') || 7;
+    let felt = Q.get('felt') || 'green', guideMode = Q.get('guides') || 'full';
+    let callEvery = Q.has('every');
+    let lastMs = 0, acc = 0;
+
+    function size(w, h) {
+        W = w; H = h;
+        vp.style.width = W + 'px'; vp.style.height = H + 'px';
+        canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+        canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+        pcResize(director, W, H); cache = {};
+    }
+
+    // ── Frames and scenes ─────────────────────────────────────────────
+    function newFrame(b) {
+        world = ppRack(ppCreateWorld(), ppRandom(seed++));
+        breaker = b || breaker;
+        frame = prNewFrame({ breaker, callEvery });
+        downPocketed = new Set(); drops = []; called = -1;
+        // Inside the kitchen, not on its line, so a click on the ball never rounds past it.
+        world.balls[0].x = world.table.headX - 80; world.balls[0].y = 0;
+        aim = 0; phase = 'bih'; toast(null);
+    }
+    // The design's layouts (Table.dc.html), in its y-down frame; flipped here.
+    const LAYOUTS = {
+        mid: { balls: [[1, 230, -120], [3, 140, 20], [4, 330, 150], [6, -60, -160], [7, 420, -60], [8, 60, 190], [9, -300, -90], [11, 370, 40], [12, -380, 180], [15, -230, -200]], cue: [-160, 70] },
+        eight: { balls: [[8, 300, -100], [9, -300, -90], [12, -380, 180], [15, -230, -200]], cue: [-60, 40] },
+        late: { balls: [[11, 370, 40], [12, -380, 180], [15, -230, -200]], cue: [60, 80] },
+    };
+    function scene(name) {
+        const L = LAYOUTS[name === 'bih' ? 'mid' : name];
+        if (!L) { newFrame(1); return; }
+        world = ppCreateWorld();
+        const on = new Set(L.balls.map(b => b[0]));
+        world.balls = [ppMakeBall(0, L.cue[0], -L.cue[1])].concat(L.balls.map(([id, x, y]) => ppMakeBall(id, x, -y)));
+        for (let id = 1; id <= 15; id++) if (!on.has(id)) world.balls.push(Object.assign(ppMakeBall(id, 0, 0), { state: 'pocketed' }));
+        frame = prNewFrame({ breaker: 1, callEvery });
+        Object.assign(frame, { isBreak: false, ballInHand: null, shots: 5, groups: { 1: 'solids', 2: 'stripes' } });
+        downPocketed = new Set(world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+        drops = []; called = -1;
+        aim = Q.has('aim') ? -(+Q.get('aim')) * DEG : 6.8 * DEG;
+        phase = name === 'bih' ? 'bih' : 'aim';
+        if (name === 'bih') frame.ballInHand = 'anywhere';
+        toast(null);
+    }
+
+    // ── HUD stand-ins ─────────────────────────────────────────────────
+    function toast(t) {
+        const el = $('toast');
+        if (!t) { el.style.display = 'none'; return; }
+        el.className = t.kind; el.style.display = 'block';
+        el.querySelector('b').textContent = t.title; el.querySelector('span').textContent = t.sub || '';
+    }
+    function status() {
+        const st = prStatus(frame, world);
+        const g = frame.groups[frame.turn];
+        $('who').innerHTML = '<b>' + NAMES[frame.turn] + '</b> · ' + (g ? g + ' (' + st.left + ' left)' : 'open table') + (st.onThe8 ? ' · on the 8' : '');
+        let hint = '';
+        if (phase === 'bih') hint = frame.ballInHand === 'kitchen' ? 'Break · place behind the head string' : 'Ball in hand · drag to place';
+        else if (phase === 'aim') {
+            if (st.callRequired && called < 0) hint = 'Tap a pocket to call it';
+            else if (drag) hint = 'Release to shoot · ' + Math.round(power) + '%';
+            else hint = (called >= 0 ? ['Top left', 'Top side', 'Top right', 'Bottom left', 'Bottom side', 'Bottom right'][called] + ' called · ' : '') + 'Drag to shoot';
+        } else if (phase === 'over') hint = 'Frame over · New frame';
+        $('hint').textContent = hint;
+        document.querySelectorAll('[data-cam]').forEach(b => b.classList.toggle('on', b.dataset.cam === camera));
+        vp.classList.toggle('two', camera === '2d' || phase === 'bih');
+    }
+
+    // ── Aim helpers ───────────────────────────────────────────────────
+    const cueBall = () => world.balls[0];
+    function legalTarget(id) {
+        const st = prStatus(frame, world);
+        if (frame.isBreak) return true;
+        if (st.onThe8) return id === 8;
+        if (id === 8) return false;
+        return !st.group || prGroupOf(id) === st.group;
+    }
+    // After a shot, point at the nearest ball the shooter may hit.
+    function aimAtNearest() {
+        const c = cueBall();
+        const cands = world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed' && legalTarget(b.id));
+        if (!cands.length) return;
+        cands.sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y));
+        aim = Math.atan2(cands[0].y - c.y, cands[0].x - c.x);
+    }
+    const speedOf = p => cfg.maxSpeed * p / 100;
+    function refreshGuide() {
+        if (phase !== 'aim' && phase !== 'strike') { guide = null; return; }
+        const p = drag ? Math.max(power, 5) : 50;
+        const key = [aim.toFixed(5), Math.round(p), tip.x, tip.y, world.t].join();
+        if (key === guideKey) return;
+        guideKey = key;
+        guide = pgGuide(world, { angle: aim, speed: speedOf(p), tipX: tip.x, tipY: tip.y });
+    }
+
+    // ── Input ─────────────────────────────────────────────────────────
+    const view = () => pcView(director.pose || pcDirect(director, camInput(), 0));
+    function local(e) { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+    function tableAt(sx, sy) { return view().unproject(sx, sy, cfg.ballR); }
+    // Aiming belongs to the table from the moment the mouse enters it, and
+    // keeps following the mouse after it leaves (up to AIM_REACH px out), so
+    // a long 3D turn never stalls at the canvas edge. It lets go when the
+    // mouse moves onto another control, goes further away, or presses
+    // anywhere else.
+    const AIM_REACH = 240;
+    let armed = false, lastX = null;
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const isControl = el => !!(el && el.closest && el.closest('button, input, select, label, a, fieldset'));
+    const disarm = () => { armed = false; lastX = null; };
+    canvas.addEventListener('pointerenter', e => { armed = true; lastX = local(e)[0]; });
+    window.addEventListener('pointerdown', e => { if (e.target !== canvas) disarm(); }, true);
+    document.documentElement.addEventListener('pointerleave', disarm);
+    window.addEventListener('blur', disarm);
+
+    // Power, as in the old engine: only movement along the shot line counts,
+    // pulled back or pushed forward, so there is always room for a full
+    // stroke inside the table. Full power is the longer of the two runs
+    // from the press point to the canvas edge (at most 140 px, the design's
+    // distance/1.4), and the pointer is clamped to the canvas, so leaving it
+    // mid-stroke changes nothing.
+    function shotAxis() {
+        const v = view(), c = cueBall(), R = cfg.ballR;
+        const a = pcProject(v, [c.x, c.y, R]), b = pcProject(v, [c.x + Math.cos(aim) * 60, c.y + Math.sin(aim) * 60, R]);
+        if (!a || !b) return [0, -1];
+        const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        return [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+    }
+    function room(px, py, ux, uy) {
+        let t = Infinity;
+        if (ux > 1e-9) t = Math.min(t, (W - px) / ux); else if (ux < -1e-9) t = Math.min(t, -px / ux);
+        if (uy > 1e-9) t = Math.min(t, (H - py) / uy); else if (uy < -1e-9) t = Math.min(t, -py / uy);
+        return Math.max(0, t);
+    }
+    const DEAD = 4;                                     // px of wobble before power starts
+    canvas.addEventListener('pointerdown', e => {
+        const [sx, sy] = local(e);
+        canvas.setPointerCapture(e.pointerId);
+        armed = true; lastX = sx;
+        if (phase === 'bih') { drag = { kind: 'place' }; place(sx, sy); return; }
+        if (phase !== 'aim') return;
+        const st = prStatus(frame, world);
+        if (st.callRequired) {
+            const hit = pgPocketMarks(view(), world.table).find(m => m.inView && Math.hypot(m.x - sx, m.y - sy) < Math.max(22, m.r));
+            if (hit) { called = hit.i; status(); return; }
+            if (called < 0) return;
+        }
+        const ax = shotAxis();
+        const reach = clamp(Math.max(room(sx, sy, ax[0], ax[1]), room(sx, sy, -ax[0], -ax[1])) - 6, 40, 140);
+        drag = { kind: 'power', x: sx, y: sy, ax, reach };
+        power = 0;
+    });
+    window.addEventListener('pointermove', e => {
+        const [sx, sy] = local(e);
+        if (drag && drag.kind === 'place') { place(sx, sy); return; }
+        if (drag && drag.kind === 'power') {
+            const px = clamp(sx, 0, W), py = clamp(sy, 0, H);
+            const along = Math.abs((px - drag.x) * drag.ax[0] + (py - drag.y) * drag.ax[1]);
+            power = Math.min(100, Math.max(0, along - DEAD) / (drag.reach - DEAD) * 100);
+            return;
+        }
+        if (!armed) return;
+        const far = sx < -AIM_REACH || sx > W + AIM_REACH || sy < -AIM_REACH || sy > H + AIM_REACH;
+        if (far || isControl(e.target)) { disarm(); return; }
+        const dx = lastX === null ? 0 : sx - lastX;
+        lastX = sx;
+        if (phase !== 'aim') return;
+        if (camera === '3d') aim -= dx * (e.shiftKey ? 0.05 : 0.3) * DEG;
+        else {
+            const p = tableAt(sx, sy), c = cueBall();
+            if (p && Math.hypot(p[0] - c.x, p[1] - c.y) > 2) aim = Math.atan2(p[1] - c.y, p[0] - c.x);
+        }
+    });
+    canvas.addEventListener('pointerup', () => {
+        if (!drag) return;
+        const d = drag; drag = null;
+        if (d.kind === 'place') {
+            const c = cueBall();
+            if (!prCanPlace(world, c.x, c.y, frame.ballInHand)) { phase = 'aim'; aimAtNearest(); }
+            return;
+        }
+        if (power < 3) { power = 0; return; }
+        phase = 'strike'; strikeT = 0;
+    });
+    window.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && drag && drag.kind === 'power') { drag = null; power = 0; }
+        if (phase === 'aim' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+            aim += (e.key === 'ArrowLeft' ? 1 : -1) * 0.1 * DEG; e.preventDefault();
+        }
+    });
+    function place(sx, sy) {
+        const v = pcView(pcOrtho(W, H, cfg)), p = v.unproject(sx, sy);
+        const c = cueBall();
+        prPlaceCue(world, p[0], p[1]);
+        c.x = p[0]; c.y = p[1];
+    }
+
+    document.querySelectorAll('[data-cam]').forEach(b => b.onclick = () => { camera = b.dataset.cam; status(); });
+    document.querySelectorAll('[data-spin]').forEach(b => b.onclick = () => {
+        const [x, y] = b.dataset.spin.split(',').map(Number); tip = { x, y };
+        document.querySelectorAll('[data-spin]').forEach(o => o.classList.toggle('on', o === b));
+    });
+    document.querySelectorAll('[data-scene]').forEach(b => b.onclick = () => { scene(b.dataset.scene); status(); });
+    $('lean').value = lean; $('lean').oninput = e => { lean = +e.target.value; };
+    $('shotcam').value = shotCam;
+    $('shotcam').onchange = e => { shotCam = e.target.value; try { localStorage.setItem('poolProtoShotCam', shotCam); } catch (_) {} };
+    $('guides').value = guideMode; $('guides').onchange = e => { guideMode = e.target.value; };
+    $('felt').value = felt; $('felt').onchange = e => { felt = e.target.value; };
+    $('every').checked = callEvery; $('every').onchange = e => { callEvery = e.target.checked; frame.callEvery = callEvery; status(); };
+    $('new').onclick = () => { newFrame(3 - breaker); status(); };
+    $('size').onclick = () => { const max = W < 1000; size(max ? 1232 : 368, max ? 672 : 412); $('size').textContent = max ? 'Compact size' : 'Max size'; };
+
+    // ── The loop ──────────────────────────────────────────────────────
+    function camInput() {
+        const c = cueBall();
+        return { camera, shotCam, phase: phase === 'moving' ? 'moving' : phase === 'bih' ? 'bih' : 'aim', cue: [c.x, c.y], aim, lean };
+    }
+    function settle() {
+        const v = prJudge(frame, world, called);
+        const t = prText(v, NAMES);
+        toast(t);
+        if (v.respot8) prSpotBall(world, 8);
+        frame = v.next; called = -1; tip = { x: 0, y: 0 }; power = 0;
+        document.querySelectorAll('[data-spin]').forEach((o, i) => o.classList.toggle('on', i === 0));
+        if (frame.over) { phase = 'over'; return; }
+        if (frame.ballInHand) {
+            const c = cueBall();
+            if (c.state === 'pocketed') prPlaceCue(world, world.table.headX - 80, 0);
+            phase = 'bih';
+        } else { phase = 'aim'; aimAtNearest(); }
+    }
+    function tick(ms) {
+        const dt = lastMs ? Math.min(100, ms - lastMs) : 16; lastMs = ms;
+        if (phase === 'strike') {
+            strikeT += dt;
+            if (strikeT >= 90) {
+                world.log = [];
+                ppStrike(world, { angle: aim, speed: speedOf(power), tipX: tip.x, tipY: tip.y });
+                phase = 'moving'; acc = 0; toast(null);
+            }
+        } else if (phase === 'moving') {
+            acc += dt;
+            while (acc >= 1000 / 60) {
+                ppStep(world, 1 / 60); acc -= 1000 / 60;
+                world.balls.forEach(b => {
+                    if (b.state === 'pocketed' && !downPocketed.has(b.id)) {
+                        downPocketed.add(b.id);
+                        drops.push({ ball: Object.assign({}, b, { q: b.q.slice() }), pocket: b.pocket, t: 0 });
+                    }
+                });
+                if (ppSettled(world)) { ppSimulate(world, 0.001); settle(); break; }
+            }
+        }
+        drops.forEach(d => { d.t += dt / 250; });
+        drops = drops.filter(d => d.t < 1);
+        downPocketed = new Set(world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+        draw(dt);
+        status();
+        if (!still) requestAnimationFrame(tick);
+    }
+    function draw(dt) {
+        const pose = pcDirect(director, camInput(), dt);
+        const v = pcView(pose);
+        refreshGuide();
+        const st = prStatus(frame, world);
+        const aiming = phase === 'aim' || phase === 'strike';
+        const pull = 8 + power * 1.1;
+        const gap = phase === 'strike' ? pull + (1 - pull) * Math.min(1, strikeT / 90) : pull;
+        const c = cueBall();
+        pgRender(ctx, {
+            view: v, world, felt, dpr, cache, makeCanvas: (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h }),
+            aim: aiming ? { angle: aim, power, gap } : null,
+            guide: aiming ? guide : null, guideMode,
+            illegal: !!(guide && guide.hit > 0 && !legalTarget(guide.hit)),
+            bih: phase === 'bih' ? { x: c.x, y: c.y, valid: !prCanPlace(world, c.x, c.y, frame.ballInHand) } : null,
+            kitchen: phase === 'bih' && frame.ballInHand === 'kitchen',
+            call: aiming && st.callRequired ? { called } : null,
+            drops,
+        });
+    }
+
+    // ── Start ─────────────────────────────────────────────────────────
+    size(W, H);
+    const sc = Q.get('scene') || 'rack';
+    if (sc === 'rack' || sc === 'break') newFrame(1); else scene(sc);
+    if (sc === 'rack' && Q.has('still') && !Q.has('bihbreak')) { phase = 'aim'; aim = 0; }
+    if (Q.has('power')) power = +Q.get('power');
+    if (Q.has('call')) called = +Q.get('call');
+    if (Q.has('tip')) { const [x, y] = Q.get('tip').split(',').map(Number); tip = { x, y }; }
+    if (sc === 'break') {
+        phase = 'aim';
+        pcDirect(director, camInput(), 0);              // the camera sees the aim before the strike
+        phase = 'moving';
+        ppStrike(world, { angle: 0, speed: cfg.maxSpeed, tipX: 0, tipY: 0 });
+        for (let i = 0; i < (+Q.get('t') || 15); i++) ppStep(world, 1 / 60);
+        pcDirect(director, camInput(), 0); pcDirect(director, camInput(), 5000);
+    }
+    status();
+    if (still) {
+        pcDirect(director, camInput(), 0);
+        draw(0); status();
+        window.__ready = true;
+    } else requestAnimationFrame(tick);
+    window.__pool = { get world() { return world; }, get frame() { return frame; }, get phase() { return phase; }, get aim() { return aim; }, get power() { return power; }, view };
+})();
+</script>
+</body>
+</html>

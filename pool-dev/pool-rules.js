@@ -26,6 +26,7 @@
         notEight: 'Must hit the 8 first',
         noRail: 'No rail after contact',
         illegalBreak: 'Illegal break',
+        timeout: 'Out of time',
     };
 
     const prGroupOf = id => (id >= 1 && id <= 7 ? 'solids' : id >= 9 && id <= 15 ? 'stripes' : null);
@@ -164,6 +165,22 @@
         return v;
     }
 
+    // The shot clock ran out before a shot was played. As in today's game it
+    // is a foul: the opponent has ball in hand anywhere. On the break there
+    // is nothing to foul, so the break simply passes across (kitchen).
+    function prTimeout(state) {
+        const me = state.turn, them = 3 - me;
+        const brk = state.isBreak;
+        return {
+            shooter: me, foul: 'timeout', reason: 'timeout', frameOver: false, winner: 0,
+            continues: false, nextTurn: them, ballInHand: brk ? 'kitchen' : 'anywhere',
+            respot8: false, assigned: null, counted: [], notice: null,
+            callRequired: false, call: -1, onThe8: false, wasBreak: brk, legalBreak: null,
+            summary: null,
+            next: Object.assign({}, state, { groups: Object.assign({}, state.groups), turn: them, ballInHand: brk ? 'kitchen' : 'anywhere' }),
+        };
+    }
+
     // Seat-aware copy for the toast and the frame result. names = { 1, 2 };
     // the name 'You' gets second-person grammar ("You win").
     function prText(v, names) {
@@ -177,6 +194,9 @@
                 : v.reason === 'eightFoul' ? who + ' potted the 8 on a foul (' + PR_FOUL_TEXT[v.foul].toLowerCase() + ').'
                 : who + ' potted the 8 in the wrong pocket.';
             return { kind: 'frame', title: you(v.winner) ? 'You win' : n(v.winner) + ' wins', sub };
+        }
+        if (v.foul === 'timeout' && v.wasBreak) {
+            return { kind: 'foul', title: PR_FOUL_TEXT.timeout, sub: (you(v.nextTurn) ? 'Your break' : n(v.nextTurn) + ' breaks') };
         }
         if (v.foul) {
             return {

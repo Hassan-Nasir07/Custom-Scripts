@@ -9,6 +9,9 @@
     //              with the cue ball held 0.34·H below the centre
     //   broadcast  perspective, high over the table, framed like the 2D view;
     //              the camera eases here while balls run
+    //   survey     perspective, the whole table from the shooter's side at a
+    //              58° pitch; the shot camera's Stay 3D setting stands up
+    //              here while balls run instead of going overhead
     //   ortho      the 2D top-down view, fitted with an 8 px margin
     //
     // World frame is the physics frame: x right, y up, z up (right-handed).
@@ -58,16 +61,80 @@
         return { kind: 'persp', eye: [0, 0, h], target: [0, 0, 0], up: [0, 1, 0], F, W, H };
     }
 
+    // The player standing up after the shot: still in 3D and still facing
+    // the way the shot went, but high and pulled back so the whole table is
+    // in frame. The distance is fitted to the viewport, and the framing is
+    // centred on the table's projected bounds (the near rail looks bigger).
+    const PC_SURVEY_PITCH = 58 * Math.PI / 180;
+    // px kept clear around the table; the top also clears the camera
+    // toggle and the group pill that sit over the viewport
+    const PC_SURVEY_MARGIN = { side: 14, top: 52, bottom: 14 };
+    const PC_APRON_Z = -46;            // the apron's bottom edge, as the renderer draws it
+
+    function pcSurvey(aim, W, H, cfg) {
+        const { OX, OY } = pcTableExtent(cfg);
+        const top = cfg.ballR + 2, F = 1.1 * H, m = PC_SURVEY_MARGIN;
+        const cx = W / 2, cy = (m.top + H - m.bottom) / 2;     // the middle of the clear box
+        const corners = [];
+        [top, PC_APRON_Z].forEach(z => [[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(([a, b]) => corners.push([a * OX, b * OY, z])));
+        const back = [-Math.cos(aim) * Math.cos(PC_SURVEY_PITCH), -Math.sin(aim) * Math.cos(PC_SURVEY_PITCH), Math.sin(PC_SURVEY_PITCH)];
+        const at = (T, d) => ({ kind: 'persp', eye: [T[0] + back[0] * d, T[1] + back[1] * d, back[2] * d], target: T, up: [0, 0, 1], F, W, H });
+        const bounds = pose => {
+            const v = pcView(pose);
+            let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+            for (const c of corners) {
+                const p = pcProject(v, c);
+                if (!p) return null;
+                x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
+            }
+            return { v, x0, x1, y0, y1 };
+        };
+        const fits = b => b && b.x1 - b.x0 <= W - 2 * m.side && b.y1 - b.y0 <= H - m.top - m.bottom;
+        let T = [0, 0, 0], d = 1000;
+        for (let pass = 0; pass < 3; pass++) {
+            let lo = 150, hi = 8000;
+            for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (fits(bounds(at(T, mid)))) hi = mid; else lo = mid; }
+            d = hi;
+            // Slide the camera over the felt until the bounds sit in the middle
+            // of the clear box: move by what lies under their centre minus
+            // what lies under the box's.
+            const b = bounds(at(T, d));
+            const p = b.v.unproject((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 0), q = b.v.unproject(cx, cy, 0);
+            if (p && q) T = [T[0] + p[0] - q[0], T[1] + p[1] - q[1], 0];
+        }
+        return at(T, d);
+    }
+
     function pcOrtho(W, H, cfg) {
         const { OX, OY } = pcTableExtent(cfg);
         return { kind: 'ortho', s: Math.min((W - 2 * PC_MARGIN) / (2 * OX), (H - 2 * PC_MARGIN) / (2 * OY)), W, H };
     }
 
+    // Where the eye sits around the point it looks at, for poses that are
+    // upright (up = +z): heading, elevation and distance.
+    function pcOrbit(pose) {
+        const o = pcSub(pose.eye, pose.target), d = Math.hypot(o[0], o[1], o[2]);
+        return { az: Math.atan2(o[1], o[0]), el: Math.asin(o[2] / d), d };
+    }
+    const pcUpright = p => p.up[0] === 0 && p.up[1] === 0 && p.up[2] === 1;
+
     // Perspective poses blend; anything involving ortho cuts at the midpoint.
+    // Two upright poses (chase and survey) orbit: the eye swings round the
+    // look point the short way, rising and backing off as it goes, rather
+    // than cutting a straight line across the table when the aim has turned.
     function pcBlend(a, b, t) {
         if (t <= 0) return a;
         if (t >= 1) return b;
         if (a.kind !== 'persp' || b.kind !== 'persp') return t < 0.5 ? a : b;
+        if (pcUpright(a) && pcUpright(b)) {
+            const A = pcOrbit(a), B = pcOrbit(b);
+            let da = B.az - A.az;
+            da -= 2 * Math.PI * Math.round(da / (2 * Math.PI));
+            const T = pcLerp3(a.target, b.target, t), az = A.az + da * t, el = pcLerp(A.el, B.el, t);
+            const d = Math.exp(pcLerp(Math.log(A.d), Math.log(B.d), t));
+            const eye = [T[0] + Math.cos(az) * Math.cos(el) * d, T[1] + Math.sin(az) * Math.cos(el) * d, T[2] + Math.sin(el) * d];
+            return { kind: 'persp', eye, target: T, up: [0, 0, 1], F: pcLerp(a.F, b.F, t), W: b.W, H: b.H };
+        }
         return {
             kind: 'persp', eye: pcLerp3(a.eye, b.eye, t), target: pcLerp3(a.target, b.target, t),
             up: pcNorm(pcLerp3(a.up, b.up, t)), F: pcLerp(a.F, b.F, t), W: b.W, H: b.H,
@@ -155,14 +222,16 @@
     // Chooses the pose for each frame and eases between them:
     //   aim     chase behind the cue ball (or 2D if the player picked it)
     //   moving  balls are running: ease out to broadcast, or, with the
-    //           shot camera set to stay in 3D, hold the aim view
-    //   rest    back to the chase pose once everything stops
+    //           shot camera set to stay in 3D, stand up into the survey
+    //   rest    back to the chase pose once everything stops; from the
+    //           survey, after a beat to take in the table
     //   bih     ball in hand always cuts to 2D
     // input = { camera: '3d'|'2d', shotCam: 'overhead'|'3d', phase: 'aim'|'moving'|'bih', cue, aim, lean }
-    const PC_TWEEN_MS = { moving: 650, aim: 500 };
+    const PC_TWEEN_MS = { moving: 650, aim: 500, survey: 900, back: 750 };
+    const PC_SURVEY_DWELL_MS = 450;
 
     function pcDirector(W, H, cfg) {
-        return { W, H, cfg, key: null, from: null, t: 1, ms: 1, pose: null, hold: null };
+        return { W, H, cfg, key: null, from: null, t: 1, ms: 1, pose: null, survey: null };
     }
 
     function pcTarget(dir, input) {
@@ -170,9 +239,9 @@
         if (two) return { key: 'ortho', pose: pcOrtho(dir.W, dir.H, dir.cfg) };
         if (input.phase === 'moving') {
             if (input.shotCam !== '3d') return { key: 'broadcast', pose: pcBroadcast(dir.W, dir.H, dir.cfg) };
-            // Stay in 3D: keep the view the shot was aimed from, frozen where it was.
-            if (dir.key !== 'hold') dir.hold = dir.pose || pcChase(input.cue, input.aim, input.lean, dir.W, dir.H, dir.cfg);
-            return { key: 'hold', pose: dir.hold };
+            // Stay in 3D: face the way the shot was played, fixed for the whole shot.
+            if (dir.key !== 'survey') dir.survey = pcSurvey(input.aim, dir.W, dir.H, dir.cfg);
+            return { key: 'survey', pose: dir.survey };
         }
         return { key: 'chase', pose: pcChase(input.cue, input.aim, input.lean, dir.W, dir.H, dir.cfg) };
     }
@@ -184,10 +253,16 @@
         const tg = pcTarget(dir, input);
         if (dir.key !== tg.key) {
             const cut = !dir.pose || tg.key === 'ortho' || dir.key === 'ortho';
+            const fromSurvey = dir.key === 'survey';
+            // How far the stand-up got: a soft shot that stops early barely
+            // rose, so it gets a shorter beat before the camera comes back.
+            const risen = fromSurvey ? pcEase(dir.t) : 0;
             dir.from = dir.pose;
             dir.key = tg.key;
-            dir.t = cut ? 1 : 0;
-            dir.ms = tg.key === 'broadcast' ? PC_TWEEN_MS.moving : PC_TWEEN_MS.aim;
+            dir.ms = tg.key === 'broadcast' ? PC_TWEEN_MS.moving : tg.key === 'survey' ? PC_TWEEN_MS.survey
+                : fromSurvey ? PC_TWEEN_MS.back : PC_TWEEN_MS.aim;
+            // A negative t is the beat: the pose stays put until t passes 0.
+            dir.t = cut ? 1 : fromSurvey && tg.key === 'chase' ? -PC_SURVEY_DWELL_MS * risen / dir.ms : 0;
         } else {
             dir.t = Math.min(1, dir.t + (dtMs || 0) / dir.ms);
         }

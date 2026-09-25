@@ -181,9 +181,15 @@ function render() {
     return v2(['pool-physics.js', 'pool-rules.js', 'pool-camera.js', 'pool-render.js']);
 }
 
+// Everything above plus the HUD. Its DOM functions touch `document` only
+// when called, so the pure view model (phModel) loads and runs in Node.
+function hud() {
+    return v2(['pool-physics.js', 'pool-rules.js', 'pool-camera.js', 'pool-render.js', 'pool-hud.js']);
+}
+
 function v2(files) {
     const src = files.map(f => fs.readFileSync(path.join(__dirname, f), 'utf8')).join('\n');
-    const names = [...src.matchAll(/^    (?:function|const)\s+((?:pp|PP_|pr|PR_|pc|PC_|pg|PG_)[\w$]*)/gm)].map(m => m[1]);
+    const names = [...src.matchAll(/^    (?:function|const)\s+((?:pp|PP_|pr|PR_|pc|PC_|pg|PG_|ph|PH_)[\w$]*)/gm)].map(m => m[1]);
     return new Function(src + '\nreturn { ' + names.join(', ') + ' };')();
 }
 
@@ -191,6 +197,7 @@ module.exports.source = source;
 module.exports.physics = physics;
 module.exports.rules = rules;
 module.exports.render = render;
+module.exports.hud = hud;
 module.exports.stateNames = stateNames;
 module.exports.seededRandom = seededRandom;
 module.exports.makeCanvas = makeCanvas;

@@ -17,7 +17,9 @@ node pool-dev/pool-verify.js              # the pool suite
 node pool-dev/physics-verify.js 2000      # the v2 physics, with a 2000-shot fuzz
 node pool-dev/rules-verify.js 300         # the v2 rules, with 300 whole frames
 node pool-dev/render-verify.js            # the v2 camera and renderer
-node pool-dev/snapshot.js [dir] [scene]   # real-Chrome PNGs of the v2 table, every scene by default
+node pool-dev/hud-verify.js               # the v2 HUD view model and theme contract
+node pool-dev/snapshot.js [dir] [scene]   # real-Chrome PNGs of the v2 panel, every scene by default
+node pool-dev/snapshot.js --check [dir]   # …plus an in-browser layout and theme audit per scene
 start pool-dev/pool-table.html            # play the v2 table: renderer, camera, physics, rules
 node ludo-dev/verify-all.js               # every suite, pool included
 node pool-dev/baseline-check.js 1000 1    # today's CPU vs scripted humans
@@ -48,11 +50,14 @@ default `node` here is 10, so use the Volta image:
 | `pool-harness.html` | live table running the real `pool-physics.js`: shoot with a drag, set spin, tune every constant with sliders, see trails and the shot's events |
 | `pool-rules.js` | **v2 rules** (Phase 2): WPA 8-ball judged from the physics event log, seat-aware copy, cue-ball placement and re-spotting. Pure except the two table helpers. **Not spliced yet**, like the physics |
 | `rules-verify.js` | one case per rule row, the rules on real shots, and a fuzz of whole frames |
-| `pool-camera.js` | **v2 cameras** (Phase 3): chase, broadcast and 2D poses, projection, near-plane clipping, unprojection, and the director that eases between them. Pure |
+| `pool-camera.js` | **v2 cameras** (Phase 3): chase, broadcast, survey and 2D poses, projection, near-plane clipping, unprojection, and the director that eases between them. Pure |
 | `pool-render.js` | **v2 renderer** (Phase 3): the design's table, 3D pocket shafts, rolling balls, shadows, cue, physics-true guides, rings, ball in hand, pocket drops. Canvas only, no DOM |
 | `render-verify.js` | the cameras against the design's own projection code, unprojection round-trips, the director, the polygon clipper, the guides, and frames through the rasterizer |
-| `pool-table.html` | a playable prototype of the v2 table with a stand-in HUD; `?still=1&scene=…` renders one frame for `snapshot.js` |
-| `snapshot.js` | drives `pool-table.html` in headless Chrome and saves each scene as a PNG |
+| `pool-hud.js` | **v2 HUD** (Phase 4): `phModel` (pure view model), `phBuild` (compact or Max DOM), `phRender`, and the canvas theme bridge `phThemeTokens` |
+| `pool-theme.css` | the `--pool-*` tokens for Glassmorphic dark/light and Cyberpunk, and the HUD's component CSS; drops into the style template |
+| `hud-verify.js` | the HUD's view model against every design state, and the theme contract (no design hex, no filter/clip-path on the viewport, complete token blocks) |
+| `pool-table.html` | the playable prototype and theme harness: the real table, HUD and themes (it loads `../cyber-dev/cyber-theme.css` and `cyber-hud.js` directly) in a host-like panel, with Vs CPU / 2 Players, the shot clock and the Max view. `?still=1&scene=…` renders one state for `snapshot.js` |
+| `snapshot.js` | drives `pool-table.html` in headless Chrome and saves each scene as a PNG; `--check` also runs the page's HUD audit |
 
 ## pool-camera.js and pool-render.js
 
@@ -71,6 +76,12 @@ The guides run the real physics on a cloned world: the cue ball's line to first 
 (squirt included), the object ball's line off it (throw included), and the cue ball's
 own path after contact, so draw bends back and follow runs through. After contact the
 clone keeps only the cue ball: 1.4 ms on a full rack, 0.4 ms mid-frame.
+
+With the shot camera on *Stay 3D*, the director stands up into `pcSurvey` while balls
+run: the shot's heading at a 58° pitch, with the distance fitted so the whole table (rails
+and apron) sits inside the viewport clear of the top overlays. Upright poses blend as an
+orbit around the look point, so the camera swings round to a new aim instead of cutting
+across the table.
 
 Judge the look with `snapshot.js` (real Chrome). The rasterizer flattens gradients, so
 its frames prove geometry and layer order, not finish.

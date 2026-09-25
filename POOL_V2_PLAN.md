@@ -4,7 +4,7 @@
 > deviation in the **Decision log** at the bottom. Attach this file as context in later
 > sessions.
 >
-> Status: `IN PROGRESS`, Phases 0–3 done · Last updated: 2026-09-25 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
+> Status: `IN PROGRESS`, Phases 0–3 done, Phase 4 built (awaiting test) · Last updated: 2026-09-25 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
 
 ## Context
 
@@ -113,8 +113,9 @@ Most in-match states are one component, `InMatch.dc.html`, switched by a `varian
    "You" if the user never registered.
 9. **Shot camera setting** (not in the artboards; the user's call): *Overhead* (default,
    as designed: ease up to the broadcast view while balls run) or *Stay 3D* (the camera
-   holds the view the shot was aimed from, then eases behind the cue ball when everything
-   stops). Lives in ⚙️ next to the difficulty pin, persisted in `userPreferences` as
+   stands up: it rises to a 58° pitch and backs off, still facing the way the shot went,
+   until the whole table is in frame; when everything stops it holds a beat, then swings
+   round behind the cue ball for the next shot). Lives in ⚙️ next to the difficulty pin, persisted in `userPreferences` as
    `poolShotCam: 'overhead' | '3d'`. It only affects the 3D camera; 2D stays 2D.
 
 ### Rendering spec (from `Table.dc.html`, revision `1790325931-f598`)
@@ -770,10 +771,13 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
       `ctx.clip()` anywhere: a convex polygon clipper does it exactly.
 - [x] Camera director: aim (chase) → shot (650 ms ease to broadcast) → rest (500 ms ease
       back, following aim live, no jump) → ball in hand (cut to 2D). The 2D camera stays
-      2D throughout. With the shot camera on *Stay 3D* the aim view holds while balls run.
+      2D throughout. With the shot camera on *Stay 3D* it stands up into the survey pose
+      (`pcSurvey`: the whole table fitted in 3D from the shot's heading, 900 ms), holds
+      450 ms once balls stop (less after a soft shot that barely rose), then orbits back
+      to the chase pose in 750 ms.
 - [x] DPR: the renderer draws in CSS px under a `dpr` transform; the prototype uses a
       backing store ×`min(devicePixelRatio, 2)`. Felt ramps for green, red, blue and grey.
-- [x] `render-verify.js`, **66 assertions**, in `verify-all.js` as *Pool render*
+- [x] `render-verify.js`, **73 assertions**, in `verify-all.js` as *Pool render*
       (1,897 total, 0 failed). Visual checks use `snapshot.js` (16 scenes in real
       Chrome) instead of `preview.js`, whose rasterizer flattens gradients.
 - [x] `pool-table.html`: a playable prototype (renderer, camera, physics and rules with
@@ -784,28 +788,54 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
       the bounds; the *Overhead / Stay 3D* shot-camera switch.
 - [x] The user's test of those changes: "Its a pass."
 
-### Phase 4: HUD, controls, layouts
-- [ ] Panel DOM from `Main.dc.html`: header, player cards with group trackers, `FRAMES`,
-      table viewport, overlays, three buttons. Replace the pool scoreboard and control
-      blocks at [:19649](AttendanceTimeCheckerPlus.js#L19649) and
-      [:19757](AttendanceTimeCheckerPlus.js#L19757).
-- [ ] Shot clock as a 3px accent bar draining on the active card, hot in the last 5s. Foul and turn banners
-      as a toast over the table top.
-- [ ] Max layout from `Max.dc.html` through the new `cfg.build` hook. Ludo's Max stays
-      byte-identical.
-- [ ] ⚙️ *Shot camera: Overhead / Stay 3D* (gap decision 9), persisted as
-      `userPreferences.poolShotCam`, defaulting to *Overhead*.
-- [ ] `pool-theme.css`: the `--pool-*` mappings for Glassmorphic (dark, and a light-mode
-      override) and Cyberpunk; component CSS that uses only `--pool-*`.
-- [ ] Canvas bridge `poolThemeTokens()` plus `poolOnThemeChange()`, wired into
-      `applyCyberpunkTheme`, `clearCyberpunkTheme`, the colour-picker listener and the
-      `prefers-color-scheme` listener. It invalidates the cached table layer.
-- [ ] Static audit in `pool-verify.js`: no design hex (`#F0B44C`, `#EC6A3D`, `#0E1113`,
-      `#161C1F`, `#1C2327`, `#9CA5A8`, …) anywhere in pool code outside the
-      materials/ball tables; no `clip-path` or `filter` on the table viewport or its
-      ancestors.
-- [ ] `pool-harness.html` gets a theme switcher: Glassmorphic dark/light × Cyberpunk
-      dark/light × four shapes × a custom-colour input.
+### Phase 4: HUD, controls, layouts — built 2026-09-25, awaiting the user's test
+Built as `pool-dev/` modules and exercised on the prototype page; they go into the
+userscript with the input in Phase 5 (Decision log). The host-side items are listed at the
+end, since they belong to that splice.
+
+- [x] `pool-hud.js` (`ph*`), in three layers:
+  - `phModel(game)`: pure. A game snapshot becomes every string, tag, flag and tone the
+    HUD shows, so it is tested in Node against the design's states.
+  - `phBuild(root, { layout, on, canvas })`: the DOM, compact (`Main.dc.html`) or Max
+    (`Max.dc.html`). It adopts the host's existing canvas.
+  - `phRender(hud, vm)`: applies a view model, touching only what changed.
+- [x] Every `InMatch.dc.html` variant:
+  - player cards with group trackers (potted balls dim) and `FRAMES`
+  - `TO SHOOT` / `18s` / `BALL IN HAND` / `TO BREAK` / `FOUL` tags
+  - the shot-clock bar, hot and pulsing in the last 5 s
+  - camera toggle (`2D · AUTO` in ball in hand), group pill, lean slider with the pitch label, power gauge (hot ≥ 85%, padlock until a call)
+  - spin presets, hint pill, `Overlaps a ball` / `Behind the head string only` chip
+  - 3D pocket mini-map
+  - foul toast replacing the toggle and pill
+  - `Pass to <name>` / `<NAME>'S READY` replacing the footer
+  - frame-over dialog
+- [x] Max layout: cards in the header with avatars (CPU chip), the frame count, trophy, mode, reset, exit; overlays scaled as designed (`2D TOP-DOWN` / `3D AIM`, 72 px spin, `Your shot · Solids`).
+- [x] `pool-theme.css`: `--pool-*` tokens for Glassmorphic dark, Glassmorphic light (`prefers-color-scheme`) and Cyberpunk, and component CSS that reads only `--pool-*`. It drops into the style template (12-space indent, no backticks).
+- [x] Canvas bridge `phThemeTokens(hud)` (the plan's `poolThemeTokens`): the renderer's felt accent, hot colour and font from computed `--pool-*`, normalised to hex, cached until `phThemeChanged(hud)`.
+- [x] Shot clock: `prTimeout` in `pool-rules.js`. Running out is a foul with ball in hand to the opponent, as in today's game; on the break it passes the break across. The clock waits for the hand-off and for ball in hand.
+- [x] `hud-verify.js`, **54 assertions**, in `verify-all.js` as *Pool HUD* (1,961 total):
+  - every design state through `phModel`
+  - no design hex or font in pool code
+  - `clip-path` only on buttons, no `filter`
+  - every `--pool-*` defined
+  - Cyberpunk redefines everything light mode sets
+  - `--rt-*` only under `.retro-theme`
+- [x] `pool-table.html` became the theme harness. It uses the real `cyber-theme.css` and `cyber-hud.js` with Glassmorphic / Cyberpunk, the palettes and the four shapes; light mode follows the OS. It adds Vs CPU / 2 Players, the shot clock and the Max view.
+- [x] `snapshot.js`: 27 scenes (every design state, light mode, Cyberpunk, both Max views) plus `--check`, an in-browser audit per scene: **292/292**. It checks:
+  - no filter or clip-path on the viewport's ancestors
+  - the 72 / 52 px rows and the 368:412 and 1232:672 viewports
+  - every overlay inside the table, no overlapping controls, no clipped labels
+  - tokens resolve, the bridge's colour is the Cyberpunk accent, and the backing store is CSS size × dpr
+- [x] Driven in headless Chrome with real mouse events:
+  - camera toggle, spin, lean, and Max open and Esc close (with the canvas moved across)
+  - a foul in 2 Players showing the hand-off
+  - READY restoring the footer, and the mode switch
+- [ ] The user's test in `pool-table.html`.
+- [ ] **At the Phase 5 splice (host side):**
+  - the panel DOM replaces the pool scoreboard and control blocks ([:19649](AttendanceTimeCheckerPlus.js#L19649), [:19757](AttendanceTimeCheckerPlus.js#L19757)); the header keeps `#game-title` and the trophy button
+  - `toggleGameMaxModal` gains `cfg.build(panel)`, Ludo's Max byte-identical. Pool's Max root copies the widget's `retro-theme` + shape classes and `applyCyberTokens`, as the host does for PiP
+  - `poolOnThemeChange()` → `phThemeChanged` + table-cache reset, from `applyCyberpunkTheme` / `clearCyberpunkTheme`, the colour pickers and the `prefers-color-scheme` listener
+  - ⚙️ *Shot camera: Overhead / Stay 3D* as `userPreferences.poolShotCam` (gap decision 9)
 
 ### Phase 5: input
 - [ ] Pointer-events handlers; 3D rotate-aim; 2D point-aim; fine aim; power curve; spin
@@ -899,9 +929,14 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
 | 2026-09-25 | **Effective cushion friction 0.3, not 0.2** | At 0.2 the plain rebound already reached the sticking limit, so reverse English could not shorten it (39.9° vs 39.3°). 0.3 folds in the cloth friction under the ball during the cushion impact, which Mathavan's measurements include, and gives running 54.0° / plain 36.6° / reverse 31.5° at 45° |
 | 2026-09-25 | **Rolling resistance 0.016, above real cloth (~0.010)** | At 0.010 a firm shot rolls for over 10 s. 0.016 keeps a break under 6 s. It is a feel number and is exposed in the harness |
 | 2026-09-25 | **Fixed during Phase 1: a ball could be left `rolling` at v = 0** | Found by the fuzz, which caught NaN on 1 shot in 300. When a crawl's slip ended, the speed rounded to zero after the spin had already been derived from it. The leftover slip read as sliding, and a follow-up line forced the ball to rolling with a zero-length direction. The speed is now settled before the spin, the state is never forced, and both closed forms reclassify instead of dividing by zero |
+| 2026-09-25 | **Cyberpunk primary fill is `--rt-text` with `--rt-bg-1` type, not `--rt-accent`** (revises the *Theme mapping* row) | `cyber-theme.css` allows exactly one inversion, a text-coloured fill with background-coloured glyphs, and forbids text on an accent fill, because a dark user-picked highlight would hide the label |
+| 2026-09-25 | **Pool's theme scope is `.retro-theme .pool-hud`, and the Max root carries copies of the widget's theme classes and tokens** | The host's Max modal is body-level, outside `.attendance-summary`, and Cyberpunk's derived tokens (panel, border, shape) are declared on `.retro-theme`. Copying the classes and calling `applyCyberTokens` on the Max root, as the host does for its PiP clone, makes them resolve. Checked in Chrome: the Cyberpunk Max frame renders with the user's accent |
+| 2026-09-25 | **Shot clock expiry is a foul (`prTimeout`): ball in hand anywhere to the opponent; on the break the break passes across** | Today's game already treats it as a foul. On the break there is no shot to foul, so the incoming player breaks |
+| 2026-09-25 | **Card tags use the mono face in Cyberpunk and 0.06em tracking in Glassmorphic** | Orbitron and wide tracking made `BALL IN HAND` squeeze `Ayesha` to an ellipsis; the in-browser audit caught it |
 | 2026-09-25 | **The cue stays as designed in 3D**, even though past ~40% power at the default lean the pulled-back tip leaves the bottom of the frame | The user's call. The design's own camera math does the same; the power gauge and hint still show the stroke |
 | 2026-09-25 | **Power counts only movement along the shot line, both ways, scaled to fit inside the canvas; aiming keeps following the mouse outside the canvas** | The user's report from the prototype: aiming stopped at the canvas edge and pulling back ran out of room. The old engine already let you pull back or push forward; full power is now always reachable within the bounds. Checked in headless Chrome: a 200 px sweep below the table turns the aim exactly 60°, and sideways drags add 0% power |
 | 2026-09-25 | **A shot-camera setting: Overhead (default) or Stay 3D** | Players split on the ease to the overhead view; the user's call is to offer both (gap decision 9) |
+| 2026-09-25 | **Revised: Stay 3D stands up to a whole-table 3D view while balls run, instead of freezing the aim view** | Frozen at a low lean, the balls that matter roll out of frame. The survey is what a player sees standing up after the shot: same heading, higher and further back, fitted so every rail and the apron clear the HUD's top overlays. Upright poses now blend as an orbit, so the return to a new aim swings round the table rather than cutting across it |
 | 2026-09-25 | **Revised: the v2 engine goes into the userscript with the new HUD and input (end of Phase 5), not at Phase 3.** Phase 3 ships as `pool-dev/` modules plus the `pool-table.html` prototype | The live game's HUD is drawn on the canvas in the old 368 × 184 table space, and its input and rules glue read the old ball state. Swapping only the renderer would need throwaway adapters for all three. The prototype gives a real table to test by feel in the meantime |
 | 2026-09-25 | **The 3D view is not mirrored like the design's** | The design's frame is left-handed, so its 3D chase view is the mirror image of its 2D view: aiming up-table, the 2D top rail appears on the right. Ours keeps both views consistent. Measured: otherwise identical to the design's projection to 1e-9 px |
 | 2026-09-25 | **Broadcast camera: straight down, long lens (F = 4·H), framed exactly like 2D** | Watching the balls run then reads like the 2D view (0 px apart at the rail corners), and the ease from the chase camera needs no second framing |

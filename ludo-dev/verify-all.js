@@ -29,6 +29,8 @@ const SUITES = [
     ['Pool rules',     '../pool-dev/rules-verify.js'],
     // The v2 camera and renderer (pool-camera.js, pool-render.js), headless via the rasterizer.
     ['Pool render',    '../pool-dev/render-verify.js'],
+    // The v2 HUD (pool-hud.js view model + pool-theme.css contract); its DOM is audited in Chrome by snapshot.js --check.
+    ['Pool HUD',       '../pool-dev/hud-verify.js'],
 ];
 
 const results = [];

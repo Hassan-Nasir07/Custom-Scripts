@@ -193,7 +193,15 @@ head('Messages (problem 7)');
     const g = t({ groups: G, callEvery: true, call: TR, first: 3, pots: [[3, TL]] }, pvp);
     ok('a wrong called pocket names who shoots next', g.title === 'Not in the called pocket' && g.sub === 'Bilal to shoot');
     ok('a plain miss needs no toast', t({ groups: G, first: 3, rail: true }, pvp) === null);
-    const every = ['scratch', 'noContact', 'wrongBall', 'eightFirst', 'notEight', 'noRail', 'illegalBreak'];
+    const s0 = P.prNewFrame({ breaker: 1 });
+    Object.assign(s0, { isBreak: false, ballInHand: null, groups: { 1: 'solids', 2: 'stripes' } });
+    const to = P.prTimeout(s0);
+    ok('the shot clock running out is a foul: ball in hand to the opponent', to.foul === 'timeout' && to.next.turn === 2 && to.next.ballInHand === 'anywhere' && to.next.groups[1] === 'solids');
+    const tt = P.prText(to, pvp);
+    ok('…reading "Foul · Out of time" / "Ball in hand to Bilal"', tt.title === 'Foul · Out of time' && tt.sub === 'Ball in hand to Bilal', tt.title + ' / ' + tt.sub);
+    const tb = P.prTimeout(P.prNewFrame({ breaker: 1 }));
+    ok('running out of time on the break passes the break across', tb.next.turn === 2 && tb.next.isBreak && tb.next.ballInHand === 'kitchen' && P.prText(tb, pvp).sub === 'Bilal breaks');
+    const every = ['scratch', 'noContact', 'wrongBall', 'eightFirst', 'notEight', 'noRail', 'illegalBreak', 'timeout'];
     ok('every foul has copy', every.every(k => typeof P.PR_FOUL_TEXT[k] === 'string'));
 }
 

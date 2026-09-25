@@ -142,27 +142,58 @@ head('Clipping and the director');
     ok('and leaving it cuts back to 3D', d.pose.kind === 'persp' && d.t === 1);
     P.pcDirect(d, inp({ camera: '2d', phase: 'moving' }), 16);
     ok('the 2D camera stays 2D while balls run', d.pose.kind === 'ortho');
-    // Shot camera set to stay in 3D: the aim view holds while the balls run.
+    // Shot camera set to stay in 3D: the camera stands up into the survey
+    // (the whole table, in 3D) while the balls run, then comes back down.
+    const dist3 = (p, q) => Math.hypot(...p.eye.map((e, i) => e - q.eye[i]));
+    const heading = p => Math.atan2(p.target[1] - p.eye[1], p.target[0] - p.eye[0]);
+    const pitchOf = p => Math.atan2(p.eye[2] - p.target[2], Math.hypot(p.eye[0] - p.target[0], p.eye[1] - p.target[1])) / DEG;
+    const inFrame = pose => {
+        const sv = P.pcView(pose), OX = cfg.halfLength + cfg.railWidth, OY = cfg.halfWidth + cfg.railWidth;
+        let worst = Infinity;
+        [16, -46].forEach(z => [[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(([a, b]) => {
+            const p = P.pcProject(sv, [a * OX, b * OY, z]);
+            worst = Math.min(worst, p ? Math.min(p[0], sv.W - p[0], p[1] - 38, sv.H - p[1]) : -Infinity);
+        }));
+        return worst;
+    };
+    [[W, H, 'compact'], [1232, 672, 'Max']].forEach(([w, h, name]) => {
+        for (const a of [0, 0.7, Math.PI / 2, 2.4, -1.2]) {
+            const sp = P.pcSurvey(a, w, h, cfg), room = inFrame(sp);
+            if (room < 13.5 || room > 40) { ok('stay 3D: the survey fits the whole table, ' + name + ', aim ' + a, false, room.toFixed(1)); return; }
+        }
+        ok('stay 3D: the survey fits the whole table, rails and apron, clear of the top overlays, at any aim (' + name + ')', true);
+    });
+    const sv0 = P.pcSurvey(0.7, W, H, cfg);
+    ok('stay 3D: the survey faces the way the shot went, from above the lean range', Math.abs(heading(sv0) - 0.7) < 1e-9 && pitchOf(sv0) > 48 && sv0.up[2] === 1);
     const s3 = P.pcDirector(W, H, cfg);
     const aimPose = P.pcDirect(s3, inp({ shotCam: '3d' }), 0);
     P.pcDirect(s3, inp({ shotCam: '3d', phase: 'moving', cue: [300, 100] }), 16);
+    P.pcDirect(s3, inp({ shotCam: '3d', phase: 'moving', cue: [300, 100] }), 400);
+    const rising = s3.pose;
+    ok('stay 3D: the camera rises and backs off, keeping the shot\'s heading', pitchOf(rising) > pitchOf(aimPose) + 3 && dist3(rising, { eye: rising.target }) > dist3(aimPose, { eye: aimPose.target }) && Math.abs(heading(rising)) < 1e-9);
     P.pcDirect(s3, inp({ shotCam: '3d', phase: 'moving', cue: [310, 90] }), 2000);
-    const held = s3.pose;
-    ok('stay 3D: the camera holds the aim view while the cue ball runs off', held.kind === 'persp' && Math.hypot(...held.eye.map((e, i) => e - aimPose.eye[i])) < 1e-9);
+    const up = s3.pose;
+    ok('stay 3D: and stands in the survey, whatever the cue ball does', dist3(up, P.pcSurvey(0, W, H, cfg)) < 1e-9);
     P.pcDirect(s3, inp({ shotCam: '3d', phase: 'aim', cue: [310, 90], aim: 2 }), 16);
-    P.pcDirect(s3, inp({ shotCam: '3d', phase: 'aim', cue: [310, 90], aim: 2 }), 250);
-    const back = P.pcChase([310, 90], 2, 35, W, H, cfg);
-    const between = Math.hypot(...s3.pose.eye.map((e, i) => e - back.eye[i])) > 1 && Math.hypot(...s3.pose.eye.map((e, i) => e - held.eye[i])) > 1;
+    P.pcDirect(s3, inp({ shotCam: '3d', phase: 'aim', cue: [310, 90], aim: 2 }), 300);
+    ok('stay 3D: once the balls stop it holds a beat to show the table', dist3(s3.pose, up) < 1e-9);
     P.pcDirect(s3, inp({ shotCam: '3d', phase: 'aim', cue: [310, 90], aim: 2 }), 500);
-    ok('stay 3D: then eases to the new chase pose behind the cue ball', between && Math.hypot(...s3.pose.eye.map((e, i) => e - back.eye[i])) < 1e-9);
+    const back = P.pcChase([310, 90], 2, 35, W, H, cfg), swing = s3.pose;
+    const swung = heading(swing) > 0.05 && heading(swing) < 1.95;
+    ok('stay 3D: then swings round to the new aim, not across the table', dist3(swing, back) > 1 && dist3(swing, up) > 1 && swung && swing.eye[2] > 20, heading(swing).toFixed(2));
+    P.pcDirect(s3, inp({ shotCam: '3d', phase: 'aim', cue: [310, 90], aim: 2 }), 900);
+    ok('stay 3D: and lands on the chase pose behind the cue ball', dist3(s3.pose, back) < 1e-9);
     const s3b = P.pcDirector(W, H, cfg);
     P.pcDirect(s3b, inp({ shotCam: '3d' }), 0);
     P.pcDirect(s3b, inp({ shotCam: '3d', phase: 'moving' }), 16);
+    P.pcDirect(s3b, inp({ shotCam: '3d', phase: 'moving' }), 100);
     P.pcDirect(s3b, inp({ shotCam: '3d', phase: 'aim', aim: 1 }), 16);
-    P.pcDirect(s3b, inp({ shotCam: '3d', phase: 'aim', aim: 1 }), 600);
-    const firstHold = s3b.hold;
+    const quick = s3b.t;
+    P.pcDirect(s3b, inp({ shotCam: '3d', phase: 'aim', aim: 1 }), 2000);
+    const firstSurvey = s3b.survey;
     P.pcDirect(s3b, inp({ shotCam: '3d', phase: 'moving', aim: 1 }), 16);
-    ok('stay 3D: each shot holds its own aim view, not the last one', s3b.hold !== firstHold && Math.abs(Math.atan2(s3b.hold.target[1] - s3b.hold.eye[1], s3b.hold.target[0] - s3b.hold.eye[0]) - 1) < 1e-9);
+    ok('stay 3D: a soft shot that barely rose gets a shorter beat', quick > -P.PC_SURVEY_DWELL_MS / P.PC_TWEEN_MS.back / 2 && quick < 0);
+    ok('stay 3D: each shot surveys from its own heading, not the last one', s3b.survey !== firstSurvey && Math.abs(heading(s3b.survey) - 1) < 1e-9);
     const b = P.pcBroadcast(W, H, cfg), bv = P.pcView(b), ov = P.pcView(P.pcOrtho(W, H, cfg));
     const corner = [cfg.halfLength + cfg.railWidth, cfg.halfWidth + cfg.railWidth, 16];
     const pb = P.pcProject(bv, corner), po = P.pcProject(ov, corner);

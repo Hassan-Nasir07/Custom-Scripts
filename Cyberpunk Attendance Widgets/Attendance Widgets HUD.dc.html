@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Share+Tech+Mono&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet"><style>
+body{margin:0;background:#05060a;font-family:Rajdhani,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#35e6f0;text-decoration:none}a:hover{color:#f2ea00}
+@keyframes hudPulse{0%,100%{opacity:.3}50%{opacity:1}}
+@keyframes hudBlink{0%,55%{opacity:1}56%,100%{opacity:.2}}
+@keyframes hudSpin{100%{transform:rotate(360deg)}}
+@keyframes hudSlide{0%{background-position:0 0}100%{background-position:24px 0}}
+@keyframes hudTicker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.dv-turn{padding:44px 48px 40px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 26px}
+.dv-tid{font:700 10px 'Share Tech Mono',monospace;padding:3px 8px;background:#f2ea00;color:#07080b;clip-path:polygon(0 0,100% 0,100% 60%,calc(100% - 6px) 100%,0 100%)}
+.dv-tname{font:600 13px/1.2 Orbitron,sans-serif;color:#e8ecf2;letter-spacing:.12em;text-transform:uppercase}
+.dv-opts{display:flex;flex-wrap:wrap;gap:34px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:10px}
+.dv-oid{font:700 10.5px 'Share Tech Mono',monospace;padding:3px 7px;background:rgba(242,234,0,.14);color:#f2ea00}
+.dv-olabel{display:flex;align-items:baseline;gap:9px;font:600 11.5px/1.3 Rajdhani,sans-serif;color:rgba(232,236,242,.5);letter-spacing:.08em;text-transform:uppercase}
+.dv-opt:target .dv-oid{background:#f2ea00;color:#07080b}
+.dv-next{margin:30px 0 0;font:600 12px/1.6 Rajdhani,sans-serif;color:rgba(232,236,242,.42);letter-spacing:.03em}
+</style><script src="./image-slot.js"></script></helmet>
+
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Full desk — arcade, quotes, viewer, settings</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Three-column desk — core stays dominant, extras are quiet</div>
+<div style="width:1420px;position:relative;background:#05060a;border:1px solid rgba(255,255,255,.12);padding:16px;display:grid;grid-template-columns:296px 1fr 300px;gap:16px;align-items:start">
+  <div style="position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);background-size:52px 52px;pointer-events:none"></div>
+
+  <div style="position:relative;display:flex;flex-direction:column;gap:16px">
+    <div style="background:#07080c;border:1px solid rgba(255,255,255,.13);clip-path:polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,16px 100%,0 calc(100% - 16px))">
+      <div style="display:flex;align-items:center;gap:9px;padding:9px 13px;border-bottom:1px solid rgba(255,255,255,.1)">
+        <div style="width:5px;height:12px;background:{{ accent }}"></div>
+        <div style="font:600 11px Orbitron,sans-serif;letter-spacing:.18em;color:#fff">ARCADE</div>
+        <div style="flex:1"></div>
+        <div style="font:400 9.5px 'Share Tech Mono',monospace;color:rgba(255,255,255,.4);letter-spacing:.1em">BREAK MODE</div>
+      </div>
+      <div style="display:flex;gap:6px;padding:11px 13px;border-bottom:1px solid rgba(255,255,255,.07);overflow:hidden">
+        <sc-for list="{{ games }}" as="g" hint-placeholder-count="7">
+          <div style="flex:none;width:34px;height:34px;display:flex;align-items:center;justify-content:center;border:1px solid {{ g.border }};background:{{ g.bg }};font:400 12px 'Share Tech Mono',monospace;color:{{ g.fg }};cursor:pointer;clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,6px 100%,0 calc(100% - 6px))" style-hover="border-color:rgba(255,255,255,.5)">{{ g.k }}</div>
+        </sc-for>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 13px">
+        <div style="font:600 13px Orbitron,sans-serif;letter-spacing:.14em;color:#fff">SNAKE</div>
+        <div style="flex:1"></div>
+        <div style="font:400 9.5px 'Share Tech Mono',monospace;color:rgba(255,255,255,.45);border:1px solid rgba(255,255,255,.16);padding:3px 7px">WALLED</div>
+        <div style="font:400 10px 'Share Tech Mono',monospace;color:{{ accent }};border:1px solid {{ accentLine }};padding:3px 8px">0 / 48</div>
+      </div>
+      <div style="margin:0 13px;height:196px;position:relative;border:1px solid rgba(255,255,255,.14);background:#04050a;overflow:hidden">
+        <div style="position:absolute;inset:0;background-image:linear-gradient({{ accentFaint }} 1px,transparent 1px),linear-gradient(90deg,{{ accentFaint }} 1px,transparent 1px);background-size:14px 14px"></div>
+        <div style="position:absolute;inset:6px;border:1px dashed {{ accentSoft }}"></div>
+        <div style="position:absolute;left:56px;top:96px;width:70px;height:12px;background:{{ accent }};box-shadow:0 0 14px {{ accentGlow }}"></div>
+        <div style="position:absolute;left:126px;top:96px;width:12px;height:12px;background:#fff"></div>
+        <div style="position:absolute;left:154px;top:54px;width:10px;height:10px;background:#ff8a6b;box-shadow:0 0 12px rgba(255,138,107,.7);clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)"></div>
+        <div style="position:absolute;left:11px;top:11px;font:400 9px 'Share Tech Mono',monospace;color:rgba(255,255,255,.35);letter-spacing:.1em">GRID 24×16</div>
+      </div>
+      <div style="display:flex;gap:7px;padding:12px 13px 13px">
+        <button style="flex:1;font:700 10.5px Rajdhani,sans-serif;letter-spacing:.14em;color:#07080b;background:{{ accent }};border:0;padding:9px 0;cursor:pointer;clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%)" style-hover="background:#fff">PLAY</button>
+        <button style="flex:1;font:700 10.5px Rajdhani,sans-serif;letter-spacing:.14em;color:rgba(255,255,255,.6);background:transparent;border:1px solid rgba(255,255,255,.16);padding:9px 0;cursor:pointer" style-hover="color:#fff;border-color:rgba(255,255,255,.4)">RESET</button>
+        <button style="width:38px;font:400 12px 'Share Tech Mono',monospace;color:rgba(255,255,255,.5);background:transparent;border:1px solid rgba(255,255,255,.16);cursor:pointer" style-hover="color:#fff">◨</button>
+      </div>
+    </div>
+
+    <div style="background:#07080c;border:1px solid rgba(255,255,255,.13);position:relative">
+      <div style="position:absolute;left:0;top:16px;width:3px;height:34px;background:#a78bfa;box-shadow:0 0 12px rgba(167,139,250,.8)"></div>
+      <div style="display:flex;align-items:center;gap:9px;padding:9px 13px;border-bottom:1px solid rgba(255,255,255,.1)">
+        <div style="font:600 11px Orbitron,sans-serif;letter-spacing:.18em;color:#fff">MOTIVATION</div>
+        <div style="flex:1"></div>
+        <div style="font:400 9.5px 'Share Tech Mono',monospace;color:rgba(255,255,255,.32)">04 / 12</div>
+      </div>
+      <div style="padding:16px 15px 15px">
+        <div style="font:400 9px 'Share Tech Mono',monospace;color:#a78bfa;letter-spacing:.14em">&gt; QUOTE.LOAD</div>
+        <div style="font:600 16.5px/1.55 Rajdhani,sans-serif;color:#fff;margin-top:8px;text-wrap:pretty">“Do not pray for easy lives. Pray to be stronger men.”</div>
+        <div style="display:flex;align-items:center;gap:9px;margin-top:12px">
+          <div style="width:22px;height:1px;background:rgba(167,139,250,.6)"></div>
+          <div style="font:600 10.5px Rajdhani,sans-serif;letter-spacing:.16em;color:rgba(196,181,253,.8)">JOHN F. KENNEDY</div>
+        </div>
+        <div style="display:flex;gap:7px;margin-top:14px">
+          <button style="flex:1;font:700 10.5px Rajdhani,sans-serif;letter-spacing:.14em;color:#c4b5fd;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.45);padding:8px 0;cursor:pointer" style-hover="background:rgba(139,92,246,.28);color:#fff">+ ADD QUOTE</button>
+          <button style="width:38px;font:400 12px 'Share Tech Mono',monospace;color:rgba(255,255,255,.5);background:transparent;border:1px solid rgba(255,255,255,.16);cursor:pointer" style-hover="color:#fff">↻</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="position:relative;min-width:0;overflow:hidden;background:#07080c;border:1px solid rgba(255,255,255,.14);clip-path:polygon(0 0,calc(100% - 22px) 0,100% 22px,100% 100%,22px 100%,0 calc(100% - 22px))">
+    <div style="position:absolute;left:0;top:48px;width:3px;height:84px;background:{{ accent }};box-shadow:0 0 14px {{ accent }}"></div>
+    <div style="display:flex;align-items:center;gap:14px;padding:13px 20px;border-bottom:1px solid rgba(255,255,255,.12)">
+      <div style="width:28px;height:28px;flex:none;border:1px solid {{ accent }};display:flex;align-items:center;justify-content:center;clip-path:polygon(0 0,calc(100% - 7px) 0,100% 7px,100% 100%,7px 100%,0 calc(100% - 7px));font:600 12px Orbitron,sans-serif;color:{{ accent }}">A</div>
+      <div>
+        <div style="font:800 16px Orbitron,sans-serif;letter-spacing:.2em;color:#fff">ATTENDANCE</div>
+        <div style="font:400 9.5px 'Share Tech Mono',monospace;letter-spacing:.16em;color:rgba(255,255,255,.36);margin-top:3px">OP-4471 · SHIFT 08:00—16:00</div>
+      </div>
+      <div style="flex:1"></div>
+      <div style="display:flex;align-items:center;gap:8px;border:1px solid rgba(125,255,155,.4);background:rgba(125,255,155,.08);padding:5px 11px">
+        <div style="width:6px;height:6px;border-radius:50%;background:#7dff9b;animation:hudPulse 1.8s infinite"></div>
+        <div style="font:700 10.5px Rajdhani,sans-serif;letter-spacing:.18em;color:#7dff9b">ON SHIFT</div>
+      </div>
+      <button style="width:34px;height:30px;font:400 13px 'Share Tech Mono',monospace;color:{{ accent }};background:{{ accentFaint }};border:1px solid {{ accentLine }};cursor:pointer" style-hover="background:rgba(255,255,255,.12);color:#fff">✳</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 216px;gap:24px;padding:22px 20px 18px">
+      <div>
+        <div style="display:flex;align-items:center;gap:9px">
+          <div style="font:600 10px Rajdhani,sans-serif;letter-spacing:.26em;color:rgba(255,255,255,.42)">REMAINING TODAY</div>
+          <div style="font:400 8.5px 'Share Tech Mono',monospace;color:{{ accent }};animation:hudBlink 1.4s infinite">● LIVE</div>
+        </div>
+        <div style="font:400 76px/.92 'Share Tech Mono',monospace;color:{{ accent }};margin-top:6px;text-shadow:0 0 40px {{ accentGlow }}">{{ remaining }}</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+          <div style="font:600 11px Rajdhani,sans-serif;letter-spacing:.14em;color:rgba(255,255,255,.4)">CLEAR AT</div>
+          <div style="font:400 14px 'Share Tech Mono',monospace;color:#fff">4:00 PM</div>
+          <div style="width:1px;height:14px;background:rgba(255,255,255,.15)"></div>
+          <div style="font:600 11px Rajdhani,sans-serif;letter-spacing:.14em;color:rgba(255,255,255,.4)">DAY LOAD</div>
+          <div style="font:400 14px 'Share Tech Mono',monospace;color:#35e6f0">{{ pctLabel }}</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;border-left:1px solid rgba(255,255,255,.1);padding-left:20px">
+        <div><div style="font:600 9.5px Rajdhani,sans-serif;letter-spacing:.22em;color:rgba(255,255,255,.38)">WORKED</div><div style="font:400 27px 'Share Tech Mono',monospace;color:#fff;margin-top:2px">{{ worked }}</div></div>
+        <div style="height:1px;background:rgba(255,255,255,.09)"></div>
+        <div style="display:flex;gap:18px">
+          <div><div style="font:600 9.5px Rajdhani,sans-serif;letter-spacing:.22em;color:rgba(255,255,255,.38)">BREAK</div><div style="font:400 16px 'Share Tech Mono',monospace;color:rgba(255,255,255,.75);margin-top:2px">00:32</div></div>
+          <div><div style="font:600 9.5px Rajdhani,sans-serif;letter-spacing:.22em;color:rgba(255,255,255,.38)">OVERTIME</div><div style="font:400 16px 'Share Tech Mono',monospace;color:#ff8a6b;margin-top:2px">01:14</div></div>
+        </div>
+        <div style="height:1px;background:rgba(255,255,255,.09)"></div>
+        <div style="display:flex;align-items:baseline;gap:8px"><div style="font:600 9.5px Rajdhani,sans-serif;letter-spacing:.22em;color:rgba(255,255,255,.38)">WEEK</div><div style="font:400 15px 'Share Tech Mono',monospace;color:#fff">36:42</div><div style="font:400 11px 'Share Tech Mono',monospace;color:rgba(255,255,255,.3)">/ 40:00</div></div>
+      </div>
+    </div>
+
+    <div style="padding:0 20px 18px">
+      <div style="display:flex;justify-content:space-between;font:400 10px 'Share Tech Mono',monospace;color:rgba(255,255,255,.52);margin-bottom:5px">
+        <sc-for list="{{ hours }}" as="h" hint-placeholder-count="9"><span>{{ h.h }}</span></sc-for>
+      </div>
+      <div style="height:20px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.12);position:relative;overflow:hidden">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:{{ pct }}%;background:{{ accentSoft }};border-right:1px solid {{ accent }}"></div>
+        <div style="position:absolute;left:44%;top:0;bottom:0;width:6%;background:repeating-linear-gradient(115deg,rgba(255,255,255,.5) 0 4px,transparent 4px 9px);animation:hudSlide 2.4s linear infinite"></div>
+        <div style="position:absolute;left:{{ pct }}%;top:-4px;bottom:-4px;width:2px;background:#fff;box-shadow:0 0 12px #fff"></div>
+      </div>
+    </div>
+
+    <div style="margin:0 20px 18px;border:1px solid rgba(255,255,255,.11)">
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.1)">
+        <div style="font:600 11px Orbitron,sans-serif;letter-spacing:.18em;color:rgba(255,255,255,.85)">PUNCH LOG</div>
+        <div style="flex:1"></div>
+        <div style="font:400 9.5px 'Share Tech Mono',monospace;color:rgba(255,255,255,.33);letter-spacing:.1em">3 SESSIONS · TODAY</div>
+      </div>
+      <div style="display:grid;grid-template-columns:26px 1fr 1fr 1fr 88px;padding:7px 14px;font:600 9.5px Rajdhani,sans-serif;letter-spacing:.18em;color:rgba(255,255,255,.34)">
+        <div>#</div><div>IN</div><div>OUT</div><div>WORKED</div><div style="text-align:right">STATUS</div>
+      </div>
+      <sc-for list="{{ rows }}" as="r" hint-placeholder-count="3">
+        <div style="display:grid;grid-template-columns:26px 1fr 1fr 1fr 88px;align-items:center;padding:9px 14px;border-top:1px solid rgba(255,255,255,.06);font:400 13px 'Share Tech Mono',monospace;color:rgba(255,255,255,.8)" style-hover="background:rgba(255,255,255,.035)">
+          <div style="font-size:11px;color:rgba(255,255,255,.5)">{{ r.n }}</div>
+          <div>{{ r.in }}</div>
+          <div style="color:{{ r.outColor }}">{{ r.out }}</div>
+          <div>{{ r.worked }}</div>
+          <div style="text-align:right"><span style="font:700 9px Rajdhani,sans-serif;letter-spacing:.16em;color:{{ r.pillText }};border:1px solid {{ r.pillBorder }};padding:3px 8px">{{ r.status }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:flex;gap:10px;padding:0 20px 16px">
+      <button style="flex:1;font:800 14px Orbitron,sans-serif;letter-spacing:.18em;color:#07080b;background:{{ accent }};border:0;padding:15px 0;cursor:pointer;clip-path:polygon(12px 0,100% 0,calc(100% - 12px) 100%,0 100%);box-shadow:0 0 34px {{ accentGlow }}" style-hover="background:#fff">CHECK OUT</button>
+      <button style="width:146px;font:700 12px Rajdhani,sans-serif;letter-spacing:.16em;color:#35e6f0;background:rgba(53,230,240,.08);border:1px solid rgba(53,230,240,.45);cursor:pointer" style-hover="background:rgba(53,230,240,.2);color:#fff">START BREAK</button>
+      <button style="width:46px;font:400 13px 'Share Tech Mono',monospace;color:rgba(255,255,255,.5);background:transparent;border:1px solid rgba(255,255,255,.16);cursor:pointer" style-hover="color:#fff">▣</button>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:12px;padding:8px 20px;border-top:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.02)">
+      <div style="font:700 9px Rajdhani,sans-serif;letter-spacing:.2em;color:#07080b;background:rgba(255,255,255,.6);padding:2px 7px">SYS</div>
+      <div style="flex:1;overflow:hidden;white-space:nowrap"><div style="display:inline-block;animation:hudTicker 30s linear infinite;font:400 9.5px 'Share Tech Mono',monospace;color:rgba(255,255,255,.32);letter-spacing:.12em">GEOFENCE HQ-04 OK · BIOMETRIC PUNCH VERIFIED · BREAK QUOTA 00:32/01:00 · PAYROLL CYCLE 08 SYNCED &nbsp;·&nbsp; GEOFENCE HQ-04 OK · BIOMETRIC PUNCH VERIFIED · BREAK QUOTA 00:32/01:00 · PAYROLL CYCLE 08 SYNCED &nbsp;·&nbsp;</div></div>
+      <div style="font:400 9.5px 'Share Tech Mono',monospace;color:rgba(255,255,255,.25)">BUILD V8</div>
+    </div>
+  </div>
+
+  <div style="position:relative;display:flex;flex-direction:column;gap:16px">
+    <div style="background:#07080c;border:1px solid rgba(255,255,255,.13);clip-path:polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,16px 100%,0 calc(100% - 16px))">
+      <div style="display:flex;align-items:center;gap:9px;padding:9px 13px;border-bottom:1px solid rgba(255,255,255,.1)">
+        <div style="width:5px;height:12px;background:{{ accent }}"></div>
+        <div style="font:600 11px Orbitron,sans-serif;letter-spacing:.18em;color:#fff">REWARDS</div>
+        <div style="flex:1"></div>
+        <div style="font:400 10px 'Share Tech Mono',monospace;color:{{ accent }};letter-spacing:.1em">LV 20</div>
+      </div>
+      <div style="padding:13px">
+        <div style="display:grid;grid-template-columns:repeat(20,1fr);gap:2px">
+          <sc-for list="{{ xpSegs }}" as="s" hint-placeholder-count="20"><div style="height:9px;background:{{ s.fill }}"></div></sc-for>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:7px;font:400 10px 'Share Tech Mono',monospace;color:rgba(255,255,255,.42)"><span style="color:{{ accent }}">3878 XP</span><span>10733 TO LV 21</span></div>
+        <div style="display:flex;gap:9px;margin-top:13px">
+          <div style="flex:1;border:1px solid rgba(255,255,255,.1);padding:9px 11px"><div style="font:600 9px Rajdhani,sans-serif;letter-spacing:.2em;color:rgba(255,255,255,.36)">STREAK</div><div style="font:400 16px 'Share Tech Mono',monospace;color:#ff8a6b;margin-top:2px">17 D</div></div>
+          <div style="flex:1;border:1px solid rgba(255,255,255,.1);padding:9px 11px"><div style="font:600 9px Rajdhani,sans-serif;letter-spacing:.2em;color:rgba(255,255,255,.36)">TOTAL XP</div><div style="font:400 16px 'Share Tech Mono',monospace;color:#35e6f0;margin-top:2px">84433</div></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:13px;margin-bottom:8px"><div style="font:600 9px Rajdhani,sans-serif;letter-spacing:.2em;color:rgba(255,255,255,.36)">BADGES 25 / 36</div><a href="#2a" style="font:400 9.5px 'Share Tech Mono',monospace;color:#35e6f0">VIEW ALL →</a></div>
+        <div style="display:grid;grid-template-columns:repeat(9,1fr);gap:4px">
+          <sc-for list="{{ badges }}" as="b" hint-placeholder-count="27">
+            <div style="aspect-ratio:1;border:1px solid {{ b.border }};background:{{ b.fill }};clip-path:polygon(0 4px,4px 0,100% 0,100% calc(100% - 4px),calc(100% - 4px) 100%,0 100%)"></div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:#07080c;border:1px solid rgba(255,255,255,.13)">
+      <div style="display:flex;align-items:center;gap:9px;padding:9px 13px;border-bottom:1px solid rgba(255,255,255,.1)">
+        <div style="font:600 11px Orbitron,sans-serif;letter-spacing:.18em;color:#fff">VIEWPORT</div>
+        <div style="flex:1"></div>
+        <div style="display:flex;gap:4px">
+          <div style="width:20px;height:18px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;font:400 8px 'Share Tech Mono',monospace;color:#fff;cursor:pointer">▭</div>
+          <div style="width:20px;height:18px;border:1px solid rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center;font:400 8px 'Share Tech Mono',monospace;color:rgba(255,255,255,.45);cursor:pointer">▢</div>
+          <div style="width:20px;height:18px;border:1px solid rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center;font:400 8px 'Share Tech Mono',monospace;color:rgba(255,255,255,.45);cursor:pointer">▯</div>
+        </div>
+      </div>
+      <div style="padding:13px">
+        <div style="position:relative;height:158px;border:1px solid rgba(255,255,255,.14)">
+          <image-slot id="hud-viewport" shape="rect" placeholder="Drop wallpaper"></image-slot>
+          <div style="position:absolute;left:6px;top:6px;width:12px;height:12px;border-left:1px solid {{ accent }};border-top:1px solid {{ accent }};pointer-events:none"></div>
+          <div style="position:absolute;right:6px;bottom:6px;width:12px;height:12px;border-right:1px solid {{ accent }};border-bottom:1px solid {{ accent }};pointer-events:none"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:9px;margin-top:11px">
+          <div style="font:400 9.5px 'Share Tech Mono',monospace;color:rgba(255,255,255,.4);letter-spacing:.1em">FIT 16:9 · SRC LOCAL</div>
+          <div style="flex:1"></div>
+          <button style="font:700 10px Rajdhani,sans-serif;letter-spacing:.14em;color:rgba(255,255,255,.65);background:transparent;border:1px solid rgba(255,255,255,.2);padding:6px 11px;cursor:pointer" style-hover="color:#fff;border-color:rgba(255,255,255,.45)">CHANGE</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="dv-opt" id="2b">
+<div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a>Settings — HUD drawer, not a grey sheet</div>
+<div style="width:392px;background:#07080c;border:1px solid rgba(255,255,255,.16);position:relative;clip-path:polygon(0 0,calc(100% - 22px) 0,100% 22px,100% 100%,22px 100%,0 calc(100% - 22px))">
+  <div style="position:absolute;left:0;top:44px;width:3px;height:70px;background:{{ accent }};box-shadow:0 0 14px {{ accent }}"></div>
+  <div style="display:flex;align-items:center;gap:11px;padding:13px 18px;border-bottom:1px solid rgba(255,255,255,.13)">
+    <div style="font:800 13px Orbitron,sans-serif;letter-spacing:.2em;color:#fff">SETTINGS</div>
+    <div style="flex:1"></div>
+    <div style="font:400 9.5px 'Share Tech Mono',monospace;color:rgba(255,255,255,.33);letter-spacing:.1em">CFG.V8</div>
+    <div style="font:400 13px 'Share Tech Mono',monospace;color:rgba(255,255,255,.45);cursor:pointer">✕</div>
+  </div>
+
+  <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+    <div>
+      <div style="display:flex;align-items:center;gap:9px;padding:11px 18px 7px">
+        <div style="font:600 9px Rajdhani,sans-serif;letter-spacing:.24em;color:rgba(255,255,255,.34)">{{ g.name }}</div>
+        <div style="flex:1;height:1px;background:rgba(255,255,255,.09)"></div>
+      </div>
+      <sc-for list="{{ g.items }}" as="i" hint-placeholder-count="3">
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 18px;border-top:1px solid rgba(255,255,255,.05)" style-hover="background:rgba(255,255,255,.03)">
+          <div style="flex:1">
+            <div style="font:600 12px Rajdhani,sans-serif;letter-spacing:.1em;color:rgba(255,255,255,.85)">{{ i.label }}</div>
+            <div style="font:400 10px 'Share Tech Mono',monospace;color:rgba(255,255,255,.45);letter-spacing:.08em;margin-top:2px">{{ i.hint }}</div>
+          </div>
+          <div style="font:400 11px 'Share Tech Mono',monospace;color:{{ i.valueColor }};border:1px solid {{ i.valueBorder }};background:{{ i.valueBg }};padding:5px 10px;min-width:96px;text-align:right;cursor:pointer">{{ i.value }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-for>
+
+  <div style="padding:11px 18px 7px;display:flex;align-items:center;gap:9px">
+    <div style="font:600 9px Rajdhani,sans-serif;letter-spacing:.24em;color:rgba(255,255,255,.34)">ACCENT</div>
+    <div style="flex:1;height:1px;background:rgba(255,255,255,.09)"></div>
+  </div>
+  <div style="display:flex;gap:7px;padding:6px 18px 12px">
+    <sc-for list="{{ swatches }}" as="s" hint-placeholder-count="4">
+      <div style="flex:1;height:30px;background:{{ s.c }};border:1px solid {{ s.ring }};cursor:pointer;clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,6px 100%,0 calc(100% - 6px))"></div>
+    </sc-for>
+  </div>
+
+  <div style="padding:10px 18px 12px;border-top:1px solid rgba(255,255,255,.07)">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div style="font:600 12px Rajdhani,sans-serif;letter-spacing:.1em;color:rgba(255,255,255,.85)">GLOW INTENSITY</div>
+      <div style="font:400 11px 'Share Tech Mono',monospace;color:{{ accent }}">65%</div>
+    </div>
+    <div style="margin-top:9px;height:6px;background:rgba(255,255,255,.06);position:relative">
+      <div style="position:absolute;inset:0;width:65%;background:{{ accentSoft }};border-right:1px solid {{ accent }}"></div>
+      <div style="position:absolute;left:65%;top:-4px;width:3px;height:14px;background:#fff;box-shadow:0 0 10px #fff"></div>
+    </div>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+      <div style="font:400 9px 'Share Tech Mono',monospace;color:#7dff9b;border:1px solid rgba(125,255,155,.4);padding:3px 7px">CONTRAST 7.2:1 · AA</div>
+      <div style="font:400 9px 'Share Tech Mono',monospace;color:rgba(255,255,255,.3)">ACCENT VS BG</div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:9px;padding:12px 18px 16px;border-top:1px solid rgba(255,255,255,.13)">
+    <button style="flex:1;font:700 11.5px Rajdhani,sans-serif;letter-spacing:.16em;color:#07080b;background:{{ accent }};border:0;padding:11px 0;cursor:pointer;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)" style-hover="background:#fff">APPLY</button>
+    <button style="width:110px;font:700 11.5px Rajdhani,sans-serif;letter-spacing:.16em;color:rgba(255,255,255,.6);background:transparent;border:1px solid rgba(255,255,255,.2);cursor:pointer" style-hover="color:#fff;border-color:rgba(255,255,255,.45)">RESET</button>
+  </div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Extras are deliberately demoted: no accent on the game board chrome, quotes get violet only, viewer is a framed slot, settings reads as rows not cards. Next: "collapse the left rail into tabs" · "add a game-mode fullscreen state"</p>
+</section>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Attendance widget — MK-IV, hierarchy pass</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Expanded — one hero, one accent, one striped element</div>
+<div style="width:780px;position:relative;background:#07080c;border:1px solid rgba(255,255,255,.14);clip-path:polygon(0 0,calc(100% - 26px) 0,100% 26px,100% 100%,26px 100%,0 calc(100% - 26px))">
+  <div style="position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px);background-size:52px 52px;pointer-events:none"></div>
+  <sc-if value="{{ scanlines }}" hint-placeholder-val="{{ true }}"><div style="position:absolute;inset:0;background:repeating-linear-gradient(180deg,rgba(255,255,255,.02) 0 1px,transparent 1px 3px);pointer-events:none;z-index:4"></div></sc-if>
+  <div style="position:absolute;left:0;top:52px;width:3px;height:96px;background:{{ accent }};box-shadow:0 0 14px {{ accent }}"></div>
+
+  <div style="position:relative;display:flex;align-items:center;gap:16px;padding:14px 22px;border-bottom:1px solid rgba(255,255,255,.12)">
+    <div style="width:30px;height:30px;flex:none;border:1px solid {{ accent }};display:flex;align-items:center;justify-content:center;clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,8px 100%,0 calc(100% - 8px))"><div style="font:600 13px Orbitron,sans-serif;color:{{ accent }}">A</div></div>
+    <div>
+      <div style="font:800 17px Orbitron,sans-serif;letter-spacing:.2em;color:#fff">ATTENDANCE</div>
+      <div style="font:400 9.5px 'Share Tech Mono',monospace;letter-spacing:.16em;color:rgba(255,255,255,.36);margin-top:3px">OP-4471 · A. RAHMAN · SHIFT 08:00—16:00</div>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;align-items:center;gap:8px;border:1px solid rgba(125,255,155,.4);background:rgba(125,255,155,.08);padding:5px 11px">
+      <div style="width:6px;height:6px;border-radius:50%;background:#7dff9b;animation:hudPulse 1.8s infinite"></div>
+      <div style="font:700 10.5px Rajdhani,sans-serif;letter-spacing:.18em;color:#7dff9b">ON SHIFT</div>
+    </div>
+    <div style="font:400 11px 'Share Tech Mono',monospace;color:rgba(255,255,255,.4);letter-spacing:.08em">12:12:22</div>
+  </div>
+
+  <div style="position:relative;display:grid;grid-template-columns:1fr 232px;gap:26px;padding:24px 22px 20px">
+    <div>
+      <div style="display:flex;align-items:center;gap:9px">
+        <div style="font:600 10px Rajdhani,sans-serif;letter-spacing:.26em;color:rgba(255,255,255,.42)">REMAINING TODAY</div>
+        <div style="font:400 8.5px 'Share Tech Mono',monospace;color:{{ accent }};animation:hudBlink 1.4s infinite">● LIVE</div>
+      </div>
+      <div style="font:400 82px/.92 'Share Tech Mono',monospace;color:{{ accent }};letter-spacing:-.01em;margin-top:6px;text-shadow:0 0 40px {{ accentGlow }}">{{ remaining }}</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+        <div style="font:600 11px Rajdhani,sans-serif;letter-spacing:.14em;color:rgba(255,255,255,.4)">CLEAR AT</div>
+        <div style="font:400 14px 'Share Tech Mono',monospace;color:#fff">4:00 PM</div>
+        <div style="width:1px;height:14px;background:rgba(255,255,255,.15)"></div>
+        <div style="font:600 11px Rajdhani,sans-serif;letter-spacing:.14em;color:rgba(255,255,255,.4)">DAY LOAD</div>
+        <div style="font:400 14px 'Share Tech Mono',monospace;color:#35e6f0">{{ pctLabel }}</div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;border-left:1px solid rgba(255,255,255,.1);padding-left:22px">
+      <div>
+        <div style="font:600 9.5px Rajdhani,sans-serif;letter-spacing:.22em;color:rgba(255,255,255,.38)">WORKED</div>
+        <div style="font:400 28px 'Share Tech Mono',monospace;color:#fff;margin-top:2px">{{ worked }}</div>
+      </div>
+      <div style="height:1px;background:rgba(255,255,255,.09)"></div>
+      <div style="display:flex;gap:20px">
+        <div><div style="font:600 9.5px Rajdhani,sans-serif;letter-spacing:.22em;color:rgba(255,255,255,.38)">BREAK</div><div style="font:400 17px 'Share Tech Mono',monospace;color:rgba(255,255,255,.75);margin-top:2px">00:32</div></div>
+        <div><div style="font:600 9.5px Rajdhani,sans-serif;letter-spacing:.22em;color:rgba(255,255,255,.38)">OVERTIME</div><div style="font:400 17px 'Share Tech Mono',monospace;color:#ff8a6b;margin-top:2px">01:14</div></div>
+      </div>
+      <div style="height:1px;background:rgba(255,255,255,.09)"></div>
+      <div style="display:flex;align-items:baseline;gap:8px"><div style="font:600 9.5px Rajdhani,sans-serif;letter-spacing:.22em;color:rgba(255,255,255,.38)">WEEK</div><div style="font:400 15px 'Share Tech Mono',monospace;color:#fff">36:42</div><div style="font:400 11px 'Share Tech Mono',monospace;color:rgba(255,255,255,.3)">/ 40:00</div></div>
+    </div>
+  </div>
+
+  <div style="position:relative;padding:0 22px 20px">
+    <div style="display:flex;justify-content:space-between;font:400 10px 'Share Tech Mono',monospace;color:rgba(255,255,255,.52);margin-bottom:5px">
+      <sc-for list="{{ hours }}" as="h" hint-placeholder-count="9"><span>{{ h.h }}</span></sc-for>
+    </div>
+    <div style="height:20px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.12);position:relative;overflow:hidden">
+      <div style="position:absolute;left:0;top:0;bottom:0;width:{{ pct }}%;background:{{ accentSoft }};border-right:1px solid {{ accent }}"></div>
+      <div style="position:absolute;left:44%;top:0;bottom:0;width:6%;background:repeating-linear-gradient(115deg,rgba(255,255,255,.5) 0 4px,transparent 4px 9px);animation:hudSlide 2.4s linear infinite"></div>
+      <div style="position:absolute;left:{{ pct }}%;top:-4px;bottom:-4px;width:2px;background:#fff;box-shadow:0 0 12px #fff"></div>
+    </div>
+    <div style="display:flex;gap:16px;margin-top:8px;font:400 9.5px 'Share Tech Mono',monospace;color:rgba(255,255,255,.35);letter-spacing:.08em">
+      <span style="color:{{ accent }}">▮ WORKED</span><span>▨ BREAK 00:32</span><span>▯ SCHEDULED</span>
+    </div>
+  </div>
+
+  <div style="position:relative;margin:0 22px 20px;border:1px solid rgba(255,255,255,.11)">
+    <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.1)">
+      <div style="font:600 11px Orbitron,sans-serif;letter-spacing:.18em;color:rgba(255,255,255,.85)">PUNCH LOG</div>
+      <div style="flex:1"></div>
+      <div style="font:400 9.5px 'Share Tech Mono',monospace;color:rgba(255,255,255,.33);letter-spacing:.1em">3 SESSIONS · TODAY</div>
+      <a href="#1a" style="font:400 9.5px 'Share Tech Mono',monospace;color:#35e6f0;letter-spacing:.08em">HISTORY →</a>
+    </div>
+    <div style="display:grid;grid-template-columns:26px 1fr 1fr 1fr 88px;padding:7px 14px;font:600 9.5px Rajdhani,sans-serif;letter-spacing:.18em;color:rgba(255,255,255,.34)">
+      <div>#</div><div>IN</div><div>OUT</div><div>WORKED</div><div style="text-align:right">STATUS</div>
+    </div>
+    <sc-for list="{{ rows }}" as="r" hint-placeholder-count="3">
+      <div style="display:grid;grid-template-columns:26px 1fr 1fr 1fr 88px;align-items:center;padding:9px 14px;border-top:1px solid rgba(255,255,255,.06);font:400 13px 'Share Tech Mono',monospace;color:rgba(255,255,255,.8)" style-hover="background:rgba(255,255,255,.035)">
+        <div style="font-size:11px;color:rgba(255,255,255,.5)">{{ r.n }}</div>
+        <div>{{ r.in }}</div>
+        <div style="color:{{ r.outColor }}">{{ r.out }}</div>
+        <div>{{ r.worked }}</div>
+        <div style="text-align:right"><span style="font:700 9px Rajdhani,sans-serif;letter-spacing:.16em;color:{{ r.pillText }};border:1px solid {{ r.pillBorder }};padding:3px 8px">{{ r.status }}</span></div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="position:relative;display:flex;align-items:stretch;gap:10px;padding:0 22px 18px">
+    <button style="flex:1;font:800 14px Orbitron,sans-serif;letter-spacing:.18em;color:#07080b;background:{{ accent }};border:0;padding:15px 0;cursor:pointer;clip-path:polygon(12px 0,100% 0,calc(100% - 12px) 100%,0 100%);box-shadow:0 0 34px {{ accentGlow }}" style-hover="background:#fff">CHECK OUT</button>
+    <button style="width:150px;font:700 12px Rajdhani,sans-serif;letter-spacing:.16em;color:#35e6f0;background:rgba(53,230,240,.08);border:1px solid rgba(53,230,240,.45);cursor:pointer" style-hover="background:rgba(53,230,240,.2);color:#fff">START BREAK</button>
+    <button style="width:46px;font:400 15px 'Share Tech Mono',monospace;color:rgba(255,255,255,.5);background:transparent;border:1px solid rgba(255,255,255,.16);cursor:pointer" style-hover="color:#fff;border-color:rgba(255,255,255,.4)">⌄</button>
+  </div>
+
+  <div style="position:relative;display:flex;align-items:center;gap:12px;padding:8px 22px;border-top:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.02)">
+    <div style="font:700 9px Rajdhani,sans-serif;letter-spacing:.2em;color:#07080b;background:rgba(255,255,255,.6);padding:2px 7px">SYS</div>
+    <div style="flex:1;overflow:hidden;white-space:nowrap"><div style="display:inline-block;animation:hudTicker 30s linear infinite;font:400 9.5px 'Share Tech Mono',monospace;color:rgba(255,255,255,.32);letter-spacing:.12em">GEOFENCE HQ-04 OK · BIOMETRIC PUNCH VERIFIED · BREAK QUOTA 00:32/01:00 · PAYROLL CYCLE 08 SYNCED &nbsp;·&nbsp; GEOFENCE HQ-04 OK · BIOMETRIC PUNCH VERIFIED · BREAK QUOTA 00:32/01:00 · PAYROLL CYCLE 08 SYNCED &nbsp;·&nbsp;</div></div>
+    <div style="font:400 9.5px 'Share Tech Mono',monospace;color:rgba(255,255,255,.25)">BUILD V8</div>
+  </div>
+</div>
+</div>
+
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Float — collapsed state, same rules</div>
+<div style="width:330px;display:flex;flex-direction:column;gap:16px">
+  <div style="background:#07080c;border:1px solid rgba(255,255,255,.14);clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,18px 100%,0 calc(100% - 18px));position:relative">
+    <div style="position:absolute;left:0;top:20px;width:3px;height:40px;background:{{ accent }};box-shadow:0 0 12px {{ accent }}"></div>
+    <div style="display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.1)">
+      <div style="width:6px;height:6px;border-radius:50%;background:#7dff9b;animation:hudPulse 1.8s infinite"></div>
+      <div style="font:600 10px Rajdhani,sans-serif;letter-spacing:.2em;color:rgba(255,255,255,.55)">ON SHIFT · OP-4471</div>
+      <div style="flex:1"></div>
+      <div style="font:400 9.5px 'Share Tech Mono',monospace;color:rgba(255,255,255,.3)">12:12</div>
+    </div>
+    <div style="padding:16px 14px 14px">
+      <div style="font:600 9.5px Rajdhani,sans-serif;letter-spacing:.24em;color:rgba(255,255,255,.4)">REMAINING</div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin-top:2px">
+        <div style="font:400 42px/1 'Share Tech Mono',monospace;color:{{ accent }};text-shadow:0 0 26px {{ accentGlow }}">{{ remaining }}</div>
+        <div style="font:400 11px 'Share Tech Mono',monospace;color:rgba(255,255,255,.3)">{{ pctLabel }}</div>
+      </div>
+      <div style="height:8px;margin-top:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);position:relative">
+        <div style="position:absolute;inset:0;width:{{ pct }}%;background:{{ accentSoft }};border-right:1px solid {{ accent }}"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:7px;font:400 10px 'Share Tech Mono',monospace;color:rgba(255,255,255,.4)"><span>WORKED {{ worked }}</span><span>OUT 4:00 PM</span></div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button style="flex:1;font:700 11.5px Rajdhani,sans-serif;letter-spacing:.16em;color:#07080b;background:{{ accent }};border:0;padding:10px 0;cursor:pointer;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%)" style-hover="background:#fff">CHECK OUT</button>
+        <button style="flex:1;font:700 11.5px Rajdhani,sans-serif;letter-spacing:.16em;color:#35e6f0;background:transparent;border:1px solid rgba(53,230,240,.45);cursor:pointer" style-hover="background:rgba(53,230,240,.16);color:#fff">BREAK</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="background:#07080c;border:1px solid rgba(255,255,255,.14)">
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.1)">
+      <div style="font:600 11px Orbitron,sans-serif;letter-spacing:.18em;color:rgba(255,255,255,.85)">REWARDS</div>
+      <div style="flex:1"></div>
+      <div style="font:400 10px 'Share Tech Mono',monospace;color:{{ accent }};letter-spacing:.1em">LV 20</div>
+    </div>
+    <div style="padding:14px">
+      <div style="display:grid;grid-template-columns:repeat(20,1fr);gap:2px">
+        <sc-for list="{{ xpSegs }}" as="s" hint-placeholder-count="20"><div style="height:9px;background:{{ s.fill }}"></div></sc-for>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:7px;font:400 10px 'Share Tech Mono',monospace;color:rgba(255,255,255,.4)"><span style="color:{{ accent }}">3878 XP</span><span>10733 TO LV 21</span></div>
+      <div style="display:flex;gap:10px;margin-top:14px">
+        <div style="flex:1;border:1px solid rgba(255,255,255,.1);padding:10px 12px"><div style="font:600 9px Rajdhani,sans-serif;letter-spacing:.2em;color:rgba(255,255,255,.36)">STREAK</div><div style="font:400 17px 'Share Tech Mono',monospace;color:#ff8a6b;margin-top:2px">17 D</div></div>
+        <div style="flex:1;border:1px solid rgba(255,255,255,.1);padding:10px 12px"><div style="font:600 9px Rajdhani,sans-serif;letter-spacing:.2em;color:rgba(255,255,255,.36)">TOTAL XP</div><div style="font:400 17px 'Share Tech Mono',monospace;color:#35e6f0;margin-top:2px">84433</div></div>
+      </div>
+      <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid rgba(255,255,255,.08);padding-top:11px"><div style="font:600 10px Rajdhani,sans-serif;letter-spacing:.16em;color:rgba(255,255,255,.4)">NEXT · 6-HOUR DAY</div><div style="font:400 11px 'Share Tech Mono',monospace;color:{{ accent }}">+150 · 2H</div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Fix list applied: single accent, hero counter, real primary action, one striped element, quiet labels, 3-tier type. Next: "swap accent to cyan" · "add the badge grid back as HUD tiles" · "mobile 360px version"</p>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#f2ea00&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#f2ea00&quot;,&quot;#35e6f0&quot;,&quot;#ff8a6b&quot;],&quot;section&quot;:&quot;HUD&quot;},&quot;scanlines&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;HUD&quot;},&quot;liveClock&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;HUD&quot;}}">
+class Component extends DCLogic {
+  state = { t: 22386 };
+  componentDidMount() {
+    if (this.props.liveClock ?? true) this.id = setInterval(() => this.setState(s => ({ t: s.t + 1 })), 1000);
+  }
+  componentWillUnmount() { clearInterval(this.id); }
+  fmt(s) { const p = n => String(n).padStart(2, '0'); return p(s / 3600 | 0) + ':' + p((s / 60 | 0) % 60) + ':' + p(s % 60); }
+  renderVals() {
+    const shift = 28800, t = Math.min(this.state.t, shift), pct = t / shift * 100;
+    const accent = this.props.accent ?? '#f2ea00';
+    const rgba = a => {
+      const h = accent.replace('#', '');
+      const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+      return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
+    };
+    return {
+      accent,
+      accentGlow: rgba(.35),
+      accentSoft: rgba(.22),
+      accentLine: rgba(.5),
+      scanlines: this.props.scanlines ?? true,
+      worked: this.fmt(t),
+      remaining: this.fmt(shift - t),
+      pct: pct.toFixed(1),
+      pctLabel: Math.round(pct) + '%',
+      accentFaint: rgba(.1),
+      hours: ['08', '09', '10', '11', '12', '13', '14', '15', '16'].map(h => ({ h })),
+      games: ['S', 'P', '▤', '⚡', '✳', '◍', '◆'].map((k, i) => i === 0
+        ? { k, border: rgba(.6), bg: rgba(.14), fg: accent }
+        : { k, border: 'rgba(255,255,255,.13)', bg: 'transparent', fg: 'rgba(255,255,255,.45)' }),
+      badges: Array.from({ length: 27 }, (_, i) => i < 20
+        ? { border: rgba(.45), fill: rgba(.12) }
+        : { border: 'rgba(255,255,255,.09)', fill: 'rgba(255,255,255,.02)' }),
+      swatches: [
+        { c: '#f2ea00', ring: accent === '#f2ea00' ? '#fff' : 'transparent' },
+        { c: '#35e6f0', ring: accent === '#35e6f0' ? '#fff' : 'transparent' },
+        { c: '#ff8a6b', ring: accent === '#ff8a6b' ? '#fff' : 'transparent' },
+        { c: '#a78bfa', ring: accent === '#a78bfa' ? '#fff' : 'transparent' }
+      ],
+      groups: [
+        { name: 'SHIFT', items: [
+          { label: 'Shift duration', hint: 'TARGET HOURS PER DAY', value: '8H STD', valueColor: accent, valueBorder: rgba(.4), valueBg: rgba(.08) },
+          { label: 'Break quota', hint: 'AUTO-DEDUCT FROM WORKED', value: '01:00', valueColor: '#fff', valueBorder: 'rgba(255,255,255,.18)', valueBg: 'transparent' },
+          { label: 'Overtime alert', hint: 'PING AFTER TARGET', value: 'ON · +15M', valueColor: '#fff', valueBorder: 'rgba(255,255,255,.18)', valueBg: 'transparent' }
+        ] },
+        { name: 'DISPLAY', items: [
+          { label: 'Theme', hint: 'PANEL LANGUAGE', value: 'CYBERPUNK', valueColor: accent, valueBorder: rgba(.4), valueBg: rgba(.08) },
+          { label: 'Panel shape', hint: 'CORNER TREATMENT', value: 'CHAMFER', valueColor: '#fff', valueBorder: 'rgba(255,255,255,.18)', valueBg: 'transparent' },
+          { label: 'Scanlines', hint: 'CRT OVERLAY', value: 'ON', valueColor: '#7dff9b', valueBorder: 'rgba(125,255,155,.35)', valueBg: 'rgba(125,255,155,.08)' }
+        ] },
+        { name: 'MODULES', items: [
+          { label: 'Arcade', hint: 'BREAK-TIME GAMES RAIL', value: 'VISIBLE', valueColor: '#fff', valueBorder: 'rgba(255,255,255,.18)', valueBg: 'transparent' },
+          { label: 'Motivation', hint: 'QUOTE FEED', value: 'DAILY', valueColor: '#fff', valueBorder: 'rgba(255,255,255,.18)', valueBg: 'transparent' },
+          { label: 'Viewport image', hint: 'WALLPAPER SLOT', value: 'LOCAL', valueColor: '#fff', valueBorder: 'rgba(255,255,255,.18)', valueBg: 'transparent' },
+          { label: 'Game mode', hint: 'HIDES SIDE PANELS', value: 'OFF', valueColor: 'rgba(255,255,255,.5)', valueBorder: 'rgba(255,255,255,.14)', valueBg: 'transparent' }
+        ] }
+      ],
+      xpSegs: Array.from({ length: 20 }, (_, i) => ({ fill: i < 6 ? accent : 'rgba(255,255,255,.07)' })),
+      rows: [
+        { n: '1', in: '07:59:59', out: 'CURRENT', outColor: accent, worked: this.fmt(t), status: 'ACTIVE', pillText: accent, pillBorder: rgba(.5) },
+        { n: '2', in: '08:04:12', out: '16:12:40', outColor: 'rgba(255,255,255,.8)', worked: '07:41:12', status: 'CLOSED', pillText: 'rgba(255,255,255,.5)', pillBorder: 'rgba(255,255,255,.18)' },
+        { n: '3', in: '08:11:45', out: '16:30:02', outColor: 'rgba(255,255,255,.8)', worked: '07:52:04', status: 'OVERTIME', pillText: '#ff8a6b', pillBorder: 'rgba(255,138,107,.45)' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

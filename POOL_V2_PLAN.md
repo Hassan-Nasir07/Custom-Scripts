@@ -4,7 +4,7 @@
 > deviation in the **Decision log** at the bottom. Attach this file as context in later
 > sessions.
 >
-> Status: `IN PROGRESS`, Phases 0–1 done · Last updated: 2026-09-25 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
+> Status: `IN PROGRESS`, Phases 0–2 done · Last updated: 2026-09-25 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
 
 ## Context
 
@@ -709,11 +709,42 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
       `muRoll`, `ballE` and `maxSpeed`. (Pocket spit now appears on the side pockets with the
       design geometry; see above.)
 
-### Phase 2: rules v2
-- [ ] `judgeShot` with open table after the break, legal break, the 8 on the break,
-      called 8, WPA fouls, and seat-aware messages (problem 7).
-- [ ] One table-driven test per rule row, reusing the existing BCA cases from Phase 0
-      where they still apply.
+### Phase 2: rules v2 — done 2026-09-25
+- [x] `pool-dev/pool-rules.js`: `prJudge(state, world, call)` (the plan's `judgeShot`),
+      pure, judged from the physics event log after the last strike. Like the physics it
+      is **not spliced yet**. The rules it implements:
+
+      | situation | ruling |
+      |---|---|
+      | break | from the kitchen, never called. Legal = a ball drops or ≥4 object balls reach a rail. Illegal = foul |
+      | 8 on the break | re-spotted (`prSpotBall`: foot spot, else behind it, else in front); the breaker plays on unless it was a foul |
+      | after the break | table open whatever dropped. Either group may be hit first, **the 8 may not** |
+      | group choice | the first counted pot (with call-every, the ball in the called pocket) |
+      | fouls | scratch · no ball hit · opponent's ball first · 8 first too early · not the 8 first when on it · no rail after contact without a pot |
+      | after a foul | ball in hand anywhere to the opponent; balls potted on the foul stay down and count for nothing |
+      | own + opponent ball | own ball counts, shooter continues; only the opponent's = turn ends, no foul |
+      | call every shot | a pocket is called (not a ball); only an own ball in that pocket counts. Wrong pocket = turn ends, no foul |
+      | the 8 | always called. Wins only in the called pocket on a legal shot. Loses if early (incl. with the last group ball), on any foul, with a scratch, or in another pocket. A scratch **without** the 8 is only a foul |
+
+      Copy comes from `prText(verdict, names)` in the design's wording ("Foul · Hit
+      opponent's ball first" / "Ball in hand to Bilal", "Ayesha wins" / "Potted the 8 in
+      the called pocket."), naming whoever fouled. **Problem 7 fixed:** the CPU scratching
+      on the 8 now reads "You win" / "CPU scratched on the 8.". **Problem 6 fixed:** open
+      table after the break, legal-break rule, the 8 on the break, called 8.
+- [x] `rules-verify.js`, **80 assertions**:
+  - 45 rule rows, one per case above, including the 21 Phase 0 BCA cases where they still
+    apply (the two that pinned problems 6 and 7 now pin the fixes)
+  - 3 contract checks (the judge mutates nothing, a new frame starts in the kitchen,
+    only the log after the last strike counts), 9 copy checks, 10 table-helper checks
+    (placement, re-spotting)
+  - real shots on `pool-physics.js`: 40 breaks (40/40 legal at 75%, the verdict matches
+    pot-or-4-rails on every one), a straight-in pot, the same pot called right and wrong,
+    the 8 called right and wrong, a scratch, a short tap with no rail
+  - whole frames played by a ghost-ball shooter with ball in hand: **300 frames, 18,023
+    shots, no invariant broken** (groups complementary and fixed once set, a foul always
+    hands ball in hand across, the 8 never down while the frame goes on, a re-spot never
+    overlaps); 299/300 reach the 8. 44 s at 300, 6 s at the default 40
+- [x] `verify-all.js` runs it as *Pool rules*: **1,831 assertions, 0 failed**.
 
 ### Phase 3: renderer
 - [ ] `pool-camera.js` (port of `Table.dc.html`) with an unprojection test: a screen click
@@ -757,8 +788,8 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
 ### Phase 6: CPU v2
 - [ ] Candidates, cloned-world evaluation, position scoring, safeties, time slicing, four
       tiers, pinnable difficulty in ⚙️, pocket calling for the CPU.
-- [ ] Call-every-shot rule in `judgeShot` (a called ball in the wrong pocket ends the turn
-      without a foul) and in the input flow (every shot needs a pocket tap first).
+- [ ] Call-every-shot in the input flow (every shot needs a pocket tap first). The rule
+      itself landed in `prJudge` in Phase 2 (`state.callEvery`).
 - [ ] `balance-check.js`: calibrate the tiers against the Phase 0 baseline, with
       hard ≥ today's CPU and pro above it. Record the measured win rates in the Decision
       log. Measure against the same four human models as `baseline-check.js`; the bar is
@@ -840,6 +871,8 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
 | 2026-09-25 | **Effective cushion friction 0.3, not 0.2** | At 0.2 the plain rebound already reached the sticking limit, so reverse English could not shorten it (39.9° vs 39.3°). 0.3 folds in the cloth friction under the ball during the cushion impact, which Mathavan's measurements include, and gives running 54.0° / plain 36.6° / reverse 31.5° at 45° |
 | 2026-09-25 | **Rolling resistance 0.016, above real cloth (~0.010)** | At 0.010 a firm shot rolls for over 10 s. 0.016 keeps a break under 6 s. It is a feel number and is exposed in the harness |
 | 2026-09-25 | **Fixed during Phase 1: a ball could be left `rolling` at v = 0** | Found by the fuzz, which caught NaN on 1 shot in 300. When a crawl's slip ended, the speed rounded to zero after the spin had already been derived from it. The leftover slip read as sliding, and a follow-up line forced the ball to rolling with a zero-length direction. The speed is now settled before the spin, the state is never forced, and both closed forms reclassify instead of dividing by zero |
+| 2026-09-25 | **Rules choices where WPA offers options (Phase 2).** An illegal break is a plain foul with ball in hand anywhere, not WPA's re-rack-or-accept choice. The 8 on the break is always re-spotted, never re-racked. The 8 may not be hit first on an open table. A call names a pocket, not a ball. There is no three-foul rule | Each WPA option is an extra prompt at the table, and the design has screens for none of them. These are the Miniclip-style defaults the plan already names. Each is one line in `prJudge` if the user wants it the other way |
+| 2026-09-25 | **The judge derives everything from the world and its log; the frame state holds only turn, groups, break flag and ball in hand** | Today's engine keeps per-seat potted lists beside the balls, a second copy of the table. Deriving "on the 8" from the balls on the table means the two can never disagree, and the CPU can judge a cloned world with no extra bookkeeping |
 | 2026-09-25 | **The design's amber palette and Chakra Petch/Sora are dropped. Pool renders in the existing Glassmorphic Aurora and Cyberpunk HUD presets** through `--pool-*` tokens, with a canvas bridge. Table materials and ball colours stay physical and theme-independent | The user's call. It keeps pool consistent with the other panels and honours the user's Cyberpunk colour picks. No new font imports are needed |
 
 ---

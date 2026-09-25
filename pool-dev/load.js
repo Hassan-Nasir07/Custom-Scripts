@@ -170,8 +170,18 @@ function physics() {
     return new Function(src + '\nreturn { ' + names.join(', ') + ' };')();
 }
 
+// The rules on top of the physics, in one scope as they will be in the
+// userscript: every pp*/PP_* and pr*/PR_* name.
+function rules() {
+    const src = ['pool-physics.js', 'pool-rules.js']
+        .map(f => fs.readFileSync(path.join(__dirname, f), 'utf8')).join('\n');
+    const names = [...src.matchAll(/^    (?:function|const)\s+((?:pp|PP_|pr|PR_)[\w$]*)/gm)].map(m => m[1]);
+    return new Function(src + '\nreturn { ' + names.join(', ') + ' };')();
+}
+
 module.exports.source = source;
 module.exports.physics = physics;
+module.exports.rules = rules;
 module.exports.stateNames = stateNames;
 module.exports.seededRandom = seededRandom;
 module.exports.makeCanvas = makeCanvas;

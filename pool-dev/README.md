@@ -15,6 +15,7 @@ node pool-dev/reinsert.js                 # splice pool-dev/ into the userscript
 node pool-dev/reinsert.js --check         # exit 1 if the userscript copy differs
 node pool-dev/pool-verify.js              # the pool suite
 node pool-dev/physics-verify.js 2000      # the v2 physics, with a 2000-shot fuzz
+node pool-dev/rules-verify.js 300         # the v2 rules, with 300 whole frames
 node ludo-dev/verify-all.js               # every suite, pool included
 node pool-dev/baseline-check.js 1000 1    # today's CPU vs scripted humans
 node pool-dev/preview.js out.png all      # render the real canvas to a PNG
@@ -42,6 +43,26 @@ default `node` here is 10, so use the Volta image:
 | `pool-physics.js` | **v2 physics** (Phase 1): table geometry, sliding/rolling ball model, cue strike, collisions, stepping. Pure and deterministic. **Not spliced yet**; it replaces the physics in `pool-core.js` when the new renderer lands |
 | `physics-verify.js` | checks `pool-physics.js` against real ball behaviour, plus a fuzz for the invariants |
 | `pool-harness.html` | live table running the real `pool-physics.js`: shoot with a drag, set spin, tune every constant with sliders, see trails and the shot's events |
+| `pool-rules.js` | **v2 rules** (Phase 2): WPA 8-ball judged from the physics event log, seat-aware copy, cue-ball placement and re-spotting. Pure except the two table helpers. **Not spliced yet**, like the physics |
+| `rules-verify.js` | one case per rule row, the rules on real shots, and a fuzz of whole frames |
+
+## pool-rules.js
+
+`prJudge(state, world, call)` reads a settled world and returns a verdict: the foul (if
+any), whether the shooter plays on, who has ball in hand and where, any group
+assignment, and the frame result. `verdict.next` is the state to play on. It mutates
+nothing; the caller applies the table side:
+
+- `prSpotBall(world, 8)` when `verdict.respot8` (the 8 dropped on the break)
+- `prPlaceCue(world, x, y)` once a ball-in-hand spot passes `prCanPlace(world, x, y, zone)`,
+  which refuses `'outside'`, `'kitchen'` or `'overlap'`
+
+The judge works only from the log after the last `strike`: the first ball the cue ball
+touched, cushion contacts (jaws count as cushion), and pots in the order they dropped.
+Everything else, such as whether a seat is on the 8, is derived from the balls, so there
+is no second copy of the table to drift. `prText(verdict, names)` gives the toast or the
+frame result in the design's wording, naming whoever actually fouled; the name `'You'`
+gets second-person grammar.
 
 ## pool-physics.js
 

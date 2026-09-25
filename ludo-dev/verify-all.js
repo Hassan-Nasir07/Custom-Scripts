@@ -25,6 +25,8 @@ const SUITES = [
     ['Pool',           '../pool-dev/pool-verify.js'],
     // The v2 physics (pool-physics.js), headless until the renderer lands in Phase 3.
     ['Pool physics',   '../pool-dev/physics-verify.js'],
+    // The v2 rules (pool-rules.js) on top of that physics, also headless until Phase 3.
+    ['Pool rules',     '../pool-dev/rules-verify.js'],
 ];
 
 const results = [];

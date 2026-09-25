@@ -334,9 +334,6 @@
     let flappyLastFrameMs = 0;
     let flappyLastLogicMs = 0;
     let flappyAccumulator = 0;
-    let poolLastFrameMs = 0;
-    let poolLastLogicMs = 0;
-    let poolAccumulator = 0;
     let tetrisLastFrameMs = 0;
 
     function loadPreferences() {
@@ -1746,101 +1743,8 @@
         document.getElementById('atc-update-dismiss-btn').addEventListener('click', () => banner.remove());
     }
 
-    let poolCanvas, poolCtx;
-    let poolAnimFrame = null;
-    let poolGameRunning = false;
-    let poolGameOver = false;
-    let poolMaximized = false;
-    let poolMode = 'cpu'; // 'cpu' | 'pvp'
-    let poolTurn = 1; // 1 or 2
-    let poolBalls = [];
-    let poolPockets = [];
-    let poolGamesWon = 0;
-    let poolRecord = { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
-    let poolBgTime = 0; // animated background time counter
-
     let prayerCount = 0;
 
-    let poolAiming = false;
-    let poolDragging = false;
-    let poolCueAngle = 0;
-    let poolCuePower = 0;
-    let poolCueSpinX = 0; // -1 to 1
-    let poolCueSpinY = 0; // -1 to 1
-    let poolMouseX = 0;
-    let poolMouseY = 0;
-
-    // Aim-lock state: angle locks on mouse-down; power controlled by pull-back
-    let poolAimLocked = false;  // true while mouse button held
-    let poolLockedAngle = 0;    // the aim angle frozen at mouse-down
-
-    let poolBallInHand = false;
-    let poolPlacingBall = false;
-
-    // Turn result tracking
-    let poolFirstPocket = false; // has a group been assigned?
-    let poolPlayer1Group = null; // 'solids' | 'stripes' | null
-    let poolPlayer2Group = null;
-    let poolPlayer1Pocketed = [];
-    let poolPlayer2Pocketed = [];
-    let poolFoulMessage = '';
-    let poolWinner = 0;
-    let poolShotFired = false;
-    let poolFirstBallHit = -1; // id of first ball struck by cue ball
-    let poolCushionAfterHit = false;
-    let poolPocketedThisShot = [];
-    let poolAIDelay = 0; // frames to wait before AI shoots
-    let poolAIPendingShot = null; // { angle, power, spinX, spinY } — pre-computed CPU shot shown during delay
-    let poolIsBreakShot = false; // true from game-start until first shot — restricts cue placement to kitchen
-
-    // Shot clock
-    const POOL_SHOT_CLOCK = 30; // seconds per turn
-    let poolShotTimer = POOL_SHOT_CLOCK;
-    let poolShotTimerFrame = 0; // frame counter for 1-second ticks
-
-    const POOL_W = 368;
-    const POOL_H = 184; // 2:1 table ratio
-    const POOL_CANVAS_H = 368; // Match other games for consistent canvas height
-    const POOL_TABLE_OFFSET_Y = (POOL_CANVAS_H - POOL_H) / 2; // 92 — centers table vertically
-    const POOL_BALL_R = 6;
-    const POOL_POCKET_R = 11;
-    const POOL_FRICTION = 0.985;
-    const POOL_RESTITUTION = 0.92;
-    const POOL_MIN_VEL = 0.08;
-    const POOL_CUE_MAX_POWER = 24;
-    const POOL_SUB_STEPS = 8; // 24/8 = 3px per step — well under ball radius, prevents collision normal errors at high power
-    const POOL_CUSHION_X1 = 16;
-    const POOL_CUSHION_Y1 = 16;
-    const POOL_CUSHION_X2 = POOL_W - 16;
-    const POOL_CUSHION_Y2 = POOL_H - 16;
-    const POOL_BAULK_X = Math.round(POOL_W * 0.25); // head string — kitchen boundary for break shot
-
-    const POOL_TABLE_COLORS = {
-        green:     { felt: '#2d8a4e', cushion: '#1a5c32', border: '#5c3a1e', pocket: '#111' },
-        red:       { felt: '#8b3a3a', cushion: '#5c1a1a', border: '#5c3a1e', pocket: '#111' },
-        blue:      { felt: '#2a5a8a', cushion: '#1a3a5c', border: '#5c3a1e', pocket: '#111' },
-        lightgrey: { felt: '#9aa5b0', cushion: '#6e7a85', border: '#5c3a1e', pocket: '#222' }
-    };
-
-    // Ball definitions: id, color, stripe, number
-    const POOL_BALL_DEFS = [
-        { id: 0,  color: '#f5f5f5', stripe: false, num: 0  }, // cue ball
-        { id: 1,  color: '#f0c830', stripe: false, num: 1  }, // solid yellow
-        { id: 2,  color: '#1a5ab8', stripe: false, num: 2  }, // solid blue
-        { id: 3,  color: '#d42a2a', stripe: false, num: 3  }, // solid red
-        { id: 4,  color: '#4a2080', stripe: false, num: 4  }, // solid purple
-        { id: 5,  color: '#e86820', stripe: false, num: 5  }, // solid orange
-        { id: 6,  color: '#1a7a3a', stripe: false, num: 6  }, // solid green
-        { id: 7,  color: '#8b1a1a', stripe: false, num: 7  }, // solid maroon
-        { id: 8,  color: '#111111', stripe: false, num: 8  }, // 8-ball
-        { id: 9,  color: '#f0c830', stripe: true,  num: 9  }, // stripe yellow
-        { id: 10, color: '#1a5ab8', stripe: true,  num: 10 }, // stripe blue
-        { id: 11, color: '#d42a2a', stripe: true,  num: 11 }, // stripe red
-        { id: 12, color: '#4a2080', stripe: true,  num: 12 }, // stripe purple
-        { id: 13, color: '#e86820', stripe: true,  num: 13 }, // stripe orange
-        { id: 14, color: '#1a7a3a', stripe: true,  num: 14 }, // stripe green
-        { id: 15, color: '#8b1a1a', stripe: true,  num: 15 }  // stripe maroon
-    ];
     let breakoutCanvas, breakoutCtx;
     let breakoutAnimFrame = null;
     let breakoutGameRunning = false;
@@ -2491,6 +2395,112 @@
         breakoutMouseX = e.touches[0].clientX - rect.left;
     }
 
+
+    // ═══ POOL ENGINE — generated from pool-dev/, do not edit here ═══
+    // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — CORE
+    // ═══════════════════════════════════════════════════════════════════
+    // State, table geometry, rack, physics, BCA turn rules and the CPU.
+    // Moved out of the userscript verbatim (POOL_V2_PLAN.md, Phase 0);
+    // Phase 1 onwards replaces the physics, rules and CPU below.
+
+    let poolLastFrameMs = 0;
+    let poolLastLogicMs = 0;
+    let poolAccumulator = 0;
+
+    let poolCanvas, poolCtx;
+    let poolAnimFrame = null;
+    let poolGameRunning = false;
+    let poolGameOver = false;
+    let poolMaximized = false;
+    let poolMode = 'cpu'; // 'cpu' | 'pvp'
+    let poolTurn = 1; // 1 or 2
+    let poolBalls = [];
+    let poolPockets = [];
+    let poolGamesWon = 0;
+    let poolRecord = { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
+    let poolBgTime = 0; // animated background time counter
+
+    let poolAiming = false;
+    let poolDragging = false;
+    let poolCueAngle = 0;
+    let poolCuePower = 0;
+    let poolCueSpinX = 0; // -1 to 1
+    let poolCueSpinY = 0; // -1 to 1
+    let poolMouseX = 0;
+    let poolMouseY = 0;
+
+    // Aim-lock state: angle locks on mouse-down; power controlled by pull-back
+    let poolAimLocked = false;  // true while mouse button held
+    let poolLockedAngle = 0;    // the aim angle frozen at mouse-down
+
+    let poolBallInHand = false;
+    let poolPlacingBall = false;
+
+    // Turn result tracking
+    let poolFirstPocket = false; // has a group been assigned?
+    let poolPlayer1Group = null; // 'solids' | 'stripes' | null
+    let poolPlayer2Group = null;
+    let poolPlayer1Pocketed = [];
+    let poolPlayer2Pocketed = [];
+    let poolFoulMessage = '';
+    let poolWinner = 0;
+    let poolShotFired = false;
+    let poolFirstBallHit = -1; // id of first ball struck by cue ball
+    let poolCushionAfterHit = false;
+    let poolPocketedThisShot = [];
+    let poolAIDelay = 0; // frames to wait before AI shoots
+    let poolAIPendingShot = null; // { angle, power, spinX, spinY } — pre-computed CPU shot shown during delay
+    let poolIsBreakShot = false; // true from game-start until first shot — restricts cue placement to kitchen
+
+    // Shot clock
+    const POOL_SHOT_CLOCK = 30; // seconds per turn
+    let poolShotTimer = POOL_SHOT_CLOCK;
+    let poolShotTimerFrame = 0; // frame counter for 1-second ticks
+
+    const POOL_W = 368;
+    const POOL_H = 184; // 2:1 table ratio
+    const POOL_CANVAS_H = 368; // Match other games for consistent canvas height
+    const POOL_TABLE_OFFSET_Y = (POOL_CANVAS_H - POOL_H) / 2; // 92 — centers table vertically
+    const POOL_BALL_R = 6;
+    const POOL_POCKET_R = 11;
+    const POOL_FRICTION = 0.985;
+    const POOL_RESTITUTION = 0.92;
+    const POOL_MIN_VEL = 0.08;
+    const POOL_CUE_MAX_POWER = 24;
+    const POOL_SUB_STEPS = 8; // 24/8 = 3px per step — well under ball radius, prevents collision normal errors at high power
+    const POOL_CUSHION_X1 = 16;
+    const POOL_CUSHION_Y1 = 16;
+    const POOL_CUSHION_X2 = POOL_W - 16;
+    const POOL_CUSHION_Y2 = POOL_H - 16;
+    const POOL_BAULK_X = Math.round(POOL_W * 0.25); // head string — kitchen boundary for break shot
+
+    const POOL_TABLE_COLORS = {
+        green:     { felt: '#2d8a4e', cushion: '#1a5c32', border: '#5c3a1e', pocket: '#111' },
+        red:       { felt: '#8b3a3a', cushion: '#5c1a1a', border: '#5c3a1e', pocket: '#111' },
+        blue:      { felt: '#2a5a8a', cushion: '#1a3a5c', border: '#5c3a1e', pocket: '#111' },
+        lightgrey: { felt: '#9aa5b0', cushion: '#6e7a85', border: '#5c3a1e', pocket: '#222' }
+    };
+
+    // Ball definitions: id, color, stripe, number
+    const POOL_BALL_DEFS = [
+        { id: 0,  color: '#f5f5f5', stripe: false, num: 0  }, // cue ball
+        { id: 1,  color: '#f0c830', stripe: false, num: 1  }, // solid yellow
+        { id: 2,  color: '#1a5ab8', stripe: false, num: 2  }, // solid blue
+        { id: 3,  color: '#d42a2a', stripe: false, num: 3  }, // solid red
+        { id: 4,  color: '#4a2080', stripe: false, num: 4  }, // solid purple
+        { id: 5,  color: '#e86820', stripe: false, num: 5  }, // solid orange
+        { id: 6,  color: '#1a7a3a', stripe: false, num: 6  }, // solid green
+        { id: 7,  color: '#8b1a1a', stripe: false, num: 7  }, // solid maroon
+        { id: 8,  color: '#111111', stripe: false, num: 8  }, // 8-ball
+        { id: 9,  color: '#f0c830', stripe: true,  num: 9  }, // stripe yellow
+        { id: 10, color: '#1a5ab8', stripe: true,  num: 10 }, // stripe blue
+        { id: 11, color: '#d42a2a', stripe: true,  num: 11 }, // stripe red
+        { id: 12, color: '#4a2080', stripe: true,  num: 12 }, // stripe purple
+        { id: 13, color: '#e86820', stripe: true,  num: 13 }, // stripe orange
+        { id: 14, color: '#1a7a3a', stripe: true,  num: 14 }, // stripe green
+        { id: 15, color: '#8b1a1a', stripe: true,  num: 15 }  // stripe maroon
+    ];
 
     function poolGetPockets() {
         const x1 = POOL_CUSHION_X1, y1 = POOL_CUSHION_Y1;
@@ -3496,6 +3506,12 @@
         poolShotTimerFrame = 0;
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — RENDER, HUD, INPUT, LIFECYCLE
+    // ═══════════════════════════════════════════════════════════════════
+    // Canvas drawing, the canvas HUD, mouse/touch aiming and the loop.
+    // The shared Max modal (toggleGameMaxModal) stays in the host because
+    // Ludo uses it too; togglePoolMaximize below is Pool's only caller.
 
     function poolGetTableColors() {
         const key = userPreferences.poolTableColor || 'green';
@@ -4630,6 +4646,18 @@
         resetPoolGame();
     }
 
+    function togglePoolMaximize() {
+        poolMaximized = toggleGameMaxModal({
+            canvasId: 'pool-canvas',
+            title: '🎱 8-Ball Pool',
+            bufferW: POOL_W,
+            bufferH: POOL_CANVAS_H,
+            onToggle: togglePoolMaximize,
+        });
+        drawPoolFrame();
+    }
+    // ═══ END POOL ENGINE ═══
+
     // SHARED MAXIMIZE-TO-MODAL HELPER (Pool + Ludo)
     // Invisible placeholder keeps the panel from collapsing; overlay + panel are built, the real
     // canvas moves across, its backing store scales 2x, and everything is restored on close.
@@ -4748,17 +4776,6 @@
 
         delete _gameMaxModals[cfg.canvasId];
         return false;
-    }
-
-    function togglePoolMaximize() {
-        poolMaximized = toggleGameMaxModal({
-            canvasId: 'pool-canvas',
-            title: '🎱 8-Ball Pool',
-            bufferW: POOL_W,
-            bufferH: POOL_CANVAS_H,
-            onToggle: togglePoolMaximize,
-        });
-        drawPoolFrame();
     }
 
     // ═══ SNAKE ENGINE — generated from snake-dev/, do not edit here ═══

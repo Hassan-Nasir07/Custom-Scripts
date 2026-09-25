@@ -1,0 +1,778 @@
+# 8-Ball Pool v2: 3D table, real physics, tournament mode
+
+> **Living document.** Tick the boxes in **Progress** as work lands and record every
+> deviation in the **Decision log** at the bottom. Attach this file as context in later
+> sessions.
+>
+> Status: `IN PROGRESS`, Phase 0 done · Last updated: 2026-09-25 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
+
+## Context
+
+Pool is the oldest board-style game in `AttendanceTimeCheckerPlus.js`, and it looks it:
+
+- The table is flat 2D and fills only half the 368×368 canvas (184px tall). The other half
+  is HUD drawn on the canvas.
+- The physics is a per-frame velocity multiplier with hacks layered on to fake spin.
+- The CPU is one near-perfect tier.
+- There is no tournament mode.
+
+This plan covers three things:
+
+1. **Visuals.** Follow the **layout, components and interactions** of the Claude Design
+   canvas *"8-Ball Pool, compact panel, both cameras"*
+   ([design](https://claude.ai/artifact/F7VD7gEuEFbWNNuqYVCPMs), 29 artboards; inventory
+   below). **Colour, type and shape come from the widget's existing theme presets,
+   Glassmorphic Aurora and Cyberpunk HUD, not from the design's amber palette.** See
+   *Theme mapping*.
+2. **Gameplay feel.** Replace the physics, rules and CPU with models that behave like real
+   pool.
+3. **Tournament mode.** An offline single-elimination bracket, in the style of Miniclip's
+   8 Ball Pool tournaments. You pick the number of contestants (**humans only**, playing
+   hot-seat on one machine), the app builds the tree, and players advance round by round.
+
+Pool is ~3,000 lines at [AttendanceTimeCheckerPlus.js:1749-4762](AttendanceTimeCheckerPlus.js#L1749-L4762)
+(state, physics, rules, AI, render, input, lifecycle, shared Max modal). The rest of it is
+spread around the file:
+
+- storage at [:511-541](AttendanceTimeCheckerPlus.js#L511-L541)
+- XP at [:10982](AttendanceTimeCheckerPlus.js#L10982)
+- game switching at [:9925](AttendanceTimeCheckerPlus.js#L9925) and [:10000](AttendanceTimeCheckerPlus.js#L10000)
+- panel HTML at [:19649](AttendanceTimeCheckerPlus.js#L19649), [:19681](AttendanceTimeCheckerPlus.js#L19681) and [:19757](AttendanceTimeCheckerPlus.js#L19757)
+- CSS at [:16464](AttendanceTimeCheckerPlus.js#L16464)
+- table-colour swatches at [:17620](AttendanceTimeCheckerPlus.js#L17620)
+
+---
+
+## What the design specifies
+
+The design's graphite and amber palette and its Chakra Petch/Sora type are **not used**
+(user decision, 2026-09-25). They are replaced role by role in *Theme mapping* below.
+Everything else in this table is followed.
+
+| Element | Spec (from the artboards) |
+|---|---|
+| Materials (theme-independent) | felt radial `#2E8F70 → #1D6E55 → #114534`; wood rail `#7A4B2C → #553220 → #3A2116`; cushion `#185F4B`; apron `#26160E`; pocket `#030404` inside a `#1A1410` rim; diamonds `#E9DDBF`. The table is a physical object, so it looks the same in every theme. The table-colour preference still tints the felt |
+| Ball colours (theme-independent) | 1 `#E9B825` · 2 `#2457C5` · 3 `#D2352B` · 4 `#6A3FA0` · 5 `#EE7A2E` · 6 `#1F8A4C` · 7 `#8C2A20` · 8 `#141516`; stripes use an ivory band 27–73% |
+| World | playfield 1000×500 units, origin at centre, z up; `R=14`, cushion 12, rail 36, rail top z=16; corner pocket r=27, side pocket r=24; spots at x=±250 |
+| 3D camera | a chase camera behind the cue ball along the aim. **Lean** 0–100 maps to pitch 19.5°→48° and distance 110→420, focal length `1.1·H`, near-plane clip at z=4 |
+| 2D camera | orthographic top-down, fitted with an 8px margin |
+| Compact panel (400×640) | header (logo, title, trophy pill) → player cards (72px: name, `TO SHOOT` tag, W·L, 7-ball group tracker) with a `0–0 FRAMES` centre → **table viewport 368×412** → 3 buttons (Vs CPU / Reset / Max). **There is no Play button.** |
+| On-table overlays | 2D/3D segmented toggle (top-left); group pill (top-right); vertical **LEAN** slider (3D only, left); vertical power gauge (right); **SPIN** button with a cue-ball dot (bottom-left); hint pill (bottom-right) |
+| Input | 3D: horizontal mouse movement rotates the aim (0.3°/px). 2D: point to aim. Both: press, drag for power (distance/1.4 → %), release to shoot, and the cue snaps forward over 260ms |
+| Aim guides | dashed aim line → dashed ghost ball → object-ball path in the felt accent (150u) + faint cue-deflection path (90u); rail bounce preview when no ball is hit |
+| Cue | chalk `#3E73B8` → ferrule → shaft `#DDB77F` → joint `#C9A15A` → wrap `#1B1C1D` → butt `#3B1F14`, tapering 3.3→8 wide, butt raised 60u. Pull-back is `8 + power·1.1` |
+| Max (1280×800) | player cards + frames centred in the header; controls on the right; table 1232×672; spin control 72px |
+
+### Artboard inventory
+
+Most in-match states are one component, `InMatch.dc.html`, switched by a `variant` prop.
+`Table.dc.html` grew `layout`, `bih`, `kitchen`, `pockets`, `called` and `onCall`.
+
+| Artboard | Implements | Details the code must match |
+|---|---|---|
+| `Main`, `PanelTopDown`, `Max` | the compact panel in both cameras; the full view | the table above |
+| `Table` | the renderer | pocket rings are projected circles at `r+12`. Pockets outside the 3D view are still callable through the mini-map |
+| `BracketTree` | the bracket renderer (4/8/16, full or `mini`) | column = `(W − 188 − rounds × 40) ÷ rounds`; card height = `min(64, slot − 12)`; champion column 188px (78px mini); connector elbows at the gutter midpoint; completed path drawn as a separate highlighted path |
+| 1 `ModeSheet` | a bottom sheet (432px high) over a scrim | three modes (Vs CPU / 2 Players / Tournament). CPU difficulty is a radio list: Adaptive (with a `NOW NORMAL` chip) · Easy · Normal · Hard · Pro, each with a one-line description. 2 Players and Tournament each get an explainer and a CTA |
+| 2a–c `BallInHand*` | ball-in-hand drag | the camera is forced to 2D and the toggle reads `2D · AUTO`; a hand glyph; a dashed ring when the spot is valid, a solid hot ring when it is not, with a chip underneath (`Overlaps a ball` / `Behind the head string only`); the kitchen is tinted on the break; the hint changes to `Placed · aim when ready` |
+| 3 `FoulHandoff` | the foul toast and the seat hand-off | the toast **replaces** the camera toggle and group pill (warning icon, reason, `Ball in hand to <name>`). The footer is replaced by a `Pass to <name>` strip with a `<NAME>'S READY` button |
+| 4a–b `CallPocket*` | the called pocket | the power gauge dims and shows a **padlock** until a pocket is called; the lean slider hides. 3D adds a **mini-map** (172×116, top-left) of all six pockets. The pill reads `On the 8 · call it` / `Pro · call every shot`; the hint names the called pocket (`Top right called · drag to shoot`) |
+| 5a–b `InMatch`, `ShotClockHot` | the shot clock | a 3px bar along the bottom of the active card; the tag shows the seconds (`18s`); in the last 5s the bar and border go hot and the tag pulses |
+| 6a–b `FrameWin`, `FrameLoss` | frame over vs CPU | a dialog over the table: result, reason, updated W·L with a `+1 WIN` / `+1 LOSS` delta, an **adaptive note** (`Adaptive steps up to Hard next frame`), `NEW FRAME` and `Change difficulty`. The CPU card shows `Adaptive · Normal` in place of a W·L record |
+| 7 `TournamentSetup` | setup | a stepper with a `Bracket of 8 · 2 byes to top seeds` note; a 140px scrolling name list with seed numbers, slot 01 tagged `YOU`, names up to 16 characters; race-to selects for **three** columns (16 players shows Round 1 / Semi / Final, so rounds before the semi use the Round 1 value); shot clock, guideline and call-pocket segments; a Shuffle switch; `START TOURNAMENT` |
+| 8 `BracketCompact` | the compact bracket | round tabs (completed rounds get a check); 102px match cards with LIVE / NEXT / DONE / BYE chips; a mini `BracketTree` under the later rounds; `PLAY NEXT MATCH` names the next match |
+| 9a–b `BracketFull*` | the full-view bracket | legend (LIVE, NEXT, completed path); a CTA that resumes the next or live match |
+| 10 `MatchIntro` | the match intro | `MATCH 3 OF 5`; the round and race; the two players with their seed and route (`Seed 4 · beat Zara 1–0`); **the lower seed breaks first and breaks alternate after**; `READY` |
+| 11 `MatchLive` | the in-match tournament header | the tournament name and `Semi-final · race to 2` replace the title; a `FRAME 2` pill replaces the trophy; the cards show seeds; the footer is **Bracket / Pause / Max**, with no Reset |
+| 12 `MatchResult` | the match result | the winner with the match score; one row per frame naming its winner; `<loser> is out · Semi-final finish`; a mini bracket; `CONTINUE` names the next match |
+| 13a–b `Champion*` | the champion screen | a rise-in animation; the name; meta (`6 players · date · frames won/lost`); a per-round run list; the final mini bracket; `NEW TOURNAMENT`, `Trophy cabinet` |
+| 14a–b `Resume*` | resume and abandon | a dialog over the table with the live score. Abandon asks for confirmation and warns that every result for all N players will be deleted |
+| 15 `TrophyCabinet` | the local trophy cabinet | a title table **by player name** × bracket size (4/8/16/total, a crown on the leader); recent tournaments with their name, date, size and champion; labelled `SAVED ON THIS COMPUTER` |
+
+### Gaps the artboards leave open (decided here)
+
+1. **Tournament name.** Every screen shows one (*City Open*, *Office Cup*, *Friday
+   Frames*), but setup has no field for it. Setup gains an optional name field that
+   defaults by size: *Club Cup* at 4, *City Open* at 8, *Masters* at 16.
+2. **Pause** in the tournament footer is not specified. It freezes the shot clock and
+   covers the table with a `Paused · Resume` dialog in the same style as the resume
+   prompt. Nothing is saved, because saving already happens at every shot boundary.
+3. **The spin control stays a tap-to-cycle of five presets**, as drawn: Center, Follow,
+   Draw, Left, Right. The physics accepts any tip offset, so a free-drag picker can come
+   later without engine changes.
+4. **The shot clock waits for the hand-off.** In PvP and tournaments the clock starts only
+   after `<NAME>'S READY` is pressed.
+5. **Adaptive difficulty re-evaluates between frames, not between matches.** The tier is
+   locked when a frame starts; the frame-over dialog says what the next frame will be.
+6. **Trophy cabinet identity** is the name trimmed and lowercased, so *Ayesha* and
+   *ayesha* are one person.
+7. **Max variants of the in-match states** are not drawn. They follow `Max.dc.html`'s
+   scale-up of the compact overlays.
+
+### Theme mapping
+
+Pool renders under both display themes (`userPreferences.displayTheme`, `glassmorphic` |
+`retro-futuristic`, [:274](AttendanceTimeCheckerPlus.js#L274)), each in light and dark.
+Cyberpunk also has four panel shapes and user-picked colours
+(`CYBER_TOKENS`, `cyber-dev/cyber-hud.js:55`).
+
+The pool UI uses only its own semantic `--pool-*` custom properties. Two CSS blocks map
+them: one to the aurora tokens (`--aurora-1…4`), one to the `--rt-*` tokens. **The
+design's hex values never appear in pool code**, and a static audit in `pool-verify.js`
+enforces that.
+
+| Role (design value) | Glassmorphic Aurora | Cyberpunk HUD |
+|---|---|---|
+| Panel ground (`#0E1113`) | nothing added: the panel sits in `.snake-game-container`'s glass | nothing added: `.snake-game-container` already carries `--rt-panel`, brackets and hazard edge |
+| Cards and controls (`#161C1F`, `#1C2327`) | glass tile `rgba(255,255,255,.08)` + 1px `rgba(255,255,255,.18)`; light mode `rgba(0,0,0,.04)` + `rgba(0,0,0,.10)` | `--rt-panel-strong` + 1px `--rt-border` |
+| Hover (`#242C31`) | +6% white | inverted, like `.snake-btn:hover`: fill `--rt-text`, text `--rt-bg-1` |
+| Text / muted / faint | the host's text colour at 100 / 70 / 45% | `--rt-text` / `--rt-text-dim` / `--rt-text-faint` |
+| **Primary fill** (amber buttons, selected segment, NEXT chip) | `linear-gradient(135deg, var(--aurora-1), var(--aurora-2))`, white text: the same fill as `.snake-btn`, so pool matches its sibling panels | `--rt-accent` fill, `--rt-bg-1` text |
+| **Accent line** (active card border and glow, `TO SHOOT`, lean and power fill, bracket path) | `--aurora-4` | `--rt-accent`, glow via `--rt-glow-soft` |
+| **Accent on the felt** (object-ball path, called-pocket rings, kitchen tint, ball-in-hand ring) | `--aurora-3`. Blue on green felt is too low in contrast; confirm in `preview.js` | `--rt-accent` |
+| **Hot** (fouls, the last 5s, power ≥85%, invalid placement, abandon) | coral `#ff5d73`. There is no aurora warning token, so this one is added | `#ff4d6d` plus the `--rt-hazard` stripe on the element's edge. User-picked colours can land anywhere, so the hot state must not depend on hue alone |
+| Ivory guides (aim line, ghost ball, the hand) | unchanged: they are drawn on the felt | unchanged |
+| Overlays on the table (pills, toast, mini-map, sheet scrim) | dark glass (`rgba(8,10,11,.66)` + blur) **in light mode too**, because they sit on the felt, not on the panel | `--rt-panel-strong` + `--rt-border`, **no blur** (Cyberpunk sets `backdrop-filter: none` throughout) |
+| Display type and numerals (Chakra Petch) | Inter 700, `tabular-nums`, uppercase labels with 0.12em tracking | Orbitron for titles, Share Tech Mono for labels and numbers, as in the `.snake-game-title` / `.snake-score` rules |
+| Body (Sora) | Inter | Share Tech Mono |
+| Shape (radius 20/14/12, pills) | the host's glass radii (12–16) | `--rt-radius` / `--rt-radius-sm`. Buttons get the `.snake-btn` corner cut. **Never** a `clip-path` or `filter` on the table viewport or any ancestor of the canvas or popovers (the rule at `cyber-dev/cyber-theme.css:1343`) |
+| Backdrop around the table (radial `#25383A → #07090A`) | a near-black radial tinted with `--aurora-2` at ~18% | an `--rt-bg-1 → --rt-bg-2` radial with `--rt-grid` hairlines |
+| Rail lip | as designed | plus a 1px `--rt-border` hairline |
+
+**The canvas bridge.** The canvas cannot read CSS variables, so `poolThemeTokens()` reads
+the computed `--pool-*` values off the panel, parses them into RGB and caches them. The
+cache and the cached table layer are invalidated by `poolOnThemeChange()`, which is called
+from:
+
+- `applyCyberpunkTheme` / `clearCyberpunkTheme`
+- the Cyberpunk colour-picker listener ([:17753](AttendanceTimeCheckerPlus.js#L17753))
+- the `prefers-color-scheme` listener ([:19300](AttendanceTimeCheckerPlus.js#L19300))
+
+**Where it lives.** Both mapping blocks are in `pool-dev/pool-theme.css`, spliced into
+the style template under their own sentinels. Pool never writes theme tokens itself,
+which keeps Cyberpunk's token write/teardown contract (`cyber-verify.js`) intact. No new
+fonts are imported: Inter, Orbitron and Share Tech Mono are already loaded at
+[:11124](AttendanceTimeCheckerPlus.js#L11124).
+
+---
+
+## Problems in the current engine
+
+Found while reading the code. Each one becomes a regression test in `pool-verify.js`.
+
+1. **Friction is exponential, not physical.** `v *= 0.985` per frame
+   ([:2807](AttendanceTimeCheckerPlus.js#L2807)) removes too much speed from fast balls and
+   lets slow balls creep. Real cloth decelerates at a constant rate. This is the biggest
+   single cause of the "floaty" feel.
+2. **Per-axis stop snapping** ([:2815](AttendanceTimeCheckerPlus.js#L2815)) zeroes `vx` and
+   `vy` independently, so a ball rolling nearly along an axis bends at the end of its run.
+3. **Spin is faked.** Follow and draw are an instant velocity kick at contact
+   ([:2724](AttendanceTimeCheckerPlus.js#L2724)), plus a decaying `spinDrift`. Side spin on
+   a cushion adds velocity instead of changing the rebound angle. Neither curves the way
+   masse and draw do on real cloth.
+4. **The cushion is an axis-aligned box with no pocket jaws.** Pockets are distance checks
+   ([:2771](AttendanceTimeCheckerPlus.js#L2771)). The side-pocket target is only about
+   ±6px (one ball width) because its centre sits 9px from the nearest reachable ball
+   centre, while corners are generous. No ball can rattle in the jaws.
+5. **The CPU simulates different physics from the game.** `poolTrialSim`
+   ([:3118](AttendanceTimeCheckerPlus.js#L3118)) models only the cue and target balls, with
+   no spin and no other balls. It is a second copy of the physics that has already drifted
+   from the real one. The CPU has one tier with zero aim noise on direct shots
+   ([:3449](AttendanceTimeCheckerPlus.js#L3449)).
+6. **Groups are assigned by a pot on the break** ([:2953](AttendanceTimeCheckerPlus.js#L2953)).
+   Under WPA and Miniclip rules the table stays open after the break. There is also no
+   legal-break rule, no rule for the 8 on the break, and no called pocket on the 8.
+7. **Foul messages are seat-blind.** "Scratch on 8-ball! You lose" is shown when the CPU
+   scratches.
+8. **Pot XP is paid to both seats in PvP** ([:2981](AttendanceTimeCheckerPlus.js#L2981)).
+   One person playing hot-seat collects 5 XP per pot for both sides. This is small today,
+   but it becomes a real farm once tournaments allow hot-seat seats.
+9. **There is no devicePixelRatio scaling.** The 368px backing store is blurry on HiDPI
+   screens.
+10. **Play, Reset and "Click Reset to play again" overlap in meaning.** The design drops
+    Play, and the anti-farm guard in `startPoolGame`
+    ([:4496](AttendanceTimeCheckerPlus.js#L4496)) has to survive that change.
+
+---
+
+## Decisions (confirmed unless marked ❓)
+
+| Topic | Decision | Why |
+|---|---|---|
+| Rendering | **Canvas2D with our own perspective projection**, ported from `Table.dc.html`'s `toCam`/`toScr`/`clip`. No WebGL, no three.js | The design is already a flat-polygon projection, so the port is direct. Canvas2D also keeps `ludo-dev/preview.js` (the software rasterizer) usable for PNG previews, and adds no dependency to a userscript |
+| Source layout | Extract to **`pool-dev/`** with sentinel splice + byte-identity assertion, as `snake-dev/` does | Proven pattern: a sub-second headless loop instead of iterating inside a 20k-line file |
+| Canvas | **368×412** compact viewport, backing store ×`min(devicePixelRatio, 2)` | Matches the design viewport. Fixes blur |
+| HUD | **DOM, not canvas**: player cards, frames, trophy pill, overlays, buttons | The design draws them in DOM. Real `<button>`/`<input type=range>` give focus, aria and hit areas for free, and the canvas becomes only the table |
+| Play button | **Removed.** The rack is live when the panel opens, and the first placement or shot starts the frame. The anti-farm guard moves to `endPoolGame` (one award per rack id) | Follows the design and removes the Play/Reset ambiguity |
+| Physics | **Sliding/rolling ball model with real angular velocity**, constant-deceleration friction, cue-tip impact model, throw, spin-aware cushions, jawed pockets. Deterministic (fixed dt + seeded RNG) | Fixes problems 1–4. Determinism lets the CPU, replays and tests all use *the* physics |
+| Ball size | Keep the design's `R=14` on a 1000-unit table (≈24% larger than regulation) | Readability at 368px. Regulation would be R≈11.25 |
+| Rules | **WPA 8-ball**, with Miniclip-style choices: open table after the break; legal break = pot or ≥4 balls to a rail; 8 on the break re-spots; **called pocket on the 8** (a tap on a pocket); ball in hand anywhere after a foul, kitchen-only on the break. **Call pocket on every shot** is a rule that the pro tier switches on, and a setting for PvP and tournaments | Fixes problem 6 and matches what Miniclip players expect. Calling every shot removes lucky pots, which is how the top difficulty gets harder for the human as well as through the CPU |
+| CPU tiers | **easy / normal / hard / pro**. **Hard = today's CPU, fine-tuned**: it keeps zero noise on direct shots and gains the new physics, position play and safeties. **Pro hardly misses** and plays with call-every-shot on. Easy and normal are new, weaker tiers below the current CPU. Calibrated by measurement (a `balance-check.js` equivalent). Adaptive by default, visible, and pinnable in ⚙️, as in Ludo | The user's call (2026-09-25): the current CPU is already tough, so it becomes the reference point rather than being nerfed. Ludo's log shows a hidden adaptive ladder must be visible and pinnable |
+| Camera default | **3D aim camera**. During the shot the camera eases to an overhead broadcast view, then returns behind the cue ball when everything stops. Ball-in-hand forces top-down | 3D aiming is the design's headline. Watching a break from ankle height is useless |
+| Theme | **The existing presets, not the design's palette.** Glassmorphic Aurora and Cyberpunk HUD, light and dark, through `--pool-*` tokens (see *Theme mapping*). The design supplies layout, components and states only | The user's call (2026-09-25). Pool stays consistent with its sibling panels and honours the user's Cyberpunk colour picks |
+| Audio | None | The audio module was removed from the build (`a2b2f85`) |
+| Tournament sizes | **3–16 contestants**, padded to the next power of two with **byes to the top seeds** | "Select the number of contestants" should not be limited to 4/8/16 |
+| Tournament seats | **Humans only.** Every slot is a named human player, playing hot-seat on one machine. There are no CPU slots and no CPU-vs-CPU matches | The user's call (2026-09-25). It also removes the resolver, the Watch mode and the tier seeding |
+| Hand-off | A **match intro** screen ("Next up: Ayesha vs Bilal · Semi-final · race to 2 · Ready") before every match, and a **"Pass to <name>"** strip whenever the turn changes seat | On one machine, players need a clear moment to swap seats |
+| Match length | Race-to-N frames per round (default: R1 race-to-1, semis race-to-2, final race-to-3), set in setup | Gives the design's `FRAMES` counter meaning, and makes finals feel like finals |
+| Persistence | Tournament state and the **mid-frame table state (saved at each shot boundary)** go in `localStorage` under `poolTournament` `{v:1,…}`. You can resume after a portal reload | The portal reloads. Losing a semi-final to a refresh would be the #1 complaint |
+| Names | Tournaments are named in setup. The default is our own cup name (*Club Cup* at 4, *City Open* at 8, *Masters* at 16), **not Miniclip's venue names or branding** | Miniclip's names are their IP |
+
+---
+
+## Architecture
+
+### `pool-dev/` layout (mirrors `snake-dev/`)
+
+| File | Contents | Pure? |
+|---|---|---|
+| `pool-physics.js` | world constants, table geometry (rail segments, jaw segments, pocket capture circles), ball state, `step(world, dt)`, `strike(world, aim, power, tip)`, event-driven collision (TOI), RNG | ✅ no DOM |
+| `pool-rules.js` | shot bookkeeping (first contact, rails after contact, pots, scratch), `judgeShot(state, shotLog)` → `{foul, reason, nextTurn, ballInHand, frameOver, winner}`, group assignment, called pocket | ✅ |
+| `pool-ai.js` | candidate generation (direct, bank, kick, combo, safety), **evaluation by cloning the world and running the real `step`**, position scoring, tier noise | ✅ |
+| `pool-camera.js` | `project(world→screen)` for the 2D ortho and 3D chase cameras, near-plane clip, camera tweening, screen→table unprojection for input | ✅ |
+| `pool-render.js` | the table layer (cached per camera pose), balls with orientation, shadows, cue, guides, pocket drop animation, overlays drawn on canvas (ghost ball in hand, called-pocket marker) | canvas |
+| `pool-ui.js` | DOM HUD (cards, frames, spin picker, lean, power, hint, toggles), input handling, the loop, lifecycle hooks the host calls, Max layout | DOM |
+| `pool-tournament.js` | bracket model (pure section), setup/bracket/intro/result/champion/cabinet screens (DOM section), persistence | mixed |
+| `pool-theme.css` | the `--pool-*` token mappings for Glassmorphic (light and dark) and Cyberpunk, plus pool's component CSS; spliced into the style template under its own sentinels | CSS |
+| `load.js`, `reinsert.js`, `pool-verify.js`, `preview.js`, `pool-harness.html`, `README.md` | tooling, same contracts as Snake | – |
+
+Sentinels in the userscript:
+
+```js
+    // ═══ POOL ENGINE — generated from pool-dev/, do not edit here ═══
+    …
+    // ═══ END POOL ENGINE ═══
+```
+
+The shared `toggleGameMaxModal` ([:4641](AttendanceTimeCheckerPlus.js#L4641)) stays in the
+host, outside the sentinels, because Ludo uses it. It gains an optional `cfg.build(panel)`
+hook so pool can supply the design's Max layout without changing Ludo's behaviour.
+
+### Physics model (`pool-physics.js`)
+
+Units are world units (u) and seconds. Constants start from published measurements
+(Marlow; Alciatore's "Dr. Dave" technical proofs) and are then tuned by feel in the
+harness. Every change goes in the Decision log.
+
+- **Ball state:** `p (x,y)`, `v (x,y)`, `ω (x,y,z)`, orientation quaternion `q` (render
+  only), `state ∈ {sliding, rolling, spinning, stationary, pocketed}`.
+- **Contact-point velocity:** `u = v + ω × (−R·ẑ)`.
+  - **Sliding** (`|u| > ε`): friction `μs·g` opposes `û`. It slows `v` and drives `ω`
+    toward rolling (`Δω` factor `5/(2R)`). The ball reaches natural roll when `u → 0`.
+    This is what makes follow and draw **curve** after contact, with no special cases.
+  - **Rolling:** constant deceleration `μr·g`, with `ω_xy` locked to `v`.
+  - **Spin** (`ω_z`): decays at `5·μsp·g/(2R)`, independent of translation.
+  - Starting values: `μs≈0.2`, `μr≈0.01`, `μsp≈0.044` (scaled to u/s²).
+- **Cue strike:** aim `θ`, speed `V` (power² curve, max ≈ break speed), and tip offset
+  `(a, b)` in units of R, clamped to a **0.6R miscue radius**.
+  - `v0 = V·dir`
+  - `ω_perp = 5·V·b/(2R)` (follow is +b, draw is −b)
+  - `ω_z = −5·V·a/(2R)` (English)
+  - **Squirt:** the launch direction deflects slightly away from the side spin
+    (≈0.5–1° at max English), so English has a cost as it does in real play.
+- **Ball–ball:** equal-mass impulse along the normal with restitution `e≈0.95`, plus
+  **throw** from tangential contact friction `μbb≈0.05`, capped by the tangential slip.
+  This covers both cut-induced throw and spin-induced throw. Spin is not transferred
+  otherwise.
+- **Cushions:** line segments for the six rail runs plus **angled jaw segments** at each
+  pocket mouth, derived from the design's pocket radii.
+  - Normal restitution `e≈0.75–0.8`.
+  - Running or reverse English changes the rebound angle through the cushion's friction
+    impulse, and topspin gives the familiar "shorter" rebound off a rail.
+  - A ball can rattle between the jaws.
+- **Pockets:** capture when the ball centre crosses the pocket's throat circle, or drops
+  past the jaw line with enough inward velocity. A ball that hits a jaw too fast can
+  reject (the pocket "spits" it).
+- **Integration:** fixed 60 Hz logic step (the existing `FIXED_DT`) split into 4
+  sub-steps. Each sub-step finds the **earliest time of impact** (ball–ball quadratic,
+  ball–segment linear) and advances to it, up to 32 events per sub-step, so no tunneling
+  and no overlap correction are needed. State transitions (sliding→rolling→stationary)
+  are events too, so balls stop cleanly with no per-axis snapping.
+- **Determinism:** no `Math.random` in the physics. The break rack jitter and AI noise
+  come from a seeded PRNG stored with the frame. The same inputs always produce the same
+  outcome, and a CPU "trial sim" is literally `step()` on a cloned world.
+
+### Rendering (`pool-camera.js` + `pool-render.js`)
+
+- **Two layers:**
+  1. The **table layer** (shadow, apron, felt, cushions, rails, lip, diamonds, spots,
+     pocket rims and holes) goes to an offscreen canvas and is re-rendered **only when the
+     camera pose changes**. In 2D that is once. In 3D it is on aim or lean change.
+  2. The **dynamic layer** (ball shadows, balls, guides, cue) is drawn every frame.
+- **Balls:**
+  - A projected disc (radius `R·F/z`) with a base colour.
+  - The stripe band drawn as the projection of a great-circle band around the ball's
+    local axis (from `q`), clipped to the disc.
+  - The number disc drawn as a foreshortened ellipse at the ball's local pole. It is
+    hidden when it faces away, and fades out below ~15px diameter, as in the design.
+  - Specular highlight and rim darkening fixed to the light, not rotating with the ball
+    (the design's two radial gradients).
+  - Sort back to front by camera depth.
+  - This gives **true 3D rolling**: stripes tumble and numbers roll over the top. It
+    replaces the orbiting label at [:3736](AttendanceTimeCheckerPlus.js#L3736).
+- **Shadows:** offset contact shadows under a single overhead light (design: +4, +5u,
+  1.08R, 38% black) plus a blurred table shadow.
+- **Pocketing:** the ball sinks and shrinks into the hole over ~250ms, then its tracker
+  dot on the owner's card dims.
+- **Cue:** six segments as in the design. The stroke plays as pull-back while you drag,
+  then a 90ms forward strike on release. The ball launches at contact, not on mouse-up.
+- **Guides:** the design's dashed aim line and ghost ball, the object-ball path in the
+  theme's felt accent, and a faint cue path. The cue path **reflects the selected spin**:
+  it is computed by a short cloned `step()` of the cue ball, so a draw shot visibly bends
+  back. The illegal-target prohibition sign from
+  [:3911](AttendanceTimeCheckerPlus.js#L3911) is kept, in the theme's hot colour. Every
+  coloured stroke on the felt gets a 1px dark underlay, so a user-picked Cyberpunk accent
+  still reads against green. Guide length is a tournament setting (full / short / off).
+- **Table colour preference** ([:277](AttendanceTimeCheckerPlus.js#L277)): green, red, blue
+  and grey stay, as felt tint ramps in the new material model.
+- **Theme:** every non-material colour comes from `poolThemeTokens()` (see *Theme
+  mapping*). Canvas text uses the theme's font: Inter, or Share Tech Mono in Cyberpunk.
+  Wait for `document.fonts.load` before the first text draw, and fall back to
+  `system-ui`.
+
+### Input (`pool-ui.js`)
+
+| Action | 3D camera | 2D camera |
+|---|---|---|
+| Aim | horizontal mouse or touch movement rotates the aim (0.3°/px) | point at a target |
+| Fine aim | `Shift`+move = 0.05°/px; `←/→` = ±0.1° (only while the pool panel has focus) | same |
+| Power | press, drag any direction; distance → % with an ease-in curve; the gauge fills; the hint shows `Release to shoot · 62%` | same |
+| Cancel | drag back under 3% and release, or `Esc` | same |
+| Spin | tap **SPIN** → popover with the ball face; drag the dot inside the 0.6R ring; Center/Follow/Draw/Left/Right chips | same |
+| Lean | vertical slider, 3D only | – |
+| Ball in hand | camera auto-switches to top-down; drag the cue ball with a hand cursor; red where placement is illegal | same |
+| Call pocket | when on the 8, tap a pocket (accent ring) before the shot is allowed | same |
+
+Pointer events replace the separate mouse and touch handlers at
+[:4310-4445](AttendanceTimeCheckerPlus.js#L4310-L4445). The host's `switchGame`
+add/remove listener blocks at [:9929](AttendanceTimeCheckerPlus.js#L9929) and
+[:10004](AttendanceTimeCheckerPlus.js#L10004) collapse to `poolAttach()` / `poolDetach()`.
+Keyboard handlers are scoped to the pool panel and do not collide with the `1-9` game
+shortcuts at [:19994](AttendanceTimeCheckerPlus.js#L19994).
+
+### CPU (`pool-ai.js`)
+
+1. **Generate candidates.** For each legal target × pocket: a direct cut (ghost ball),
+   one-rail bank, one-rail kick, a simple two-ball combo, and 2–4 safety lines. Prune by
+   clear paths and cut angle under 80°.
+2. **Simulate.** For the top K candidates, try a small grid of power × spin (`draw /
+   stun / follow`) with the **real `step()`** on a cloned world. Score the result: a
+   legal pot, then cue-ball position quality (the best next shot's make probability),
+   then whether a scratch or foul risk remains.
+3. **Choose safety** when no pot scores above a tier-specific threshold. The safety is
+   scored by the opponent's best make-probability afterwards.
+4. **Execute with tier noise.**
+
+| Tier | Candidates simulated | Spin options | Position play | Aim σ | Power σ | Rules |
+|---|---|---|---|---|---|---|
+| easy | 4 | stun only | no | 1.2° | 12% | call the 8 |
+| normal | 10 | stun, follow, draw | 1-ball look-ahead | 0.5° | 6% | call the 8 |
+| hard (today's CPU, tuned) | 20 | + side | 1-ball | **0** on direct shots (as today) | 0.5% (as today) | call the 8 |
+| pro ("hardly misses") | 32 | full grid | 2-ball look-ahead + safety duel | 0 | 0.25% | **call every shot**, both seats |
+
+Hard must never measure weaker than today's CPU. Phase 0 records a baseline win rate for
+the current `poolAITakeShot` against the scripted human models, and hard has to match or
+beat it. Pro's edge comes from three things:
+
+- It evaluates its shots on the real physics, so a zero-noise shot actually goes in.
+- It plays position two balls ahead.
+- It plays safe instead of taking a low-percentage pot.
+
+With call-every-shot on, the CPU calls the pocket its chosen line targets. A called ball
+that drops in a different pocket is no foul, but it does not count and the turn ends
+(WPA).
+
+The σ values for easy and normal are starting points. `pool-dev/balance-check.js` measures win rates against a
+scripted "casual" and "skilled" human model, and the Decision log records the calibrated
+numbers. The work is time-sliced across animation frames (≤4ms per frame) so aiming never
+janks the panel. The CPU shows its aim by rotating the cue toward its line over its think
+delay, as it does today.
+
+### Tournament (`pool-tournament.js`)
+
+**Bracket model (pure, fully tested):**
+
+- `S = nextPow2(N)`, `byes = S − N`, `rounds = log2(S)`.
+- Standard seeding order (1v16, 8v9, 5v12, …). Byes pair with the top seeds, so no round-1
+  match is bye vs bye.
+- Seeding: entry order by default, with a *Shuffle* option (the tournament's seeded
+  PRNG, so the draw is reproducible).
+- Byes are walkovers. The seeded player advances with no match played.
+- Round labels from the end: *Final*, *Semi-final*, *Quarter-final*, *Round of 16*.
+- The match record is `{id, round, slotA, slotB, raceTo, frames:[…], winner, status}`.
+  Winners feed forward by index, so there is no linked-list bookkeeping to corrupt.
+- Match order: finish a round before starting the next, left to right, so the bracket
+  fills evenly.
+
+**Screens (DOM, in the pool panel's skin; Max shows the full tree):**
+
+1. **Setup:** a tournament name (defaulted by size); a contestants stepper (3–16); a name
+   field per player, with slot 1 tagged `YOU` and prefilled with the display name; the
+   frames per round
+   (race-to for R1, SF, F); shot clock (30s / 45s / off); guideline (full / short / off);
+   call pocket (8 only / every shot); *Shuffle seeds*; **Start tournament**.
+2. **Bracket:**
+   - Compact (368px) shows **one round per page**, with tabs and swipe, and the next match
+     highlighted in the accent colour.
+   - Max shows the full tree with connector lines.
+   - Match cards show names, frame scores and a `LIVE` / `NEXT` / `DONE` / `BYE` state.
+   - CTA: **Play next match**.
+3. **Match intro:** both names, the round, race-to-N, who breaks, **Ready**.
+4. **Match:** the normal table, with the frames counter showing `race to N`, a round label
+   in the header, and a "Pass to <name>" strip on every seat change.
+5. **Match result:** the winner, the frame scores, "<loser> is out", the bracket-advance
+   animation, and **Continue**.
+6. **Champion:** a trophy card, the run summary (frames won and lost per round), the final
+   bracket, and **New tournament**.
+7. **Resume prompt:** shown when the panel opens with a tournament in progress. It offers
+   **Resume** or **Abandon**, and abandoning asks for confirmation.
+
+**Persistence:** `poolTournament = {v:1, id, seed, settings, slots, matches, currentMatchId,
+frameSnapshot}`.
+
+- `frameSnapshot` is the full world, turn, groups and shot clock, written after every shot
+  resolves, never mid-motion.
+- On load, a version mismatch or corrupt JSON is discarded behind a *"couldn't resume"*
+  toast. It is never half-loaded.
+- Quick matches outside tournaments keep today's keys unchanged.
+
+---
+
+## Progression, XP and anti-farm
+
+| Source | XP | Guard |
+|---|---|---|
+| Quick match vs CPU | win `60/80/100/120` by tier (easy→pro), loss 15 | one award per rack id; Reset mid-frame pays nothing |
+| Quick match PvP (hot-seat) | unchanged from today: Player 1 wins 80, loses 15; no pot XP | pot XP is what paid both seats (problem 8) |
+| Pot XP (+5) | **only when the potting seat is "You" against a CPU** | fixes problem 8 |
+| Tournament match, **You** win | **80** per match won, the same as a won game today | one award and one `gameSessions` increment per match, so the sync budget (`newGames × AC_MAX_XP_PER_GAME`, [:926](AttendanceTimeCheckerPlus.js#L926)) covers it. 80 is well under the 300 cap |
+| Tournament match, **You** lose | 15 | same |
+| Tournament match without You | 0 | – |
+| Bye | 0 | no match was played |
+| Tournament title | 0 XP | – |
+
+**Who "You" is:** the first slot in setup is the account owner. It is tagged `YOU` and
+prefilled with the widget's display name. The XP lands on this machine's account, so it
+follows that seat and not whoever happens to win.
+
+**Why this is enough of a guard:** each match is a real race-to-N of pool, so it takes
+the same time to play whether the opponent is a friend or a name you typed yourself.
+Entering 16 names buys nothing either. You still play only your own path through the
+bracket: at most 4 matches, the same XP as 4 quick wins in the same time. What stays out
+is anything that pays for the bracket rather than the match:
+
+- a title bonus
+- tournament achievements
+- a tournament leaderboard
+
+Tournaments are rewarded **locally** on top of the match XP:
+
+- a trophy cabinet (titles won, by bracket size)
+- tournament history (the last 20 brackets with their champions)
+
+None of it syncs.
+
+**Achievements:** none added for tournaments, for the same reason. Pro-tier CPU wins are
+not farmable, so one CPU achievement is worth considering:
+
+- 🎯 *Called It*: beat the pro CPU. It sits next to `poolShark` at
+  [:248](AttendanceTimeCheckerPlus.js#L248), with backfill at
+  [:10517](AttendanceTimeCheckerPlus.js#L10517) and XP at
+  [:10628](AttendanceTimeCheckerPlus.js#L10628) ❓
+
+**Leaderboard: split by CPU tier, the same way as Ludo** (confirmed 2026-09-25):
+
+- **Storage.** New `poolWinsByTier {easy, normal, hard, pro}`, written in `endPoolGame`
+  under the vs-CPU guard and keyed on the tier **locked when the frame started**, so
+  changing difficulty mid-frame cannot re-file a win.
+  - `poolGamesWon` and `poolWinsByMode.cpu` stay as the all-time total.
+  - Legacy wins are **not** backfilled into a tier; their difficulty was never recorded.
+  - There is no tournament board, because tournaments are farmable.
+- **Client sync**, following the Ludo pattern:
+  - `collectGameModeBests` ([:756](AttendanceTimeCheckerPlus.js#L756)) emits
+    `pool:easy|normal|hard|pro` next to the existing `pool:cpu` (all-time) and `pool:pvp`.
+    It reads `poolWinsByTier` inline, not through a pool-block helper, because that block
+    may not be loaded.
+  - The restore merge ([:1147](AttendanceTimeCheckerPlus.js#L1147)) raises only, per tier.
+- **Boards.** `LB_BOARDS.pool.modes` ([:1400](AttendanceTimeCheckerPlus.js#L1400))
+  becomes `{ pro, hard, normal, easy, cpu: All-time, pvp: Hot-seat }`.
+  - `gameLbMode('pool')` returns the tier being played (or `pvp`).
+  - The score button shows that tier's wins.
+  - The mode tab strip Ludo added works unchanged.
+
+**Gist and sync bot** (`github-actions-bot/.github/workflows/sync.yml`, a separate repo):
+
+What the bot does today:
+- The client syncs through `repository_dispatch` to the bot, which is the path at
+  [:688](AttendanceTimeCheckerPlus.js#L688). `cloudflare-worker/` is no longer on the
+  sync path.
+- The bot **replaces each player record wholesale** (`mergeSinglePlayer`). Only
+  `totalXP`, `totalWorkDays`, `gameSessions` and `longestStreak` are protected.
+- `gameModeBests` is never inspected. New `pool:*` keys therefore already pass through,
+  but nothing protects them:
+  - An outdated tab (still accepted during the `BUILD_TOKEN_PREVIOUS` grace window) that
+    syncs without the tier keys **erases them from the gist**.
+  - A modified client can write any number to any key.
+
+Required bot changes, which apply to Ludo's tiers as well:
+1. **Monotonic per-key merge of `gameModeBests`.** Keep `max(prev, next)` for count and
+   score keys, and the smaller positive value for `reflex:*`, which is lower-is-better. A
+   key the client omits is kept from the stored record, never dropped.
+2. **Shape validation.** Keys must match `^[a-z]+:[a-zA-Z]+$`; values must be finite
+   non-negative integers. Anything else is dropped from the incoming payload, not stored.
+3. **Growth bound for win counters.** The summed increase across `pool:{easy,normal,hard,pro}`
+   in one sync cannot exceed that sync's `gameSessions` delta (each win is one session);
+   the same holds for `ludo:{easy,normal,hard}`. A breach clamps the keys back to their
+   stored values and logs a `core.warning`. It does not flag the player, because an old
+   tab racing a new one can trip it innocently.
+4. `MAX_XP_PER_GAME` on the bot is 250 against the client's `AC_MAX_XP_PER_GAME` of 300.
+   Pool's largest award (120 for a pro win) fits either, so nothing needs changing, but
+   the mismatch is noted here.
+
+The bot lives in its own repo and deploys on push, so these land as a reviewed change
+to `sync.yml` pushed by the user. They are not bundled with a userscript release.
+
+---
+
+## Phases
+
+Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verify-all.js`
+(which gains the pool suite).
+
+### Phase 0: extraction (no behaviour change) — done 2026-09-25
+- [x] Branch `feat/pool-v2`, **cut from `feat/cyberpunk-hud-rework`, not `main`** (see the
+      Decision log).
+- [x] Pool engine moved into `pool-dev/pool-core.js` (1,108 lines) + `pool-ui.js`
+      (1,150), spliced back between `POOL ENGINE` sentinels. `reinsert.js` has a
+      `--check` mode and keeps the userscript's own line ending.
+  - Left in the host: the shared Max modal, the storage helpers, and `prayerCount`
+    (which had been declared in the middle of the pool state).
+  - Moved into the block: the `poolLastFrameMs` timing trio, from line 337.
+  - Proof that nothing but moves happened: a line-multiset diff of the file before and
+    after shows **0 lines removed**; the only additions are the two module headers and
+    the sentinels.
+- [x] `load.js`: host dependencies passed as parameters, the real storage helpers sliced
+      from the userscript, a seedable `Math.random`, and accessors generated for every
+      `let`.
+- [x] `pool-verify.js`: **91 assertions**. They cover:
+  - the splice contract and host wiring
+  - rack geometry and reproducibility
+  - break settling, overlap, bounds and determinism
+  - 21 rules cases
+  - pot XP
+  - frame end, the W/L record and the anti-farm guard
+  - CPU sanity
+  - 8 render states
+
+  Problems 1, 2, 4, 5, 6, 7 and 8 are each pinned by a tagged assertion. A planted rule
+  bug was caught three times (parity check plus two rule assertions).
+- [x] `preview.js`: `rack aim power break foul groups cpu gameover max`, or `all` for a
+      contact sheet. The output matches the current in-game look.
+- [x] `verify-all.js` runs the pool suite: **1,679 assertions, 0 failed** (1,588 before,
+      plus 91).
+- [x] **Baseline strength of today's CPU** (`baseline-check.js 1000 1`: 1,000 frames per
+      profile, seat 1 always breaks). This is the bar for Phase 6:
+
+      | human model | aim σ | power σ | today's CPU wins |
+      |---|---|---|---|
+      | mirror (itself) | 0° | 0% | 53.4% [50–56] |
+      | skilled | 0.4° | 5% | **61.4%** [58–64] |
+      | casual | 1.2° | 12% | **72.3%** [69–75] |
+      | novice | 3° | 25% | 75.1% [72–78] |
+
+  - Across all 32,351 visits, the CPU pots on **~65%** of them and **fouls on 13.4%**.
+  - Fouls by cause: **74% scratches**, 17% wrong ball first, 4% 8 hit early, 3% not the
+    8 first, 2% no contact.
+  - Frames it loses on its own shot: **58% the 8 potted too early**, 38% a scratch on the
+    8, 3% the 8 on the open table.
+  - Both leading causes come from problem 5: the trial sim never tracks the cue ball
+    into a pocket and ignores every ball except the target. That is why even a 3° novice
+    takes a quarter of the frames.
+
+### Phase 0b: close the design gaps (user, in Claude Design)
+- [x] Run the prompt in [Appendix A](#appendix-a-design-prompt-for-the-missing-screens)
+      in the existing design canvas. 29 artboards delivered on 2026-09-25.
+- [x] Re-read the canvas and update this plan: *Artboard inventory*, *Gaps*, *Theme
+      mapping*.
+- [ ] Copy the canvas into `pool-dev/ref/design/` as the frozen reference, the way
+      `cyber-dev/ref/design/` does, so later sessions don't depend on the live canvas.
+
+### Phase 1: physics v2
+- [ ] Table geometry from the design constants: rail segments, jaw segments, pocket
+      throats.
+- [ ] Ball model (sliding, rolling, spinning), cue strike with tip offset and squirt,
+      ball–ball with throw, spin-aware cushions, pocket capture and reject.
+- [ ] Event-driven TOI integrator; seeded PRNG; `cloneWorld()`.
+- [ ] Tests:
+  - energy never increases
+  - no overlap after any event
+  - no tunneling at max power in 10k random shots
+  - stun, follow and draw go in the right directions at the right magnitudes
+  - a rolling ball's stop distance is linear in `v²`
+  - the 30° cut rule of thumb
+  - running vs reverse English off a rail
+  - jaw rattle and pocket reject
+  - identical inputs → identical outcomes
+  - a break spreads the rack and ≥4 balls reach a rail at ≥70% power
+- [ ] Tune in `pool-harness.html` with live sliders for μs, μr, μsp, e and throw.
+
+### Phase 2: rules v2
+- [ ] `judgeShot` with open table after the break, legal break, the 8 on the break,
+      called 8, WPA fouls, and seat-aware messages (problem 7).
+- [ ] One table-driven test per rule row, reusing the existing BCA cases from Phase 0
+      where they still apply.
+
+### Phase 3: renderer
+- [ ] `pool-camera.js` (port of `Table.dc.html`) with an unprojection test: a screen click
+      maps back to the table point it came from.
+- [ ] Cached table layer; balls with quaternion rolling; shadows; cue with stroke;
+      spin-aware guides; pocket drop.
+- [ ] Camera choreography: aim (chase) → shot (ease to broadcast) → rest (return) → ball
+      in hand (top-down).
+- [ ] DPR backing store; felt tints for the four table colours.
+- [ ] `preview.js` renders each scenario in both cameras. Compare against the artboards.
+
+### Phase 4: HUD, controls, layouts
+- [ ] Panel DOM from `Main.dc.html`: header, player cards with group trackers, `FRAMES`,
+      table viewport, overlays, three buttons. Replace the pool scoreboard and control
+      blocks at [:19649](AttendanceTimeCheckerPlus.js#L19649) and
+      [:19757](AttendanceTimeCheckerPlus.js#L19757).
+- [ ] Shot clock as a 3px accent bar draining on the active card, hot in the last 5s. Foul and turn banners
+      as a toast over the table top.
+- [ ] Max layout from `Max.dc.html` through the new `cfg.build` hook. Ludo's Max stays
+      byte-identical.
+- [ ] `pool-theme.css`: the `--pool-*` mappings for Glassmorphic (dark, and a light-mode
+      override) and Cyberpunk; component CSS that uses only `--pool-*`.
+- [ ] Canvas bridge `poolThemeTokens()` plus `poolOnThemeChange()`, wired into
+      `applyCyberpunkTheme`, `clearCyberpunkTheme`, the colour-picker listener and the
+      `prefers-color-scheme` listener. It invalidates the cached table layer.
+- [ ] Static audit in `pool-verify.js`: no design hex (`#F0B44C`, `#EC6A3D`, `#0E1113`,
+      `#161C1F`, `#1C2327`, `#9CA5A8`, …) anywhere in pool code outside the
+      materials/ball tables; no `clip-path` or `filter` on the table viewport or its
+      ancestors.
+- [ ] `pool-harness.html` gets a theme switcher: Glassmorphic dark/light × Cyberpunk
+      dark/light × four shapes × a custom-colour input.
+
+### Phase 5: input
+- [ ] Pointer-events handlers; 3D rotate-aim; 2D point-aim; fine aim; power curve; spin
+      popover; lean; ball-in-hand drag; call pocket; `Esc` cancel.
+- [ ] Remove Play and move the anti-farm guard (problem 10). The test asserts that
+      Reset → play → win pays once.
+
+### Phase 6: CPU v2
+- [ ] Candidates, cloned-world evaluation, position scoring, safeties, time slicing, four
+      tiers, pinnable difficulty in ⚙️, pocket calling for the CPU.
+- [ ] Call-every-shot rule in `judgeShot` (a called ball in the wrong pocket ends the turn
+      without a foul) and in the input flow (every shot needs a pocket tap first).
+- [ ] `balance-check.js`: calibrate the tiers against the Phase 0 baseline, with
+      hard ≥ today's CPU and pro above it. Record the measured win rates in the Decision
+      log. Measure against the same four human models as `baseline-check.js`; the bar is
+      hard ≥ 61.4% vs skilled and ≥ 72.3% vs casual.
+- [ ] The first two tuning targets come straight from the baseline. Both fall out of
+      evaluating shots on the real `step()` over the whole table:
+  - reject any line where the cue ball scratches (74% of today's fouls)
+  - reject any line where the 8 drops before the group is clear (58% of the CPU's
+    self-inflicted losses)
+
+  Target: CPU foul rate under 5% per visit on hard and under 2% on pro, from 13.4% today.
+
+### Phase 7: tournament (humans only)
+- [ ] Pure bracket model and tests: sizes 3–16, bye placement, seeding order, advancement,
+      a reproducible shuffle.
+- [ ] Setup, Bracket, Match intro, Match, Result, Champion and Resume screens; the
+      "Pass to <name>" strip.
+- [ ] Persistence and resume, including a mid-frame snapshot; corrupt or old-version
+      handling.
+- [ ] Trophy cabinet and history (local only).
+
+### Phase 8: progression
+- [ ] XP table above; the optional *Called It* achievement.
+- [ ] Tier leaderboard: `poolWinsByTier`, the `pool:{easy,normal,hard,pro}` keys in
+      `collectGameModeBests`, the only-raise restore, `LB_BOARDS.pool.modes`,
+      `gameLbMode`, the score button. Update the Snake-suite assertions that pin the
+      two-mode pool board.
+- [ ] Sync bot (`sync.yml`): the monotonic per-key `gameModeBests` merge, shape validation,
+      and the win-growth bound against the `gameSessions` delta. Ships **before** the
+      client release that emits the tier keys, so no window exists where an outdated tab
+      can erase them. Needs a headless test harness for the bot script (it is inline
+      `github-script` today) and a push by the user.
+- [ ] `BUILD_LABEL` bump; the `integration-verify.js` / `host-smoke.js` updates the new
+      state needs.
+
+### Phase 9: polish and verification
+- [ ] Performance: under 4ms per frame for the compact panel in 3D on the office laptops,
+      and FPS cap respected (`getFrameInterval`).
+- [ ] Accessibility: every control is a real button or input with an `aria-label`;
+      keyboard-only play is possible; colour-blind check on the solids/stripes trackers
+      (they differ by pattern, not only hue).
+- [ ] Theme pass: every artboard state checked in all four theme and mode combinations,
+      and in Cyberpunk under all four shapes and the six colour presets. Text on
+      `--pool-*` surfaces clears 4.5:1 (reuse `contrastRatio` from `cyber-hud.js`).
+      Switching theme mid-frame repaints the canvas with no reload.
+- [ ] **Portal verification** on `globalportal.mtbc.com` (the userscript only runs there).
+
+---
+
+## Open questions ❓
+
+1. **Compact 2D ball size:** the design's top-down fit gives R≈4.5px, down from today's
+   6px. If it reads too small in `preview.js`, should the compact 2D view rotate the table
+   to portrait (R≈5px) or slim the rails?
+2. ***Called It* achievement** for beating the pro CPU: add it or not?
+
+---
+
+## Decision log
+
+| Date | Decision | Reason |
+|---|---|---|
+| 2026-09-25 | Plan drafted from the design canvas + a full read of the current engine | – |
+| 2026-09-25 | **Tournaments are humans only.** No CPU slots, no CPU-vs-CPU resolver, no Watch mode | The user's call |
+| 2026-09-25 | ~~Tournaments pay PvP-rate XP only (15 per match)~~ **Superseded the same day:** the **You** seat earns **80 per match won and 15 per match lost**, the same as a game today. There is still no title bonus, tournament achievement or tournament leaderboard. The quick PvP payout stays as it is today | The user's call: every match takes the same time to play, so match XP is rate-limited by the clock. Only per-bracket rewards could be multiplied by typing extra names |
+| 2026-09-25 | **Difficulty ladder: easy / normal / hard / pro, adaptive and pinnable.** Hard is today's CPU fine-tuned and must measure at least as strong. Pro hardly misses and turns on call-every-shot | The user's call: the current CPU is already tough, so it can be tuned tougher rather than rebuilt weaker |
+| 2026-09-25 | **Call pocket on every shot** exists as a rule. The pro tier forces it on, and PvP and tournaments offer it as a setting | The user's call, as the way to raise difficulty through rules as well as through the CPU |
+| 2026-09-25 | **The missing screens are designed by the user in Claude Design from the prompt in Appendix A**, not generated by the implementer | The user's call |
+| 2026-09-25 | **29 artboards received.** Inventory and seven gap decisions recorded: tournament name field, Pause behaviour, spin stays as presets, the clock waits for the hand-off, adaptive re-evaluates per frame, cabinet identity by normalised name, Max variants derived from compact | The design was delivered |
+| 2026-09-25 | **Leaderboard split by CPU tier, as in Ludo, and the sync bot must protect the new keys.** `pool:{easy,normal,hard,pro}` join `pool:cpu`/`pool:pvp`, with no legacy backfill. The bot gets a monotonic per-key `gameModeBests` merge, shape validation and a win-growth bound, shipped before the client emits the keys | The user's call. The bot currently replaces records wholesale, so an outdated tab would erase the tier keys and a modified client could write anything to them |
+| 2026-09-25 | **`feat/pool-v2` cut from `feat/cyberpunk-hud-rework`, not `main`** | That branch is 10 commits ahead of `main` and has re-spliced large parts of the userscript. Extracting pool from `main`'s older file would guarantee a painful merge. Pool and the Cyberpunk work touch disjoint regions, and the uncommitted `cyber-theme.css` edit was left unstaged |
+| 2026-09-25 | **Pool's `reinsert.js` writes the userscript's own line ending; dev files are LF** | The userscript is pure LF in the working tree (with `core.autocrlf=true`), while `snake-dev/reinsert.js` always writes CRLF blocks. Copying that would have left the file with mixed endings. An anchor check in the extraction script caught the wrong assumption before anything was written |
+| 2026-09-25 | **`prayerCount` stays in the host; the pool timing trio moves into the block** | `let prayerCount` was declared in the middle of the pool state, but the Prayer Counter owns it. `poolLastFrameMs`/`LogicMs`/`Accumulator` are pool-only. No outside code touches pool state at load time (checked with a reference scan, and by `host-smoke.js`, which evaluates the whole IIFE), so the move carries no temporal-dead-zone risk |
+| 2026-09-25 | **Baseline: today's CPU wins 61.4% vs skilled and 72.3% vs casual, fouls on 13.4% of visits** | Measured by `baseline-check.js` over 4,000 frames. 74% of its fouls are scratches and 58% of its self-inflicted losses are an early 8. This sets the bar and the first two targets for Phase 6 |
+| 2026-09-25 | **The design's amber palette and Chakra Petch/Sora are dropped. Pool renders in the existing Glassmorphic Aurora and Cyberpunk HUD presets** through `--pool-*` tokens, with a canvas bridge. Table materials and ball colours stay physical and theme-independent | The user's call. It keeps pool consistent with the other panels and honours the user's Cyberpunk colour picks. No new font imports are needed |
+
+---
+
+## Appendix A: design prompt for the missing screens
+
+Paste this into the existing Claude Design canvas (*"8-Ball Pool, compact panel, both
+cameras"*).
+
+```text
+Add the missing screens for this 8-Ball Pool game to this canvas. Match the existing Main, Max and Table artboards exactly: same palette (ground #07090A, panel #0E1113, card #161C1F, button #1C2327 hover #242C31, text #ECE8DF, muted #9CA5A8, accent amber #F0B44C, hot #EC6A3D, ivory #F3EEE2), same type (Chakra Petch 500–700 for titles, numerals and tracked uppercase labels; Sora 400–600 for body), same radii (20 panel, 14 cards, 12 buttons, pill overlays with 0.66 black and a blur), and the same inline stroke icons. Reuse the Table component for every screen that shows the table. Compact artboards are 400×640 with the 368×412 table viewport; full-view artboards are 1280×800.
+
+Context: the game runs inside a small widget panel on a work portal. It is offline. Modes are Vs CPU, 2 Players (hot-seat on one machine) and Tournament. Tournaments are HUMANS ONLY: every contestant is a person taking turns on the same computer. There are no CPU players in tournaments. Use realistic placeholder names (Ayesha, Bilal, Hamza, Sana, Usman, Zara, Omar, Hira, and so on).
+
+Row 1, in-match states (compact 400×640, table visible):
+1. Mode & difficulty sheet: opened from the mode button. Three options: Vs CPU, 2 Players, Tournament. Under Vs CPU, a difficulty control: Adaptive (default, shows which tier it is currently on) or pinned Easy / Normal / Hard / Pro, with one line explaining each. Pro says "Hardly misses · call every shot".
+2. Ball in hand: the camera has switched to top-down automatically. The cue ball is a draggable ghost with a hand cursor. Show a valid position and an invalid one (hot colour, overlapping a ball). Include the break variant, where only the kitchen (behind the head string) is allowed and is shaded.
+3. Foul and turn change: a foul toast at the top of the table ("Foul · Hit opponent's ball first", with "Ball in hand to Bilal" underneath), and a "Pass to Bilal" hand-off strip for 2 Players and Tournament, so the players know to swap seats.
+4. Called pocket: the player must tap a pocket before shooting. This happens on the 8, or on every shot at Pro / when the rule is on. Show the six pockets with amber target rings, one selected, the hint pill saying "Tap a pocket to call it", and the shoot state disabled until a pocket is called. Show it in 3D and in 2D.
+5. Shot clock: the active player's card has a thin amber bar draining along its bottom edge. It turns hot in the last 5 seconds.
+6. Frame over, Vs CPU: a win and a loss version, with the reason ("Potted the 8 in the called pocket" / "Scratched on the 8"), the updated W·L record, and New frame / Change difficulty actions.
+
+Row 2, tournament (compact 400×640; the same screens again at 1280×800 where noted):
+7. Tournament setup: a contestants stepper (3 to 16); an editable name list, scrollable when long, where the first slot is tagged YOU and prefilled with the user's name; frames per round (race-to for first round, semi-final and final, for example 1 / 2 / 3); shot clock (30s / 45s / off); guideline (full / short / off); call pocket (8 only / every shot); a Shuffle seeds toggle; and a primary Start tournament button. Show it with 6 names entered.
+8. Bracket, compact: one round per page with round tabs (Quarter-final · Semi-final · Final). Match cards show two names, frame scores, and a state chip: LIVE / NEXT / DONE / BYE. The next match is highlighted in amber, and the primary button is Play next match. Use a 6-player bracket, so two top seeds have BYEs into the semi-finals.
+9. Bracket, full view 1280×800: the whole tree with connector lines, the champion slot at the end, and a completed path highlighted. Show 8 players mid-tournament, and make sure the layout visibly scales to 16 (note the 16-player column widths).
+10. Match intro: the hand-off before a match. Both names large, facing each other; the round name; "Race to 2"; who breaks; a Ready button.
+11. Match in progress: the normal compact table screen, but the header shows the round ("Semi-final · race to 2") and the FRAMES counter shows the running score, for example 1–0.
+12. Match result: the winner, the frame scores, "Bilal is out", a small preview of the bracket with the winner advancing, and Continue.
+13. Champion: a trophy moment, restrained and premium with no confetti clichés. The champion's name, their run through each round with its scores, the final bracket, and New tournament / View trophy cabinet. Also at 1280×800.
+14. Resume prompt: when the panel opens with a tournament in progress, show "City Open · Semi-final · Ayesha vs Bilal, frame 2", with Resume and Abandon. Abandon asks for confirmation.
+15. Trophy cabinet: local history, with titles won by bracket size (4 / 8 / 16) and a list of the last tournaments showing their champion, date and size.
+
+Rules for all of these:
+- No emoji; use stroke icons.
+- Real buttons and inputs, touch targets of at least 44px, and text contrast of at least 4.5:1.
+- Keep the table the hero on in-match screens; overlays must not cover the cue ball or the aim line.
+- Title each artboard clearly and group the two rows with row titles.

@@ -20,6 +20,9 @@ const SUITES = [
     // Same contract again for the Cyberpunk HUD theme: CSS + two JS modules
     // under cyber-dev/, spliced by sentinel and asserted byte-identical.
     ['Cyberpunk HUD',  '../cyber-dev/cyber-verify.js'],
+    // Pool v2 (POOL_V2_PLAN.md): pool-core.js + pool-ui.js under pool-dev/, the
+    // same sentinel splice and byte-identity contract as Snake.
+    ['Pool',           '../pool-dev/pool-verify.js'],
 ];
 
 const results = [];

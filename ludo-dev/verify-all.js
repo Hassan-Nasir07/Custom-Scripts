@@ -23,6 +23,8 @@ const SUITES = [
     // Pool v2 (POOL_V2_PLAN.md): pool-core.js + pool-ui.js under pool-dev/, the
     // same sentinel splice and byte-identity contract as Snake.
     ['Pool',           '../pool-dev/pool-verify.js'],
+    // The v2 physics (pool-physics.js), headless until the renderer lands in Phase 3.
+    ['Pool physics',   '../pool-dev/physics-verify.js'],
 ];
 
 const results = [];

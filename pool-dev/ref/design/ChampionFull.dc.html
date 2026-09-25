@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tournament champion, full view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&amp;family=Sora:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#07090A}
+.cf-btn{cursor:pointer;transition:background .15s ease}
+.cf-btn:hover{background:#242C31 !important}
+.cf-btn:focus-visible,.cf-pri:focus-visible{outline:2px solid #F0B44C;outline-offset:2px}
+.cf-pri{cursor:pointer;transition:filter .15s ease,transform .1s ease}
+.cf-pri:hover{filter:brightness(1.07)}
+@keyframes cf-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.cf-rise{animation:cf-rise .8s cubic-bezier(.2,.7,.2,1) both}
+</style>
+</helmet>
+<div style="width: 1280px; height: 800px; box-sizing: border-box; padding: 24px; display: flex; flex-direction: column; gap: 16px; background: radial-gradient(ellipse 45% 55% at 18% 38%, rgba(240, 180, 76, 0.10) 0%, rgba(240, 180, 76, 0) 70%), radial-gradient(ellipse 70% 50% at 50% 0%, #162022 0%, #0B0E10 70%); border-radius: 20px; font-family: 'Sora', system-ui, sans-serif; color: #ECE8DF">
+
+<div style="height: 64px; display: flex; align-items: center; justify-content: space-between">
+<div style="display: flex; align-items: center; gap: 12px">
+<svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#141516" stroke="#2C3337" stroke-width="1"></circle><circle cx="12" cy="11.4" r="4.8" fill="#F3EEE2"></circle><text x="12" y="13.9" text-anchor="middle" font-family="Chakra Petch, sans-serif" font-size="7" font-weight="700" fill="#141516">8</text><circle cx="8" cy="6.6" r="1.6" fill="#FFFFFF" fill-opacity="0.35"></circle></svg>
+<div style="font-family: 'Chakra Petch', sans-serif; font-size: 24px; font-weight: 600">8-Ball Pool</div>
+</div>
+<a href="Champion.dc.html" class="cf-btn" aria-label="Exit full view" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #1C2327; border: 1px solid rgba(255, 255, 255, 0.07); color: #ECE8DF">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"></path></svg></a>
+</div>
+
+<div style="flex-grow: 1; display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 40px">
+<div class="cf-rise" style="display: flex; flex-direction: column; justify-content: center; gap: 28px; padding-left: 16px">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<svg width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="#F0B44C" stroke-width="0.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3" fill="rgba(240, 180, 76, 0.10)"></path><path d="M9.5 7.2v1.6a2.5 2.5 0 0 0 1.4 2.2" stroke-opacity="0.6"></path></svg>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.24em; color: #F0B44C">CHAMPION · CITY OPEN</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 80px; font-weight: 700; line-height: 0.95; letter-spacing: 0.01em">Ayesha</span>
+<span style="font-size: 14px; color: #9CA5A8">6 players · Sep 25, 2026 · 5 frames won, 2 lost</span>
+</div>
+<div style="display: flex; flex-direction: column; border-radius: 14px; background: #161C1F; border: 1px solid rgba(255, 255, 255, 0.06); padding: 6px 8px">
+<div style="height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 10px">
+<span style="width: 120px; font-family: 'Chakra Petch', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; color: #9CA5A8">QUARTER-FINAL</span>
+<span style="flex-grow: 1; font-size: 14px; color: #C9CFCF">Bye as top seed</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: 700; color: #9CA5A8">—</span>
+</div>
+<div style="height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 10px; border-top: 1px solid rgba(255, 255, 255, 0.05)">
+<span style="width: 120px; font-family: 'Chakra Petch', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; color: #9CA5A8">SEMI-FINAL</span>
+<span style="flex-grow: 1; font-size: 14px">beat Bilal</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 18px; font-weight: 700">2–1</span>
+</div>
+<div style="height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 10px; border-top: 1px solid rgba(255, 255, 255, 0.05)">
+<span style="width: 120px; font-family: 'Chakra Petch', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; color: #F0B44C">FINAL</span>
+<span style="flex-grow: 1; font-size: 14px">beat Sana</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 18px; font-weight: 700; color: #F4E3BF">3–1</span>
+</div>
+</div>
+<div style="display: flex; gap: 10px">
+<a href="TournamentSetup.dc.html" class="cf-pri" style="height: 52px; padding: 0 24px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #F0B44C; color: #1B1406; font-family: 'Chakra Petch', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0.08em; text-decoration: none; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35)">NEW TOURNAMENT</a>
+<a href="TrophyCabinet.dc.html" class="cf-btn" style="height: 52px; padding: 0 20px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 12px; background: #1C2327; border: 1px solid rgba(255, 255, 255, 0.07); color: #ECE8DF; font-size: 14px; font-weight: 600; text-decoration: none">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>View trophy cabinet</a>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; justify-content: center">
+<div style="box-sizing: border-box; padding: 24px; border-radius: 18px; background: rgba(22, 28, 31, 0.6); border: 1px solid rgba(255, 255, 255, 0.05)">
+<dc-import name="BracketTree" scenario="city-final" width="724" height="520" hint-size="724px,520px"></dc-import>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

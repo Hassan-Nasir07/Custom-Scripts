@@ -1,0 +1,327 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "BallInHand.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "2a · Ball in hand · valid spot (drag it)",
+      "w": 400,
+      "x": 1360,
+      "y": 2300
+    },
+    "BallInHandBreak.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "2c · Ball in hand · break, kitchen only",
+      "w": 400,
+      "x": 2320,
+      "y": 2300
+    },
+    "BallInHandInvalid.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "2b · Ball in hand · invalid spot",
+      "w": 400,
+      "x": 1840,
+      "y": 2300
+    },
+    "BracketCompact.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "8 · Bracket · compact",
+      "w": 400,
+      "x": 1360,
+      "y": 3320
+    },
+    "BracketFull.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "9a · Bracket · full view, 8 players mid-tournament",
+      "w": 1280,
+      "x": 880,
+      "y": 4080
+    },
+    "BracketFull16.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "9b · Bracket · full view, 16-player layout check",
+      "w": 1280,
+      "x": 2240,
+      "y": 4080
+    },
+    "BracketTree.dc.html": {
+      "h": 520,
+      "radius": 14,
+      "title": "Bracket tree component (scales 4 / 8 / 16)",
+      "w": 900,
+      "x": 2288,
+      "y": 0
+    },
+    "CallPocket2D.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "4b · Called pocket · 2D, top right called",
+      "w": 400,
+      "x": 3760,
+      "y": 2300
+    },
+    "CallPocket3D.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "4a · Called pocket · 3D, shot locked until called",
+      "w": 400,
+      "x": 3280,
+      "y": 2300
+    },
+    "Champion.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "13a · Champion · compact",
+      "w": 400,
+      "x": 3280,
+      "y": 3320
+    },
+    "ChampionFull.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "13b · Champion · full view",
+      "w": 1280,
+      "x": 3600,
+      "y": 4080
+    },
+    "FoulHandoff.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "3 · Foul toast + Pass to Bilal hand-off",
+      "w": 400,
+      "x": 2800,
+      "y": 2300
+    },
+    "FrameLoss.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "6b · Frame over · loss vs CPU",
+      "w": 400,
+      "x": 5680,
+      "y": 2300
+    },
+    "FrameWin.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "6a · Frame over · win vs CPU",
+      "w": 400,
+      "x": 5200,
+      "y": 2300
+    },
+    "InMatch.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "5a · Shot clock (InMatch component)",
+      "w": 400,
+      "x": 4240,
+      "y": 2300
+    },
+    "Main.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "Compact panel · 3D aim camera",
+      "w": 400,
+      "x": 880,
+      "y": 0
+    },
+    "MatchIntro.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "10 · Match intro",
+      "w": 400,
+      "x": 1840,
+      "y": 3320
+    },
+    "MatchLive.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "11 · Match in progress",
+      "w": 400,
+      "x": 2320,
+      "y": 3320
+    },
+    "MatchResult.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "12 · Match result",
+      "w": 400,
+      "x": 2800,
+      "y": 3320
+    },
+    "Max.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "Full view (Max) · 3D aim camera",
+      "w": 1280,
+      "x": 880,
+      "y": 1100
+    },
+    "ModeSheet.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "1 · Mode & difficulty sheet",
+      "w": 400,
+      "x": 880,
+      "y": 2300
+    },
+    "PanelTopDown.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "Compact panel · 2D top-down",
+      "w": 400,
+      "x": 1360,
+      "y": 0
+    },
+    "ResumeAbandon.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "14b · Resume prompt · abandon confirmation",
+      "w": 400,
+      "x": 4240,
+      "y": 3320
+    },
+    "ResumePrompt.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "14a · Resume prompt",
+      "w": 400,
+      "x": 3760,
+      "y": 3320
+    },
+    "ShotClockHot.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "5b · Shot clock · last 5 seconds",
+      "w": 400,
+      "x": 4720,
+      "y": 2300
+    },
+    "Table.dc.html": {
+      "h": 300,
+      "radius": 14,
+      "title": "Table renderer component",
+      "w": 368,
+      "x": 1840,
+      "y": 0
+    },
+    "TournamentSetup.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "7 · Tournament setup",
+      "w": 400,
+      "x": 880,
+      "y": 3320
+    },
+    "TrophyCabinet.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "15 · Trophy cabinet",
+      "w": 400,
+      "x": 4720,
+      "y": 3320
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-09-25T06:06:24.004Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {},
+  "notes": {
+    "bracketMath": {
+      "fill": "teal",
+      "text": "Bracket column widths (tree area 1232 × 672)\n\n8 players · 3 round columns × 308 px, 40 px gutters, 188 px champion column. Slot 160 px, card 64 px.\n\n16 players · 4 round columns × 221 px, same gutters and champion column. Slot 80 px, card 64 px.\n\nRule: column = (1232 − 188 − rounds × 40) ÷ rounds; card height = min(64, slot − 12). 4 players gives 2 columns × 482 px.",
+      "w": 380,
+      "x": 4960,
+      "y": 4080
+    },
+    "row1": {
+      "kind": "title1",
+      "maxW": 1328,
+      "text": "8-Ball Pool — compact panel, both cameras",
+      "w": 240,
+      "x": 880,
+      "y": -260
+    },
+    "rowInMatch": {
+      "kind": "title1",
+      "maxW": 5200,
+      "text": "Row 1 · In-match states (compact 400 × 640)",
+      "w": 240,
+      "x": 880,
+      "y": 2040
+    },
+    "rowTournament": {
+      "kind": "title1",
+      "maxW": 4240,
+      "text": "Row 2 · Tournament (compact, then 1280 × 800 full views)",
+      "w": 240,
+      "x": 880,
+      "y": 3060
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "PanelTopDown.dc.html",
+    "Table.dc.html",
+    "BracketTree.dc.html",
+    "Max.dc.html",
+    "ModeSheet.dc.html",
+    "BallInHand.dc.html",
+    "BallInHandInvalid.dc.html",
+    "BallInHandBreak.dc.html",
+    "FoulHandoff.dc.html",
+    "CallPocket3D.dc.html",
+    "CallPocket2D.dc.html",
+    "InMatch.dc.html",
+    "ShotClockHot.dc.html",
+    "FrameWin.dc.html",
+    "FrameLoss.dc.html",
+    "TournamentSetup.dc.html",
+    "BracketCompact.dc.html",
+    "MatchIntro.dc.html",
+    "MatchLive.dc.html",
+    "MatchResult.dc.html",
+    "Champion.dc.html",
+    "ResumePrompt.dc.html",
+    "ResumeAbandon.dc.html",
+    "TrophyCabinet.dc.html",
+    "BracketFull.dc.html",
+    "BracketFull16.dc.html",
+    "ChampionFull.dc.html"
+  ],
+  "pages": [],
+  "title": "Design"
+}

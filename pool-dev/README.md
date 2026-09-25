@@ -14,9 +14,11 @@ hold the *current* engine, moved unchanged. Phase 1 onwards replaces it.
 node pool-dev/reinsert.js                 # splice pool-dev/ into the userscript
 node pool-dev/reinsert.js --check         # exit 1 if the userscript copy differs
 node pool-dev/pool-verify.js              # the pool suite
+node pool-dev/physics-verify.js 2000      # the v2 physics, with a 2000-shot fuzz
 node ludo-dev/verify-all.js               # every suite, pool included
 node pool-dev/baseline-check.js 1000 1    # today's CPU vs scripted humans
 node pool-dev/preview.js out.png all      # render the real canvas to a PNG
+start pool-dev/pool-harness.html          # shoot and tune the v2 physics live
 ```
 
 Everything needs Node 14+ because the userscript uses `??` and optional chaining. The
@@ -37,6 +39,42 @@ default `node` here is 10, so use the Volta image:
 | `baseline-check.js` | measures today's CPU; the bar the v2 hard tier has to clear |
 | `preview.js` | renders `drawPoolFrame` to a PNG |
 | `reinsert.js` | mechanical splice into `AttendanceTimeCheckerPlus.js` |
+| `pool-physics.js` | **v2 physics** (Phase 1): table geometry, sliding/rolling ball model, cue strike, collisions, stepping. Pure and deterministic. **Not spliced yet**; it replaces the physics in `pool-core.js` when the new renderer lands |
+| `physics-verify.js` | checks `pool-physics.js` against real ball behaviour, plus a fuzz for the invariants |
+| `pool-harness.html` | live table running the real `pool-physics.js`: shoot with a drag, set spin, tune every constant with sliders, see trails and the shot's events |
+
+## pool-physics.js
+
+The v2 engine uses a right-handed world frame: x right, **y up**, z up, in table units.
+The playfield is 1000 × 500 with its origin at the centre and R = 14. The renderer flips y
+for the screen.
+
+A ball is always in one of four states, and each state has an exact closed form, so
+balls are advanced analytically rather than integrated:
+
+| state | what happens |
+|---|---|
+| sliding | the contact point slips. Cloth friction (μs) slows v and drives ω toward natural roll along a fixed slip direction, and ends after exactly 2\|u\|/(7 μs g) |
+| rolling | no slip. Constant deceleration μr g |
+| spinning | v = 0; only ω_z (English) remains, decaying at μsp |
+| stationary | at rest |
+
+Collisions are found by time of impact inside each of 4 sub-steps per 60 Hz frame and
+resolved one at a time. Three details matter:
+
+- **Touching clusters.** When a ball hits a group of balls that are touching each other,
+  the contact itself is micro-simulated with stiff, damped springs. This is what makes a
+  tight rack spread. One-pair-at-a-time resolution sends the whole impulse down the two
+  edges of the triangle. Only the velocity change is kept.
+- **Overlap sweep.** A straight-line time of impact can meet a decelerating ball up to
+  ~0.015 u early. A sweep at the end of each sub-step separates any overlap and resolves
+  it if the balls are still closing.
+- **Pockets.** Each pocket is two jaws that run from the nose points to a capture circle.
+  A ball drops when its centre enters the circle. A ball that somehow leaves the table
+  is counted in `world.escapes`, which the fuzz asserts stays at zero.
+
+The CPU (Phase 6) will call `ppCloneWorld` + `ppSimulate` to test shots, so it uses
+exactly the game's physics. That fixes problem 5.
 
 ## What stays in the host
 

@@ -4,7 +4,7 @@
 > deviation in the **Decision log** at the bottom. Attach this file as context in later
 > sessions.
 >
-> Status: `IN PROGRESS`, Phase 0 done · Last updated: 2026-09-25 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
+> Status: `IN PROGRESS`, Phases 0–1 done · Last updated: 2026-09-25 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
 
 ## Context
 
@@ -108,6 +108,52 @@ Most in-match states are one component, `InMatch.dc.html`, switched by a `varian
    *ayesha* are one person.
 7. **Max variants of the in-match states** are not drawn. They follow `Max.dc.html`'s
    scale-up of the compact overlays.
+8. **The YOU slot's name** comes from `lbDisplayName`, the leaderboard name the widget
+   already registers ([:634](AttendanceTimeCheckerPlus.js#L634)). It falls back to
+   "You" if the user never registered.
+
+### Rendering spec (from `Table.dc.html`, revision `1790325931-f598`)
+
+**Layer order**, back to front. The canvas renderer paints in exactly this order. The
+design's ball-over-overlay bug cannot happen on a canvas, but the order is what fixed it,
+so it is the contract:
+
+1. Table shadow, apron, felt.
+2. Rail inner face, jaw faces, nose faces (the rubber drops to the felt).
+3. Cushion tops, rail wood, lip, diamonds, spots.
+4. Pocket leather rim, then the **pocket interior**.
+5. Kitchen tint, head string.
+6. Ball shadows, then the aim, deflection and object-ball guides.
+7. **Balls**, sorted by camera depth.
+8. Ghost ball, cue, called-pocket rings, ball-in-hand ghost and hand.
+9. The DOM overlays (pocket mini-map, ball-in-hand chip, then the whole HUD) sit above
+   the canvas in their own layer.
+
+**Pockets in 3D** are real shafts, not discs:
+- **Shape.** A cylinder from the rail top (z = 16) down to z = −64.
+- **Opening.** Clipped to the intersection of the rail cut (the circle at rail height) and
+  the felt cut (the circle at z = 0), so the felt no longer runs flat into the corner.
+- **Walls.** 30 facets, of which only the far wall facing the camera is drawn. There are
+  3 depth bands (rail→felt, felt→−22, −22→−64) in darkening browns, and each facet is lit
+  0.55 / 0.8 / 1.08 by how directly it faces the table centre (the lamp).
+- **Floor.** The ring texture sits on the floor (0.86 r and 0.66 r at z = −64), so it
+  reads from directly above in 2D and is partly hidden by the near edge in 3D.
+- **Rim.** No outline around the top; a leather rim (r + 7) is clamped to the rail's
+  inner edge.
+- **2D.** The same floor rings, looking straight down.
+
+**The design's table geometry is authoritative** (user decision, 2026-09-25: "the mocks
+are final"). The physics table is rebuilt to it, and the renderer draws the same numbers:
+
+| | corner | side |
+|---|---|---|
+| hole (capture circle) | centre (±504, ±254), r 27 | centre (0, ±266), r 24 |
+| cushion nose ends | 36 u from the corner along each cushion (mouth 36·√2 ≈ 50.9 u) | 30 u either side of centre (mouth 60 u) |
+| cushion rail ends | 22 u from the corner, at the rail line (HW + 12) | 24 u from centre, at the rail line |
+| jaw | nose end → rail end, continued to the hole edge | same |
+
+The rail ends sit on the hole edges (27.2 vs 27, 24.3 vs 24), so each jaw closes its
+throat against its hole.
 
 ### Theme mapping
 
@@ -594,27 +640,65 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
       in the existing design canvas. 29 artboards delivered on 2026-09-25.
 - [x] Re-read the canvas and update this plan: *Artboard inventory*, *Gaps*, *Theme
       mapping*.
-- [ ] Copy the canvas into `pool-dev/ref/design/` as the frozen reference, the way
-      `cyber-dev/ref/design/` does, so later sessions don't depend on the live canvas.
+- [x] Copy the canvas into `pool-dev/ref/design/` as the frozen reference, the way
+      `cyber-dev/ref/design/` does. Version `1790325931-f598`, 29 files; revisions are
+      tracked in `pool-dev/ref/README.md`.
 
-### Phase 1: physics v2
-- [ ] Table geometry from the design constants: rail segments, jaw segments, pocket
-      throats.
-- [ ] Ball model (sliding, rolling, spinning), cue strike with tip offset and squirt,
-      ball–ball with throw, spin-aware cushions, pocket capture and reject.
-- [ ] Event-driven TOI integrator; seeded PRNG; `cloneWorld()`.
-- [ ] Tests:
-  - energy never increases
-  - no overlap after any event
-  - no tunneling at max power in 10k random shots
-  - stun, follow and draw go in the right directions at the right magnitudes
-  - a rolling ball's stop distance is linear in `v²`
-  - the 30° cut rule of thumb
-  - running vs reverse English off a rail
-  - jaw rattle and pocket reject
-  - identical inputs → identical outcomes
-  - a break spreads the rack and ≥4 balls reach a rail at ≥70% power
-- [ ] Tune in `pool-harness.html` with live sliders for μs, μr, μsp, e and throw.
+### Phase 1: physics v2 — done 2026-09-25
+- [x] `pool-dev/pool-physics.js`, a pure and deterministic module with the `pp*`
+      functions and `PP_*` constants. It is **not spliced into the userscript yet**; the
+      live game keeps today's engine until the new renderer lands (see the Decision log).
+- [x] Table geometry built from parameters (`ppBuildTable`):
+  - 6 cushion runs
+  - 12 jaws at WPA-style angles (142° corner, 103° side), each ending exactly on its
+    pocket's capture circle
+  - 24 nose and jaw tips as point colliders
+  - pockets whose capture circles sit behind their mouth lines
+
+  The renderer will draw from the same numbers.
+- [x] Ball model with an exact closed form per state (sliding, rolling, spinning,
+      stationary):
+  - cue strike with tip offset, a 0.6 R miscue clamp and squirt
+  - ball–ball contact with restitution and friction-limited throw
+  - cushions contacting above the ball's centre, so English and follow/draw change the
+    rebound
+- [x] Event-driven time of impact over 4 sub-steps per frame, plus:
+  - a **cluster contact solver** for the break
+  - an **overlap sweep**
+  - a seeded PRNG
+  - `ppCloneWorld`
+- [x] `physics-verify.js`, **70 assertions**, including a 2,000-shot fuzz. Measured
+      results:
+
+      | check | result |
+      |---|---|
+      | rolling distance | exactly v²/2μg, 3 speeds, within 0.1% |
+      | roll-on speed | (5/7)(1+b)·v₀ for stun, max draw and follow |
+      | stop shot | stops within 1.1 u |
+      | follow / draw | +172 u / −396 u |
+      | stun separation (the 90° rule) | 84.4° (restitution plus throw, as on a real table) |
+      | cut-induced throw | 2.9°; gearing English cancels it at 0.19 R and the other side can't exceed the friction limit |
+      | 30° rule | 34.0° |
+      | cushion restitution | 0.79 |
+      | English at 45° | running 54.0°, plain 36.6°, reverse 31.5° |
+      | corner pocket | clean drops, jaw-assisted drops and rattle-outs at both 500 and 2,600 u/s |
+      | break at 75% | 40/40 legal, 8.8 balls to a rail, 225 u mean spread, settles < 6 s, **8 ms per break** |
+      | fuzz | energy never rises, no overlap > 0.001 u, 0 escapes, no NaN, every shot settles |
+      | determinism | same shot → same result; clones are independent |
+
+- [x] `pool-harness.html`: the real physics on a top-down table, with drag-to-shoot, a
+      spin pad, 12 live sliders, trails and a shot report. Driven in headless Chrome: no
+      page errors, and a break sends 10 balls to a rail.
+- [x] Tested by the user in the harness: "the harness and physics are doing great".
+      Committed as tested.
+- [ ] **Follow-up: rebuild `ppBuildTable` on the design's geometry** (the table under
+      *Rendering spec*) in place of the 62/64 u mouths, WPA jaw angles and r 30 capture
+      circles. Re-measure the pocket and break assertions against it.
+- [ ] **Tuning, by feel, in the harness (open).** Breaks pot a ball only 5–17% of the
+      time against about one per break on a real table. The levers are `cornerMouth`,
+      `cornerPocketR` and `muRoll`. Pocket "spit", a hard ball rejected by a jaw it would
+      drop off slowly, is not modelled yet: the jaw bounce scales with speed, so a line
+      drops or rattles the same fast or slow.
 
 ### Phase 2: rules v2
 - [ ] `judgeShot` with open table after the break, legal break, the 8 on the break,
@@ -627,6 +711,8 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
       maps back to the table point it came from.
 - [ ] Cached table layer; balls with quaternion rolling; shadows; cue with stroke;
       spin-aware guides; pocket drop.
+- [ ] Paint in the *Rendering spec* layer order. The 3D pockets are clipped shafts with
+      banded, lamp-lit far walls and floor rings, drawn from `ppBuildTable` geometry.
 - [ ] Camera choreography: aim (chase) → shot (ease to broadcast) → rest (return) → ball
       in hand (top-down).
 - [ ] DPR backing store; felt tints for the four table colours.
@@ -738,6 +824,13 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
 | 2026-09-25 | **Pool's `reinsert.js` writes the userscript's own line ending; dev files are LF** | The userscript is pure LF in the working tree (with `core.autocrlf=true`), while `snake-dev/reinsert.js` always writes CRLF blocks. Copying that would have left the file with mixed endings. An anchor check in the extraction script caught the wrong assumption before anything was written |
 | 2026-09-25 | **`prayerCount` stays in the host; the pool timing trio moves into the block** | `let prayerCount` was declared in the middle of the pool state, but the Prayer Counter owns it. `poolLastFrameMs`/`LogicMs`/`Accumulator` are pool-only. No outside code touches pool state at load time (checked with a reference scan, and by `host-smoke.js`, which evaluates the whole IIFE), so the move carries no temporal-dead-zone risk |
 | 2026-09-25 | **Baseline: today's CPU wins 61.4% vs skilled and 72.3% vs casual, fouls on 13.4% of visits** | Measured by `baseline-check.js` over 4,000 frames. 74% of its fouls are scratches and 58% of its self-inflicted losses are an early 8. This sets the bar and the first two targets for Phase 6 |
+| 2026-09-25 | **Design revision `1790325931-f598` is final and frozen into `pool-dev/ref/design/`. Its table geometry is authoritative: the physics adopts the design's pockets, cushion ends and jaws** | The user's call: "the mocks are final", and the pockets are how they should be. The physics had its own mouths (62/64 u) and capture circles (r 30), so the two disagreed. Drawing one and playing the other would show balls dropping where no hole is drawn |
+| 2026-09-25 | **The v2 physics stays out of the userscript until Phase 3** | The live renderer works in 368 px table space with a 184 px table. Wiring the new physics into it would mean a coordinate adapter that is thrown away as soon as the new renderer arrives. Phase 3 swaps both at once. Until then `pool-physics.js` is exercised by its own suite and the harness |
+| 2026-09-25 | **Physics world frame is right-handed: x right, y up, z up** | Spin is a cross product. The design's `Table.dc.html` treats +y as down-screen with z up, which is left-handed, and would flip the sign of every English effect. The renderer flips y instead |
+| 2026-09-25 | **Tight-rack impacts are micro-simulated (cluster contact solver)** | Pairwise resolution put the break's energy into the two back corners: 3 balls to a rail and 0/40 legal breaks, whatever the rack gap. A real tight rack compresses all at once. Stiff damped springs over the ~0.1 ms contact (30 steps per contact, damping from the 0.95 restitution) give 8.8 balls to a rail and 40/40 legal breaks, while pairs and lines still behave as before |
+| 2026-09-25 | **Effective cushion friction 0.3, not 0.2** | At 0.2 the plain rebound already reached the sticking limit, so reverse English could not shorten it (39.9° vs 39.3°). 0.3 folds in the cloth friction under the ball during the cushion impact, which Mathavan's measurements include, and gives running 54.0° / plain 36.6° / reverse 31.5° at 45° |
+| 2026-09-25 | **Rolling resistance 0.016, above real cloth (~0.010)** | At 0.010 a firm shot rolls for over 10 s. 0.016 keeps a break under 6 s. It is a feel number and is exposed in the harness |
+| 2026-09-25 | **Fixed during Phase 1: a ball could be left `rolling` at v = 0** | Found by the fuzz, which caught NaN on 1 shot in 300. When a crawl's slip ended, the speed rounded to zero after the spin had already been derived from it. The leftover slip read as sliding, and a follow-up line forced the ball to rolling with a zero-length direction. The speed is now settled before the spin, the state is never forced, and both closed forms reclassify instead of dividing by zero |
 | 2026-09-25 | **The design's amber palette and Chakra Petch/Sora are dropped. Pool renders in the existing Glassmorphic Aurora and Cyberpunk HUD presets** through `--pool-*` tokens, with a canvas bridge. Table materials and ball colours stay physical and theme-independent | The user's call. It keeps pool consistent with the other panels and honours the user's Cyberpunk colour picks. No new font imports are needed |
 
 ---

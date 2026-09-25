@@ -162,7 +162,16 @@ module.exports = function load(opts) {
     return P;
 };
 
+// The v2 physics on its own. It needs nothing from the host, so there is no
+// stub environment: every pp* function and PP_* constant comes back as-is.
+function physics() {
+    const src = fs.readFileSync(path.join(__dirname, 'pool-physics.js'), 'utf8');
+    const names = [...src.matchAll(/^    (?:function|const)\s+((?:pp|PP_)[\w$]*)/gm)].map(m => m[1]);
+    return new Function(src + '\nreturn { ' + names.join(', ') + ' };')();
+}
+
 module.exports.source = source;
+module.exports.physics = physics;
 module.exports.stateNames = stateNames;
 module.exports.seededRandom = seededRandom;
 module.exports.makeCanvas = makeCanvas;

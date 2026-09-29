@@ -4,7 +4,7 @@
 > deviation in the **Decision log** at the bottom. Attach this file as context in later
 > sessions.
 >
-> Status: `IN PROGRESS`, Phases 0–5 done (**v2 is in the userscript**), Phases 6–7 done, Phase 8 next · Last updated: 2026-09-29 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
+> Status: `IN PROGRESS`, Phases 0–5 done (**v2 is in the userscript**), Phases 6–8 done, Phase 9 next · Last updated: 2026-09-29 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
 
 ## Context
 
@@ -1018,19 +1018,34 @@ in `pool-dev/v1/` for `baseline-check.js`.
       bottom right (the map and the hint's line), with the pill giving the state only.
 - [x] The user's test in the widget (2026-09-29).
 
-### Phase 8: progression
-- [ ] XP table above; the optional *Called It* achievement.
-- [ ] Tier leaderboard: `poolWinsByTier`, the `pool:{easy,normal,hard,pro}` keys in
-      `collectGameModeBests`, the only-raise restore, `LB_BOARDS.pool.modes`,
-      `gameLbMode`, the score button. Update the Snake-suite assertions that pin the
-      two-mode pool board.
-- [ ] Sync bot (`sync.yml`): the monotonic per-key `gameModeBests` merge, shape validation,
-      and the win-growth bound against the `gameSessions` delta. Ships **before** the
-      client release that emits the tier keys, so no window exists where an outdated tab
-      can erase them. Needs a headless test harness for the bot script (it is inline
-      `github-script` today) and a push by the user.
-- [ ] `BUILD_LABEL` bump; the `integration-verify.js` / `host-smoke.js` updates the new
-      state needs.
+### Phase 8: progression — done 2026-09-29
+- [x] The XP table above, computed in `pool-game.js` and re-clamped in `awardGameXP` as
+      Ludo's is: a CPU win 60 / 80 / 100 / 120 by the tier locked for the frame, a loss 15;
+      2 Players 80 / 15 as before; a tournament match 80 / 15 for the YOU seat only (once per
+      match; other matches, byes and titles pay nothing). Pot XP only for your pots against
+      the CPU: 2 Players pays no pots (problem 8).
+- [x] 📣 *Called It* (120 XP): beat the Pro CPU. Live from the award, and restored from
+      `poolWinsByTier` after a wipe.
+- [x] Tier leaderboard: `poolWinsByTier` (written under the vs-CPU win, keyed on
+      `poolCpuTier`, not backfilled), `pool:{easy,normal,hard,pro}` in
+      `collectGameModeBests` (read inline), the raise-only restore, `LB_BOARDS.pool.modes`
+      `{ pro, hard, normal, easy, cpu: All-time, pvp: Hot-seat }` with the all-time note,
+      `gameLbMode` (the tier being played; All-time in a tournament), and the wins button
+      and Max trophy showing that tier's wins. Snake-suite assertions updated.
+- [x] Sync bot (`sync.yml`, in `github-actions-bot/`): the monotonic per-key
+      `gameModeBests` merge (RefleX keeps the smaller time; an omitted key is kept), shape
+      validation (`game:mode` keys, finite non-negative whole numbers, RefleX may be
+      fractional), and the tier-win growth bound against the `gameSessions` delta for Pool
+      and Ludo (clamped with a warning, never flagged; skipped when a record adopts
+      `gameModeBests` for the first time). `sync-verify.js` runs the real inline script
+      headless: 28 checks, 14 of which fail on the bot as it was.
+- [x] `BUILD_LABEL` v9; `host-smoke.js` (+6: Called It, the award clamp), `cyber-verify.js`
+      (the label), `host-run.js` (+4: tier filing, XP, the button, Called It, the board).
+      Phase 6's time-slicing check now forgives one step (a garbage-collection pause failed
+      it about one full run in five); a stage that stopped slicing still fails it by ~8x.
+- [ ] **The user pushes the bot first**, then installs the v9 userscript: the bot must be live
+      before any client emits the tier keys.
+- [x] The user's test in the widget (2026-09-29).
 
 ### Phase 9: polish and verification
 - [ ] CPU fouls to the Phase 6 targets (hard under 5%, pro under 2% a visit; measured 6.0%
@@ -1153,6 +1168,10 @@ carries over and what would be new:
 | 2026-09-29 | **Narrow columns use short round names** (*Last 16*, *Quarters*, *Semis*) in the round tabs, the champion's run and the tree's column heads | *Quarter-final · race to 1* and *Round of 16* do not fit a 320 px panel's columns |
 | 2026-09-29 | **On an open table each card lists the balls that player has potted** (*Potted* and the balls; beyond three, the balls alone) | The user's test: after the break nothing showed which balls were down, and the design shows only *Open table* there. Once groups are decided the tracker takes over |
 | 2026-09-29 | **Calling a pocket: the pill keeps the state, one call card bottom right carries the map and the hint** (was: *On the 8 · call it* pill, *Tap a pocket to call it* hint and a 172 × 116 mini-map top left) | The user's test: three labels said the same thing, and at the design's top-left spot the chase camera puts the far pockets and the aim line under the map (covered at 32 of 72 aims on the 8). A corner-hopping fix and then a fixed bottom-left map were tried; the user asked for one smaller element, bottom right, without the clutter. The pill now reads *On the 8* (with call-every-shot it keeps the group; the CPU card already says Pro). The card (at least 88 × 80, six 24 px targets) sits in the hint's corner, the near rail in the chase camera, and its caption follows the shot: *Tap a pocket*, *Drag to shoot*, *Release · n%*; the lit pocket names the call. The gauge steps up 16 px over it, Move cue ball goes bottom left, and it gives way to the spin picker. 2D keeps its hint, since every pocket is on screen |
+| 2026-09-29 | **The tier-win growth bound is skipped for a record adopting `gameModeBests` for the first time** | Such a record has no stored figures to grow from; bounding it would clamp an upgrading player's real tier wins away on every sync, for good. Any later sync is bounded |
+| 2026-09-29 | **The all-time and hot-seat counters (`pool:cpu`, `pool:pvp`, `ludo:cpu`) are not in the growth bound** | The plan bounds the tier keys. The all-time keys predate `gameModeBests` on many records, so a bound on them would drop players off the boards the first time they sync this build; the max merge still keeps them from going down |
+| 2026-09-29 | **A tournament shows the All-time board on the wins button** | Tournaments have no board (they are farmable), and All-time is the board a CPU win would also count towards |
+| 2026-09-29 | **Called It is 📣, 120 XP** | 🎯 is Sharpshooter's; 120 sits between Pool Shark (150) and the per-match Ludo achievements |
 
 ---
 

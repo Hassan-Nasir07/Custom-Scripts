@@ -14,7 +14,8 @@
     //                         match: back to the mode before it)
     //   togglePoolMaximize()  the Max view, through the shared toggleGameMaxModal
     //   poolOnThemeChange()   applyPreferences ran: re-read the theme tokens
-    //   poolMode, poolGamesWon, poolMaximized, poolRecord
+    //   poolMode, poolGamesWon, poolMaximized, poolRecord, poolCpuTier
+    //   poolWinsByTier()      your CPU wins by the tier each frame was locked to
     //                         read by the leaderboard, achievements and tests
     //
     // Input (POOL_V2_PLAN.md, Input):
@@ -39,6 +40,10 @@
     const POOL_STRIKE_MS = 90;               // the cue's forward stroke before the ball launches
     const POOL_TOAST_MS = 2200;
     const POOL_POT_XP = 5;
+    // A frame's XP (POOL_V2_PLAN.md, Progression): a CPU win by the tier it was played at,
+    // 2 Players as it has always paid Player 1, a tournament match for the YOU seat only.
+    const POOL_WIN_XP = { easy: 60, normal: 80, hard: 100, pro: 120 };
+    const POOL_LOSS_XP = 15, POOL_PVP_WIN_XP = 80, POOL_TOUR_WIN_XP = 80;
     const POOL_MAX_W = 1280, POOL_MAX_H = 800;
     const POOL_DEG = Math.PI / 180;
     const POOL_TOUR_KEY = 'poolTournament', POOL_CAB_KEY = 'poolTrophyCabinet';
@@ -99,6 +104,8 @@
         const S = poolS;
         poolCpuTier = paTierFor(poolDifficulty(), poolCpuRec());
         S.frame.callEvery = S.callEvery || (poolMode === 'cpu' && !!PA_TIERS[poolCpuTier].callEvery);
+        // The wins button shows the board being played for, and that is this frame's tier.
+        poolRefreshScoreBtn();
     }
     // Nothing has been hit yet in this frame, so a new difficulty can apply to it.
     const poolFrameFresh = () => !!poolS.frame && poolS.frame.isBreak && poolS.phase !== 'moving' && poolS.phase !== 'strike';
@@ -113,9 +120,30 @@
         }
         return seat === 1 ? r.p1Wins + 'W · ' + r.p1Losses + 'L' : r.p2Wins + 'W · ' + r.p2Losses + 'L';
     }
+    // Your CPU wins by tier, keyed on the tier locked when each frame started, so a pick
+    // changed mid-frame cannot re-file a win. Not seeded from the all-time count: those
+    // wins' difficulty was never recorded, so they stay on the All-time board.
+    function poolWinsByTier() {
+        const out = { easy: 0, normal: 0, hard: 0, pro: 0 };
+        try {
+            const raw = JSON.parse(localStorage.getItem('poolWinsByTier') || 'null');
+            if (raw && typeof raw === 'object') PA_TIER_NAMES.forEach(t => { out[t] = parseInt(raw[t], 10) || 0; });
+        } catch (_) { /* corrupt storage reads as no wins, never as a throw */ }
+        return out;
+    }
+    function poolRecordTierWin(tier) {
+        if (PA_TIER_NAMES.indexOf(tier) === -1) return;
+        const byTier = poolWinsByTier();
+        byTier[tier]++;
+        try { localStorage.setItem('poolWinsByTier', JSON.stringify(byTier)); } catch (_) { /* quota */ }
+    }
+    // The count on the wins button: the tier being played, 2 Players, or (in a tournament,
+    // which has no board) the all-time CPU total.
     function poolWins() {
         const byMode = loadPoolWinsByMode();
-        return poolMode === 'pvp' ? byMode.pvp : byMode.cpu;
+        if (poolMode === 'pvp') return byMode.pvp;
+        if (poolMode === 'cpu') return poolWinsByTier()[poolCpuTier] || 0;
+        return byMode.cpu;
     }
     // The header button and the Max trophy show the same count; it only changes when a
     // frame ends or the mode flips, so it is read here and cached, not every frame.
@@ -173,17 +201,23 @@
         // Seed the per-mode split before the all-time count moves; seeded after,
         // it would copy this win in and then count it again.
         loadPoolWinsByMode();
+        const vsCPU = poolMode === 'cpu', tier = poolCpuTier;
         if (w === 1) {
             poolGamesWon++;
             savePoolHighScore(poolGamesWon);
             savePoolWinByMode(poolMode);
+            // Filed before the award: the award's achievement check and the wins button read it.
+            if (vsCPU) poolRecordTierWin(tier);
             poolRecord.p1Wins++; poolRecord.p2Losses++;
             savePoolRecord(poolRecord);
-            awardGameXP('pool', { won: true });
         } else if (w === 2) {
             poolRecord.p2Wins++; poolRecord.p1Losses++;
             savePoolRecord(poolRecord);
-            awardGameXP('pool', { won: false });
+        }
+        if (w === 1 || w === 2) {
+            const won = w === 1;
+            awardGameXP('pool', { won, vsCPU, tier: vsCPU ? tier : null,
+                xp: !won ? POOL_LOSS_XP : vsCPU ? POOL_WIN_XP[tier] || POOL_WIN_XP.normal : POOL_PVP_WIN_XP });
         }
         if (poolMode === 'cpu') {
             const rec = poolCpuRec();
@@ -194,10 +228,10 @@
         poolRefreshScoreBtn();
     }
 
-    // +5 XP per legal pot, for the seats today's game pays: yours against the
-    // CPU, and both in 2 Players (problem 8, changed in Phase 8).
+    // +5 XP per legal pot, for your pots against the CPU only. 2 Players paid both seats
+    // (problem 8): the XP lands on this machine's account whoever is at the table.
     function poolAwardPots(seat, n) {
-        if (!n || poolMode === 'tour' || !(seat === 1 || poolMode === 'pvp') || !xpSystemReady) return;
+        if (!n || poolMode !== 'cpu' || seat !== 1 || !xpSystemReady) return;
         const xpGained = n * POOL_POT_XP;
         userXP.currentXP += xpGained;
         userXP.totalXP += xpGained;
@@ -869,6 +903,13 @@
         S.frames = ptScore(ptById(T.t, m.id));
         if (r.matchOver) {
             T.t.current = null;
+            // Match XP for the YOU seat only, once per match: 80 won, 15 lost. Matches between
+            // other names pay nothing, byes and titles pay nothing (the bracket is farmable).
+            const mm = ptById(T.t, m.id), mine = [mm.a, mm.b].find(s => T.t.slots[s] && T.t.slots[s].you);
+            if (mine !== undefined) {
+                const won = mm.winner === mine;
+                awardGameXP('pool', { won, vsCPU: false, tour: true, round: ptRoundName(T.t.rounds, mm.round), xp: won ? POOL_TOUR_WIN_XP : POOL_LOSS_XP });
+            }
             if (ptChampion(T.t) !== null) {
                 T.cab = ptCabinetAdd(poolCabinet(), T.t);
                 try { localStorage.setItem(POOL_CAB_KEY, JSON.stringify(T.cab)); } catch (_) {}

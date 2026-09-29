@@ -9,7 +9,7 @@
     //          3) recompute token (see sync.yml), rotate BUILD_TOKEN_CURRENT/PREVIOUS
     const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
     // Seed UNCHANGED on purpose: rotating it without BUILD_TOKEN_CURRENT breaks every sync.
-    const BUILD_LABEL = 'v8';
+    const BUILD_LABEL = 'v9';
 
     // Ordinal of a 'v<N>' label; null if malformed (callers then assume behind).
     function _buildOrdinal(label) {
@@ -246,6 +246,7 @@
         lightning:    { icon: '⚡', name: 'Lightning Reflexes', desc: 'Average under 220ms in RefleX' },
         brickBuster:  { icon: '🧨', name: 'Brick Buster',      desc: 'Reach level 30 in Breakout' },
         poolShark:    { icon: '🎱', name: 'Pool Shark',        desc: 'Win 100 pool games against the CPU' },
+        calledIt:     { icon: '📣', name: 'Called It',         desc: 'Beat the Pro pool CPU, every shot called' },
         ludoChamp:    { icon: '🎲', name: 'Ludo Champion',     desc: 'Win 100 Ludo games against the CPU' },
         ludoFlawless: { icon: '🛡️', name: 'Flawless',          desc: 'Win a Ludo game without losing a single token' },
         ludoHunter:   { icon: '🐺', name: 'Token Hunter',      desc: 'Capture 5 opponent tokens in one Ludo match' },
@@ -761,6 +762,14 @@
         const poolModes = loadPoolWinsByMode();
         put('pool:cpu', poolModes.cpu);
         put('pool:pvp', poolModes.pvp);
+        // Per-tier CPU wins, read inline (the pool block may not have run). 'pool:cpu' stays the
+        // all-time total: old clients read it, and it is the only home for pre-split wins.
+        let poolTiers = {};
+        try { poolTiers = JSON.parse(localStorage.getItem('poolWinsByTier') || '{}') || {}; } catch (_) {}
+        put('pool:easy',   poolTiers.easy);
+        put('pool:normal', poolTiers.normal);
+        put('pool:hard',   poolTiers.hard);
+        put('pool:pro',    poolTiers.pro);
 
         // Ludo is CPU-only by construction (ludoSaveWins runs under 'if (vsCPU)'). 'ludo:cpu' is
         // the flat all-time total: old clients read it, and it is the only home for pre-split wins.
@@ -1158,6 +1167,16 @@
         });
         if (poolChanged) localStorage.setItem('poolWinsByMode', JSON.stringify(pool));
 
+        // Pool per-tier wins, only-raise, as Ludo's.
+        let poolTiers = {};
+        try { poolTiers = JSON.parse(localStorage.getItem('poolWinsByTier') || '{}') || {}; } catch (_) {}
+        let poolTiersChanged = false;
+        ['easy', 'normal', 'hard', 'pro'].forEach(t => {
+            const v = parseInt(gmb['pool:' + t], 10) || 0;
+            if (v > (parseInt(poolTiers[t], 10) || 0)) { poolTiers[t] = v; poolTiersChanged = true; }
+        });
+        if (poolTiersChanged) localStorage.setItem('poolWinsByTier', JSON.stringify(poolTiers));
+
         // Ludo per-tier wins, only-raise. The all-time total restores separately and may exceed the
         // tier sum by however many wins predate the split.
         let ludoTiers = {};
@@ -1402,8 +1421,12 @@
         aim:      { icon: '💥', label: 'Aim',      unit: 'pts' },
         reflex:   { icon: '⚡', label: 'RefleX',   unit: 'ms', lowerIsBetter: true,
                     modes: { screen: 'Screen', target: 'Target' } },
+        // Pool ranks CPU wins by tier as Ludo does, filed under the tier locked when the frame
+        // started. 'cpu' is the all-time total (older wins predate the split); 'pvp' is hot-seat.
+        // Tournaments have no board: their brackets are farmable.
         pool:     { icon: '🎱', label: 'Pool',     unit: 'wins',
-                    modes: { cpu: 'vs CPU', pvp: 'Hot-seat' } },
+                    modes: { pro: '🎯 Pro', hard: '🔥 Hard', normal: '⚔️ Normal', easy: '🌱 Easy',
+                             cpu: '📚 All-time', pvp: '👥 Hot-seat' } },
         // Ludo ranks by CPU tier, not game mode (hot-seat wins are never recorded: ludoSaveWins runs
         // only under 'if (vsCPU)'). 'cpu' is the pre-split total — real wins whose difficulty was never
         // recorded, so they rank on their own board rather than an unmeasured tier.
@@ -1500,7 +1523,9 @@
         try {
             if (game === 'snake')  return snakeMode;
             if (game === 'reflex') return reflexMode;
-            if (game === 'pool')   return poolMode === 'pvp' ? 'pvp' : 'cpu';
+            // Pool's CPU board is the tier locked for this frame; a tournament has none, so All-time.
+            if (game === 'pool')   return poolMode === 'pvp' ? 'pvp'
+                : poolMode === 'cpu' && LB_BOARDS.pool.modes[poolCpuTier] ? poolCpuTier : 'cpu';
             // Ludo splits by CPU tier; ludoCpuTier locks at match start and decides where a win is filed,
             // so the board shown is always the one being played for.
             if (game === 'ludo')   return LB_BOARDS.ludo.modes[ludoCpuTier] ? ludoCpuTier : 'normal';
@@ -1547,8 +1572,8 @@
             '</div>' +
             gameLbTabsHtml(game, mode) +
             '<div class="game-lb-body">' + lbBoardRowsHtml(game, mode) + '</div>' +
-            // Only Ludo has a board whose numbers predate the split, so only Ludo says so.
-            (game === 'ludo' && mode === 'cpu'
+            // Ludo's and Pool's all-time boards hold numbers that predate the split, so they say so.
+            ((game === 'ludo' || game === 'pool') && mode === 'cpu'
                 ? '<div class="game-lb-foot">every CPU win — older wins predate the difficulty split</div>'
                 : '');
     }
@@ -1590,8 +1615,8 @@
                 // The tier's own wins — the board this button opens and where the next win lands.
                 updateGameScoreBtn('ludo', null, ludoTierWins(gameLbMode('ludo')));
             } else if (game === 'pool') {
-                const byMode = loadPoolWinsByMode();
-                updateGameScoreBtn('pool', null, poolMode === 'pvp' ? byMode.pvp : byMode.cpu);
+                // The tier being played, 2 Players, or All-time in a tournament (pool-game.js).
+                poolRefreshScoreBtn();
             }
         } catch (_) {}
     }
@@ -6135,7 +6160,8 @@
     //                         match: back to the mode before it)
     //   togglePoolMaximize()  the Max view, through the shared toggleGameMaxModal
     //   poolOnThemeChange()   applyPreferences ran: re-read the theme tokens
-    //   poolMode, poolGamesWon, poolMaximized, poolRecord
+    //   poolMode, poolGamesWon, poolMaximized, poolRecord, poolCpuTier
+    //   poolWinsByTier()      your CPU wins by the tier each frame was locked to
     //                         read by the leaderboard, achievements and tests
     //
     // Input (POOL_V2_PLAN.md, Input):
@@ -6160,6 +6186,10 @@
     const POOL_STRIKE_MS = 90;               // the cue's forward stroke before the ball launches
     const POOL_TOAST_MS = 2200;
     const POOL_POT_XP = 5;
+    // A frame's XP (POOL_V2_PLAN.md, Progression): a CPU win by the tier it was played at,
+    // 2 Players as it has always paid Player 1, a tournament match for the YOU seat only.
+    const POOL_WIN_XP = { easy: 60, normal: 80, hard: 100, pro: 120 };
+    const POOL_LOSS_XP = 15, POOL_PVP_WIN_XP = 80, POOL_TOUR_WIN_XP = 80;
     const POOL_MAX_W = 1280, POOL_MAX_H = 800;
     const POOL_DEG = Math.PI / 180;
     const POOL_TOUR_KEY = 'poolTournament', POOL_CAB_KEY = 'poolTrophyCabinet';
@@ -6220,6 +6250,8 @@
         const S = poolS;
         poolCpuTier = paTierFor(poolDifficulty(), poolCpuRec());
         S.frame.callEvery = S.callEvery || (poolMode === 'cpu' && !!PA_TIERS[poolCpuTier].callEvery);
+        // The wins button shows the board being played for, and that is this frame's tier.
+        poolRefreshScoreBtn();
     }
     // Nothing has been hit yet in this frame, so a new difficulty can apply to it.
     const poolFrameFresh = () => !!poolS.frame && poolS.frame.isBreak && poolS.phase !== 'moving' && poolS.phase !== 'strike';
@@ -6234,9 +6266,30 @@
         }
         return seat === 1 ? r.p1Wins + 'W · ' + r.p1Losses + 'L' : r.p2Wins + 'W · ' + r.p2Losses + 'L';
     }
+    // Your CPU wins by tier, keyed on the tier locked when each frame started, so a pick
+    // changed mid-frame cannot re-file a win. Not seeded from the all-time count: those
+    // wins' difficulty was never recorded, so they stay on the All-time board.
+    function poolWinsByTier() {
+        const out = { easy: 0, normal: 0, hard: 0, pro: 0 };
+        try {
+            const raw = JSON.parse(localStorage.getItem('poolWinsByTier') || 'null');
+            if (raw && typeof raw === 'object') PA_TIER_NAMES.forEach(t => { out[t] = parseInt(raw[t], 10) || 0; });
+        } catch (_) { /* corrupt storage reads as no wins, never as a throw */ }
+        return out;
+    }
+    function poolRecordTierWin(tier) {
+        if (PA_TIER_NAMES.indexOf(tier) === -1) return;
+        const byTier = poolWinsByTier();
+        byTier[tier]++;
+        try { localStorage.setItem('poolWinsByTier', JSON.stringify(byTier)); } catch (_) { /* quota */ }
+    }
+    // The count on the wins button: the tier being played, 2 Players, or (in a tournament,
+    // which has no board) the all-time CPU total.
     function poolWins() {
         const byMode = loadPoolWinsByMode();
-        return poolMode === 'pvp' ? byMode.pvp : byMode.cpu;
+        if (poolMode === 'pvp') return byMode.pvp;
+        if (poolMode === 'cpu') return poolWinsByTier()[poolCpuTier] || 0;
+        return byMode.cpu;
     }
     // The header button and the Max trophy show the same count; it only changes when a
     // frame ends or the mode flips, so it is read here and cached, not every frame.
@@ -6294,17 +6347,23 @@
         // Seed the per-mode split before the all-time count moves; seeded after,
         // it would copy this win in and then count it again.
         loadPoolWinsByMode();
+        const vsCPU = poolMode === 'cpu', tier = poolCpuTier;
         if (w === 1) {
             poolGamesWon++;
             savePoolHighScore(poolGamesWon);
             savePoolWinByMode(poolMode);
+            // Filed before the award: the award's achievement check and the wins button read it.
+            if (vsCPU) poolRecordTierWin(tier);
             poolRecord.p1Wins++; poolRecord.p2Losses++;
             savePoolRecord(poolRecord);
-            awardGameXP('pool', { won: true });
         } else if (w === 2) {
             poolRecord.p2Wins++; poolRecord.p1Losses++;
             savePoolRecord(poolRecord);
-            awardGameXP('pool', { won: false });
+        }
+        if (w === 1 || w === 2) {
+            const won = w === 1;
+            awardGameXP('pool', { won, vsCPU, tier: vsCPU ? tier : null,
+                xp: !won ? POOL_LOSS_XP : vsCPU ? POOL_WIN_XP[tier] || POOL_WIN_XP.normal : POOL_PVP_WIN_XP });
         }
         if (poolMode === 'cpu') {
             const rec = poolCpuRec();
@@ -6315,10 +6374,10 @@
         poolRefreshScoreBtn();
     }
 
-    // +5 XP per legal pot, for the seats today's game pays: yours against the
-    // CPU, and both in 2 Players (problem 8, changed in Phase 8).
+    // +5 XP per legal pot, for your pots against the CPU only. 2 Players paid both seats
+    // (problem 8): the XP lands on this machine's account whoever is at the table.
     function poolAwardPots(seat, n) {
-        if (!n || poolMode === 'tour' || !(seat === 1 || poolMode === 'pvp') || !xpSystemReady) return;
+        if (!n || poolMode !== 'cpu' || seat !== 1 || !xpSystemReady) return;
         const xpGained = n * POOL_POT_XP;
         userXP.currentXP += xpGained;
         userXP.totalXP += xpGained;
@@ -6990,6 +7049,13 @@
         S.frames = ptScore(ptById(T.t, m.id));
         if (r.matchOver) {
             T.t.current = null;
+            // Match XP for the YOU seat only, once per match: 80 won, 15 lost. Matches between
+            // other names pay nothing, byes and titles pay nothing (the bracket is farmable).
+            const mm = ptById(T.t, m.id), mine = [mm.a, mm.b].find(s => T.t.slots[s] && T.t.slots[s].you);
+            if (mine !== undefined) {
+                const won = mm.winner === mine;
+                awardGameXP('pool', { won, vsCPU: false, tour: true, round: ptRoundName(T.t.rounds, mm.round), xp: won ? POOL_TOUR_WIN_XP : POOL_LOSS_XP });
+            }
             if (ptChampion(T.t) !== null) {
                 T.cab = ptCabinetAdd(poolCabinet(), T.t);
                 try { localStorage.setItem(POOL_CAB_KEY, JSON.stringify(T.cab)); } catch (_) {}
@@ -13098,6 +13164,10 @@
 
         if (!has('flapMaster')   && flappyHS >= 50)    unlockAchievement('flapMaster', S);
         if (!has('poolShark')    && poolWon >= 100)    unlockAchievement('poolShark', S);
+        // Pro wins are filed by tier (poolWinsByTier), so Called It survives a wipe too.
+        let poolTierWins = {};
+        try { poolTierWins = JSON.parse(localStorage.getItem('poolWinsByTier') || '{}') || {}; } catch (_) {}
+        if (!has('calledIt')     && (parseInt(poolTierWins.pro, 10) || 0) >= 1) unlockAchievement('calledIt', S);
         if (!has('ludoChamp')    && ludoWon >= 100)    unlockAchievement('ludoChamp', S);
         // tetrisMaster, sharpshooter, brickBuster and lightning need session metrics (lines, accuracy,
         // level, avgTime) absent from localStorage; ludoFlawless and ludoHunter are per-match facts.
@@ -13179,6 +13249,10 @@
                     typeof poolGamesWon === 'number' && poolGamesWon >= 100) {
                     unlockAchievement('poolShark');
                 }
+                // Pro is the one tier that cannot be farmed: it calls every shot, both seats.
+                if (!userXP.achievements.includes('calledIt') && p && p.vsCPU && p.won && p.tier === 'pro') {
+                    unlockAchievement('calledIt');
+                }
                 break;
             case 'ludo':
                 // All three are CPU-only: hot-seat wins cost nothing to farm,
@@ -13208,7 +13282,7 @@
         snakeCharmer: 80, flapMaster: 100, tetrisMaster: 120,
         snakeEndless: 80, snakeWalled: 90, snakeGourmand: 100,
         snakeCampaign: 110, snakeConqueror: 200, snakeLong: 90,
-        sharpshooter: 100, lightning: 120, brickBuster: 100, poolShark: 150,
+        sharpshooter: 100, lightning: 120, brickBuster: 100, poolShark: 150, calledIt: 120,
         ludoChamp: 150, ludoFlawless: 120, ludoHunter: 80,
         curator: 40, picturePerfect: 40, meditative: 200, teamPlayer: 60
     };
@@ -13563,13 +13637,16 @@
             }
 
             case 'pool': {
-                // Decent reward for winning against CPU
-                if (performance.won) {
-                    xpGained = 80;
-                    message = `🎱 +${xpGained} XP (Pool: Victory against CPU! 🏆)`;
+                // The award is computed in pool-game.js (the CPU's tier, 2 Players, a tournament match for
+                // the YOU seat), where the headless XP tests pin it; re-clamped here as Ludo's is.
+                xpGained = Math.max(0, Math.min(AC_MAX_XP_PER_GAME, Math.round(performance.xp || 0)));
+                const poolTier = { easy: 'Easy', normal: 'Normal', hard: 'Hard', pro: 'Pro' }[performance.tier];
+                if (performance.tour) {
+                    message = performance.won ? `🎱 +${xpGained} XP (Pool: ${performance.round} won! 🏆)` : `🎱 +${xpGained} XP (Pool: ${performance.round}, good game)`;
+                } else if (performance.vsCPU) {
+                    message = performance.won ? `🎱 +${xpGained} XP (Pool: beat the ${poolTier || ''} CPU! 🏆)` : `🎱 +${xpGained} XP (Pool: good game vs the ${poolTier || ''} CPU)`;
                 } else {
-                    xpGained = 15;
-                    message = `🎱 +${xpGained} XP (Pool: Good game)`;
+                    message = performance.won ? `🎱 +${xpGained} XP (Pool: Player 1 wins 🏆)` : `🎱 +${xpGained} XP (Pool: good game)`;
                 }
                 break;
             }

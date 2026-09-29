@@ -34,6 +34,8 @@ const SUITES = [
     ['Pool HUD',       '../pool-dev/hud-verify.js'],
     // The v2 tournament model (pool-tour.js): brackets, seeding, byes, breaks, saves, the cabinet.
     ['Pool tournament', '../pool-dev/tour-verify.js'],
+    // The sync bot (github-actions-bot, its own repo beside this one): the gameModeBests merge the tier boards need.
+    ['Sync bot',       '../pool-dev/sync-verify.js'],
 ];
 
 const results = [];

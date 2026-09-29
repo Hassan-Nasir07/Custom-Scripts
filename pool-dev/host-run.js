@@ -32,6 +32,7 @@ function page() {
         get currentGame() { return currentGame; }, get prefs() { return userPreferences; },
         applyPreferences, poolEndFrame, poolNewFrame, resetPoolGame, prCanPlace, phThemeTokens, pcProject, pcView,
         toggleSettingsModal: typeof toggleSettingsModal === 'function' ? toggleSettingsModal : null,
+        collectGameModeBests, toggleGameLeaderboard, get xp() { return userXP; },
     };
 `;
     if (!OPEN) script = script.slice(0, end) + probe + script.slice(end);
@@ -536,12 +537,29 @@ async function main() {
         await ev('window.__probe.toggleSettingsModal()');
         await sleep(300);
     } else ok('⚙️ settings modal reachable', false, 'toggleSettingsModal not found');
-    const award = await ev(`(() => { const before = +(localStorage.getItem('poolGamesWon') || 0);
-        window.__probe.poolEndFrame({ winner: 1 }); window.__probe.poolEndFrame({ winner: 1 });
-        return { before, after: +(localStorage.getItem('poolGamesWon') || 0), wins: document.getElementById('pool-wins').textContent,
+    const award = await ev(`(() => { const P = window.__probe, before = +(localStorage.getItem('poolGamesWon') || 0), xp0 = P.xp.totalXP, s0 = P.xp.gameSessions || 0;
+        P.poolNewFrame(1); const tier = P.tier;
+        P.poolEndFrame({ winner: 1 }); P.poolEndFrame({ winner: 1 });
+        const byTier = JSON.parse(localStorage.getItem('poolWinsByTier') || '{}');
+        return { before, after: +(localStorage.getItem('poolGamesWon') || 0), wins: document.getElementById('pool-wins').textContent, tier,
+            tierWins: byTier[tier] || 0, gained: P.xp.totalXP - xp0, sessions: (P.xp.gameSessions || 0) - s0, sync: P.collectGameModeBests()['pool:' + tier],
             byMode: JSON.parse(localStorage.getItem('poolWinsByMode') || '{}') }; })()`);
-    ok('a won frame is recorded once through the real host helpers, and the wins button updates',
-       award.after === award.before + 1 && String(award.byMode.cpu) === award.wins, award);
+    const TIER_XP = { easy: 60, normal: 80, hard: 100, pro: 120 };
+    ok('a won frame is recorded once through the real host helpers, filed under the tier it was played at',
+       award.after === award.before + 1 && award.tierWins >= 1 && award.sessions === 1, award);
+    ok('it pays that tier\'s XP (achievement XP on top, if one unlocked)', award.gained >= TIER_XP[award.tier], award);
+    ok('the wins button shows that tier\'s wins, and the sync snapshot carries them', award.wins === String(award.tierWins) && award.sync === award.tierWins, award);
+    const pro = await ev(`(() => { const P = window.__probe; P.prefs.poolDifficulty = 'pro';
+        P.poolNewFrame(1); const tier = P.tier; P.poolEndFrame({ winner: 1 });
+        P.toggleGameLeaderboard('pool', true);
+        const tabs = [...document.querySelectorAll('#game-lb-overlay .game-lb-tab')].map(b => b.textContent.replace('•', '').trim());
+        const active = document.querySelector('#game-lb-overlay .game-lb-tab.is-active');
+        const res = { tier, calledIt: P.xp.achievements.includes('calledIt'), tabs, active: active && active.textContent, proSync: P.collectGameModeBests()['pool:pro'] };
+        P.toggleGameLeaderboard('pool', false); P.prefs.poolDifficulty = 'adaptive'; P.poolNewFrame(1);
+        return res; })()`);
+    ok('a Pro win unlocks Called It', pro.tier === 'pro' && pro.calledIt, pro);
+    ok('the Pool board has the four tiers, All-time and Hot-seat, and opens on the tier being played',
+       pro.tabs.join() === '🎯 Pro,🔥 Hard,⚔️ Normal,🌱 Easy,📚 All-time,👥 Hot-seat' && /Pro/.test(pro.active || '') && pro.proSync >= 1, pro);
     ok('no page errors anywhere', !errors.length, errors.slice(0, 3));
     if (consoleErrors.length) console.log('  · console errors (fonts and sync are blocked on purpose):', consoleErrors.length);
 

@@ -216,9 +216,9 @@ ok('each has an icon and a name',
 ok('each has an XP value',
    ['ludoChamp', 'ludoFlawless', 'ludoHunter'].every(k => H.ACHIEVEMENT_XP[k] > 0));
 // 30 before Snake v2, which added six (snakeEndless, snakeWalled,
-// snakeGourmand, snakeCampaign, snakeConqueror, snakeLong).
+// snakeGourmand, snakeCampaign, snakeConqueror, snakeLong); Pool v2 added Called It.
 const total = Object.keys(H.ACHIEVEMENTS).length;
-ok('achievement grid total is 36', total === 36, 'got ' + total);
+ok('achievement grid total is 37', total === 37, 'got ' + total);
 
 head('Boot and play through the host');
 H.initLudoGame();
@@ -304,6 +304,27 @@ H.userXP.achievements = [];
 H.checkGameAchievements('ludo', { vsCPU: false, won: true, tokensLost: 0, captures: 9, gamesWon: 500 });
 ok('hot-seat unlocks nothing', H.userXP.achievements.length === 0,
    H.userXP.achievements.join());
+
+// Pool v2 (Phase 8): Called It, for a win against the Pro CPU, live and from the tier record.
+ok('Called It is registered with an icon, a name and 120 XP', !!(H.ACHIEVEMENTS.calledIt && H.ACHIEVEMENTS.calledIt.icon && H.ACHIEVEMENTS.calledIt.name) && H.ACHIEVEMENT_XP.calledIt === 120);
+H.userXP.achievements = [];
+H.checkGameAchievements('pool', { vsCPU: true, won: true, tier: 'hard' });
+H.checkGameAchievements('pool', { vsCPU: false, won: true, tier: 'pro' });
+ok('a Hard win or a hot-seat win does not unlock Called It', H.userXP.achievements.indexOf('calledIt') === -1, H.userXP.achievements.join());
+H.checkGameAchievements('pool', { vsCPU: true, won: true, tier: 'pro' });
+ok('a Pro win unlocks Called It', H.userXP.achievements.indexOf('calledIt') !== -1);
+H.userXP.achievements = [];
+store.poolWinsByTier = JSON.stringify({ pro: 1 });
+H.revalidateAchievements();
+ok('revalidate restores Called It from poolWinsByTier', H.userXP.achievements.indexOf('calledIt') !== -1);
+{
+    const xp0 = H.userXP.totalXP, s0 = H.userXP.gameSessions || 0;
+    H.awardGameXP('pool', { won: true, vsCPU: true, tier: 'pro', xp: 999 });
+    ok('a pool award is clamped to AC_MAX_XP_PER_GAME and counts one session', H.userXP.totalXP - xp0 <= H.AC_MAX_XP_PER_GAME && (H.userXP.gameSessions || 0) === s0 + 1, H.userXP.totalXP - xp0);
+    const xp1 = H.userXP.totalXP;
+    H.awardGameXP('pool', { won: true, vsCPU: true, tier: 'easy' });
+    ok('an award without an xp figure pays nothing (every pool call site computes one)', H.userXP.totalXP === xp1);
+}
 
 head('Settings toggles reach the rules engine');
 ok('defaults present in userPreferences',

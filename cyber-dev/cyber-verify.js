@@ -905,7 +905,8 @@ ok(centre.indexOf('${progressBarHTML}') !== -1,
 const leftPanel  = (host.match(/const leftPanelHTML = `[\s\S]*?\n        `;/) || [''])[0];
 const rightPanel = (host.match(/const rightPanelHTML = `[\s\S]*?\n        `;/) || [''])[0];
 ok(leftPanel.length > 0 && rightPanel.length > 0, 'both side-panel templates were found');
-eq(host.indexOf("const BUILD_LABEL = 'v8'") !== -1, true, 'BUILD_LABEL bumped to v8');
+// v8 shipped the Cyberpunk rework; Pool v2's tier boards took v9.
+eq(host.indexOf("const BUILD_LABEL = 'v9'") !== -1, true, 'BUILD_LABEL bumped to v9');
 ok((host.match(/\.attendance-summary\.retro-theme \.stat-card::before\s*\{/g) || []).length === 1,
    'only one .retro-theme .stat-card::before rule in the file (the orphan outside the block is gone)');
 

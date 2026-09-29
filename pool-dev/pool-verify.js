@@ -84,7 +84,8 @@ ok('applyPreferences tells pool the theme changed', /applyGameMode\(\);\n[^\n]*\
     ok('toggleGameMaxModal: Ludo\'s canvas path is still there', /canvas\.width = cfg\.bufferW \* k;/.test(fn));
 }
 ok('togglePoolMaximize uses the build hook on #pool-root', /canvasId: 'pool-root',[\s\S]{0,200}?build: poolBuildMax,[\s\S]{0,60}?unbuild: poolUnbuildMax/.test(block));
-ok('the leaderboard still reads poolMode, now declared by pool-game.js', /let poolMode = 'cpu';/.test(block) && /return poolMode === 'pvp' \? 'pvp' : 'cpu';/.test(src));
+ok('the leaderboard reads poolMode and poolCpuTier, declared by pool-game.js', /let poolMode = 'cpu';/.test(block) && /let poolCpuTier = /.test(block) &&
+   /if \(game === 'pool'\)\s+return poolMode === 'pvp' \? 'pvp'\s+: poolMode === 'cpu' && LB_BOARDS\.pool\.modes\[poolCpuTier\] \? poolCpuTier : 'cpu';/.test(src));
 ok('the achievement check still finds poolGamesWon', /let poolGamesWon = 0;/.test(block) && /typeof poolGamesWon === 'number' && poolGamesWon >= 100/.test(src));
 
 // ── 4. The match, headless ────────────────────────────────────────────
@@ -191,7 +192,7 @@ function playFrame(P, maxTicks) {
     ok('2 Players names the seats Player 1 / Player 2', P.poolNames()[1] === 'Player 1' && P.poolNames()[2] === 'Player 2');
 }
 {
-    // Pot XP (problem 8, kept as today until Phase 8): both seats in 2 Players, yours only vs the CPU.
+    // Pot XP (problem 8, fixed in Phase 8): your pots against the CPU only; 2 Players pays no pots.
     const count = mode => {
         let seat1 = 0, seat2 = 0;
         for (let k = 0; k < 4; k++) {
@@ -212,7 +213,7 @@ function playFrame(P, maxTicks) {
     };
     const cpu = count('cpu'), pvp = count('pvp');
     ok('vs the CPU, pot XP is paid for your pots only (problem 8)', cpu[0] > 0 && cpu[1] === 0, cpu.join('/'));
-    ok('in 2 Players, pot XP is paid to both seats (problem 8, fixed in Phase 8)', pvp[0] > 0 && pvp[1] > 0, pvp.join('/'));
+    ok('in 2 Players, pots pay nothing: the XP would land on this account for either seat (problem 8)', pvp[0] === 0 && pvp[1] === 0, pvp.join('/'));
 }
 {
     // A foul in 2 Players hands the table over: the next player takes the seat first.
@@ -315,7 +316,7 @@ head('The CPU (pool-ai.js)');
        raw.length + ' cuts, ' + med(raw).toFixed(2) + '° → ' + med(fixed).toFixed(3) + '°');
 
     // Mid-frame, noise-free, hard: legal nearly always, and it pots.
-    let legal = 0, pots = 0, n = 0, placeOk = 0, kitchenOk = 0, sliced = true, worst = 0;
+    let legal = 0, pots = 0, n = 0, placeOk = 0, kitchenOk = 0, sliced = true, stepMs = [];
     for (let k = 0; k < 16; k++) {
         const rng = P.ppRandom(500 + k);
         const w3 = P.ppRack(P.ppCreateWorld(), rng);
@@ -338,7 +339,7 @@ head('The CPU (pool-ai.js)');
         while (true) {
             const t0 = process.hrtime.bigint();
             const done = j.step(3);
-            worst = Math.max(worst, Number(process.hrtime.bigint() - t0) / 1e6);
+            stepMs.push(Number(process.hrtime.bigint() - t0) / 1e6);
             if (done) break;
             if (++steps > 400) { sliced = false; break; }
         }
@@ -348,7 +349,12 @@ head('The CPU (pool-ai.js)');
     ok('ball in hand: the CPU always picks a legal spot, behind the string on the break', placeOk === 16 && kitchenOk === 16, placeOk + '/' + kitchenOk);
     ok('hard, noise-free: legal ≥ 90% of the time after the break', legal / n >= 0.9, legal + '/' + n);
     ok('…and it pots ≥ 75% of the time', pots / n >= 0.75, pots + '/' + n);
-    ok('thinking is time-sliced: no step runs far past its 3 ms budget (one trial is ~3–6 ms)', sliced && worst < 25, worst.toFixed(1) + ' ms at worst');
+    // Wall-clock: one garbage-collection pause can land in any step, so the slowest step is
+    // forgiven and the next is judged. A stage that stopped slicing would run long in every
+    // one of these 16 plans, so it still fails.
+    stepMs.sort((a, b) => b - a);
+    ok('thinking is time-sliced: no step runs far past its 3 ms budget (one trial is ~3–6 ms)', sliced && stepMs.length > 1 && stepMs[1] < 25,
+       (stepMs[1] || 0).toFixed(1) + ' ms second-slowest of ' + stepMs.length + ' (slowest ' + (stepMs[0] || 0).toFixed(1) + ')');
 
     // Adaptive: eased off when you struggle, pushed when you win, never to pro; a pin wins.
     const rec = (w, l) => ({ wins: w, losses: l });
@@ -580,6 +586,76 @@ head('Tournament (pool-game.js)');
     const sb = JSON.parse(snapBad.store.poolTournament); sb.snapshot.balls[3].x = 'NaN'; snapBad.store.poolTournament = JSON.stringify(sb);
     snapBad.poolNewFrame(1); snapBad.poolS.tour.t = snapBad.poolTourLoad(); snapBad.poolTourOn.resumeTour();
     ok('a damaged table snapshot restarts the frame instead', snapBad.poolMode === 'tour' && snapBad.poolS.frame.isBreak && snapBad.poolS.world.balls.length === 16);
+}
+
+// ── 8. Progression (Phase 8) ──────────────────────────────────────────
+head('Progression (pool-game.js)');
+{
+    // A CPU frame pays by the tier locked when it started: 60 / 80 / 100 / 120, 15 for a loss.
+    const pay = {};
+    ['easy', 'normal', 'hard', 'pro'].forEach(tier => {
+        const P = L.game({ prefs: { poolDifficulty: tier } });
+        P.poolNewFrame(1); P.poolEndFrame({ winner: 1 });
+        P.poolNewFrame(1); P.poolEndFrame({ winner: 2 });
+        pay[tier] = P.log.xp.map(x => x.perf.xp).join('/') + (P.log.xp.every(x => x.perf.vsCPU && x.perf.tier === tier) ? '' : ' (untagged)');
+    });
+    ok('vs the CPU a win pays 60 / 80 / 100 / 120 by tier, and a loss 15', pay.easy === '60/15' && pay.normal === '80/15' && pay.hard === '100/15' && pay.pro === '120/15', JSON.stringify(pay));
+
+    // The win is filed under the tier the frame was locked to, whatever is picked mid-frame.
+    const P = L.game({ prefs: { poolDifficulty: 'hard' } });
+    const S = P.poolS;
+    P.poolNewFrame(1);
+    S.phase = 'aim'; S.frame.isBreak = false;                          // play has started
+    P.poolOn.difficulty('easy');
+    ok('a pick made mid-frame leaves this frame on its tier', P.poolCpuTier === 'hard');
+    P.poolEndFrame({ winner: 1 });
+    ok('…so the win is filed under Hard and pays Hard', JSON.parse(P.store.poolWinsByTier).hard === 1 && !JSON.parse(P.store.poolWinsByTier).easy && P.log.xp[0].perf.xp === 100);
+    ok('the all-time totals still count it', JSON.parse(P.store.poolWinsByMode).cpu === 1 && P.store.poolGamesWon === '1');
+    P.poolNewFrame(1);
+    ok('the next frame takes the new pick', P.poolCpuTier === 'easy');
+    ok('the wins button shows the tier being played (0 on Easy, not the Hard win)', P.log.scoreBtn[P.log.scoreBtn.length - 1].best === 0 && P.poolS.wins === 0);
+    P.poolEndFrame({ winner: 2 });
+    ok('a loss files nothing by tier', JSON.parse(P.store.poolWinsByTier).easy === undefined || JSON.parse(P.store.poolWinsByTier).easy === 0);
+    const byTier = P.poolWinsByTier();
+    ok('poolWinsByTier reads all four tiers', Object.keys(byTier).join() === 'easy,normal,hard,pro' && byTier.hard === 1);
+    const corrupt = L.game({ store: { poolWinsByTier: '{not json' } });
+    ok('a corrupt poolWinsByTier reads as no wins', corrupt.poolWinsByTier().pro === 0);
+
+    // 2 Players pays Player 1 as it always has, and files nothing by tier.
+    const Q = L.game({});
+    Q.togglePoolMode();
+    Q.poolNewFrame(1); Q.poolEndFrame({ winner: 1 });
+    Q.poolNewFrame(1); Q.poolEndFrame({ winner: 2 });
+    ok('2 Players: Player 1 wins 80, loses 15; nothing is filed by tier', Q.log.xp.map(x => x.perf.xp).join('/') === '80/15' && !Q.log.xp[0].perf.vsCPU && !Q.store.poolWinsByTier);
+    ok('the Pro win tags the tier the achievement check reads', (() => { const R = L.game({ prefs: { poolDifficulty: 'pro' } }); R.poolNewFrame(1); R.poolEndFrame({ winner: 1 }); const p = R.log.xp[0].perf; return p.won && p.vsCPU && p.tier === 'pro'; })());
+}
+{
+    // Tournaments: 80 / 15 per match for the YOU seat only; other matches and byes pay nothing.
+    const P = L.game({ seed: 51, name: 'Ayesha' });
+    const S = P.poolS, T = S.tour, O = P.poolTourOn;
+    P.poolNewFrame(1);
+    P.poolOn.tourGo(); O.count('1'); O.count('1');                       // six players, two byes
+    ['Bilal', 'Hamza', 'Sana', 'Usman', 'Zara'].forEach((n, i) => O.edit('name:' + (i + 1), n));
+    O.start();
+    const finish = w => P.poolAfterTurn({ frameOver: true, winner: w, shooter: w, reason: 'eightPotted', foul: null, next: Object.assign({}, S.frame, { over: true, winner: w }) });
+    const you = T.t.slots.findIndex(s => s.you);
+    const pays = [];
+    for (let guard = 0; guard < 60 && P.ptChampion(T.t) === null; guard++) {
+        if (P.poolMode !== 'tour' || !T.t.current) { T.screen = null; O.play(); O.ready(); }
+        const m = P.ptById(T.t, T.matchId), mine = m.a === you || m.b === you;
+        // You win your first match and lose the next; everyone else's goes to seat 1.
+        const yourSeat = m.a === you ? 1 : 2, played = pays.filter(p => p.mine).length;
+        const before = P.log.xp.length;
+        finish(mine ? (played === 0 ? yourSeat : 3 - yourSeat) : 1);
+        const fresh = P.log.xp.slice(before);
+        if (T.pending) { pays.push({ mine, xp: fresh.map(x => x.perf.xp) }); for (let i = 0; i < 80; i++) P.poolTick(16); }
+        else { if (fresh.length) pays.push({ mine, stray: true }); P.poolOn.primary(); }
+    }
+    const mineP = pays.filter(p => p.mine), others = pays.filter(p => !p.mine);
+    ok('your matches pay once each: 80 won, then 15 lost', mineP.length === 2 && mineP[0].xp.join() === '80' && mineP[1].xp.join() === '15', JSON.stringify(mineP));
+    ok('matches between other names pay nothing, and no frame pays on its own', others.every(p => !p.xp || !p.xp.length) && !pays.some(p => p.stray), JSON.stringify(others));
+    ok('the award says it is a tournament match, not a CPU win', P.log.xp.every(x => x.perf.tour && !x.perf.vsCPU && x.perf.round));
+    ok('the title pays nothing, and no CPU tier is touched', P.log.xp.length === 2 && !P.store.poolWinsByTier && !P.store.poolCpuRecord);
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

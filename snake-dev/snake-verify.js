@@ -949,8 +949,9 @@ ok('the overlay reads the live mode for every multi-mode game',
    /function gameLbMode\(game\)[\s\S]{0,500}?return snakeMode[\s\S]{0,200}?return reflexMode[\s\S]{0,200}?poolMode/.test(src));
 // Career-win games have no per-frame scoreboard function to hang off, and
 // Ludo's lives inside the byte-identical engine block and can't be edited.
+// Pool's button is filled by pool-game.js (poolRefreshScoreBtn): the tier being played.
 ok('win-count buttons are refreshed from outside the engine block',
-   /function refreshGameScoreBtn\(game\)[\s\S]{0,500}?ludoTierWins\([\s\S]{0,300}?loadPoolWinsByMode\(\)/.test(src));
+   /function refreshGameScoreBtn\(game\)[\s\S]{0,500}?ludoTierWins\([\s\S]{0,300}?poolRefreshScoreBtn\(\)/.test(src));
 // The button opens a board; it has to show that board's number. Showing the
 // all-time total beside a per-tier ranking is how the two disagree.
 ok('the Ludo button counts the tier it opens, not every win ever',
@@ -1119,9 +1120,9 @@ head('Leaderboard board values (behavioural)');
     // matches the mode they are playing.
     const modeFn = block('function gameLbMode(');
     if (!modeFn) { ok('gameLbMode could be lifted out', false); return; }
-    const mk = (snakeMode, reflexMode, poolMode, ludoCpuTier) => new Function(
-        'snakeMode', 'reflexMode', 'poolMode', 'ludoCpuTier',
-        boards + '\n' + modeFn + '\nreturn gameLbMode;')(snakeMode, reflexMode, poolMode, ludoCpuTier);
+    const mk = (snakeMode, reflexMode, poolMode, ludoCpuTier, poolCpuTier) => new Function(
+        'snakeMode', 'reflexMode', 'poolMode', 'ludoCpuTier', 'poolCpuTier',
+        boards + '\n' + modeFn + '\nreturn gameLbMode;')(snakeMode, reflexMode, poolMode, ludoCpuTier, poolCpuTier || 'normal');
 
     const gm = mk('levels', 'target', 'pvp', 'hard');
     ok('the snake board follows the mode being played', gm('snake') === 'levels');
@@ -1129,7 +1130,14 @@ head('Leaderboard board values (behavioural)');
     ok('the pool board follows the mode being played', gm('pool') === 'pvp');
     ok('a mode-less game reports no mode', gm('tetris') === null);
     ok('an unknown game reports no mode', gm('nope') === null);
-    ok('pool collapses anything that is not pvp to cpu', mk('walled', 'screen', 'cpu', 'hard')('pool') === 'cpu');
+    // Pool's CPU board is the tier locked for the frame, as Ludo's is; a tournament has no
+    // board of its own, so it shows All-time.
+    ok('the pool board follows the CPU tier being played', mk('walled', 'screen', 'cpu', 'hard', 'pro')('pool') === 'pro' &&
+       mk('walled', 'screen', 'cpu', 'hard', 'easy')('pool') === 'easy');
+    ok('a tournament shows the all-time board, and an unknown tier falls back to it',
+       mk('walled', 'screen', 'tour', 'hard', 'pro')('pool') === 'cpu' && mk('walled', 'screen', 'cpu', 'hard', 'adaptive')('pool') === 'cpu');
+    ok('the pool board carries the four tiers, All-time and Hot-seat, pro first',
+       Object.keys(new Function(boards + '\nreturn LB_BOARDS;')().pool.modes).join() === 'pro,hard,normal,easy,cpu,pvp');
 
     // Ludo's board follows the CPU tier, which is also what decides where the
     // win is filed — the two read the same variable so they cannot disagree.
@@ -1211,6 +1219,22 @@ head('gameModeBests collection (behavioural)');
        played['reflex:screen'] === 198 && played['reflex:target'] === 240);
     ok('the pool split is collected',
        played['pool:cpu'] === 12 && played['pool:pvp'] === 3);
+    const tiered = run({ poolWinsByMode: '{"cpu":12,"pvp":3}', poolWinsByTier: '{"easy":2,"normal":0,"hard":5,"pro":1}' });
+    ok('pool wins by tier are collected (a tier never won is left out)',
+       tiered['pool:easy'] === 2 && tiered['pool:hard'] === 5 && tiered['pool:pro'] === 1 && tiered['pool:normal'] === undefined && tiered['pool:cpu'] === 12);
+    ok('a corrupt poolWinsByTier collects nothing rather than throwing', run({ poolWinsByTier: '{nope' })['pool:hard'] === undefined);
+
+    // The restore raises each tier, never lowers one.
+    const restoreFn = block('function applySnakeModeBests(');
+    if (restoreFn) {
+        const restore = (store, gmb) => {
+            const ls = { _s: Object.assign({}, store), getItem(k) { return Object.prototype.hasOwnProperty.call(this._s, k) ? this._s[k] : null; }, setItem(k, v) { this._s[k] = String(v); } };
+            new Function('localStorage', restoreFn + '\nreturn applySnakeModeBests;')(ls)(gmb);
+            return ls._s;
+        };
+        const after = JSON.parse(restore({ poolWinsByTier: '{"easy":4,"hard":1}' }, { 'pool:easy': 2, 'pool:hard': 6, 'pool:pro': 3 }).poolWinsByTier);
+        ok('restoring pool tiers only raises', after.easy === 4 && after.hard === 6 && after.pro === 3, JSON.stringify(after));
+    } else ok('applySnakeModeBests could be lifted out of the host', false);
 
     // A mode that has never scored is stored as null, because Infinity does not
     // survive JSON.stringify. Emitting that as a figure would plant a 0 at the

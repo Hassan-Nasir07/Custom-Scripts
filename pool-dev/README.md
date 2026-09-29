@@ -21,6 +21,7 @@ node pool-dev/rules-verify.js 300         # the v2 rules, with 300 whole frames
 node pool-dev/render-verify.js            # the v2 camera and renderer
 node pool-dev/hud-verify.js               # the v2 HUD view model and theme contract
 node pool-dev/tour-verify.js              # the tournament model: brackets, seeding, byes, breaks, saves, the cabinet
+node pool-dev/sync-verify.js              # the sync bot's script from github-actions-bot/, run headless
 node pool-dev/snapshot.js [dir] [scene]   # real-Chrome PNGs of the prototype, every scene by default
 node pool-dev/snapshot.js --check [dir]   # …plus an in-browser layout and theme audit per scene
 start pool-dev/pool-table.html            # the widget's own controller on host stand-ins, plus design scenes
@@ -89,7 +90,10 @@ The host calls six things, and reads four:
 
 The match lives in one object, `poolS`. A frame is recorded once per rack (`rackId` against
 `awardedRack`): Reset or a new frame is a new rack, and a finished rack cannot pay twice.
-Pot XP follows today's rule until Phase 8 (yours against the CPU, both seats in 2 Players).
+XP (Phase 8): a CPU win pays 60 / 80 / 100 / 120 by the tier locked for the frame and a loss
+15; 2 Players pays Player 1 80 / 15; a tournament pays the YOU seat 80 / 15 per match. Pot
+XP (+5) is for your pots against the CPU only. CPU wins are also filed by tier
+(`poolWinsByTier`), which the tier boards, the wins button and *Called It* read.
 The shot clock (30 s) runs only while a human aims; it waits in ball in hand, in the
 hand-off and on the CPU's turn. Escape cancels a power stroke and nothing else: the host's
 Escape-resets-the-game shortcut no longer applies to pool.
@@ -250,6 +254,14 @@ resolved one at a time. Three details matter:
 - **Pockets.** Each pocket is two jaws that run from the nose points to a capture circle.
   A ball drops when its centre enters the circle. A ball that somehow leaves the table
   is counted in `world.escapes`, which the fuzz asserts stays at zero.
+
+## The sync bot
+
+The leaderboard's gist is written by a GitHub Action in its own repository, checked out
+beside this one as `github-actions-bot/`. `sync-verify.js` lifts its inline script out of
+`sync.yml` and runs it headless: the `gameModeBests` merge the tier boards depend on (shape,
+per-key max, the tier-win bound), and the gates that were already there. The bot has to be
+pushed before a client that emits `pool:{easy,normal,hard,pro}` goes out.
 
 ## What stays in the host
 

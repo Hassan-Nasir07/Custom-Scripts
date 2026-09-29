@@ -91,6 +91,11 @@
     //   cpuTurn,                     the CPU is at the table: its own hint, no human controls
     //   sheet: { open, mode, note }, the Game mode sheet: which tab, and a line under the list
     //   difficulty,                  the picked CPU difficulty ('adaptive' or a tier)
+    //   pots: { 1: [ids], 2: [ids] } the object balls each seat has potted this frame, shown
+    //                                on its card while the table is open
+    //   tour: { kicker, title, frame } | null   a tournament match: the header strip, and
+    //                                the footer becomes Bracket / Pause / Max
+    //   tourSheet: { saved, name }   the sheet's Tournament tab: resume, or set one up
     //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
     //   secondaryLabel,              the frame-over dialog's second button, when the default does not apply
     //   result: { win, title, reason, recordLabel, record, delta, note } | null,
@@ -107,6 +112,8 @@
         const sheetOpen = !!(g.sheet && g.sheet.open);
         const sheetMode = (g.sheet && g.sheet.mode) || (g.mode === 'pvp' ? 'pvp' : 'cpu');
         const onTable = new Set(g.world.balls.filter(b => b.state !== 'pocketed').map(b => b.id));
+        // The big spin picker: only while you are the one aiming.
+        const pickerOpen = !!g.spinOpen && aiming && !g.cpuTurn && !g.handoff && !toast && !g.dragging && !sheetOpen;
 
         const cards = [1, 2].map(seat => {
             const active = !over && g.frame.turn === seat;
@@ -128,19 +135,23 @@
                 tagShort: { 'BALL IN HAND': 'IN HAND', 'TO BREAK': 'BREAK', 'TO SHOOT': 'SHOOT' }[tag] || '',
                 clock: clockLeft !== null && g.clock.total > 0 ? Math.max(0, Math.min(100, clockLeft / g.clock.total * 100)) : 0,
                 open: !group, group: ids.map(id => ({ id, down: !onTable.has(id) })),
+                // On an open table the card shows what this player has potted, so the break's
+                // balls are known before the groups are. Beyond three the balls carry it alone.
+                potted: !group && g.pots ? (g.pots[seat] || []).filter(id => !onTable.has(id)) : [],
                 initials: phInitials(g.names[seat], seat),
                 cpu: g.mode === 'cpu' && seat === 2,
             };
         });
 
-        // The pill names what the shooter is on, or what the table needs.
+        // The pill names what the shooter is on: state only. What to do about it (call a
+        // pocket) is the hint's, or in 3D the call card's, so it is never said twice.
         const shooterGroup = g.frame.groups[g.frame.turn];
         let pill;
         if (bih) pill = g.frame.ballInHand === 'kitchen' ? 'Break · kitchen only' : 'Ball in hand';
-        else if (aiming && st.callRequired) pill = st.onThe8 ? 'On the 8 · call it' : g.mode === 'cpu' && g.frame.callEvery ? 'Pro · call every shot' : 'Call every shot';
         else if (g.frame.isBreak) pill = 'Break';
+        else if (st.onThe8) pill = 'On the 8';
         else pill = shooterGroup ? shooterGroup[0].toUpperCase() + shooterGroup.slice(1) : 'Open table';
-        if (max && !bih && !(aiming && st.callRequired) && !g.frame.isBreak) {
+        if (max && !bih && !g.frame.isBreak) {
             const who = g.names[g.frame.turn];
             pill = (who === 'You' ? 'Your shot' : who + "'s shot") + ' · ' + pill;
         }
@@ -159,6 +170,14 @@
             else if (st.callRequired && g.called >= 0) hint = { text: PH_POCKETS[g.called] + ' called · drag to shoot', tone: '' };
             else hint = { text: 'Press and drag for power', tone: '' };
         }
+
+        // The call card (3D): the pocket map and the hint in one, bottom right. The pocket
+        // lit on the map names the call, so the caption only says what comes next. The spin
+        // picker covers the corner it would share with Move cue ball, so it steps aside then.
+        const card = aiming && st.callRequired && g.camera === '3d' && !g.cpuTurn && !g.handoff && !toast && !pickerOpen && !sheetOpen;
+        const pwr = Math.round(g.power || 0);
+        const cardCap = g.dragging ? { text: 'Release · ' + pwr + '%', tone: pwr >= PH_POWER_HOT ? 'hot' : 'power' }
+            : callNeeded ? { text: 'Tap a pocket', tone: 'call' } : { text: 'Drag to shoot', tone: '' };
 
         // The tip: anywhere in the miscue ring (g.tip), or a preset by index (g.spin).
         const spin = g.tip ? phClampTip(g.tip.x, g.tip.y)
@@ -193,18 +212,19 @@
             },
             spin: {
                 show: !bih && !over && !toast && !moving && !sheetOpen, label: phSpinLabel(spin), readout: phSpinReadout(spin), x: spin.x, y: spin.y,
-                // The big picker: only while you are the one aiming.
-                open: !!g.spinOpen && aiming && !g.cpuTurn && !g.handoff && !toast && !g.dragging && !sheetOpen,
+                open: pickerOpen,
                 preset: PH_SPINS.findIndex(p => Math.abs(p.x - spin.x) < 1e-6 && Math.abs(p.y - spin.y) < 1e-6),
             },
-            hint: { show: !!hint && !over && !toast && !sheetOpen, text: hint ? hint.text : '', tone: hint ? hint.tone : '' },
+            hint: { show: !!hint && !over && !toast && !sheetOpen && !card, text: hint ? hint.text : '', tone: hint ? hint.tone : '' },
             bihNote: note ? { show: true, text: note.text, x: note.x, y: note.y } : { show: false },
             // Back to placing: only before the shot, and never mid-stroke.
             replace: { show: !!g.canReplace && g.phase === 'aim' && !g.dragging && !g.handoff && !over },
-            mini: { show: aiming && st.callRequired && is3d, called: g.called >= 0 ? g.called : -1 },
+            mini: { show: card, called: g.called >= 0 ? g.called : -1, caption: cardCap.text, tone: cardCap.tone },
             dialog: over && g.result ? Object.assign({ show: true, kicker: 'FRAME OVER · ' + (g.frames ? g.frames[0] + '–' + g.frames[1] : ''),
-                primary: 'NEW FRAME', secondary: g.secondaryLabel || (g.mode === 'cpu' ? 'Change difficulty' : 'Change mode') }, g.result) : { show: false },
-            foot: { show: !g.handoff, modeLabel: g.mode === 'cpu' ? 'Vs CPU' : g.mode === 'tour' ? 'Tournament' : '2 Players' },
+                primary: g.mode === 'tour' ? 'NEXT FRAME' : 'NEW FRAME',
+                secondary: g.secondaryLabel || (g.mode === 'cpu' ? 'Change difficulty' : g.mode === 'tour' ? 'Bracket' : 'Change mode') }, g.result) : { show: false },
+            foot: { show: !g.handoff, tour: g.mode === 'tour', modeLabel: g.mode === 'cpu' ? 'Vs CPU' : g.mode === 'tour' ? 'Tournament' : '2 Players' },
+            tour: g.tour ? { show: true, kicker: g.tour.kicker, title: g.tour.title, frame: g.tour.frame } : { show: false },
             handoff: g.handoff ? {
                 show: true, to: 'Pass to ' + g.names[g.handoff],
                 from: g.names[3 - g.handoff] + ', swap seats',
@@ -216,6 +236,8 @@
                 diffs: PH_DIFFS.map(d => ({ key: d.key, name: d.name, desc: d.desc, checked: (g.difficulty || 'adaptive') === d.key })),
                 chip: 'NOW ' + String(g.adaptiveTier || 'normal').toUpperCase(),
                 note: (g.sheet && g.sheet.note) || '',
+                tour: g.tourSheet && g.tourSheet.saved ? { saved: true, cta: 'RESUME ' + String(g.tourSheet.name || 'TOURNAMENT').toUpperCase(), sub: g.tourSheet.where || '' }
+                    : { saved: false, cta: 'SET UP TOURNAMENT', sub: '' },
             } : { show: false },
         };
     }
@@ -238,6 +260,8 @@
         exit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"></path></svg>',
         swap: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13l-3-3M20 16H7l3 3"></path></svg>',
         hand: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v7.5a6.5 6.5 0 0 1-6.5 6.5h-.6a6 6 0 0 1-4.6-2.2L3.6 15a1.6 1.6 0 0 1 2.4-2l2 2"></path></svg>',
+        bracket: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h5v5H3M3 14h5v5H3M8 7.5h4v9H8M12 12h4M16 9h5v6h-5z"></path></svg>',
+        pause: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5v14M15 5v14"></path></svg>',
         close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
         cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
     };
@@ -245,7 +269,7 @@
     function phCardHTML(seat, max) {
         const top = '<div class="ph-card-top"><span class="ph-name" data-ph="name"></span>' +
             (max ? '<span class="ph-rec" data-ph="rec"></span>' : '<span class="ph-tag ph-label" data-ph="tag"></span>') + '</div>';
-        const group = '<div class="ph-group" data-ph="group"></div><div class="ph-open" data-ph="open">Open table</div>';
+        const group = '<div class="ph-group" data-ph="group"></div><div class="ph-open" data-ph="open"><span class="ph-open-l" data-ph="openl">Open table</span><span class="ph-open-balls" data-ph="openb"></span></div>';
         const body = max
             ? '<div class="ph-avatar" data-ph="avatar"></div><div class="ph-card-body">' + top + group + '</div>'
             : top + '<div class="ph-rec" data-ph="rec"></div>' + group;
@@ -253,7 +277,7 @@
     }
 
     function phViewHTML(max) {
-        const mini = [[0, 0], [56, 0], [112, 0], [0, 56], [56, 56], [112, 56]]
+        const mini = [[0, 0], [26, 0], [52, 0], [0, 26], [26, 26], [52, 26]]
             .map((p, i) => '<button type="button" data-ph-call="' + i + '" style="left:' + p[0] + 'px;top:' + p[1] + 'px" aria-label="Call ' + PH_POCKETS[i].toLowerCase() + ' pocket" aria-pressed="false"><span></span></button>')
             .join('');
         return '<div class="ph-view" data-ph="view"><canvas class="ph-canvas" data-ph="canvas"></canvas><div class="ph-layer">' +
@@ -281,7 +305,8 @@
             '<div class="ph-hint ph-glass" data-ph="hint"><span data-ph="hintt"></span></div>' +
             '<div class="ph-bihnote ph-label" data-ph="bihnote" hidden></div>' +
             '<button type="button" class="ph-replace ph-glass" data-ph="replace" hidden>' + PH_ICON.hand + '<span>Move cue ball</span></button>' +
-            '<div class="ph-mini ph-glass" data-ph="mini" hidden><div class="ph-mini-table"></div><div style="position:relative;width:156px;height:100px">' + mini + '</div></div>' +
+            '<div class="ph-mini ph-glass" data-ph="mini" hidden><span class="ph-mini-cap" data-ph="minicap"></span>' +
+            '<div class="ph-mini-pad"><div class="ph-mini-table"></div>' + mini + '</div></div>' +
             '<div class="ph-scrim" data-ph="scrim" hidden><div class="ph-dialog" role="dialog" aria-label="Frame over" data-ph="dialog">' +
             '<div class="ph-dialog-head"><span class="ph-dialog-icon" data-ph="dlgi"></span><span style="display:flex;flex-direction:column;gap:2px">' +
             '<span class="ph-dialog-kicker ph-label" data-ph="dlgk"></span><span class="ph-dialog-title" data-ph="dlgt"></span></span></div>' +
@@ -307,13 +332,24 @@
             '<div class="ph-sheet-head"><span class="ph-sheet-title">Game mode</span><button type="button" class="ph-btn is-icon" data-ph="sheetx" aria-label="Close">' + PH_ICON.close + '</button></div>' +
             '<div class="ph-sheet-modes" role="radiogroup" aria-label="Mode">' +
             '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="cpu" aria-checked="false">' + PH_ICON.chip + '<span>Vs CPU</span></button>' +
-            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="pvp" aria-checked="false">' + PH_ICON.people + '<span>2 Players</span></button></div>' +
+            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="pvp" aria-checked="false">' + PH_ICON.people + '<span>2 Players</span></button>' +
+            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="tour" aria-checked="false">' + PH_ICON.bracket + '<span>Tournament</span></button></div>' +
             '<div class="ph-sheet-cpu" data-ph="sheetcpu"><div class="ph-sheet-l ph-label">CPU DIFFICULTY</div>' +
             '<div class="ph-sheet-diffs" role="radiogroup" aria-label="CPU difficulty">' + diffs + '</div>' +
             '<div class="ph-sheet-note" data-ph="sheetnote" hidden></div></div>' +
+            '<div class="ph-sheet-pvp" data-ph="sheettour" hidden><span>Knockout bracket for 3 to 16 people taking turns on this computer. Humans only, no CPU players.</span>' +
+            '<button type="button" class="ph-primary ph-label is-two" data-ph="sheettourgo"><span data-ph="sheettourcta">SET UP TOURNAMENT</span><span class="ph-primary-sub" data-ph="sheettoursub"></span></button>' +
+            '<div class="ph-sheet-links"><button type="button" class="ph-btn" data-ph="sheetcab">' + PH_ICON.cup + '<span>Trophy cabinet</span></button>' +
+            '<button type="button" class="ph-btn is-hot" data-ph="sheetabandon" hidden><span>Abandon</span></button></div></div>' +
             '<div class="ph-sheet-pvp" data-ph="sheetpvp" hidden><span>Hot-seat on this computer. Hand the panel over after each turn; the game tells you whose shot it is.</span>' +
             '<button type="button" class="ph-primary ph-label" data-ph="sheetstart">START 2-PLAYER FRAME</button></div>' +
             '</div>';
+    }
+
+    // A tournament match: "CITY OPEN" over "Semi-final · race to 2", and a FRAME n pill.
+    function phTourHeadHTML() {
+        return '<div class="ph-tourhead" data-ph="tourhead" hidden><span class="ph-tourhead-t"><span class="ph-tourhead-k ph-label" data-ph="tourk"></span>' +
+            '<span class="ph-tourhead-n" data-ph="tourn"></span></span><span class="ph-tourhead-f ph-label" data-ph="tourf"></span></div>';
     }
 
     function phHandoffHTML() {
@@ -329,17 +365,21 @@
         const cards = phCardHTML(1, max) + '<div class="ph-frames"><span class="ph-frames-n" data-ph="frames">0–0</span><span class="ph-frames-l ph-label">FRAMES</span></div>' + phCardHTML(2, max);
         let html;
         if (max) {
-            html = '<div class="ph-top"><div class="ph-title">' + (o.title || '8-Ball Pool') + '</div><div class="ph-cards">' + cards + '</div>' +
-                '<div class="ph-actions"><span class="ph-trophy">' + PH_ICON.cup + '<span class="ph-num" data-ph="trophies">0</span></span>' +
+            html = '<div class="ph-top"><div class="ph-title" data-ph="title">' + (o.title || '8-Ball Pool') + '</div>' + phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' +
+                '<div class="ph-actions"><span class="ph-trophy" data-ph="trophy">' + PH_ICON.cup + '<span class="ph-num" data-ph="trophies">0</span></span>' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="reset" aria-label="Reset rack" title="Reset rack">' + PH_ICON.reset + '</button>' +
+                '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
+                '<button type="button" class="ph-btn is-icon" data-ph="pause" aria-label="Pause" title="Pause" hidden>' + PH_ICON.pause + '</button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="max" aria-label="Exit full view" title="Exit full view">' + PH_ICON.exit + '</button></div></div>' +
                 phViewHTML(true) + phHandoffHTML() + phSheetHTML();
         } else {
-            html = '<div class="ph-cards">' + cards + '</div>' + phViewHTML(false) +
+            html = phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' + phViewHTML(false) +
                 '<div class="ph-foot" data-ph="foot">' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn" data-ph="reset">' + PH_ICON.reset + '<span>Reset</span></button>' +
+                '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
+                '<button type="button" class="ph-btn" data-ph="pause" hidden>' + PH_ICON.pause + '<span>Pause</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="max">' + PH_ICON.max + '<span>Max</span></button></div>' +
                 phHandoffHTML() + phSheetHTML();
         }
@@ -355,14 +395,15 @@
         ['view', 'canvas', 'frames', 'trophies', 'cam', 'cam2d', 'cam3d', 'cam2dl', 'cam3dl', 'pill', 'pillt', 'toast', 'toasti', 'toastt', 'toasts',
             'lean', 'leanv', 'leanf', 'leant', 'leani', 'gauge', 'gaugef', 'lock', 'spin', 'spind', 'spinv', 'spinball', 'spinpop', 'spinr', 'spinbig', 'spinbigd',
             'hint', 'hintt', 'bihnote', 'replace',
-            'mini', 'scrim', 'dialog', 'dlgi', 'dlgk', 'dlgt', 'dlgr', 'dlgrec', 'dlgrl', 'dlgrv', 'dlgd', 'dlgn', 'dlgnt', 'dlgp', 'dlgs',
+            'mini', 'minicap', 'scrim', 'dialog', 'dlgi', 'dlgk', 'dlgt', 'dlgr', 'dlgrec', 'dlgrl', 'dlgrv', 'dlgd', 'dlgn', 'dlgnt', 'dlgp', 'dlgs',
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
-            'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart'].forEach(n => { hud[n] = ref(n); });
+            'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart',
+            'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
             const r = n => q('[data-ph="' + n + '"]', c);
-            return { el: c, name: r('name'), tag: r('tag'), rec: r('rec'), group: r('group'), open: r('open'), clock: r('clock'), avatar: r('avatar'), dots: [] };
+            return { el: c, name: r('name'), tag: r('tag'), rec: r('rec'), group: r('group'), open: r('open'), openl: r('openl'), openb: r('openb'), clock: r('clock'), avatar: r('avatar'), dots: [] };
         });
         hud.miniButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-call]'));
 
@@ -438,6 +479,11 @@
         hud.sheetx.addEventListener('click', () => fire('sheetClose'));
         hud.sheetscrim.addEventListener('click', () => fire('sheetClose'));
         hud.sheetstart.addEventListener('click', () => fire('startPvp'));
+        hud.sheettourgo.addEventListener('click', () => fire('tourGo'));
+        hud.sheetcab.addEventListener('click', () => fire('tourCabinet'));
+        hud.sheetabandon.addEventListener('click', () => fire('tourAbandon'));
+        hud.bracket.addEventListener('click', () => fire('tourBracket'));
+        hud.pause.addEventListener('click', () => fire('tourPause'));
         hud.sheet.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('sheetClose'); hud.mode.focus(); e.preventDefault(); e.stopPropagation(); } });
         return hud;
     }
@@ -489,10 +535,17 @@
             s(k + 'clock', c.clock, v => { r.clock.style.width = v + '%'; });
             s(k + 'open', c.open, v => { phShow(r.open, v); phShow(r.group, !v); });
             const ids = c.group.map(d => d.id).join();
+            // A new group (a new frame, or the open table decided) rebuilds the dots. Each is
+            // drawn potted or not at once, and the per-dot cache starts over: the old frame's
+            // values would otherwise match and skip the update, leaving a potted ball lit.
             s(k + 'ids', ids, () => {
-                r.group.innerHTML = c.group.map(d => '<i class="ph-dot" style="background:' + phDotStyle(d.id) + '"></i>').join('');
+                r.group.innerHTML = c.group.map(d => '<i class="ph-dot' + (d.down ? ' is-down' : '') + '" style="background:' + phDotStyle(d.id) + '"></i>').join('');
                 r.dots = Array.prototype.slice.call(r.group.children);
+                for (let j = 0; j < 7; j++) delete hud.last[k + 'down' + j];
+                c.group.forEach((d, j) => { hud.last[k + 'down' + j] = d.down; });
             });
+            s(k + 'openl', c.potted.length ? (c.potted.length > 3 ? '' : 'Potted') : 'Open table', v => { r.openl.textContent = v; phShow(r.openl, !!v); });
+            s(k + 'openb', c.potted.join(), () => { r.openb.innerHTML = c.potted.map(id => '<i class="ph-dot" style="background:' + phDotStyle(id) + '"></i>').join(''); });
             c.group.forEach((d, j) => s(k + 'down' + j, d.down, v => r.dots[j] && r.dots[j].classList.toggle('is-down', v)));
         });
         s('frames', vm.frames, v => { hud.frames.textContent = v; });
@@ -568,7 +621,10 @@
 
         s('replace.show', vm.replace.show, v => phShow(hud.replace, v));
 
-        s('mini.show', vm.mini.show, v => phShow(hud.mini, v));
+        // While the call card holds the corner, the gauge steps up and Move cue ball goes left.
+        s('mini.show', vm.mini.show, v => { phShow(hud.mini, v); hud.view.classList.toggle('is-calling', v); });
+        s('mini.cap', vm.mini.caption || '', v => { hud.minicap.textContent = v; });
+        s('mini.tone', vm.mini.tone || '', v => { hud.mini.className = 'ph-mini ph-glass' + (v ? ' is-' + v : ''); });
         s('mini.called', vm.mini.called, v => hud.miniButtons.forEach((b, i) => b.setAttribute('aria-pressed', i === v ? 'true' : 'false')));
 
         s('dlg.show', vm.dialog.show, v => phShow(hud.scrim, v));
@@ -588,17 +644,28 @@
         }
 
         if (hud.foot) s('foot.show', vm.foot.show, v => phShow(hud.foot, v));
+        // In a tournament match: Bracket / Pause in place of the mode and Reset.
+        s('foot.tour', vm.foot.tour, v => { phShow(hud.mode, !v); phShow(hud.reset, !v); phShow(hud.bracket, v); phShow(hud.pause, v); if (hud.trophy) phShow(hud.trophy, !v); });
+        s('tour.show', vm.tour.show, v => { phShow(hud.tourhead, v); if (hud.title) phShow(hud.title, !v); });
+        if (vm.tour.show) {
+            s('tour.k', vm.tour.kicker, v => { hud.tourk.textContent = v; });
+            s('tour.n', vm.tour.title, v => { hud.tourn.textContent = v; });
+            s('tour.f', vm.tour.frame, v => { hud.tourf.textContent = v; });
+        }
         s('foot.mode', vm.foot.modeLabel, v => { hud.model.textContent = v; });
         const sh = vm.sheet;
         s('sheet.show', sh.show, v => { phShow(hud.sheet, v); phShow(hud.sheetscrim, v); hud.mode.setAttribute('aria-expanded', v ? 'true' : 'false'); });
         if (sh.show) {
             s('sheet.mode', sh.mode, v => {
                 hud.modeButtons.forEach(b => b.setAttribute('aria-checked', b.getAttribute('data-ph-mode') === v ? 'true' : 'false'));
-                phShow(hud.sheetcpu, v === 'cpu'); phShow(hud.sheetpvp, v === 'pvp');
+                phShow(hud.sheetcpu, v === 'cpu'); phShow(hud.sheetpvp, v === 'pvp'); phShow(hud.sheettour, v === 'tour');
             });
             s('sheet.diff', sh.diffs.map(d => d.checked ? 1 : 0).join(''), () => hud.diffButtons.forEach((b, i) => b.setAttribute('aria-checked', sh.diffs[i].checked ? 'true' : 'false')));
             s('sheet.chip', sh.chip, v => { hud.sheetchip.textContent = v; });
             s('sheet.note', sh.note, v => { hud.sheetnote.textContent = v; phShow(hud.sheetnote, !!v); });
+            s('sheet.tour', sh.tour.cta + '|' + sh.tour.sub + '|' + sh.tour.saved, () => {
+                hud.sheettourcta.textContent = sh.tour.cta; hud.sheettoursub.textContent = sh.tour.sub; phShow(hud.sheettoursub, !!sh.tour.sub); phShow(hud.sheetabandon, sh.tour.saved);
+            });
         }
         s('ho.show', vm.handoff.show, v => phShow(hud.handoff, v));
         if (vm.handoff.show) {

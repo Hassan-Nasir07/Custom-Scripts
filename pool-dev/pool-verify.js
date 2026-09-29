@@ -34,7 +34,7 @@ BLOCKS.forEach(b => {
     ok(b.name + ': sentinels appear exactly once each', host.split(b.open).length === 2 && host.split(b.close).length === 2);
     ok(b.name + ': the userscript copy is byte-identical to pool-dev/', trim(hostBlock(host, b)) === trim(devBlock(b, '\n')));
 });
-ok('the engine is spliced in dependency order', FILES.join() === 'pool-physics.js,pool-rules.js,pool-camera.js,pool-render.js,pool-hud.js,pool-ai.js,pool-game.js');
+ok('the engine is spliced in dependency order', FILES.join() === 'pool-physics.js,pool-rules.js,pool-tour.js,pool-camera.js,pool-render.js,pool-hud.js,pool-tour-ui.js,pool-ai.js,pool-game.js');
 ok('userscript has one line ending throughout', eolOf(host) === '\n' ? host.indexOf('\r') === -1 : host.split('\r\n').length === host.split('\n').length);
 ok('the theme CSS is safe inside the template literal', templateProblem(devBlock(BLOCKS[1], '\n')) === null);
 ok('the pool theme follows the Cyberpunk theme, as pool-table.html loads them',
@@ -426,6 +426,160 @@ head('Tiers in the match');
         if (before === 'aim' && T.phase === 'strike' && T.frame.turn === 2 && !T.frame.isBreak && T.frame.callEvery) { asked++; if (T.called >= 0 && T.shot && T.shot.call === T.called) calls++; }
     }
     ok('pro: the CPU names its pocket on every shot it takes', asked > 0 && calls === asked, calls + '/' + asked);
+}
+
+// ── 6b. Pots on an open table ─────────────────────────────────────────
+head('Pots on an open table (pool-game.js)');
+{
+    const P = L.game({ seed: 1 });
+    const S = P.poolS;
+    P.poolNewFrame(1);
+    // The break: whatever drops goes on the breaker's list (the 8 excepted).
+    P.prPlaceCue(S.world, S.world.table.headX - 60, 0); S.placed = true; S.phase = 'aim'; S.aim = 0;
+    S.shot = { angle: -0.01, speed: S.cfg.maxSpeed, tipX: 0, tipY: 0 }; S.phase = 'strike'; S.strikeT = 0;   // this break pots two
+    const breaker = S.frame.turn;
+    for (let i = 0; i < 6000 && (S.phase === 'strike' || S.phase === 'moving'); i++) P.poolTick(16);
+    const down = S.world.balls.filter(b => b.id !== 0 && b.id !== 8 && b.state === 'pocketed').map(b => b.id).sort((a, b) => a - b);
+    ok('the break\'s pots are the breaker\'s, and only those', down.length >= 2 && S.pots[breaker].slice().sort((a, b) => a - b).join() === down.join() && !S.pots[3 - breaker].length, S.pots[breaker].join() + ' vs ' + down.join());
+    P.poolNewFrame(2);
+    ok('a new frame clears them', !S.pots[1].length && !S.pots[2].length);
+
+}
+
+// ── 7. Tournaments in the match (pool-game.js on pool-tour.js) ────────
+head('Tournament (pool-game.js)');
+{
+    const P = L.game({ seed: 31, name: 'Ayesha' });
+    const S = P.poolS, T = S.tour, O = P.poolTourOn;
+    P.poolNewFrame(1);
+    P.poolOn.tourGo();
+    ok('Tournament → set up: the setup screen, four players, your name in slot 1', T.screen === 'setup' && T.setup.n === 4 && T.setup.names[0] === 'Ayesha' && T.setup.names[1] === '');
+    O.count('1'); O.count('1');
+    ok('the stepper grows the field: six players make a bracket of 8, with three race columns', T.setup.n === 6 && T.setup.size === 8 && T.setup.race.join() === '1,2,3');
+    O.count('-1'); O.count('-1'); O.count('-1'); O.count('-1');
+    ok('…and stops at 3', T.setup.n === 3 && T.setup.race.join() === '2,3');
+    O.count('3');
+    ['Bilal', 'Hamza', 'Sana', 'Usman', 'Zara'].forEach((n, i) => O.edit('name:' + (i + 1), n));
+    O.edit('race:0', '2'); O.set('clock:45'); O.set('guide:short'); O.set('call:every'); O.edit('tname', 'Office Cup');
+    const rev = T.rev; O.edit('name:1', 'Bilal');
+    ok('typing a name does not re-render the screen (the caret stays)', T.rev === rev);
+    O.start();
+    const t0 = T.t;
+    ok('START TOURNAMENT: the bracket, saved to poolTournament', T.screen === 'bracket' && t0.name === 'Office Cup' && t0.slots.length === 6 && JSON.parse(P.store.poolTournament).id === t0.id);
+    ok('the race columns become per-round races (Quarter, Semi, Final)', t0.settings.race.join() === '2,2,3');
+    ok('quick play stays the mode until a match starts', P.poolMode === 'cpu');
+
+    const m1 = P.ptNext(t0);
+    O.play();
+    ok('PLAY NEXT MATCH: the intro for the next match', T.screen === 'intro' && T.introId === m1.id);
+    O.ready();
+    ok('READY: the match is on the table, in tour mode', P.poolMode === 'tour' && T.matchId === m1.id && T.t.current === m1.id && T.screen === null);
+    ok('the table takes the tournament\'s settings', S.guideMode === 'short' && S.callEvery && S.frame.callEvery && S.clockTotal === 45 && S.clockLeft === 45);
+    const A = T.t.slots[m1.a], B = T.t.slots[m1.b];
+    ok('the seats are the match\'s players, with their seeds', P.poolNames()[1] === A.name && P.poolNames()[2] === B.name && P.poolRecordText(1) === 'Seed ' + A.seed && P.poolRecordText(2) === 'Seed ' + B.seed);
+    ok('the lower seed breaks the first frame', (S.breaker === 1 ? A : B).seed === Math.max(A.seed, B.seed));
+    ok('nobody is at the CPU seat', !P.poolCpuTurn());
+    const rack = S.rackId; P.resetPoolGame();
+    ok('Reset is refused mid-match (it would undo a lost frame)', S.rackId === rack);
+
+    // Pause stops the clock; unpause lets it run.
+    P.prPlaceCue(S.world, S.world.table.headX - 60, 0); S.placed = true; S.phase = 'aim';
+    P.poolOn.tourPause();
+    for (let i = 0; i < 20; i++) P.poolTick(50);
+    ok('Pause: a dialog, and the shot clock is stopped', T.dialog === 'pause' && S.clockLeft === 45 && !P.poolCanAct());
+    O.unpause();
+    for (let i = 0; i < 20; i++) P.poolTick(50);
+    ok('RESUME: the clock runs again', T.dialog === null && Math.abs(S.clockLeft - 44) < 1e-9, S.clockLeft);
+
+    // One shot: the table is snapshotted at the boundary.
+    const shooter = S.frame.turn;
+    human(P, S);
+    for (let i = 0; i < 4000 && (S.phase === 'strike' || S.phase === 'moving'); i++) P.poolTick(16);
+    const snap = JSON.parse(P.store.poolTournament).snapshot;
+    ok('after the shot the whole table is saved: the balls, the rules state, the clock', snap && snap.match === m1.id && snap.balls.length === 16 && snap.frame.turn === S.frame.turn && snap.frames === 0);
+    ok('the table changing hands shows the hand-off', S.frame.over || S.frame.turn === shooter || S.handoff === S.frame.turn);
+
+    // A reload mid-frame: the same table comes back.
+    const P2 = L.game({ seed: 32, name: 'Ayesha', store: JSON.parse(JSON.stringify(P.store)) });
+    P2.poolNewFrame(1);
+    const t2 = P2.poolTourLoad();
+    ok('a reload finds the tournament in progress', t2 && t2.id === t0.id && t2.current === m1.id);
+    P2.poolS.tour.t = t2; P2.poolS.tour.dialog = 'resume';
+    P2.poolTourOn.resumeTour();
+    const S2 = P2.poolS;
+    const same = S2.world.balls.every((b, i) => b.id === S.world.balls[i].id && Math.abs(b.x - S.world.balls[i].x) < 1e-9 && Math.abs(b.y - S.world.balls[i].y) < 1e-9 && b.state === S.world.balls[i].state);
+    ok('RESUME puts back the table as it was after the last shot', P2.poolMode === 'tour' && same && S2.frame.turn === S.frame.turn && JSON.stringify(S2.frame.groups) === JSON.stringify(S.frame.groups));
+    ok('…and whoever is on the shot takes the seat first', S2.handoff === S2.frame.turn);
+    ok('…with the tournament\'s settings', S2.clockTotal === 45 && S2.guideMode === 'short' && S2.callEvery);
+
+    // Frames until the match is won: the frame-over dialog says NEXT FRAME; breaks alternate.
+    const finish = w => P.poolAfterTurn({ frameOver: true, winner: w, shooter: w, reason: 'eightPotted', foul: null, next: Object.assign({}, S.frame, { over: true, winner: w }) });
+    const breakers = [S.breaker];
+    finish(1);
+    ok('a frame that leaves the match going: the frame-over dialog, scored for the match', S.phase === 'over' && S.result && S.result.recordLabel === 'MATCH · RACE TO 2' && S.result.record === '1–0' && S.frames.join() === '1,0');
+    ok('the frame is in the saved bracket', JSON.parse(P.store.poolTournament).matches.find(m => m.id === m1.id).frames.length === 1);
+    ok('tournament frames pay no XP and touch no quick-match record (Phase 8)', !P.log.xp.length && !P.store.poolRecord && !P.store.poolCpuRecord);
+    P.poolOn.primary();
+    breakers.push(S.breaker);
+    ok('NEXT FRAME: the other player breaks, and takes the seat first', breakers[1] === 3 - breakers[0] && S.handoff === S.breaker && S.phase === 'bih');
+    finish(1);
+    ok('the match is won: no frame dialog, the result waits for the last pot to drop', S.result === null && T.pending > 0 && T.screen === null && !P.poolCanAct());
+    for (let i = 0; i < 80; i++) P.poolTick(16);
+    ok('…then the match result', T.screen === 'result' && T.t.current === null && P.ptById(T.t, m1.id).winner === m1.a);
+    O.bracket();
+    ok('CONTINUE: the bracket, on the next match\'s round', T.screen === 'bracket' && T.tab === P.ptNext(T.t).round);
+    O.close();
+    ok('leaving the bracket with no match in progress goes back to quick play, the table\'s settings with it',
+       P.poolMode === 'cpu' && S.clockTotal === 30 && S.guideMode === 'full' && !S.callEvery && T.t && T.t.id === t0.id);
+
+    // Pause → Leave for now keeps the match; the sheet resumes it.
+    P.poolOn.tourGo(); O.play(); O.ready();
+    const m2 = T.t.current;
+    P.poolOn.tourPause(); O.leave();
+    ok('Pause → Leave for now: back to quick play, the match kept', P.poolMode === 'cpu' && T.t.current === m2 && JSON.parse(P.store.poolTournament).current === m2);
+    ok('the sheet\'s Tournament tab offers it back', P.poolTourSheet().saved && /vs/.test(P.poolTourSheet().where));
+    P.poolOn.tourGo();
+    ok('RESUME from the sheet: the same match, back on the table', P.poolMode === 'tour' && T.matchId === m2);
+
+    // The rest of the tournament, seat 1 winning every frame; the final fills the cabinet.
+    for (let guard = 0; guard < 40 && P.ptChampion(T.t) === null; guard++) {
+        if (P.poolMode !== 'tour' || !T.t.current) { T.screen = null; O.play(); O.ready(); }
+        finish(1);
+        if (T.pending) { for (let i = 0; i < 80; i++) P.poolTick(16); } else P.poolOn.primary();
+    }
+    const champ = P.ptChampion(T.t);
+    ok('the final won: the result screen, then the champion', champ !== null && T.screen === 'result');
+    O.champion();
+    ok('CONTINUE on the final: the champion screen', T.screen === 'champion');
+    const cab = JSON.parse(P.store.poolTrophyCabinet);
+    ok('the title is in the trophy cabinet, under the champion\'s name', cab.recent[0].id === t0.id && cab.titles[T.t.slots[champ].name.toLowerCase()][8] === 1);
+    ok('a finished tournament is not kept to resume', P.store.poolTournament === undefined);
+    O.cabinet();
+    ok('Trophy cabinet from the champion, and back', T.screen === 'cabinet' && (O.cabinetBack(), T.screen === 'champion'));
+    O.close();
+    ok('closing the champion lets the tournament go', T.t === null && P.poolMode === 'cpu' && T.screen === null);
+
+    // Abandon, corrupt and old saves.
+    P.poolOn.tourGo(); O.start();
+    ok('NEW: setup again, then a bracket saved', T.screen === 'bracket' && !!P.store.poolTournament);
+    P.poolOn.tourAbandon();
+    ok('Abandon asks first', T.dialog === 'abandon' && !!P.store.poolTournament);
+    O.keep();
+    ok('Keep tournament keeps it', T.dialog === null && !!T.t);
+    P.poolOn.tourAbandon(); O.abandonYes();
+    ok('ABANDON TOURNAMENT deletes it', T.t === null && P.store.poolTournament === undefined);
+    const bad = L.game({ store: { poolTournament: '{"v":1,"slots":' } });
+    ok('a corrupt save is dropped behind a toast, never half-loaded', bad.poolTourLoad() === null && bad.store.poolTournament === undefined && /Couldn't resume/.test(bad.poolS.toast.title));
+    const old = L.game({ store: { poolTournament: JSON.stringify(Object.assign({}, t0, { v: 0 })) } });
+    ok('so is one from another version', old.poolTourLoad() === null && old.store.poolTournament === undefined);
+    const stale = JSON.parse(JSON.stringify(t0)); stale.current = 'r9m9';
+    const st = L.game({ store: { poolTournament: JSON.stringify(stale) } });
+    const back = st.poolTourLoad();
+    ok('a save pointing at a match that is not there resumes to the bracket', back && back.current === null);
+    const snapBad = L.game({ seed: 5, store: JSON.parse(JSON.stringify(P2.store)) });
+    const sb = JSON.parse(snapBad.store.poolTournament); sb.snapshot.balls[3].x = 'NaN'; snapBad.store.poolTournament = JSON.stringify(sb);
+    snapBad.poolNewFrame(1); snapBad.poolS.tour.t = snapBad.poolTourLoad(); snapBad.poolTourOn.resumeTour();
+    ok('a damaged table snapshot restarts the frame instead', snapBad.poolMode === 'tour' && snapBad.poolS.frame.isBreak && snapBad.poolS.world.balls.length === 16);
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

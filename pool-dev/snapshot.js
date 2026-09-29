@@ -64,6 +64,52 @@ const SCENES = {
     'cyber-loss': 'scene=loss&theme=cyber&shape=chamfered',
     'cyber-call-3d': 'scene=eight&camera=3d&aim=-20&lean=55&theme=cyber&palette=acidGreen',
     'cyber-max': 'scene=mid&camera=3d&max=1&theme=cyber',
+    // The trackers: a new frame's groups must not keep last frame's dots; an open table's pots
+    'tracker-swap': 'scene=mid&camera=3d&swap=1',
+    'max-tracker-swap': 'scene=mid&camera=3d&swap=1&max=1',
+    'open-potted': 'scene=mid&camera=3d&open=1',
+    'open-potted-4': 'scene=mid&camera=3d&open=4',
+    'max-open-potted': 'scene=mid&camera=3d&open=1&max=1',
+    'cyber-open-potted': 'scene=mid&camera=3d&open=1&theme=cyber',
+    'light:open-potted': 'scene=mid&camera=3d&open=1',
+    'max-call-3d': 'scene=eight&camera=3d&aim=-20&lean=55&max=1',
+    'call-3d-called': 'scene=eight&camera=3d&aim=-20&lean=55&call=2',
+    'call-3d-power': 'scene=eight&camera=3d&aim=-20&lean=55&call=2&power=90',
+    'call-3d-replace': 'scene=eight&camera=3d&aim=-20&lean=55&bihcall=1&placed=1',
+    'max-call-3d-replace': 'scene=eight&camera=3d&aim=-20&lean=55&bihcall=1&placed=1&max=1',
+    'light:call-3d': 'scene=eight&camera=3d&aim=-20&lean=55',
+    'cyber-call-3d-called': 'scene=eight&camera=3d&aim=-20&lean=55&call=2&theme=cyber',
+    // Tournament (Phase 7): the screens over the panel, the in-match header, the dialogs
+    'sheet-tour': 'scene=mid&camera=3d&sheet=tour',
+    'sheet-tour-saved': 'scene=mid&camera=3d&sheet=tour&n=8&played=4',
+    'tour-setup': 'tour=setup&n=6',
+    'tour-setup-16': 'tour=setup&n=13',
+    'tour-bracket-r1': 'tour=bracket&n=6&played=1&tab=0',
+    'tour-bracket-sf': 'tour=bracket&n=8&played=5&tab=1',
+    'tour-bracket-16': 'tour=bracket&n=16&played=9&tab=1',
+    'max-tour-bracket': 'tour=bracket&n=8&played=5&max=1',
+    'max-tour-bracket-16': 'tour=bracket&n=16&played=11&max=1',
+    'tour-intro': 'tour=intro&n=8&played=4',
+    'tour-match': 'tour=match&n=8&played=4&tframe=1&camera=3d',
+    'max-tour-match': 'tour=match&n=8&played=4&tframe=1&camera=3d&max=1',
+    'tour-result': 'tour=result&n=8&played=5',
+    'tour-result-final': 'tour=result&n=6&played=5',
+    'tour-champion': 'tour=champion&n=6',
+    'tour-champion-16': 'tour=champion&n=16',
+    'max-tour-champion': 'tour=champion&n=8&max=1',
+    'tour-cabinet': 'tour=cabinet',
+    'tour-cabinet-empty': 'tour=cabinet&empty=1',
+    'tour-resume': 'tour=resume&n=8&played=4&tframe=1',
+    'tour-abandon': 'tour=abandon&n=8&played=4',
+    'tour-pause': 'tour=pause&n=8&played=4&camera=3d',
+    'max-tour-intro': 'tour=intro&n=8&played=4&max=1',
+    'cyber-tour-bracket': 'tour=bracket&n=8&played=5&tab=1&theme=cyber',
+    'cyber-tour-champion': 'tour=champion&n=8&theme=cyber&shape=chamfered',
+    'cyber-tour-setup': 'tour=setup&n=6&theme=cyber',
+    'light:tour-setup': 'tour=setup&n=6',
+    'light:tour-bracket-sf': 'tour=bracket&n=8&played=5&tab=1',
+    'light:tour-match': 'tour=match&n=8&played=4&tframe=1&camera=3d',
+    'light:tour-champion': 'tour=champion&n=6',
 };
 
 const CHROME = 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
@@ -74,7 +120,8 @@ const picks = ARGS.slice(1);
 // The widget's narrow column (350 wide on screens up to 1400 px, so 316 for the HUD):
 // the same states again, derived so they cannot drift from the originals.
 ['main-3d', 'main-2d', 'power', 'bih', 'bih-break', 'foul-handoff', 'call-3d', 'clock-hot', 'win', 'bih-placed',
-    'cyber-main-3d', 'cyber-call-3d', 'cyber-foul', 'light:main-3d', 'break-stay3d', 'spin-open', 'cyber-spin-open', 'sheet-cpu', 'cyber-sheet-cpu', 'sheet-pvp'].forEach(n => { SCENES['narrow:' + n] = SCENES[n] + '&narrow=1'; });
+    'cyber-main-3d', 'cyber-call-3d', 'cyber-foul', 'light:main-3d', 'break-stay3d', 'spin-open', 'cyber-spin-open', 'sheet-cpu', 'cyber-sheet-cpu', 'sheet-pvp',
+    'tracker-swap', 'open-potted', 'open-potted-4', 'call-3d-power', 'call-3d-replace', 'sheet-tour-saved', 'tour-setup', 'tour-bracket-sf', 'tour-bracket-16', 'tour-intro', 'tour-match', 'tour-result', 'tour-champion', 'tour-cabinet', 'tour-resume', 'tour-pause'].forEach(n => { SCENES['narrow:' + n] = SCENES[n] + '&narrow=1'; });
 
 const list = (picks.length ? picks : Object.keys(SCENES)).map(s => [SCENES[s] ? s : s.replace(/[^\w=-]+/g, '_'), SCENES[s] || s]);
 const page = 'file:///' + path.join(__dirname, 'pool-table.html').replace(/\\/g, '/').replace(/ /g, '%20');

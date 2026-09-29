@@ -447,6 +447,76 @@ async function main() {
     const sh4 = await ev('(() => ({ mode: window.__probe.mode, open: window.__probe.S.sheet.open, tier: window.__probe.tier, rec: document.querySelector(".ph-card[data-seat=\'2\'] [data-ph=rec]").textContent }))()');
     ok('a difficulty from 2 Players switches back to Vs CPU, adaptive', sh4.mode === 'cpu' && !sh4.open && /^Adaptive · /.test(sh4.rec), sh4);
 
+    // ── A tournament, by mouse, through a page reload ─────────────────
+    head('Tournament');
+    const tq = async () => ev(`(() => { const S = window.__probe.S, T = S.tour, pu = S.hud.pu;
+        return { mode: window.__probe.mode, screen: T.screen, dialog: T.dialog, n: T.setup && T.setup.n, t: !!T.t, current: T.t && T.t.current,
+            shown: !!pu && !pu.screen.hidden, dlg: !!pu && !pu.dialog.hidden, saved: !!localStorage.getItem('poolTournament'), game: window.__probe.currentGame }; })()`);
+    await click('#pool-root [data-ph=mode]');
+    await click('#pool-root [data-ph-mode="tour"]');
+    ok('the sheet\'s Tournament tab: SET UP TOURNAMENT and the cabinet link', await ev(`(() => { const b = document.querySelector('#pool-root [data-ph=sheettourgo]'); return !!b && !b.closest('[hidden]') && /SET UP TOURNAMENT/.test(b.textContent); })()`));
+    await click('#pool-root [data-ph=sheettourgo]');
+    let tr = await tq();
+    ok('SET UP TOURNAMENT opens setup over the panel', tr.screen === 'setup' && tr.shown && tr.n === 4, tr);
+    await click('#pool-root .pu-stepper [data-pu-arg="1"]'); await click('#pool-root .pu-stepper [data-pu-arg="1"]');
+    ok('the + stepper adds contestants, and keeps focus on itself across the re-render', (await tq()).n === 6 &&
+       await ev(`document.activeElement && document.activeElement.getAttribute('data-pu-arg') === '1'`));
+    // Below the fold of the setup body a click would land on the pinned START button: scroll first, as a person would.
+    const typeInto = async (sel, text) => { await ev(`document.querySelector(${JSON.stringify(sel)}).scrollIntoView({ block: 'center' })`); await sleep(60); await click(sel); await ev(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); e.select(); })()`); await send('Input.insertText', { text }); await sleep(80); };
+    const who = ['Bilal', 'Hamza', 'Sana', 'Usman', 'Zara'];
+    for (let i = 0; i < who.length; i++) await typeInto('#pool-root #pu-p' + (i + 1), who[i]);
+    ok('names typed into the list land in the draft', (await ev('window.__probe.S.tour.setup.names.slice(1, 6).join()')) === who.join());
+    await click('#pool-root select[data-pu-in="race:0"]');
+    await key('Escape');
+    await ev(`document.querySelector('#pool-root select[data-pu-in="race:0"]').focus()`);
+    await key('3');
+    ok('a number typed on a race-to select stays in the select (the host\'s 1–9 game keys do not fire)', (await tq()).game === 'pool');
+    await shot('host-tour-setup', '.snake-game-container');
+    await click('#pool-root [data-pu-act="start"]');
+    tr = await tq();
+    ok('START TOURNAMENT: the bracket, saved to localStorage', tr.screen === 'bracket' && tr.saved && tr.t, tr);
+    await shot('host-tour-bracket', '.snake-game-container');
+    await click('#pool-root .pu-screen [data-pu-act="play"]');
+    ok('PLAY NEXT MATCH: the match intro', (await tq()).screen === 'intro');
+    await click('#pool-root .pu-screen [data-pu-act="ready"]');
+    tr = await tq();
+    const hm = await ev(`(() => { const h = window.__probe.S.hud, v = el => !!el && !el.closest('[hidden]');
+        return { head: v(h.tourhead) && h.tourk.textContent, title: h.tourn.textContent, bracket: v(h.bracket), pause: v(h.pause), mode: v(h.mode), reset: v(h.reset),
+            rec: document.querySelector('#pool-root .ph-card[data-seat="1"] [data-ph=rec]').textContent }; })()`);
+    ok('READY: the match on the table, the tournament header, Bracket / Pause for Mode / Reset', tr.mode === 'tour' && !tr.shown && hm.head && /race to/.test(hm.title) && hm.bracket && hm.pause && !hm.mode && !hm.reset && /^Seed \d+$/.test(hm.rec), { tr, hm });
+    await shot('host-tour-match', '.snake-game-container');
+    await click('#pool-root [data-ph=pause]');
+    ok('Pause: the paused dialog over the table', (await tq()).dialog === 'pause' && (await tq()).dlg);
+    await key('Escape');
+    ok('Esc resumes', (await tq()).dialog === null);
+    const matchId = (await tq()).current;
+
+    // The portal reloads: the tournament comes back.
+    await send('Page.reload');
+    const rebooted = await waitFor('!!document.getElementById("total-time-summary") && !!window.switchGame && !!window.__probe', 15000);
+    await sleep(800);
+    await ev("window.switchGame('pool')");
+    await sleep(700);
+    tr = await tq();
+    ok('after a reload, opening pool offers the tournament back', rebooted && tr.dialog === 'resume' && tr.dlg && tr.current === matchId, tr);
+    await shot('host-tour-resume', '.snake-game-container');
+    await click('#pool-root .pu-scrim [data-pu-act="resumeTour"]');
+    tr = await tq();
+    ok('RESUME: the same match is back on the table, the seat handed over first', tr.mode === 'tour' && tr.current === matchId && (await ev('window.__probe.S.handoff')) > 0, tr);
+    await click('#pool-root [data-ph=ready]');
+    await click('#pool-root [data-ph=pause]');
+    await click('#pool-root .pu-scrim [data-pu-act="leave"]');
+    tr = await tq();
+    ok('Pause → Leave for now: quick play again, the tournament still saved', tr.mode === 'cpu' && tr.saved && tr.current === matchId, tr);
+    await click('#pool-root [data-ph=mode]');
+    await click('#pool-root [data-ph-mode="tour"]');
+    await click('#pool-root [data-ph=sheetabandon]');
+    ok('Abandon from the sheet asks first', (await tq()).dialog === 'abandon');
+    await click('#pool-root .pu-scrim [data-pu-act="abandonYes"]');
+    tr = await tq();
+    ok('ABANDON TOURNAMENT deletes it from this computer', !tr.t && !tr.saved && tr.mode === 'cpu', tr);
+    ok('no page errors through the tournament', !errors.length, errors.slice(0, 3));
+
     head('Around the panel');
     const keep = await ev('window.__probe.S.rackId');
     await ev("window.switchGame('snake')");

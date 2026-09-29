@@ -4,7 +4,7 @@
 > deviation in the **Decision log** at the bottom. Attach this file as context in later
 > sessions.
 >
-> Status: `IN PROGRESS`, Phases 0–5 done (**v2 is in the userscript**), Phase 6 done, Phase 7 next · Last updated: 2026-09-29 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
+> Status: `IN PROGRESS`, Phases 0–5 done (**v2 is in the userscript**), Phases 6–7 done, Phase 8 next · Last updated: 2026-09-29 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
 
 ## Context
 
@@ -987,14 +987,36 @@ in `pool-dev/v1/` for `baseline-check.js`.
       `integration-verify.js` (Pool CPU select, scoped apart from Ludo's)
 - [x] The user's test in the widget: "verified the changes and they're good" (2026-09-29).
 
-### Phase 7: tournament (humans only)
-- [ ] Pure bracket model and tests: sizes 3–16, bye placement, seeding order, advancement,
-      a reproducible shuffle.
-- [ ] Setup, Bracket, Match intro, Match, Result, Champion and Resume screens; the
-      "Pass to <name>" strip.
-- [ ] Persistence and resume, including a mid-frame snapshot; corrupt or old-version
-      handling.
-- [ ] Trophy cabinet and history (local only).
+### Phase 7: tournament (humans only) — done 2026-09-29
+- [x] `pool-tour.js`, the pure bracket model: sizes 3–16 padded to 4/8/16 with byes to the
+      top seeds, the standard seeding order (every other pair flipped, as the design draws
+      it), a reproducible shuffle, winners fed forward by index, the lower seed breaking
+      first and breaks alternating, frames recorded without mutating the saved object,
+      field-by-field validation of a save, and the trophy cabinet. `tour-verify.js` (41).
+- [x] `pool-tour-ui.js`, the screens from the design: setup (name, stepper, names with
+      YOU, race-to columns, clock / guideline / call segments, shuffle), the bracket (compact:
+      a round per tab, match cards with LIVE / NEXT / DONE / BYE, the whole tree under it;
+      Max: the full tree at the design's geometry, the path highlighted), the match intro,
+      the result, the champion (compact and Max), the trophy cabinet, and the resume,
+      abandon and pause dialogs. Names are escaped.
+- [x] In the match: the tournament header (name, *Semi-final · race to 2*, *FRAME n*), seeds on
+      the cards, Bracket / Pause for Mode / Reset (compact and Max), the hand-off on every
+      seat change, the frame-over dialog's *NEXT FRAME* and *Bracket*. The Game mode sheet
+      gains its Tournament tab: set up, or resume with Abandon, and the Trophy cabinet.
+- [x] Persistence: `poolTournament` after every frame, with a whole-table snapshot after
+      every shot and when the panel is left; the resume prompt on the first open of a page;
+      corrupt and other-version saves dropped behind a toast; a damaged snapshot restarts
+      the frame. `poolTrophyCabinet` by normalised name, the last 20 tournaments.
+- [x] Tests: `pool-verify.js` (+47: setup to champion headless, pause, leave, a reload
+      mid-frame restoring the same table, corrupt / old / stale saves), `host-run.js` (+16:
+      the whole flow by mouse in the real widget, through a real page reload),
+      `snapshot.js` (+41 scenes: every screen and dialog, 4 to 16 players, Max, Cyberpunk,
+      light, the 316 px column), `hud-verify.js` (the theme contract covers the screens).
+- [x] From the user's test: the trackers kept the last frame's dots when a seat's group
+      changed, so a potted ball could stay lit (fixed, and `snapshot.js` has a scene that
+      catches it); an open table now lists each player's pots; calling a pocket is one small card
+      bottom right (the map and the hint's line), with the pill giving the state only.
+- [x] The user's test in the widget (2026-09-29).
 
 ### Phase 8: progression
 - [ ] XP table above; the optional *Called It* achievement.
@@ -1121,6 +1143,16 @@ carries over and what would be new:
 | 2026-09-29 | **Adaptive never climbs to pro** | Pro makes you call every shot. That is a rule change, so it should be chosen, not handed to a player for winning |
 | 2026-09-29 | **A noisy replay stage (`robust`) for normal and hard** | The plan's *whether a scratch or foul risk remains*: the top three lines (pots and safeties) are replayed with the tier's own noise and marked down if they foul or lose the frame when a little off. Hard's fouls fell from 9% to under 5% against skilled players |
 | 2026-09-29 | **The Game mode sheet ships in Phase 6 with Vs CPU and 2 Players**; Tournament joins in Phase 7 | *Change difficulty* needs somewhere to go. The *NOW* chip rides on Adaptive's name line, not the far right, so the description is not cut off at 316 px |
+| 2026-09-29 | **Setup starts at 4 players**, only slot 1 prefilled (with your leaderboard name) | 4 is the smallest full bracket. Placeholder names (*Player 2*) typed into the other slots would end up on the bracket and in the cabinet; an empty slot becomes *Player n* only if it is left empty at the start |
+| 2026-09-29 | **The name list scrolls with the setup screen**, not in a 140 px box of its own | Two nested scrollers in a 560 px panel fought each other for the wheel. The primary button stays pinned either way |
+| 2026-09-29 | **The champion screen has a close button** | The design has only *New tournament* and *Trophy cabinet*, which leaves no way back to quick play. Closing lets the finished tournament go (it is already in the cabinet) |
+| 2026-09-29 | **Pause adds *Leave for now*** | The tournament footer has no mode button, so without it the only ways out of a match were finishing it or switching games. The match stays saved and resumes from the Game mode sheet |
+| 2026-09-29 | **Back from the bracket**: to the table when a match is in progress, else to quick play | The bracket is reached from a match (the footer, the frame-over dialog) or from the sheet; back returns to where you were |
+| 2026-09-29 | **A won match goes straight to its result screen** (after 1.1 s for the last pot), with no frame-over dialog first | The dialog would say the same thing one tap earlier |
+| 2026-09-29 | **Reset is refused in a tournament frame; tournament frames pay no XP yet** | Reset would undo a lost frame. Match XP (80 / 15 for You) is Phase 8's |
+| 2026-09-29 | **Narrow columns use short round names** (*Last 16*, *Quarters*, *Semis*) in the round tabs, the champion's run and the tree's column heads | *Quarter-final · race to 1* and *Round of 16* do not fit a 320 px panel's columns |
+| 2026-09-29 | **On an open table each card lists the balls that player has potted** (*Potted* and the balls; beyond three, the balls alone) | The user's test: after the break nothing showed which balls were down, and the design shows only *Open table* there. Once groups are decided the tracker takes over |
+| 2026-09-29 | **Calling a pocket: the pill keeps the state, one call card bottom right carries the map and the hint** (was: *On the 8 · call it* pill, *Tap a pocket to call it* hint and a 172 × 116 mini-map top left) | The user's test: three labels said the same thing, and at the design's top-left spot the chase camera puts the far pockets and the aim line under the map (covered at 32 of 72 aims on the 8). A corner-hopping fix and then a fixed bottom-left map were tried; the user asked for one smaller element, bottom right, without the clutter. The pill now reads *On the 8* (with call-every-shot it keeps the group; the CPU card already says Pro). The card (at least 88 × 80, six 24 px targets) sits in the hint's corner, the near rail in the chase camera, and its caption follows the shot: *Tap a pocket*, *Drag to shoot*, *Release · n%*; the lit pocket names the call. The gauge steps up 16 px over it, Move cue ball goes bottom left, and it gives way to the spin picker. 2D keeps its hint, since every pocket is on screen |
 
 ---
 

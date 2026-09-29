@@ -61,6 +61,9 @@
                 --pool-backdrop-3d: radial-gradient(ellipse 80% 70% at 50% 28%, #251f33 0%, #101315 55%, #06080a 100%);
                 --pool-backdrop-2d: radial-gradient(ellipse 75% 75% at 50% 50%, #1d1a26 0%, #0b0d0f 80%);
                 --pool-backdrop-grid: none;
+                /* The tournament screens: opaque, over the whole panel. */
+                --pool-screen: linear-gradient(180deg, #16151f 0%, #0b0c11 100%);
+                --pool-scheme: dark;
             }
 
             @media (prefers-color-scheme: light) {
@@ -77,6 +80,8 @@
                     /* Aurora blue is 2:1 on the light panel; this deeper blue is over 4.5:1. */
                     --pool-accent-ink: #1f6fd1;
                     --pool-hot-ink: #c8243f;
+                    --pool-screen: linear-gradient(180deg, #faf9fd 0%, #f3f2fa 100%);
+                    --pool-scheme: light;
                 }
             }
 
@@ -123,6 +128,8 @@
                 --pool-backdrop-grid:
                     linear-gradient(var(--rt-grid) 1px, transparent 1px) 0 0 / 24px 24px,
                     linear-gradient(90deg, var(--rt-grid) 1px, transparent 1px) 0 0 / 24px 24px;
+                --pool-screen: linear-gradient(135deg, var(--rt-bg-1), var(--rt-bg-2));
+                --pool-scheme: dark;
             }
 
             /* ── Components ─────────────────────────────────────────────── */
@@ -186,7 +193,10 @@
             .pool-hud .ph-group { display: flex; gap: 4px; }
             .pool-hud .ph-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; transition: opacity 0.25s ease; }
             .pool-hud .ph-dot.is-down { opacity: 0.2; }
-            .pool-hud .ph-open { font-size: 11px; font-weight: 500; color: var(--pool-muted); }
+            .pool-hud .ph-open { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; font-weight: 500; color: var(--pool-muted); white-space: nowrap; }
+            .pool-hud .ph-card[data-seat="2"] .ph-open { flex-direction: row-reverse; }
+            .pool-hud .ph-open-balls { display: flex; gap: 3px; }
+            .pool-hud .ph-open-balls:empty { display: none; }
             .pool-hud .ph-clock {
                 position: absolute; bottom: 0; left: 0; height: 3px; width: 0;
                 background: var(--pool-accent);
@@ -355,18 +365,36 @@
             .pool-hud .ph-replace:hover { border-color: rgba(var(--pool-accent-rgb), 0.6); color: var(--pool-accent); }
             .pool-hud .ph-replace:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
 
-            .pool-hud .ph-mini { left: 10px; top: 54px; width: 172px; height: 116px; box-sizing: border-box; padding: 8px; border-radius: var(--pool-radius); pointer-events: auto; }
-            .pool-hud .ph-mini-table { position: absolute; left: 30px; top: 30px; width: 112px; height: 56px; box-sizing: border-box; border-radius: 4px; background: #1d6e55; border: 4px solid #553220; }
+            /* The call card (3D): the hint's corner, holding the hint's line and the pocket map,
+               so calling adds nothing else to the table. Bottom right is the near rail in the
+               chase camera, clear of the shot. Six 24 px targets on a 52 x 26 table. */
+            .pool-hud .ph-mini {
+                right: 10px; bottom: 10px; min-width: 88px; width: max-content; box-sizing: border-box; padding: 5px 6px 6px; border-radius: var(--pool-radius-sm);
+                display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: auto;
+            }
+            .pool-hud .ph-mini-cap { max-width: 100%; font-size: 11px; font-weight: 600; line-height: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-mini.is-call { border-color: rgba(var(--pool-accent-rgb), 0.6); }
+            .pool-hud .ph-mini.is-call .ph-mini-cap, .pool-hud .ph-mini.is-power .ph-mini-cap { color: var(--pool-accent); }
+            .pool-hud .ph-mini.is-hot { border-color: rgba(var(--pool-hot-rgb), 0.6); background: var(--pool-hot-edge) left top / 3px 100% no-repeat, var(--pool-overlay); }
+            .pool-hud .ph-mini.is-hot .ph-mini-cap { color: var(--pool-hot); }
+            .pool-hud .ph-mini-pad { position: relative; width: 76px; height: 50px; }
+            .pool-hud .ph-mini-table { position: absolute; left: 12px; top: 12px; width: 52px; height: 26px; box-sizing: border-box; border-radius: 3px; background: #1d6e55; border: 3px solid #553220; }
             .pool-hud .ph-mini button {
-                position: absolute; width: 44px; height: 44px; padding: 0; border: 0; background: transparent;
+                position: absolute; width: 24px; height: 24px; padding: 0; border: 0; background: transparent;
                 display: flex; align-items: center; justify-content: center; cursor: pointer;
             }
             .pool-hud .ph-mini button span {
-                width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; display: flex; align-items: center; justify-content: center;
                 border: 2px solid rgba(var(--pool-accent-rgb), 0.55); background: var(--pool-overlay);
             }
             .pool-hud .ph-mini button[aria-pressed="true"] span { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.25); }
-            .pool-hud .ph-mini button[aria-pressed="true"] span::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--pool-accent); }
+            .pool-hud .ph-mini button:hover span { border-color: var(--pool-accent); }
+            /* While the card holds the corner: the gauge and its padlock step up over it, and
+               Move cue ball goes bottom left, over the spin control (the lean slider is hidden). */
+            .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-gauge { bottom: 98px; height: min(140px, calc(100% - 248px)); }
+            .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-lock { bottom: calc(102px + min(140px, calc(100% - 248px))); }
+            .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-replace { right: auto; left: 10px; bottom: 62px; }
+            .pool-hud .ph-mini button[aria-pressed="true"] span::after { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--pool-accent); }
 
             /* Frame-over dialog */
             .pool-hud .ph-scrim { inset: 0; background: rgba(7, 9, 10, 0.62); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; pointer-events: auto; }
@@ -483,7 +511,8 @@
             .pool-hud[data-layout="max"] .ph-spinpop-chips .ph-btn { height: 26px; padding: 0 14px; font-size: 12px; }
             .pool-hud[data-layout="max"] .ph-replace { right: 16px; bottom: 58px; height: 32px; padding: 0 13px; border-radius: 16px; font-size: 12px; }
             .pool-hud[data-layout="max"] .ph-hint { right: 16px; bottom: 16px; height: 34px; padding: 0 14px; border-radius: 17px; font-size: 13px; }
-            .pool-hud[data-layout="max"] .ph-mini { left: 16px; top: 68px; }
+            .pool-hud[data-layout="max"] .ph-mini { right: 16px; bottom: 16px; transform: scale(1.3); transform-origin: right bottom; }
+            .pool-hud[data-layout="max"] .ph-view.is-calling .ph-replace { right: auto; left: 16px; bottom: 100px; }
             .pool-hud[data-layout="max"] .ph-handoff { width: 520px; align-self: center; }
 
             /* ── The Max view's surface ─────────────────────────────────── */
@@ -619,4 +648,382 @@
             @container pool-hud (max-width: 359px) {
                 .pool-hud .ph-sheet { padding: 12px; gap: 10px; }
                 .pool-hud .ph-sheet-diff { gap: 10px; padding: 0 10px; }
+            }
+
+            /* ── Tournament: the in-match header, footer and the sheet's tab ─ */
+            .pool-hud .ph-sheet-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .pool-hud .ph-tourhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; }
+            .pool-hud .ph-tourhead-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+            .pool-hud .ph-tourhead-k { font-size: 10px; letter-spacing: 0.14em; color: var(--pool-accent-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-tourhead-n { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-tourhead-f {
+                display: flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 12px; flex-shrink: 0; white-space: nowrap;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.35); color: var(--pool-accent-ink); font-size: 10px;
+            }
+            .pool-hud[data-layout="max"] .ph-tourhead { justify-content: flex-start; gap: 14px; }
+            .pool-hud[data-layout="max"] .ph-tourhead-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; }
+            .pool-hud[data-layout="max"] .ph-tourhead-f { height: 30px; padding: 0 14px; border-radius: 15px; font-size: 11px; }
+            .pool-hud .ph-primary.is-two { height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+            .pool-hud .ph-primary-sub { font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.85; }
+            .pool-hud .ph-sheet-links { display: flex; gap: 8px; }
+            .pool-hud .ph-sheet-links .ph-btn {
+                flex: 1 1 0; height: 40px; display: flex; align-items: center; justify-content: center; gap: 6px;
+                color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); font-size: 12px;
+            }
+            .pool-hud .ph-sheet-links .ph-btn.is-hot { color: var(--pool-hot); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+
+            /* ── Tournament screens (pool-tour-ui.js) ───────────────────── */
+            /* Each screen covers the whole panel, opaque; its body scrolls and its
+               primary button stays pinned at the bottom. Dialogs sit on the table
+               in the frame-over dialog's dark glass. */
+            .pool-hud .pu-screen {
+                position: absolute; inset: 0; z-index: 12; overflow: hidden; border-radius: var(--pool-radius);
+                background: var(--pool-screen); color: var(--pool-text); color-scheme: var(--pool-scheme);
+                border: 1px solid var(--pool-card-line); box-sizing: border-box;
+            }
+            .pool-hud .pu-screen-in { position: relative; height: 100%; box-sizing: border-box; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+            .pool-hud .pu-head { display: flex; align-items: center; gap: 10px; min-height: 44px; flex-shrink: 0; }
+            .pool-hud .pu-head-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex-grow: 1; }
+            .pool-hud .pu-kicker {
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); text-transform: var(--pool-label-case);
+                font-size: 10px; letter-spacing: 0.14em; color: var(--pool-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .pool-hud .pu-kicker.is-accent { color: var(--pool-accent-ink); }
+            .pool-hud .pu-kicker.is-wide { letter-spacing: 0.2em; }
+            .pool-hud .pu-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 18px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-title.is-big { font-size: 26px; }
+            .pool-hud .pu-title:empty { display: none; }
+            .pool-hud .pu-pill {
+                display: flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 12px; flex-shrink: 0; white-space: nowrap;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.35); color: var(--pool-accent-ink);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.12em;
+            }
+            .pool-hud .pu-body {
+                flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 14px;
+                margin: 0 -6px; padding: 2px 6px; scrollbar-width: thin; scrollbar-color: var(--pool-faint) transparent; overscroll-behavior: contain;
+            }
+            .pool-hud .pu-body.is-center { justify-content: center; align-items: stretch; text-align: center; gap: 20px; }
+            .pool-hud .pu-note { font-size: 11px; color: var(--pool-muted); }
+            .pool-hud .pu-note.is-center { text-align: center; }
+            .pool-hud .pu-strong { font-size: 13px; font-weight: 600; }
+            .pool-hud .pu-group { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+
+            .pool-hud .pu-primary {
+                flex-shrink: 0; width: 100%; height: 48px; border: 0; border-radius: var(--pool-radius-sm); cursor: pointer;
+                display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; box-sizing: border-box;
+                background: var(--pool-primary); color: var(--pool-primary-text);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); text-transform: var(--pool-label-case);
+                font-size: 14px; letter-spacing: 0.08em; transition: filter 0.15s ease, transform 0.1s ease;
+            }
+            .pool-hud .pu-primary:hover { filter: brightness(1.07); }
+            .pool-hud .pu-primary:active, .pool-hud .pu-btn:active, .pool-hud .pu-iconbtn:active { transform: translateY(1px); }
+            .pool-hud .pu-primary.is-two { height: 56px; flex-direction: column; gap: 2px; }
+            .pool-hud .pu-primary-sub {
+                font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.85;
+                max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .pool-hud .pu-primary.is-inline { width: auto; height: 44px; }
+            .pool-hud .pu-primary.is-hot { background: var(--pool-hot); color: #ffffff; }
+            .pool-hud .pu-btn, .pool-hud .pu-iconbtn {
+                height: 44px; border: 1px solid var(--pool-control-line); border-radius: var(--pool-radius-sm); cursor: pointer;
+                background: var(--pool-control); color: var(--pool-text); font-size: 13px; font-weight: 600;
+                display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; box-sizing: border-box;
+                transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+            }
+            .pool-hud .pu-iconbtn { width: 44px; padding: 0; flex-shrink: 0; }
+            .pool-hud .pu-btn:hover, .pool-hud .pu-iconbtn:hover { background: var(--pool-hover); color: var(--pool-hover-text); }
+            .pool-hud .pu-btn.is-hot { color: var(--pool-hot-ink); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+            .pool-hud .pu-screen button:focus-visible, .pool-hud .pu-scrim button:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
+            .pool-hud .pu-screen button:disabled { opacity: 0.35; cursor: default; }
+
+            /* Setup */
+            .pool-hud .pu-field { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+            .pool-hud .pu-seg-l { font-size: 11px; font-weight: 600; color: var(--pool-muted); }
+            .pool-hud .pu-input {
+                width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; border-radius: var(--pool-radius-sm);
+                border: 1px solid var(--pool-control-line); background: var(--pool-control); color: var(--pool-text);
+                font: inherit; font-size: 13px; outline: none;
+            }
+            .pool-hud .pu-input::placeholder { color: var(--pool-faint); }
+            .pool-hud .pu-input:focus { border-color: var(--pool-accent); box-shadow: 0 0 0 3px rgba(var(--pool-accent-rgb), 0.2); }
+            .pool-hud .pu-input.is-you { padding-right: 64px; }
+            .pool-hud .pu-count { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+            .pool-hud .pu-count-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            .pool-hud .pu-stepper { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+            .pool-hud .pu-stepper button {
+                width: 36px; height: 36px; padding: 0; display: flex; align-items: center; justify-content: center; cursor: pointer;
+                border: 1px solid var(--pool-control-line); border-radius: var(--pool-radius-sm); background: var(--pool-control); color: var(--pool-text);
+            }
+            .pool-hud .pu-stepper button:hover:not(:disabled) { background: var(--pool-hover); color: var(--pool-hover-text); }
+            .pool-hud .pu-count-n { width: 32px; text-align: center; font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 700; }
+            .pool-hud .pu-players {
+                display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
+            }
+            .pool-hud .pu-player { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 8px; }
+            .pool-hud .pu-seedl { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--pool-faint); }
+            .pool-hud .pu-player-in { position: relative; }
+            .pool-hud .pu-you {
+                position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 4px;
+                height: 20px; padding: 0 7px; border-radius: 10px; border: 1px solid rgba(var(--pool-accent-rgb), 0.4); color: var(--pool-accent-ink);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.12em; pointer-events: none;
+            }
+            .pool-hud .pu-races { display: grid; gap: 8px; }
+            .pool-hud .pu-race { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--pool-muted); }
+            .pool-hud .pu-race select {
+                height: 36px; padding: 0 8px; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-control-line);
+                background: var(--pool-control); color: var(--pool-text); font: inherit; font-size: 13px; cursor: pointer;
+            }
+            .pool-hud .pu-race select:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
+            .pool-hud .pu-seg-row { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+            .pool-hud .pu-seg { display: grid; gap: 2px; padding: 3px; border-radius: 11px; background: var(--pool-control); border: 1px solid var(--pool-control-line); }
+            .pool-hud .pu-seg button {
+                height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--pool-muted);
+                font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+            }
+            .pool-hud .pu-seg button:hover { color: var(--pool-text); }
+            .pool-hud .pu-seg button[aria-checked="true"] { background: var(--pool-primary); color: var(--pool-primary-text); }
+            .pool-hud .pu-switch { width: 44px; height: 26px; padding: 0; border: 0; background: transparent; cursor: pointer; flex-shrink: 0; }
+            .pool-hud .pu-switch > span {
+                position: relative; display: block; width: 44px; height: 26px; box-sizing: border-box; border-radius: 13px;
+                background: var(--pool-track); border: 1px solid var(--pool-control-line); transition: background 0.15s ease;
+            }
+            .pool-hud .pu-switch > span > span {
+                position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%;
+                background: var(--pool-text); transition: transform 0.15s ease;
+            }
+            .pool-hud .pu-switch[aria-checked="true"] > span { background: var(--pool-accent); border-color: var(--pool-accent); }
+            .pool-hud .pu-switch[aria-checked="true"] > span > span { transform: translateX(18px); background: #ffffff; }
+
+            /* Bracket: round tabs and match cards */
+            .pool-hud .pu-tabs { display: grid; gap: 2px; padding: 3px; border-radius: 11px; background: var(--pool-control); border: 1px solid var(--pool-control-line); flex-shrink: 0; }
+            .pool-hud .pu-tabs button {
+                height: 32px; min-width: 0; padding: 0 4px; border: 1px solid transparent; border-radius: 8px; background: transparent;
+                color: var(--pool-muted); font-size: 11px; font-weight: 600; cursor: pointer;
+                display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; overflow: hidden;
+            }
+            .pool-hud .pu-tabs button svg { color: var(--pool-accent-ink); flex-shrink: 0; }
+            .pool-hud .pu-tabs button[aria-selected="true"] { background: var(--pool-card); border-color: rgba(var(--pool-accent-rgb), 0.5); color: var(--pool-text); }
+            .pool-hud .pu-match {
+                display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-card); border: 1px solid var(--pool-card-line); flex-shrink: 0;
+            }
+            .pool-hud .pu-match.is-live { border-color: var(--pool-accent); box-shadow: var(--pool-glow); }
+            .pool-hud .pu-match.is-next { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .pu-match-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+            .pool-hud .pu-mrow { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 13px; }
+            .pool-hud .pu-mseed { font-family: var(--pool-num); font-size: 11px; color: var(--pool-faint); }
+            .pool-hud .pu-mname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-mscore { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; }
+            .pool-hud .pu-mrow.is-win .pu-mname { font-weight: 600; }
+            .pool-hud .pu-mrow.is-lose { color: var(--pool-muted); }
+            .pool-hud .pu-mrow.is-tbd { color: var(--pool-faint); font-style: italic; }
+            .pool-hud .pu-chip {
+                display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; box-sizing: border-box;
+                border: 1px solid var(--pool-control-line); color: var(--pool-muted); background: var(--pool-screen);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 8px; letter-spacing: 0.12em; font-style: normal;
+            }
+            .pool-hud .pu-chip.is-live { border-color: var(--pool-accent); color: var(--pool-accent-ink); }
+            .pool-hud .pu-chip.is-next { border-color: rgba(var(--pool-accent-rgb), 0.5); color: var(--pool-accent-ink); }
+            .pool-hud .pu-chip.is-bye { color: var(--pool-faint); }
+
+            /* The tree (the design's geometry, laid out by puTree) */
+            .pool-hud .pu-mini { overflow: hidden; flex-shrink: 0; }
+            .pool-hud .pu-tree { position: relative; flex-shrink: 0; }
+            .pool-hud .pu-tree > svg { position: absolute; left: 0; top: 0; overflow: visible; }
+            .pool-hud .pu-tr-line { fill: none; stroke: var(--pool-card-line); }
+            .pool-hud .pu-tr-hi { fill: none; stroke: var(--pool-accent); }
+            .pool-hud .pu-tr-head {
+                position: absolute; top: 0; height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.14em; color: var(--pool-muted);
+            }
+            .pool-hud .pu-tr-card {
+                position: absolute; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; padding: 0 8px;
+                border-radius: 8px; border: 1px solid var(--pool-card-line); background: var(--pool-screen);
+            }
+            .pool-hud .pu-tr-card::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--pool-card); pointer-events: none; }
+            .pool-hud .pu-tr-card.is-path { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .pu-tr-card.is-live { border-color: var(--pool-accent); box-shadow: var(--pool-glow); }
+            .pool-hud .pu-tr-card.is-next { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .pu-tr-card .pu-chip { position: absolute; right: 6px; top: -8px; }
+            .pool-hud .pu-tr-row { position: relative; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 6px; font-size: 12px; min-height: 0; flex: 1 1 0; }
+            .pool-hud .pu-tr-seed { font-family: var(--pool-num); font-size: 10px; color: var(--pool-faint); }
+            .pool-hud .pu-tr-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-tr-score { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; }
+            .pool-hud .pu-tr-row.is-win .pu-tr-name { font-weight: 600; }
+            .pool-hud .pu-tr-row.is-lose { color: var(--pool-muted); }
+            .pool-hud .pu-tr-row.is-tbd { color: var(--pool-faint); font-style: italic; }
+            .pool-hud .pu-tree.is-mini .pu-tr-card { padding: 0 5px; border-radius: 6px; }
+            .pool-hud .pu-tree.is-mini .pu-tr-row { grid-template-columns: minmax(0, 1fr) auto; gap: 4px; font-size: 9.5px; }
+            .pool-hud .pu-tr-champ {
+                position: absolute; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+                padding: 0 8px; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-card-line); background: var(--pool-card); color: var(--pool-muted);
+            }
+            .pool-hud .pu-tr-champ.is-won { border-color: var(--pool-accent); color: var(--pool-accent-ink); box-shadow: var(--pool-glow); }
+            .pool-hud .pu-tr-champ-l { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.14em; }
+            .pool-hud .pu-tr-champ-n { max-width: 100%; font-size: 13px; font-weight: 600; color: var(--pool-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-tree.is-mini .pu-tr-champ { gap: 2px; padding: 0 4px; border-radius: 6px; }
+            .pool-hud .pu-tree.is-mini .pu-tr-champ svg { width: 12px; height: 12px; }
+            .pool-hud .pu-tree.is-mini .pu-tr-champ-n { font-size: 9.5px; }
+
+            /* Match intro */
+            .pool-hud .pu-round { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+            .pool-hud .pu-round-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 22px; letter-spacing: 0.06em; }
+            .pool-hud .pu-round-r { font-size: 12px; color: var(--pool-muted); }
+            .pool-hud .pu-vs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; }
+            .pool-hud .pu-vs-side { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+            .pool-hud .pu-vs-name { max-width: 100%; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-vs-x { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 13px; letter-spacing: 0.14em; color: var(--pool-faint); }
+            .pool-hud .pu-avatar {
+                width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+                background: var(--pool-control); border: 1px solid var(--pool-control-line); color: var(--pool-muted);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px;
+            }
+            .pool-hud .pu-avatar.is-lead { background: var(--pool-primary); color: var(--pool-primary-text); border-color: transparent; }
+            .pool-hud .pu-avatar.is-small { width: 28px; height: 28px; font-size: 12px; }
+            .pool-hud .pu-breaks {
+                display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-card); border: 1px solid var(--pool-card-line); font-size: 12px; text-align: left;
+            }
+            .pool-hud .pu-breaks svg { flex-shrink: 0; }
+            .pool-hud .pu-foot { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+
+            /* Match result */
+            .pool-hud .pu-won {
+                display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: var(--pool-radius);
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.45); background: rgba(var(--pool-accent-rgb), 0.08); flex-shrink: 0;
+            }
+            .pool-hud .pu-won-top { display: flex; align-items: center; gap: 12px; }
+            .pool-hud .pu-won-top .pu-avatar { width: 44px; height: 44px; font-size: 17px; }
+            .pool-hud .pu-won-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex-grow: 1; }
+            .pool-hud .pu-won-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-won-s { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 28px; font-weight: 700; flex-shrink: 0; }
+            .pool-hud .pu-frames { display: grid; gap: 6px; }
+            .pool-hud .pu-frame {
+                display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 8px 10px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-control); border: 1px solid var(--pool-control-line); font-size: 12px;
+            }
+            .pool-hud .pu-frame > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-frame.is-win { border-color: rgba(var(--pool-accent-rgb), 0.45); }
+            .pool-hud .pu-out {
+                display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-card); border: 1px solid var(--pool-card-line); flex-shrink: 0;
+            }
+            .pool-hud .pu-out-t { flex-grow: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-out .pu-note { flex-shrink: 0; }
+
+            /* Champion: a quiet rise, the run, the final bracket */
+            .pool-hud .pu-champ-x { position: absolute; right: 12px; top: 12px; z-index: 1; }
+            .pool-hud .pu-hero { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 44px 4px; text-align: center; flex-shrink: 0; animation: pu-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+            .pool-hud .pu-hero-cup { display: flex; padding: 10px; border-radius: 50%; color: var(--pool-accent-ink); background: radial-gradient(circle, rgba(var(--pool-accent-rgb), 0.2) 0%, rgba(var(--pool-accent-rgb), 0) 70%); }
+            .pool-hud .pu-hero .pu-note { text-wrap: balance; }
+            .pool-hud .pu-hero-n { max-width: 100%; font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 28px; line-height: 1.15; overflow-wrap: anywhere; }
+            @keyframes pu-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+            @media (prefers-reduced-motion: reduce) { .pool-hud .pu-hero { animation: none; } }
+            .pool-hud .pu-runs { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+            .pool-hud .pu-run {
+                display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px;
+                border-radius: var(--pool-radius-sm); background: var(--pool-card); border: 1px solid var(--pool-card-line);
+            }
+            .pool-hud .pu-run.is-final { border-color: rgba(var(--pool-accent-rgb), 0.45); }
+            .pool-hud .pu-run-t { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-run-t.is-muted { color: var(--pool-muted); }
+            .pool-hud .pu-run-s { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; }
+            .pool-hud .pu-champ-acts { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+
+            /* Trophy cabinet */
+            .pool-hud .pu-cab { display: flex; flex-direction: column; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-card-line); overflow: hidden; flex-shrink: 0; }
+            .pool-hud .pu-cab-row {
+                display: grid; grid-template-columns: minmax(0, 1fr) 34px 34px 34px 46px; align-items: center; gap: 2px;
+                min-height: 40px; padding: 0 12px; border-top: 1px solid var(--pool-card-line); font-size: 13px;
+            }
+            .pool-hud .pu-cab-row.is-head {
+                min-height: 32px; border-top: 0; background: var(--pool-control); color: var(--pool-muted);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.12em;
+            }
+            .pool-hud .pu-cab-row.is-head > span:not(:first-child) { text-align: center; }
+            .pool-hud .pu-cab-row .is-accent { color: var(--pool-accent-ink); }
+            .pool-hud .pu-cab-name { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-crown { width: 16px; flex-shrink: 0; display: flex; color: var(--pool-accent-ink); }
+            .pool-hud .pu-cab-c { text-align: center; font-family: var(--pool-num); font-variant-numeric: tabular-nums; }
+            .pool-hud .pu-cab-c.is-zero { color: var(--pool-faint); }
+            .pool-hud .pu-cab-t { text-align: center; font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; color: var(--pool-accent-ink); }
+            .pool-hud .pu-empty { padding: 18px 14px; font-size: 12px; color: var(--pool-muted); text-align: center; border-top: 1px solid var(--pool-card-line); }
+            .pool-hud .pu-recents { display: flex; flex-direction: column; gap: 6px; }
+            .pool-hud .pu-recent {
+                display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px;
+                border-radius: var(--pool-radius-sm); background: var(--pool-card); border: 1px solid var(--pool-card-line);
+            }
+            .pool-hud .pu-recent-s {
+                width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+                background: var(--pool-control); font-family: var(--pool-num); font-weight: 700; font-size: 12px;
+            }
+            .pool-hud .pu-recent-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+            .pool-hud .pu-recent-t > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-recent-c { display: flex; align-items: center; gap: 5px; max-width: 120px; font-size: 12px; font-weight: 600; color: var(--pool-accent-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-recent-c svg { flex-shrink: 0; }
+
+            /* Resume, abandon and pause: on the table, like the frame-over dialog */
+            .pool-hud .pu-scrim {
+                position: absolute; inset: 0; z-index: 13; border-radius: var(--pool-radius); display: flex; align-items: center; justify-content: center;
+                background: rgba(7, 9, 10, 0.62); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+            }
+            .pool-hud .pu-dlg {
+                width: min(320px, calc(100% - 32px)); box-sizing: border-box; padding: 20px; border-radius: var(--pool-radius);
+                background: var(--pool-overlay-strong); border: 1px solid rgba(var(--pool-accent-rgb), 0.45); color: var(--pool-overlay-text);
+                box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55); display: flex; flex-direction: column; gap: 14px;
+            }
+            .pool-hud .pu-dlg.is-hot { border-color: rgba(var(--pool-hot-rgb), 0.5); background: var(--pool-hot-edge) left top / 4px 100% no-repeat, var(--pool-overlay-strong); }
+            .pool-hud .pu-dlg-icon { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.14); color: var(--pool-accent); }
+            .pool-hud .pu-dlg.is-hot .pu-dlg-icon { background: rgba(var(--pool-hot-rgb), 0.16); color: var(--pool-hot); }
+            .pool-hud .pu-dlg-t { display: flex; flex-direction: column; gap: 4px; }
+            .pool-hud .pu-dlg-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; line-height: 1.2; overflow-wrap: anywhere; }
+            .pool-hud .pu-dlg .pu-kicker, .pool-hud .pu-dlg .pu-note { color: var(--pool-overlay-muted); }
+            .pool-hud .pu-dlg .pu-note { font-size: 12px; }
+            .pool-hud .pu-dlg-score {
+                display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px 12px;
+                border-radius: var(--pool-radius-sm); background: rgba(255, 255, 255, 0.06); font-size: 13px; font-weight: 600;
+            }
+            .pool-hud .pu-dlg-score > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-dlg-score > span:last-child { text-align: right; }
+            .pool-hud .pu-dlg-n { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 700; }
+            .pool-hud .pu-dlg-acts { display: flex; flex-direction: column; gap: 8px; }
+            .pool-hud .pu-dlg .pu-btn { color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
+            .pool-hud .pu-dlg .pu-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--pool-overlay-text); }
+            .pool-hud .pu-dlg .pu-btn.is-hot { color: var(--pool-hot); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+
+            /* Max: the bracket and champion have their own full layouts; the rest
+               keep the compact column, centred. */
+            .pool-hud[data-layout="max"] .pu-screen { border-radius: 18px; border: 0; }
+            .pool-hud[data-layout="max"] .pu-screen-in:not(.is-max) { width: 456px; margin: 0 auto; padding: 24px 8px; }
+            .pool-hud[data-layout="max"] .pu-screen-in.is-max { padding: 0; gap: 16px; }
+            .pool-hud .pu-maxhead { height: 64px; display: flex; align-items: center; gap: 28px; flex-shrink: 0; padding: 0 20px; }
+            .pool-hud .pu-maxhead .pu-head-t { flex-grow: 0; min-width: 240px; }
+            .pool-hud .pu-legend { display: flex; align-items: center; gap: 18px; font-size: 12px; color: var(--pool-muted); flex-grow: 1; min-width: 0; overflow: hidden; }
+            .pool-hud .pu-legend > span { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+            .pool-hud .pu-legend-line { display: inline-block; width: 20px; height: 2px; border-radius: 1px; background: var(--pool-accent); }
+            .pool-hud .pu-maxacts { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+            .pool-hud .pu-maxacts .pu-primary { max-width: 440px; }
+            .pool-hud .pu-maxtree { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+            .pool-hud[data-layout="max"] .pu-screen-in.is-max.is-champ { padding: 32px 40px; }
+            .pool-hud .pu-champ-grid { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 40px; align-items: center; height: 100%; }
+            .pool-hud .pu-champ-l { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+            .pool-hud .pu-champ-r { display: flex; align-items: center; justify-content: center; min-width: 0; }
+            .pool-hud .pu-mini.is-big { overflow: visible; }
+            .pool-hud[data-layout="max"] .pu-hero-n { font-size: 40px; }
+            .pool-hud[data-layout="max"] .pu-dlg { width: 380px; }
+
+            /* Cyberpunk: the corner cut on buttons, the glow on text, as the HUD */
+            .retro-theme .pool-hud .pu-primary, .retro-theme .pool-hud .pu-btn, .retro-theme .pool-hud .pu-iconbtn,
+            .retro-theme .pool-hud .pu-stepper button {
+                clip-path: polygon(7px 0, 100% 0, 100% 100%, 0 100%, 0 7px);
+            }
+            .retro-theme .pool-hud .pu-btn, .retro-theme .pool-hud .pu-iconbtn { border-color: var(--rt-border-strong); text-shadow: var(--rt-glow-soft); }
+            .retro-theme .pool-hud .pu-screen { border-color: var(--rt-border); }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .pu-screen-in { padding: 12px; gap: 10px; }
+                .pool-hud .pu-title { font-size: 16px; }
+                .pool-hud .pu-run { grid-template-columns: 76px minmax(0, 1fr) auto; gap: 8px; padding: 8px 10px; }
+                .pool-hud .pu-cab-row { grid-template-columns: minmax(0, 1fr) 28px 28px 28px 40px; padding: 0 10px; }
+                .pool-hud .pu-tabs button { font-size: 10px; }
+                .pool-hud .ph-sheet-mode { font-size: 11px; }
             }

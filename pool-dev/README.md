@@ -2,7 +2,7 @@
 
 The 8-Ball Pool engine, kept outside `AttendanceTimeCheckerPlus.js` so it can be read,
 diffed and tested on its own. Since Phase 5 the userscript runs **v2**: it carries a
-verbatim copy of the seven modules below (the *engine* block) and of `pool-theme.css`
+verbatim copy of the nine modules below (the *engine* block) and of `pool-theme.css`
 (the *theme* block), and `pool-verify.js` asserts both are byte-identical.
 
 **Edit the files here, never the copy in the userscript.** Editing the copy is how they
@@ -20,6 +20,7 @@ node pool-dev/physics-verify.js 2000      # the v2 physics, with a 2000-shot fuz
 node pool-dev/rules-verify.js 300         # the v2 rules, with 300 whole frames
 node pool-dev/render-verify.js            # the v2 camera and renderer
 node pool-dev/hud-verify.js               # the v2 HUD view model and theme contract
+node pool-dev/tour-verify.js              # the tournament model: brackets, seeding, byes, breaks, saves, the cabinet
 node pool-dev/snapshot.js [dir] [scene]   # real-Chrome PNGs of the prototype, every scene by default
 node pool-dev/snapshot.js --check [dir]   # …plus an in-browser layout and theme audit per scene
 start pool-dev/pool-table.html            # the widget's own controller on host stand-ins, plus design scenes
@@ -39,15 +40,17 @@ default `node` here is 10, so use a newer one:
 
 ## Files
 
-The engine block is these seven, in this order (`load.js` `FILES`):
+The engine block is these nine, in this order (`load.js` `FILES`):
 
 | file | what it is |
 |---|---|
 | `pool-physics.js` | the physics: table geometry, sliding/rolling ball model, cue strike, collisions, stepping. Pure and deterministic |
 | `pool-rules.js` | WPA 8-ball judged from the physics event log, seat-aware copy, cue-ball placement and the ball-in-hand clamp. Pure except the table helpers |
+| `pool-tour.js` | the tournament model: brackets for 3–16 players (byes to the top seeds, the standard seeding order, a reproducible shuffle), advancement, who breaks, frame recording, save validation and the trophy cabinet. Pure |
 | `pool-camera.js` | chase, broadcast, survey and 2D poses, projection, near-plane clipping, unprojection, and the director that eases between them. Pure |
 | `pool-render.js` | the table, 3D pocket shafts, rolling balls, shadows, cue, physics-true guides, rings, ball in hand, pocket drops. Canvas only |
 | `pool-hud.js` | `phModel` (pure view model), `phBuild` (compact or Max DOM), `phRender`, and the canvas theme bridge `phThemeTokens` |
+| `pool-tour-ui.js` | the tournament's screens (setup, bracket compact and full, match intro, result, champion, cabinet) and dialogs (resume, abandon, pause) as HTML, and one overlay per HUD that re-renders only when the controller's key changes |
 | `pool-ai.js` | the CPU: four tiers on one planner (direct pots, banks, kicks, combos, safeties), every line checked on a cloned world with the real physics and rules, aim corrected for throw, position scored, noisy replays for risk, adaptive difficulty, time-sliced |
 | `pool-game.js` | the controller: the match, input, the loop, the CPU's turn, XP and records, Max, theme, lifecycle. What the host calls |
 
@@ -58,9 +61,10 @@ The rest:
 | `pool-theme.css` | the `--pool-*` tokens for Glassmorphic dark/light and Cyberpunk, the HUD's component CSS, and the Max frame; the theme block |
 | `load.js` | evaluates the modules as they sit in the userscript: `physics()` … `ai()` for the pure layers, `game(opts)` for everything against a stubbed host |
 | `reinsert.js` | mechanical splice of both blocks |
-| `pool-verify.js` | the splice contract, the host wiring, the match headless (frames, clock, ball in hand, XP, the one-award guard), the CPU and its tiers, the Game mode sheet |
+| `pool-verify.js` | the splice contract, the host wiring, the match headless (frames, clock, ball in hand, XP, the one-award guard), the CPU and its tiers, the Game mode sheet, tournaments in the match (setup to champion, pause, leave, reload and resume, corrupt saves) |
 | `balance-check.js` | the tiers against v1's four scripted human models (the same method as `v1/baseline-check.js`); `POOL_TIER_TUNE` tries tier settings without editing `pool-ai.js` |
 | `host-run.js` | serves a stand-in portal page over DevTools, runs the real userscript in it, and plays and audits pool inside the widget; in light mode it also audits text contrast (3:1) across the whole widget, every game, ⚙️ and Max |
+| `tour-verify.js` | `pool-tour.js`: every size from 3 to 16, bye placement, seeding, advancement, breaks, the shuffle, validation, the cabinet |
 | `physics-verify.js` | `pool-physics.js` against real ball behaviour, plus a fuzz for the invariants |
 | `rules-verify.js` | one case per rule row, the rules on real shots, and a fuzz of whole frames |
 | `render-verify.js` | the cameras against the design's own projection, unprojection, the director, the clipper, the guides, rasterizer frames |
@@ -78,7 +82,7 @@ The host calls six things, and reads four:
 |---|---|
 | `initPoolGame()` | `switchGame` opened the panel: builds the HUD into `#pool-root` once, keeps a frame in progress, binds input, starts the loop |
 | `poolDetach()` | `switchGame` left: stops the loop, drops pool's window listeners, closes Max. The frame stays |
-| `resetPoolGame()` / `togglePoolMode()` | a fresh rack / Vs CPU ⇄ 2 Players |
+| `resetPoolGame()` / `togglePoolMode()` | a fresh rack (refused in a tournament frame) / Vs CPU ⇄ 2 Players (from a tournament match: back to the mode before it) |
 | `togglePoolMaximize()` | the Max view through `toggleGameMaxModal`'s `cfg.build` hook |
 | `poolOnThemeChange()` | from `applyPreferences` (theme, colour pickers, glass options) and pool's own `prefers-color-scheme` listener |
 | reads `poolMode`, `poolGamesWon`, `poolRecord`, `poolMaximized` | the leaderboard, the achievement check, tests |
@@ -95,12 +99,46 @@ Spin is free: `poolS.tip` is the cue tip in R (follow +y, right +x), clamped by
 directly; a click opens the picker (a big ball face and the presets): letting go of the
 ball or taking a preset confirms and closes it; arrow keys nudge, Enter confirms. The tip resets to the centre after every shot.
 
+The cards' trackers dim a group's balls as they drop, whoever potted them. While the table
+is open, each card instead lists the balls that player has potted this frame (`poolS.pots`,
+the break's included; the 8 is left out as it re-spots). Calling a pocket says each thing
+once: the pill gives the state (*On the 8*), and in 3D one call card in the hint's corner
+(bottom right, the near rail in the chase camera) holds the pocket map and the hint's line
+(*Tap a pocket*, *Drag to shoot*, *Release · 62%*). While it shows, the power gauge steps up
+over it and Move cue ball goes bottom left; it steps aside for the spin picker. 2D has no
+card: every pocket is on screen, and the hint names the call.
+
 The compact HUD is fluid. The widget's column is 400 px wide on big screens but 350 on
 screens up to 1400 px (316 for the HUD), and full width when the layout stacks below
 1200. The viewport keeps 368:412, the lean slider, power gauge and padlock are anchored to
 its height (they land on the design's pixels at 368), below 360 px the camera toggle drops
 its *AUTO* suffix and the card tag *BALL IN HAND* reads *IN HAND*, and the panel stops
 growing at 420 px. Max is the design's fixed 1280 × 800, scaled to fit the window.
+
+### Tournaments
+
+`poolMode` is `'tour'` only while a tournament match is on the table; the bracket itself
+(`poolS.tour.t`) outlives that, so you can leave for quick play and come back. The
+Game mode sheet's Tournament tab sets one up or resumes it; the screens and dialogs
+(`pool-tour-ui.js`) cover the panel and stop the clock, the CPU and every input under
+them.
+
+- **Seats.** A match's upper line is seat 1, the lower seat 2; the cards read *Seed n*.
+  The lower seed breaks the first frame, then breaks alternate, and every seat change
+  (a new frame included) shows the hand-off.
+- **Table settings** come from setup: the shot clock (30 s, 45 s or off), the guideline
+  (full, short, off) and call pocket (8 only, every shot). Leaving puts quick play's back.
+- **Recording.** A frame goes into the bracket (`ptRecordFrame`), not into the quick-match
+  records, XP or the CPU record (tournament XP is Phase 8). A won match waits 1.1 s for the
+  last pot, then shows its result; the final fills the trophy cabinet.
+- **Saving.** `localStorage.poolTournament` holds the bracket, rewritten after every frame,
+  with a snapshot of the table (balls, rules state, clock) after every shot, and when the
+  panel is left. A finished tournament is removed. The first `initPoolGame` of a page
+  offers a saved one back; a corrupt or other-version save is dropped behind a toast, and a
+  damaged snapshot restarts the frame. `poolTrophyCabinet` keeps titles by name (trimmed,
+  lowercased) and the last 20 tournaments.
+- **Pause** stops the clock; *Leave for now* keeps the match saved and goes back to quick
+  play.
 
 ## pool-ai.js
 

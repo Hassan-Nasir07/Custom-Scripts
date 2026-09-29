@@ -91,7 +91,7 @@
             3D: move the mouse sideways to aim (Shift for fine); it keeps aiming past the table's edge. 2D: point to aim.
             Press, then pull back or push forward along the shot line for power, and release. Return to the start or press Esc to cancel.
             Spin: drag the red dot on SPIN, or click SPIN for the big picker (letting go confirms).
-            Ball in hand: drag the cue ball; Move cue ball picks it up again. When a call is needed, tap a pocket ring (or the mini-map in 3D).
+            Ball in hand: drag the cue ball; Move cue ball picks it up again. When a call is needed, tap a pocket ring (or the call card's map in 3D).
         </div>
     </div>
 </div>
@@ -176,9 +176,11 @@ function toggleGameMaxModal(cfg) {
 <script src="../cyber-dev/cyber-hud.js"></script>
 <script src="pool-physics.js"></script>
 <script src="pool-rules.js"></script>
+<script src="pool-tour.js"></script>
 <script src="pool-camera.js"></script>
 <script src="pool-render.js"></script>
 <script src="pool-hud.js"></script>
+<script src="pool-tour-ui.js"></script>
 <script src="pool-ai.js"></script>
 <script src="pool-game.js"></script>
 <script>
@@ -222,6 +224,8 @@ function toggleGameMaxModal(cfg) {
     S.guideMode = Q.get('guides') || 'full';
     S.callEvery = Q.has('every');
     applyTheme(false);
+    // A still is one scene: no tournament saved by an earlier load is offered back.
+    if (still) S.tour.checked = true;
     initPoolGame();                                     // builds the HUD, racks, attaches, starts the loop
     if (still) { S.running = false; if (S.raf) cancelAnimationFrame(S.raf); S.raf = null; }
 
@@ -260,7 +264,69 @@ function toggleGameMaxModal(cfg) {
     if (Q.has('tipx') || Q.has('tipy')) S.tip = phClampTip(+Q.get('tipx') || 0, +Q.get('tipy') || 0);
     if (Q.has('spinopen')) S.spinOpen = true;
     // ?sheet=cpu|pvp opens the Game mode sheet on that tab.
-    if (Q.get('sheet')) S.sheet = { open: true, mode: Q.get('sheet') === 'pvp' ? 'pvp' : 'cpu' };
+    if (Q.get('sheet')) S.sheet = { open: true, mode: ['pvp', 'tour'].includes(Q.get('sheet')) ? Q.get('sheet') : 'cpu' };
+    // ?tour=setup|bracket|intro|match|result|champion|cabinet|resume|pause|abandon: a
+    // tournament of ?n players (6 by default) with ?played matches decided, the better
+    // seed winning bar every third match; ?tframe=1 plays a frame of the next match first.
+    const NAMES = ['Ayesha', 'Bilal', 'Hamza', 'Sana', 'Usman', 'Zara', 'Omar', 'Hira', 'Ali', 'Fatima', 'Imran', 'Mariam', 'Noor', 'Saad', 'Taha', 'Yusra'];
+    function demoTour(n, played) {
+        let t = ptCreate({ names: NAMES.slice(0, n), you: 0, seed: 7, created: Date.UTC(2026, 8, 26, 12), settings: {} });
+        t.current = null;
+        for (let k = 0; k < played; k++) {
+            const m = ptNext(t);
+            if (!m) break;
+            const better = t.slots[m.a].seed < t.slots[m.b].seed ? m.a : m.b, worse = better === m.a ? m.b : m.a;
+            const w = k % 3 === 2 ? worse : better, l = w === m.a ? m.b : m.a;
+            // The loser takes a frame when the race allows it: 2–1, 3–2.
+            for (let i = 0; i < m.raceTo - 1 && i < 1; i++) t = ptRecordFrame(t, m.id, l).t;
+            while (ptById(t, m.id).status !== 'done') t = ptRecordFrame(t, m.id, w).t;
+        }
+        return t;
+    }
+    const tq = Q.get('tour');
+    if (tq || (Q.get('sheet') === 'tour' && Q.has('n'))) {
+        const T = S.tour, n = +Q.get('n') || 6, played = Q.has('played') ? +Q.get('played') : 0;
+        if (tq === 'setup') {
+            T.setup = poolTourSetupFresh();
+            T.setup.n = n; NAMES.slice(1, n).forEach((nm, i) => { T.setup.names[i + 1] = nm; }); poolTourSetupRace(T.setup);
+            T.screen = 'setup';
+        } else if (tq === 'cabinet') {
+            let cab = ptCabinetEmpty();
+            [[8, 'City Open'], [4, 'Club Cup'], [16, 'Masters'], [8, 'Friday Frames'], [4, 'Office Cup']].forEach(([k, name], i) => {
+                const tt = demoTour(k, 99); tt.name = name; tt.id = 'demo' + i; cab = ptCabinetAdd(cab, tt);
+                cab.recent[0].date = Date.UTC(2026, 8, 14 + i * 3, 12);
+            });
+            T.cab = Q.has('empty') ? ptCabinetEmpty() : cab; T.screen = 'cabinet';
+        } else {
+            T.t = demoTour(n, tq === 'champion' ? 99 : played);
+            const next = ptNext(T.t);
+            if (Q.has('tframe') && next) T.t = ptRecordFrame(T.t, next.id, next.b).t;
+            if (tq === 'bracket') { T.screen = 'bracket'; T.tab = Q.has('tab') ? +Q.get('tab') : poolTourTab(); }
+            if (tq === 'intro') { T.introId = next.id; T.screen = 'intro'; }
+            if (tq === 'champion') { T.matchId = null; T.screen = 'champion'; }
+            if (tq === 'result') { T.matchId = ptPlayable(T.t)[played - 1].id; poolMode = 'tour'; T.screen = 'result'; }
+            if (tq === 'match' || tq === 'pause') poolTourSeat(ptById(T.t, next.id), false);
+            if (tq === 'pause') T.dialog = 'pause';
+            if (tq === 'resume' || tq === 'abandon') { T.t.current = next.id; T.dialog = tq; }
+        }
+    }
+    // ?bihcall=1: ball in hand while on the 8 (add &placed=1 for Move cue ball beside the call card).
+    if (Q.has('bihcall')) { S.phase = 'bih'; S.frame.ballInHand = 'anywhere'; }
+    // ?open=1: an open table after the break, each seat with what it potted (?open=4: four for seat 1).
+    if (Q.has('open')) {
+        S.frame.groups = { 1: null, 2: null };
+        S.pots = Q.get('open') === '4' ? { 1: [2, 5, 10, 13], 2: [14] } : { 1: [2, 10], 2: [5, 13, 14] };
+    }
+    // ?swap=1: last frame ended with seat 1 on solids, all seven down; this frame seat 1 is on
+    // stripes. Drawn once in between, so a tracker that kept last frame's dots would show here.
+    if (Q.has('swap')) {
+        const keep = S.world.balls.map(b => b.state);
+        S.world.balls.forEach(b => { if (b.id >= 1 && b.id <= 7) b.state = 'pocketed'; });
+        S.frame.groups = { 1: 'solids', 2: 'stripes' };
+        poolFit(); poolDraw(0);
+        S.world.balls.forEach((b, i) => { b.state = keep[i]; });
+        S.frame.groups = { 1: 'stripes', 2: 'solids' };
+    }
     if (Q.has('max')) togglePoolMaximize();
     if (Q.has('placed') && S.phase === 'bih') { S.placed = true; S.phase = 'aim'; poolAimAtNearest(); }
     if (sc === 'foul') {
@@ -328,7 +394,8 @@ function toggleGameMaxModal(cfg) {
             if (visible(hud.foot)) ok('footer is 52 px', Math.abs(hud.foot.getBoundingClientRect().height - 52) < 0.5);
             ok('viewport keeps the design\'s 368:412', Math.abs(vr.width / vr.height - 368 / 412) < 0.01, (vr.width / vr.height).toFixed(4));
         } else {
-            ok('Max viewport keeps 1232:672', Math.abs(vr.width / vr.height - 1232 / 672) < 0.01, (vr.width / vr.height).toFixed(4));
+            // The hand-off strip takes its row under the table, so the table gives up that height.
+            if (!visible(hud.handoff)) ok('Max viewport keeps 1232:672', Math.abs(vr.width / vr.height - 1232 / 672) < 0.01, (vr.width / vr.height).toFixed(4));
         }
         const layer = Array.from(hud.view.querySelectorAll('.ph-layer > *')).filter(visible);
         const outside = layer.filter(el => { const r = el.getBoundingClientRect(); return r.left < vr.left - 1 || r.right > vr.right + 1 || r.top < vr.top - 1 || r.bottom > vr.bottom + 1; });
@@ -338,7 +405,7 @@ function toggleGameMaxModal(cfg) {
          ['gauge', 'hint'], ['lock', 'pill'], ['gauge', 'pill'], ['spinpop', 'spin'], ['spinpop', 'hint'], ['spinpop', 'pill'], ['spinpop', 'cam']].forEach(([a, b]) => {
             if (hud[a] && hud[b] && visible(hud[a]) && visible(hud[b])) ok(a + ' and ' + b + ' do not overlap', !hit(hud[a], hud[b]));
         });
-        const clipped = Array.from(hud.el.querySelectorAll('.ph-name, .ph-tag, .ph-hint span, .ph-pill span, .ph-cam span, .ph-frames-n, .ph-toast-title, .ph-dialog-title, .ph-btn span, .ph-replace span, .ph-spinpop-read, .ph-spinpop-chips .ph-btn, .ph-spin-v, .ph-handoff-to, .ph-handoff-from, .ph-handoff .ph-primary, .ph-sheet-dn, .ph-sheet-dd, .ph-sheet-chip, .ph-sheet-mode span, .ph-sheet-title'))
+        const clipped = Array.from(hud.el.querySelectorAll('.ph-name, .ph-tag, .ph-hint span, .ph-pill span, .ph-cam span, .ph-frames-n, .ph-toast-title, .ph-dialog-title, .ph-btn span, .ph-replace span, .ph-spinpop-read, .ph-spinpop-chips .ph-btn, .ph-spin-v, .ph-handoff-to, .ph-handoff-from, .ph-handoff .ph-primary, .ph-sheet-dn, .ph-sheet-dd, .ph-sheet-chip, .ph-sheet-mode span, .ph-sheet-title, .ph-mini-cap, .ph-tourhead-k, .ph-tourhead-n, .ph-tourhead-f, .ph-primary-sub, .ph-sheet-links .ph-btn span'))
             .filter(visible).filter(el => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).display !== 'inline');
         ok('no label is cut off', !clipped.length, clipped.map(e => e.className + ' "' + e.textContent + '"').join(', '));
         if (Q.has('spinopen')) {
@@ -353,6 +420,66 @@ function toggleGameMaxModal(cfg) {
             ok('the Game mode sheet is open on the ' + Q.get('sheet') + ' tab', visible(sh) && hud.modeButtons.some(b => b.getAttribute('aria-checked') === 'true' && b.getAttribute('data-ph-mode') === Q.get('sheet')));
             ok('the sheet fits inside the panel and holds its content', r.top >= er.top - 1 && r.bottom <= er.bottom + 1 && r.left >= er.left - 1 && r.right <= er.right + 1 && sh.scrollHeight <= sh.clientHeight + 1,
                [r.top - er.top, er.bottom - r.bottom, sh.scrollHeight, sh.clientHeight].map(v => v.toFixed ? v.toFixed(0) : v).join());
+        }
+        // The trackers dim exactly the balls that are down, and an open table lists each seat's pots.
+        hud.cards.forEach((r, i) => {
+            const seat = i + 1, grp = S.frame.groups[seat], down = id => S.world.balls.some(b => b.id === id && b.state === 'pocketed');
+            if (grp) {
+                const ids = grp === 'solids' ? [1, 2, 3, 4, 5, 6, 7] : [9, 10, 11, 12, 13, 14, 15];
+                const got = Array.from(r.group.children).map(d => d.classList.contains('is-down') ? 1 : 0).join(''), want = ids.map(id => down(id) ? 1 : 0).join('');
+                ok('seat ' + seat + '\'s tracker dims exactly the potted balls', got === want, got + ' vs ' + want);
+            } else if (visible(r.open)) {
+                const want = (S.pots[seat] || []).filter(down).length;
+                ok('seat ' + seat + ' on an open table shows the ' + want + ' ball(s) it potted', r.openb.children.length === want, r.openb.children.length);
+                ok('seat ' + seat + '\'s potted row fits its card', r.open.scrollWidth <= r.open.clientWidth + 1 && r.open.getBoundingClientRect().right <= r.el.getBoundingClientRect().right + 0.5 && r.open.getBoundingClientRect().left >= r.el.getBoundingClientRect().left - 0.5, r.open.scrollWidth + ' in ' + r.open.clientWidth);
+            }
+        });
+        // The call-pocket mini-map: fixed beside the cue, in the lower half, behind the shot.
+        if (visible(hud.mini)) {
+            const r = hud.mini.getBoundingClientRect(), c = S.world.balls[0];
+            const clash = ['cam', 'pill', 'gauge', 'lock', 'spin', 'hint', 'replace', 'toast'].filter(n => hud[n] && visible(hud[n]) && hit(hud.mini, hud[n]));
+            ok('the mini-map clears the other overlays and stays on the table', !clash.length && r.left >= vr.left && r.right <= vr.right && r.top >= vr.top && r.bottom <= vr.bottom, clash.join());
+            ok('it sits in the lower half, beside the cue, not over the shot', r.top >= vr.top + vr.height / 2 - 1, (r.top - vr.top).toFixed(0) + ' of ' + vr.height.toFixed(0));
+            const q = pcProject(poolView(), [c.x, c.y, S.cfg.ballR]);
+            if (q) {
+                const k = vr.width / S.W, cx = vr.left + q[0] * k, cy = vr.top + q[1] * k, cr = S.cfg.ballR * q[2] * k;
+                ok('the hint steps aside: the card carries its line', !visible(hud.hint) && !!hud.minicap.textContent);
+            ok('…and not over the cue ball', cx - cr >= r.right || cx + cr <= r.left || cy + cr <= r.top || cy - cr >= r.bottom, [cx - cr, r.right].map(v => v.toFixed(0)).join(' vs '));
+            }
+        }
+        // The tournament's screens and dialogs.
+        const pu = hud.pu;
+        if (Q.get('tour') && pu) {
+            const er = hud.el.getBoundingClientRect();
+            const inside = (el, box) => { const r = el.getBoundingClientRect(); return r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1; };
+            if (!pu.screen.hidden) {
+                const sc = pu.screen, inn = sc.firstElementChild, r = sc.getBoundingClientRect();
+                ok('the tournament screen covers the panel', Math.abs(r.left - er.left) < 1 && Math.abs(r.right - er.right) < 1 && Math.abs(r.top - er.top) < 1 && Math.abs(r.bottom - er.bottom) < 1);
+                ok('the screen holds its content (only its body scrolls)', inn.scrollHeight <= inn.clientHeight + 1 && inn.scrollWidth <= inn.clientWidth + 1, inn.scrollWidth + 'x' + inn.scrollHeight + ' in ' + inn.clientWidth + 'x' + inn.clientHeight);
+                sc.querySelectorAll('.pu-primary').forEach(b => { if (visible(b)) ok('the primary button is on the screen', inside(b, r)); });
+                const body = sc.querySelector('.pu-body');
+                if (body) ok('the body does not scroll sideways', body.scrollWidth <= body.clientWidth + 1, body.scrollWidth + ' in ' + body.clientWidth);
+                sc.querySelectorAll('.pu-tree').forEach(tr => {
+                    const box = tr.parentElement;
+                    ok('the bracket fits its box', tr.offsetWidth <= box.clientWidth + 1 && tr.offsetHeight <= box.clientHeight + 1, tr.offsetWidth + 'x' + tr.offsetHeight + ' in ' + box.clientWidth + 'x' + box.clientHeight);
+                    const cards = Array.from(tr.querySelectorAll('.pu-tr-card, .pu-tr-champ'));
+                    const clash = cards.filter((a, i) => cards.some((b, j) => j > i && hit(a, b)));
+                    ok('no two bracket cards overlap', !clash.length, clash.length);
+                    const rows = Array.from(tr.querySelectorAll('.pu-tr-row')).filter(x => x.scrollHeight > x.clientHeight + 1);
+                    ok('every bracket card holds both of its lines', !rows.length, rows.length);
+                });
+                const cut = Array.from(sc.querySelectorAll('.pu-kicker, .pu-title, .pu-pill, .pu-chip, .pu-primary > span, .pu-mname, .pu-vs-name, .pu-won-n, .pu-run-t, .pu-cab-name, .pu-recent-t > span, .pu-recent-c, .pu-tabs button, .pu-seg button, .pu-legend > span, .pu-tr-head, .pu-out-t, .pu-tree:not(.is-mini) .pu-tr-name, .pu-tr-champ-n, .pu-breaks'))
+                    .filter(visible).filter(el => el.scrollWidth > el.clientWidth + 1);
+                ok('no tournament label is cut off', !cut.length, cut.map(e => e.className + ' "' + e.textContent + '"').join(', '));
+            }
+            if (!pu.dialog.hidden) {
+                const d = pu.dialog.querySelector('.pu-dlg');
+                ok('the dialog sits inside the panel', inside(d, er));
+                ok('the dialog holds its content', d.scrollHeight <= d.clientHeight + 1);
+                const cut = Array.from(d.querySelectorAll('.pu-kicker, .pu-dlg-title, .pu-dlg-score > span, .pu-primary, .pu-btn')).filter(visible).filter(el => el.scrollWidth > el.clientWidth + 1);
+                ok('no dialog label is cut off', !cut.length, cut.map(e => e.className + ' "' + e.textContent + '"').join(', '));
+            }
+            if (Q.get('tour') === 'match') ok('the tournament header shows in place of the title, and Bracket / Pause replace the mode and Reset', visible(hud.tourhead) && !visible(hud.mode) && !visible(hud.reset) && (visible(hud.handoff) || (visible(hud.bracket) && visible(hud.pause))));
         }
         if (Q.has('placed')) ok('the Move cue ball button shows once the ball is placed', visible(hud.replace));
         if (Q.has('narrow') && hud.layout === 'compact') ok('the narrow column gives the HUD 316 px, as the widget does', Math.abs(hud.el.getBoundingClientRect().width - 316) < 1, hud.el.getBoundingClientRect().width);

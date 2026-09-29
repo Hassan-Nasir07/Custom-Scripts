@@ -32,6 +32,8 @@ const SUITES = [
     ['Pool render',    '../pool-dev/render-verify.js'],
     // The v2 HUD (pool-hud.js view model + pool-theme.css contract); its DOM is audited in Chrome by snapshot.js --check.
     ['Pool HUD',       '../pool-dev/hud-verify.js'],
+    // The v2 tournament model (pool-tour.js): brackets, seeding, byes, breaks, saves, the cabinet.
+    ['Pool tournament', '../pool-dev/tour-verify.js'],
 ];
 
 const results = [];

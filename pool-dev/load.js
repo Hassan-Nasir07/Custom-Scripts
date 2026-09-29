@@ -18,10 +18,10 @@ const path = require('path');
 
 // Splice order: each file only uses names from the ones before it at call time,
 // but keeping the dependency order makes the block read top-down.
-const FILES = ['pool-physics.js', 'pool-rules.js', 'pool-camera.js', 'pool-render.js', 'pool-hud.js', 'pool-ai.js', 'pool-game.js'];
+const FILES = ['pool-physics.js', 'pool-rules.js', 'pool-tour.js', 'pool-camera.js', 'pool-render.js', 'pool-hud.js', 'pool-tour-ui.js', 'pool-ai.js', 'pool-game.js'];
 const TARGET = path.join(__dirname, '..', 'AttendanceTimeCheckerPlus.js');
 // Module prefixes, plus the host-facing names pool-game.js keeps from v1.
-const PREFIX = /^    (?:function|const)\s+((?:pp|PP_|pr|PR_|pc|PC_|pg|PG_|ph|PH_|pa|PA_|pool|POOL_|initPool|resetPool|togglePool)[\w$]*)/gm;
+const PREFIX = /^    (?:function|const)\s+((?:pp|PP_|pr|PR_|pt|PT_|pc|PC_|pg|PG_|ph|PH_|pu|PU_|pa|PA_|pool|POOL_|initPool|resetPool|togglePool)[\w$]*)/gm;
 
 const read = f => fs.readFileSync(path.join(__dirname, f), 'utf8');
 
@@ -40,8 +40,10 @@ function render() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-camera.
 // Everything above plus the HUD. Its DOM functions touch `document` only when
 // called, so the pure view model (phModel) loads and runs in Node.
 function hud() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-camera.js', 'pool-render.js', 'pool-hud.js']); }
-// The rules plus the stand-in CPU.
+// The rules plus the CPU.
 function ai() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-ai.js']); }
+// The tournament model (it only needs the physics' seeded rng).
+function tour() { return v2(['pool-physics.js', 'pool-tour.js']); }
 
 // loadPoolHighScore … savePoolRecord, verbatim from the host: the leaderboard
 // and restore paths depend on exactly how they seed poolWinsByMode.
@@ -126,4 +128,4 @@ function game(opts) {
     return P;
 }
 
-module.exports = { physics, rules, render, hud, ai, game, FILES, TARGET, seededRandom, hostStorageHelpers };
+module.exports = { physics, rules, render, hud, ai, tour, game, FILES, TARGET, seededRandom, hostStorageHelpers };

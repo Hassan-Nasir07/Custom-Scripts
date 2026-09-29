@@ -60,6 +60,13 @@ const vm = o => P.phModel(game(o));
     ok('main: the tracker lists the seven solids, potted ones dimmed', trk.length === 7 && trk.filter(d => d.down).map(d => d.id).join() === '2,5', trk.filter(d => d.down).map(d => d.id).join());
     ok('main: seat 2 tracks the stripes', m.cards[1].group.map(d => d.id).join() === '9,10,11,12,13,14,15');
     ok('2D: no lean slider', !vm({ camera: '2d' }).lean.show);
+    // An open table: each card shows what that player has potted (the break's balls).
+    const open = { frame: { groups: { 1: null, 2: null } }, down: [3, 11, 6], pots: { 1: [3, 11], 2: [6] } };
+    const op = vm(open);
+    ok('open table: each card lists the balls that player potted', op.cards[0].open && op.cards[0].potted.join() === '3,11' && op.cards[1].potted.join() === '6', op.cards[0].potted.join());
+    ok('…only while they are down (a ball back on the table leaves the list)', vm(Object.assign({}, open, { down: [3] })).cards[0].potted.join() === '3');
+    ok('once groups are decided the tracker takes over', !m.cards[0].potted.length && !vm({ pots: { 1: [2, 5], 2: [] } }).cards[0].potted.length);
+    ok('no pots yet: an empty list', !vm({ frame: { groups: { 1: null, 2: null } } }).cards[0].potted.length);
     const lean0 = vm({ lean: 0 }).lean.label, lean100 = vm({ lean: 100 }).lean.label;
     ok('lean labels run 2°–31° across the slider', lean0 === '2°' && lean100 === '31°', lean0 + ' … ' + lean100);
 
@@ -97,13 +104,19 @@ const vm = o => P.phModel(game(o));
     ok('foul: no spin or hint under the toast', !f.spin.show && !f.hint.show);
 
     const c3 = vm({ down: SOLIDS.concat([10, 13]) });
-    ok('on the 8: pill "On the 8 · call it", hint "Tap a pocket to call it"', c3.pill.text === 'On the 8 · call it' && c3.hint.text === 'Tap a pocket to call it' && c3.hint.tone === 'call');
-    ok('on the 8, uncalled: the gauge locks, lean hides, 3D shows the mini-map', c3.gauge.locked && !c3.lean.show && c3.mini.show && c3.mini.called === -1);
+    ok('on the 8: the pill says the state, "On the 8", and nothing about calling', c3.pill.text === 'On the 8');
+    ok('3D: one call card, bottom right, "Tap a pocket"; the hint steps aside for it', c3.mini.show && c3.mini.caption === 'Tap a pocket' && c3.mini.tone === 'call' && !c3.hint.show && c3.mini.called === -1);
+    ok('on the 8, uncalled: the gauge locks, lean hides', c3.gauge.locked && !c3.lean.show);
     const c3c = vm({ down: SOLIDS, called: 2 });
-    ok('called: "Top right called · drag to shoot", gauge unlocked', c3c.hint.text === 'Top right called · drag to shoot' && !c3c.gauge.locked && c3c.mini.called === 2);
+    ok('called: the card says "Drag to shoot" (the lit pocket names the call), gauge unlocked', c3c.mini.caption === 'Drag to shoot' && c3c.mini.tone === '' && !c3c.gauge.locked && c3c.mini.called === 2);
+    const c3d = vm({ down: SOLIDS, called: 2, dragging: true, power: 90 });
+    ok('dragging: the card carries the power, hot past 85%', c3d.mini.caption === 'Release · 90%' && c3d.mini.tone === 'hot' && !c3d.hint.show);
+    ok('the card steps aside for the spin picker, and the hint comes back', !vm({ down: SOLIDS, spinOpen: true }).mini.show && vm({ down: SOLIDS, spinOpen: true }).hint.show);
+    ok('on the CPU\'s turn there is no card, only its hint', !vm({ down: SOLIDS.concat([9]), frame: { turn: 2, groups: { 1: 'solids', 2: 'stripes' } }, cpuTurn: true, every: true }).mini.show);
     const c2 = vm({ camera: '2d', every: true, called: 1 });
-    ok('pro, 2D: "Pro · call every shot", "Top side called · drag to shoot", no mini-map', c2.pill.text === 'Pro · call every shot' && c2.hint.text === 'Top side called · drag to shoot' && !c2.mini.show);
-    ok('call every shot in 2 Players reads "Call every shot"', vm({ mode: 'pvp', every: true }).pill.text === 'Call every shot');
+    ok('2D: no card; every pocket is on screen, so the hint names the call', !c2.mini.show && c2.hint.show && c2.hint.text === 'Top side called · drag to shoot');
+    ok('call every shot: the pill keeps the group', c2.pill.text === 'Solids' && vm({ mode: 'pvp', every: true }).pill.text === 'Solids');
+    ok('Max: the pill names the shooter on the 8 too', vm({ down: SOLIDS, layout: 'max' }).pill.text === 'Ayesha\'s shot · On the 8');
 
     const k = vm({ mode: 'pvp', clock: { left: 18, total: 30 } });
     ok('clock: the tag shows "18s", the bar 60%, not hot', k.cards[0].tag === '18s' && Math.abs(k.cards[0].clock - 60) < 1e-9 && !k.cards[0].hot);
@@ -176,7 +189,9 @@ head('Theme contract');
     const rules = [];
     css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/([^{}]+)\{([^{}]*)\}/g, (_, sel, body) => { rules.push({ sel: sel.trim(), body }); return ''; });
     const clipped = rules.filter(r => /clip-path|(^|[^-])filter\s*:/.test(r.body) && !/backdrop-filter/.test(r.body.replace(/clip-path[^;]*;?/g, '')) || /clip-path/.test(r.body));
-    const bad = clipped.filter(r => /clip-path/.test(r.body) && !/\.ph-btn|\.ph-primary/.test(r.sel));
+    // Every selector in the rule must be a button: the HUD's, or the tournament screens'.
+    const isButton = sel => /\.ph-btn|\.ph-primary|\.pu-primary|\.pu-btn|\.pu-iconbtn|\.pu-stepper button/.test(sel);
+    const bad = clipped.filter(r => /clip-path/.test(r.body) && !r.sel.split(',').every(isButton));
     const filt = rules.filter(r => /(^|[\s;])filter\s*:/.test(r.body) && !/:hover/.test(r.sel));
     ok('clip-path only on buttons, never on the viewport or around it', bad.length === 0, bad.map(r => r.sel).join(' | ') || 'buttons only');
     ok('no filter except the hover brightness on a primary button', filt.length === 0, filt.map(r => r.sel).join(' | ') || 'none');

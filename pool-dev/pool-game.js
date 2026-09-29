@@ -10,7 +10,8 @@
     //   poolDetach()          switchGame left: stop the loop, drop the window
     //                         listeners, close Max
     //   resetPoolGame()       a fresh rack
-    //   togglePoolMode()      Vs CPU ⇄ 2 Players, then a fresh rack
+    //   togglePoolMode()      Vs CPU ⇄ 2 Players, then a fresh rack (from a tournament
+    //                         match: back to the mode before it)
     //   togglePoolMaximize()  the Max view, through the shared toggleGameMaxModal
     //   poolOnThemeChange()   applyPreferences ran: re-read the theme tokens
     //   poolMode, poolGamesWon, poolMaximized, poolRecord
@@ -25,6 +26,10 @@
     //   ←/→    ±0.1° while the table has the mouse or Max is open
     //   ball in hand: drag the cue ball; it stops at the cushions and, on
     //          the break, at the head string. Move cue ball picks it up again
+    // Tournaments (pool-tour.js, pool-tour-ui.js): poolMode 'tour' while a match is on
+    // the table. The bracket is saved to localStorage (poolTournament) after every frame,
+    // with a snapshot of the table after every shot, and offered back when the panel
+    // next opens. Titles go to the trophy cabinet (poolTrophyCabinet).
     // Escape never resets the frame here; it cancels a power drag, else the
     // Max modal's own handler closes Max.
 
@@ -36,8 +41,10 @@
     const POOL_POT_XP = 5;
     const POOL_MAX_W = 1280, POOL_MAX_H = 800;
     const POOL_DEG = Math.PI / 180;
+    const POOL_TOUR_KEY = 'poolTournament', POOL_CAB_KEY = 'poolTrophyCabinet';
+    const POOL_RESULT_MS = 1100;             // the last pot drops before the match result covers the table
 
-    let poolMode = 'cpu';                    // 'cpu' | 'pvp'
+    let poolMode = 'cpu';                    // 'cpu' | 'pvp' | 'tour'
     let poolGamesWon = 0;                    // all-time wins, as stored by savePoolHighScore
     let poolRecord = null;                   // { p1Wins, p1Losses, p2Wins, p2Losses }
     let poolMaximized = false;
@@ -53,20 +60,29 @@
         world: null, frame: null, rackId: 0, awardedRack: -1, breaker: 1, frames: [0, 0], seed: 0, rng: null,
         phase: 'aim', aim: 0, power: 0, tip: { x: 0, y: 0 }, spinOpen: false, called: -1, guide: null, guideKey: '',
         drops: [], down: new Set(), drag: null, strikeT: 0, shot: null,
+        // The object balls each seat has potted this frame (the cards show them on an open
+        // table).
+        pots: { 1: [], 2: [] },
         toast: null, toastMs: 0, fouled: 0, handoff: 0, result: null, placed: false, clockLeft: POOL_CLOCK_S,
         cpu: null, wins: 0,
         // Your record against the CPU (adaptive difficulty reads it), and the Game mode sheet.
         cpuRec: null, sheet: { open: false, mode: 'cpu' },
         // Table settings: guide length (full | short | off) and call every shot. Fixed for
         // quick matches today; tournaments (Phase 7) and the pro tier (Phase 6) set them.
-        guideMode: 'full', callEvery: false,
+        guideMode: 'full', callEvery: false, clockTotal: POOL_CLOCK_S,
+        // The tournament: the bracket (t, with t.current the match in progress), the screen
+        // and dialog over the panel, the match on the table, setup's draft, the cabinet.
+        tour: { t: null, screen: null, dialog: null, dlgBack: null, tab: 0, matchId: null, setup: null, cab: null, cabBack: null,
+            prevMode: 'cpu', pending: 0, rev: 0, checked: false },
         running: false, raf: null, lastMs: 0, acc: 0, sinceDraw: 0, drawKey: '',
         attached: false, armed: false, lastX: null, leanSave: null, scheme: null,
     };
 
     // ── Seats, names, records ─────────────────────────────────────────
+    const poolMe = () => (typeof lbDisplayName === 'string' && lbDisplayName.trim() ? lbDisplayName.trim().slice(0, 16) : '');
     function poolNames() {
-        const me = typeof lbDisplayName === 'string' && lbDisplayName.trim() ? lbDisplayName.trim().slice(0, 16) : '';
+        const me = poolMe(), m = poolTourMatch();
+        if (m) return { 1: poolS.tour.t.slots[m.a].name, 2: poolS.tour.t.slots[m.b].name };
         return poolMode === 'cpu' ? { 1: me || 'You', 2: 'CPU' } : { 1: me || 'Player 1', 2: 'Player 2' };
     }
     // The picked difficulty: 'adaptive' (the default) or a pinned tier.
@@ -88,6 +104,8 @@
     const poolFrameFresh = () => !!poolS.frame && poolS.frame.isBreak && poolS.phase !== 'moving' && poolS.phase !== 'strike';
 
     function poolRecordText(seat) {
+        const m = poolTourMatch();
+        if (m) return 'Seed ' + poolS.tour.t.slots[seat === 1 ? m.a : m.b].seed;
         const r = poolRecord || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
         if (poolMode === 'cpu' && seat === 2) {
             const label = PA_TIERS[poolCpuTier].label;
@@ -120,19 +138,24 @@
         S.rackId++;
         // Inside the kitchen, not on its line, so a press on the ball never rounds past it.
         S.world.balls[0].x = S.world.table.headX - 80; S.world.balls[0].y = 0;
-        S.down = new Set(); S.drops = []; S.called = -1; S.guide = null; S.guideKey = '';
+        S.down = new Set(); S.drops = []; S.called = -1; S.guide = null; S.guideKey = ''; S.pots = { 1: [], 2: [] };
         S.aim = 0; S.power = 0; S.tip = { x: 0, y: 0 }; S.spinOpen = false; S.phase = 'bih'; S.placed = false; S.drag = null; S.shot = null;
         S.toast = null; S.toastMs = 0; S.fouled = 0; S.result = null; S.cpu = null;
-        S.handoff = 0; S.clockLeft = POOL_CLOCK_S;
+        // A tournament's later frames start with the breaker taking the seat.
+        const tm = poolTourMatch();
+        S.handoff = tm && tm.frames.length > 0 ? S.breaker : 0; S.clockLeft = S.clockTotal || POOL_CLOCK_S;
         S.drawKey = '';
     }
 
     function resetPoolGame() {
         if (!poolS.cfg) poolS.cfg = ppCreateWorld().cfg;
+        // A tournament frame is not re-rackable: that would undo a lost frame.
+        if (poolMode === 'tour' && poolTourMatch()) return;
         poolNewFrame(poolS.breaker);
     }
 
     function togglePoolMode() {
+        if (poolMode === 'tour') { poolLeaveTour(); return; }
         poolMode = poolMode === 'cpu' ? 'pvp' : 'cpu';
         poolS.frames = [0, 0];
         poolNewFrame(1);
@@ -144,6 +167,8 @@
         const S = poolS, w = v.winner;
         if (S.awardedRack === S.rackId) return;
         S.awardedRack = S.rackId;
+        // Tournament frames go to the bracket, not to the quick-match records or XP (Phase 8).
+        if (poolMode === 'tour') { poolTourFrameOver(w); return; }
         if (!poolRecord) poolRecord = loadPoolRecord();
         // Seed the per-mode split before the all-time count moves; seeded after,
         // it would copy this win in and then count it again.
@@ -172,7 +197,7 @@
     // +5 XP per legal pot, for the seats today's game pays: yours against the
     // CPU, and both in 2 Players (problem 8, changed in Phase 8).
     function poolAwardPots(seat, n) {
-        if (!n || !(seat === 1 || poolMode === 'pvp') || !xpSystemReady) return;
+        if (!n || poolMode === 'tour' || !(seat === 1 || poolMode === 'pvp') || !xpSystemReady) return;
         const xpGained = n * POOL_POT_XP;
         userXP.currentXP += xpGained;
         userXP.totalXP += xpGained;
@@ -200,6 +225,7 @@
             const w = v.winner, t = prText(v, poolNames());
             const you = poolMode === 'cpu' ? w === 1 : null;
             poolEndFrame(v);
+            if (poolMode === 'tour') { poolTourResult(t); return; }
             S.result = {
                 win: you === null ? true : you, title: t.title, reason: t.sub,
                 recordLabel: (poolMode === 'cpu' ? poolNames()[1] : poolNames()[w]).toUpperCase() + ' · RECORD',
@@ -212,13 +238,15 @@
         }
         S.fouled = v.foul ? shooter : 0;
         // Hot-seat: when the table changes hands, the next player takes the seat first.
-        if (poolMode === 'pvp' && S.frame.turn !== shooter) S.handoff = S.frame.turn;
+        if (poolMode !== 'cpu' && S.frame.turn !== shooter) S.handoff = S.frame.turn;
         if (S.frame.ballInHand) {
             const c = poolCueBall();
             if (c.state === 'pocketed') prPlaceCue(S.world, S.world.table.headX - 80, 0);
             S.phase = 'bih'; S.placed = false;
         } else { S.phase = 'aim'; poolAimAtNearest(); }
-        S.clockLeft = POOL_CLOCK_S;
+        S.clockLeft = S.clockTotal || POOL_CLOCK_S;
+        // A shot boundary: the table is still, so this is the state a reload comes back to.
+        poolTourSnapshot();
     }
 
     function poolSettle() {
@@ -255,14 +283,14 @@
         S.guide = pgGuide(S.world, { angle: S.aim, speed: poolSpeedOf(p), tipX: t.x, tipY: t.y });
     }
     // A human may act: not in the hand-off, not while the CPU plays.
-    const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over' && !poolS.sheet.open;
+    const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over' && !poolS.sheet.open && !poolTourBlocked();
 
     // ── The CPU's turn ────────────────────────────────────────────────
     // Wait a beat, place the ball if it has it in hand, think (time-sliced),
     // turn the cue onto the line, draw it back, then strike.
     function poolCpuTick(dt) {
         const S = poolS;
-        if (!poolCpuTurn() || S.phase === 'moving' || S.phase === 'strike') return;
+        if (!poolCpuTurn() || poolTourBlocked() || S.phase === 'moving' || S.phase === 'strike') return;
         const c = S.cpu || (S.cpu = { stage: 'wait', t: 0 });
         c.t += dt;
         if (S.phase === 'bih') {
@@ -326,13 +354,17 @@
                 S.world.balls.forEach(b => {
                     if (b.state === 'pocketed' && !S.down.has(b.id)) {
                         S.down.add(b.id);
+                        // The shooter's, whatever the verdict: a ball down on a foul stays down.
+                        // The 8 is left out; on the break it comes back.
+                        if (b.id !== 0 && b.id !== 8) S.pots[S.frame.turn].push(b.id);
                         S.drops.push({ ball: Object.assign({}, b, { q: b.q.slice() }), pocket: b.pocket, t: 0 });
                     }
                 });
                 if (ppSettled(S.world)) { ppSimulate(S.world, 0.001); poolSettle(); break; }
             }
-        } else if (S.phase === 'aim' && poolCanAct() && !S.drag) {
-            // The clock waits for the hand-off and for ball in hand, as today.
+        } else if (S.phase === 'aim' && poolCanAct() && !S.drag && S.clockTotal) {
+            // The clock waits for the hand-off and for ball in hand, as today, and a
+            // tournament can turn it off.
             S.clockLeft -= dt / 1000;
             if (S.clockLeft <= 0) {
                 const v = prTimeout(S.frame);
@@ -341,6 +373,8 @@
             }
         }
         poolCpuTick(dt);
+        // A match just ended: its result covers the table once the last ball has dropped.
+        if (S.tour.pending > 0) { S.tour.pending -= dt; if (S.tour.pending <= 0) { S.tour.pending = 0; S.tour.screen = 'result'; poolTourBump(); } }
         if (S.toastMs) { S.toastMs -= dt; if (S.toastMs <= 0) { S.toastMs = 0; if (!S.handoff) S.toast = null; } }
         S.drops.forEach(d => { d.t += dt / 250; });
         S.drops = S.drops.filter(d => d.t < 1);
@@ -397,7 +431,7 @@
             frames: S.frames, trophies: S.wins,
             frame: S.frame, world: S.world, phase: S.phase, camera: userPreferences.poolCamera === '2d' ? '2d' : '3d',
             lean: poolLean(), power: S.power, dragging: !!(S.drag && S.drag.kind === 'power'), tip: S.tip, spinOpen: S.spinOpen, called: S.called,
-            clock: !cpuTurn ? { left: Math.max(0, S.clockLeft), total: POOL_CLOCK_S } : null,
+            clock: !cpuTurn && S.clockTotal ? { left: Math.max(0, S.clockLeft), total: S.clockTotal } : null,
             toast: S.toast, fouled: S.fouled, handoff: S.handoff,
             bih: S.phase === 'bih' ? { valid: !bihBad, reason: bihBad, placed: S.placed, sx: gs && gs[0], sy: gs && gs[1], sr: gs ? S.cfg.ballR * gs[2] : 0 } : null,
             result: S.result,
@@ -405,7 +439,10 @@
             cpuTurn,
             sheet: { open: S.sheet.open, mode: S.sheet.mode, note: poolSheetNote() },
             difficulty: poolDifficulty(), adaptiveTier: paAdaptiveTier(poolCpuRec()),
+            tour: poolTourHead(), tourSheet: poolTourSheet(),
+            pots: S.pots,
         }));
+        poolTourSync();
     }
 
     // Under the difficulty list: when the pick cannot apply to the frame being played.
@@ -535,6 +572,10 @@
         if (e.target && e.target.closest && e.target.closest('.ph-spinpop')) return;
         // Esc closes the Game mode sheet first, and nothing else sees it.
         if (e.key === 'Escape' && S.sheet.open) { S.sheet.open = false; e.preventDefault(); e.stopImmediatePropagation(); return; }
+        // Esc resumes from Pause, and backs out of the abandon question.
+        if (e.key === 'Escape' && (S.tour.dialog === 'pause' || S.tour.dialog === 'abandon')) {
+            poolTourOn[S.tour.dialog === 'pause' ? 'unpause' : 'keep'](); e.preventDefault(); e.stopImmediatePropagation(); return;
+        }
         if (e.key === 'Escape' && S.drag && S.drag.kind === 'power') {
             // Cancel the stroke, and nothing else: not the Max modal, not a reset.
             S.drag = null; S.power = 0;
@@ -565,7 +606,7 @@
         spinClose: () => { poolS.spinOpen = false; },
         // The footer's mode button and the frame-over dialog's second button open the Game mode sheet.
         mode: () => { const S = poolS; S.sheet = { open: !S.sheet.open, mode: poolMode }; S.spinOpen = false; },
-        sheetTab: m => { poolS.sheet.mode = m === 'pvp' ? 'pvp' : 'cpu'; },
+        sheetTab: m => { poolS.sheet.mode = m === 'pvp' || m === 'tour' ? m : 'cpu'; },
         sheetClose: () => { poolS.sheet.open = false; },
         // A difficulty: remembered (the same setting as ⚙️), in force now if nothing has
         // been hit yet, else from the next frame. From 2 Players it switches to Vs CPU.
@@ -573,19 +614,31 @@
             const S = poolS;
             userPreferences.poolDifficulty = PA_TIERS[d] ? d : 'adaptive';
             savePreferences();
-            if (poolMode !== 'cpu') { togglePoolMode(); S.sheet.open = false; return; }
+            if (poolMode !== 'cpu') { poolSetMode('cpu'); S.sheet.open = false; return; }
             if (poolFrameFresh()) { poolLockTier(); S.sheet.open = false; }
         },
-        startPvp: () => { if (poolMode !== 'pvp') togglePoolMode(); poolS.sheet.open = false; },
+        startPvp: () => { poolSetMode('pvp'); poolS.sheet.open = false; },
+        // The sheet's Tournament tab, and the tournament footer.
+        tourGo: () => {
+            const T = poolS.tour;
+            poolS.sheet.open = false;
+            if (T.t && T.t.current) { poolTourResume(); return; }
+            if (T.t) { T.screen = 'bracket'; T.tab = poolTourTab(); } else { T.setup = poolTourSetupFresh(); T.screen = 'setup'; }
+            poolTourBump();
+        },
+        tourCabinet: () => { const T = poolS.tour; poolS.sheet.open = false; T.cabBack = null; T.screen = 'cabinet'; poolTourBump(); },
+        tourAbandon: () => { const T = poolS.tour; poolS.sheet.open = false; if (!T.t) return; T.dlgBack = null; T.dialog = 'abandon'; poolTourBump(); },
+        tourBracket: () => { const T = poolS.tour; if (!T.t) return; poolS.spinOpen = false; T.screen = 'bracket'; T.tab = poolTourTab(); poolTourBump(); },
+        tourPause: () => { const T = poolS.tour; if (!T.t) return; poolS.spinOpen = false; poolS.drag = null; poolS.power = 0; T.dialog = 'pause'; poolTourBump(); },
         reset: () => resetPoolGame(),
         max: () => togglePoolMaximize(),
         call: i => { if (poolCanAct()) poolS.called = i; },
-        ready: () => { const S = poolS; S.handoff = 0; S.toast = null; S.fouled = 0; S.clockLeft = POOL_CLOCK_S; },
+        ready: () => { const S = poolS; S.handoff = 0; S.toast = null; S.fouled = 0; S.clockLeft = S.clockTotal || POOL_CLOCK_S; },
         // Pick the cue ball up again. The clock pauses in ball in hand and
         // carries on from where it was once the ball is down, so this never buys time back.
         replace: () => { const S = poolS; if (S.phase === 'aim' && S.frame.ballInHand && poolCanAct() && !S.drag) { S.phase = 'bih'; S.placed = false; S.power = 0; } },
-        primary: () => poolNewFrame(3 - poolS.breaker),
-        secondary: () => { poolS.sheet = { open: true, mode: poolMode }; },
+        primary: () => { if (poolMode === 'tour') poolTourNextFrame(); else poolNewFrame(3 - poolS.breaker); },
+        secondary: () => { if (poolMode === 'tour') poolOn.tourBracket(); else poolS.sheet = { open: true, mode: poolMode }; },
     };
 
     function poolBuild(root) {
@@ -612,6 +665,12 @@
         if (!S.hudC || !root.contains(S.hudC.el)) poolBuild(root);
         // A frame in progress survives switching to another game and back.
         if (!S.world) poolNewFrame(1);
+        // Once per page: a tournament saved last time is offered back.
+        if (!S.tour.checked) {
+            S.tour.checked = true;
+            const t = poolTourLoad();
+            if (t) { S.tour.t = t; S.tour.dialog = 'resume'; poolTourBump(); }
+        }
         poolAttach();
         poolRefreshScoreBtn();
     }
@@ -641,6 +700,7 @@
 
     function poolDetach() {
         const S = poolS;
+        poolTourSnapshot();
         if (poolMaximized) togglePoolMaximize();
         S.running = false;
         if (S.raf) { cancelAnimationFrame(S.raf); S.raf = null; }
@@ -660,6 +720,307 @@
         S.scheme = null;
         S.drag = null; S.power = S.phase === 'strike' ? S.power : 0;
         poolDisarm();
+    }
+
+    // ── Tournament ────────────────────────────────────────────────────
+    // The bracket lives in poolS.tour.t; poolMode is 'tour' only while one of its
+    // matches is on the table (tour.matchId). Screens and dialogs cover the panel
+    // and stop the clock and every input under them.
+    const poolTourMatch = () => { const T = poolS.tour; return poolMode === 'tour' && T.t && T.matchId ? ptById(T.t, T.matchId) || null : null; };
+    const poolTourBlocked = () => !!(poolS.tour.screen || poolS.tour.dialog || poolS.tour.pending);
+    function poolTourBump() { poolS.tour.rev++; }
+    // Seat 1 is the match's upper line (a), seat 2 the lower (b).
+    const poolTourBreakerSeat = m => (ptBreaker(poolS.tour.t, m, m.frames.length) === m.a ? 1 : 2);
+    // The round the bracket opens on: the match in progress, else the next one, else the final.
+    function poolTourTab() {
+        const t = poolS.tour.t, m = (t.current && ptById(t, t.current)) || ptNext(t);
+        return m ? m.round : t.rounds - 1;
+    }
+
+    // A finished tournament is not kept: it is in the cabinet, and there is nothing to resume.
+    function poolTourSave() {
+        const t = poolS.tour.t;
+        try {
+            if (t && ptChampion(t) === null) localStorage.setItem(POOL_TOUR_KEY, JSON.stringify(t));
+            else localStorage.removeItem(POOL_TOUR_KEY);
+        } catch (_) {}
+    }
+    // The saved tournament, or null. A corrupt one, or one from another version, is
+    // dropped behind a toast; it is never half-loaded.
+    function poolTourLoad() {
+        let raw = null;
+        try { raw = localStorage.getItem(POOL_TOUR_KEY); } catch (_) { return null; }
+        if (!raw) return null;
+        let t = null;
+        try { t = ptValidate(JSON.parse(raw)); } catch (_) { t = null; }
+        if (t && t.current) {
+            const m = ptById(t, t.current);
+            if (!m || m.status === 'done' || m.status === 'bye' || m.a === null || m.b === null) t.current = null;
+        }
+        if (t && ptChampion(t) === null) return t;
+        try { localStorage.removeItem(POOL_TOUR_KEY); } catch (_) {}
+        if (!t) poolShowToast({ kind: 'notice', title: "Couldn't resume the tournament", sub: 'The saved bracket was damaged or out of date' });
+        return null;
+    }
+    function poolCabinet() {
+        const T = poolS.tour;
+        if (!T.cab) {
+            let c = null;
+            try { c = JSON.parse(localStorage.getItem(POOL_CAB_KEY) || 'null'); } catch (_) {}
+            T.cab = c && c.v === 1 && c.titles && typeof c.titles === 'object' && Array.isArray(c.recent) ? c : ptCabinetEmpty();
+        }
+        return T.cab;
+    }
+
+    // The table after a shot: the balls, the rules state and the clock. Written only when
+    // nothing is moving; restored only into the same frame of the same match.
+    function poolTourSnapshot() {
+        const S = poolS, T = S.tour, m = poolTourMatch();
+        if (!m || !T.t.current || !S.world || S.phase === 'moving' || S.phase === 'strike' || S.phase === 'over' || S.frame.over) return;
+        T.t.snapshot = {
+            match: m.id, frames: m.frames.length, breaker: S.breaker, frame: JSON.parse(JSON.stringify(S.frame)),
+            balls: S.world.balls.map(b => ({ id: b.id, x: b.x, y: b.y, q: b.q.slice(), state: b.state, pocket: b.pocket })),
+            clockLeft: S.clockLeft, fouled: S.fouled, pots: { 1: S.pots[1].slice(), 2: S.pots[2].slice() },
+        };
+        poolTourSave();
+    }
+    function poolTourRestore(snap, m) {
+        const S = poolS;
+        let world = null;
+        try {
+            if (!snap || snap.match !== m.id || snap.frames !== m.frames.length || !Array.isArray(snap.balls) || snap.balls.length !== 16) return false;
+            const f = snap.frame;
+            if (!f || f.v !== 1 || (f.turn !== 1 && f.turn !== 2) || f.over) return false;
+            world = ppCreateWorld();
+            world.balls = snap.balls.map(b => {
+                if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) throw new Error('ball');
+                const ball = ppMakeBall(b.id | 0, b.x, b.y);
+                ball.state = b.state === 'pocketed' ? 'pocketed' : 'stationary';
+                ball.pocket = b.pocket | 0;
+                if (Array.isArray(b.q) && b.q.length === 4 && b.q.every(Number.isFinite)) ball.q = b.q.slice();
+                return ball;
+            });
+        } catch (_) { return false; }
+        poolNewFrame(snap.breaker === 2 ? 2 : 1);
+        S.world = world; S.frame = JSON.parse(JSON.stringify(snap.frame));
+        S.clockLeft = Number.isFinite(snap.clockLeft) && snap.clockLeft > 0 ? snap.clockLeft : S.clockTotal || POOL_CLOCK_S;
+        S.fouled = snap.fouled === 1 || snap.fouled === 2 ? snap.fouled : 0;
+        const potsOf = a => (Array.isArray(a) ? a.filter(id => Number.isInteger(id) && id > 0 && id < 16 && id !== 8) : []);
+        S.pots = { 1: potsOf(snap.pots && snap.pots[1]), 2: potsOf(snap.pots && snap.pots[2]) };
+        if (poolCueBall().state === 'pocketed') prPlaceCue(S.world, S.world.table.headX - 80, 0);
+        S.down = new Set(S.world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+        if (S.frame.ballInHand) { S.phase = 'bih'; S.placed = false; } else { S.phase = 'aim'; poolAimAtNearest(); }
+        S.drawKey = '';
+        return true;
+    }
+
+    // The table follows the tournament's settings while one of its matches is on.
+    function poolTourApply() {
+        const S = poolS, set = S.tour.t.settings;
+        S.guideMode = set.guide === 'short' || set.guide === 'off' ? set.guide : 'full';
+        S.callEvery = set.call === 'every';
+        S.clockTotal = set.clock === 45 ? 45 : set.clock === 0 ? 0 : POOL_CLOCK_S;
+    }
+    // Puts a match on the table: from the start, or from its snapshot.
+    function poolTourSeat(m, fromSnapshot) {
+        const S = poolS, T = S.tour;
+        if (poolMode !== 'tour') T.prevMode = poolMode;
+        poolMode = 'tour';
+        T.matchId = m.id; T.t.current = m.id;
+        poolTourApply();
+        S.frames = ptScore(m); S.sheet.open = false; S.spinOpen = false;
+        if (!(fromSnapshot && poolTourRestore(T.t.snapshot, m))) poolNewFrame(poolTourBreakerSeat(m));
+        poolTourSave();
+    }
+    // Back to quick matches (the mode before the tournament, or the one asked for).
+    // The tournament stays saved and can be resumed from the Game mode sheet.
+    function poolLeaveTour(mode) {
+        const S = poolS, T = S.tour;
+        poolTourSnapshot();
+        poolMode = mode === 'pvp' || mode === 'cpu' ? mode : T.prevMode === 'pvp' ? 'pvp' : 'cpu';
+        T.matchId = null; T.pending = 0;
+        S.guideMode = 'full'; S.callEvery = false; S.clockTotal = POOL_CLOCK_S;
+        S.frames = [0, 0];
+        poolNewFrame(1);
+        poolRefreshScoreBtn();
+    }
+    function poolSetMode(mode) {
+        if (poolMode === 'tour') poolLeaveTour(mode);
+        else if (poolMode !== mode) togglePoolMode();
+    }
+    // Resume: the match in progress goes back on the table (the whole-table state from
+    // the last shot) and whoever is on the shot takes the seat; with none, the bracket.
+    function poolTourResume() {
+        const S = poolS, T = S.tour, t = T.t;
+        T.dialog = null; T.screen = null; poolTourBump();
+        const m = t && t.current && ptById(t, t.current);
+        if (!m) { if (t) { T.screen = 'bracket'; T.tab = poolTourTab(); } return; }
+        if (poolTourMatch() === m) return;
+        poolTourSeat(m, true);
+        S.handoff = S.frame.turn;
+    }
+
+    // Called by poolEndFrame: the frame goes into the bracket, and it is saved.
+    function poolTourFrameOver(seat) {
+        const S = poolS, T = S.tour, m = poolTourMatch();
+        if (!m || (seat !== 1 && seat !== 2)) return;
+        const r = ptRecordFrame(T.t, m.id, seat === 1 ? m.a : m.b);
+        T.t = r.t;
+        S.frames = ptScore(ptById(T.t, m.id));
+        if (r.matchOver) {
+            T.t.current = null;
+            if (ptChampion(T.t) !== null) {
+                T.cab = ptCabinetAdd(poolCabinet(), T.t);
+                try { localStorage.setItem(POOL_CAB_KEY, JSON.stringify(T.cab)); } catch (_) {}
+            }
+        }
+        poolTourSave();
+        poolTourBump();
+    }
+    // The frame-over dialog for a frame that leaves the match going; a won match goes
+    // to its result screen instead, once the last ball has dropped.
+    function poolTourResult(text) {
+        const S = poolS, m = poolTourMatch();
+        S.phase = 'over'; S.toast = null;
+        if (!m) return;
+        if (m.status === 'done') { S.result = null; S.tour.pending = POOL_RESULT_MS; return; }
+        S.result = {
+            win: true, title: text.title, reason: text.sub,
+            recordLabel: 'MATCH · RACE TO ' + m.raceTo, record: S.frames[0] + '–' + S.frames[1],
+            delta: '+1 FRAME', note: '',
+        };
+    }
+    function poolTourNextFrame() {
+        const m = poolTourMatch();
+        if (m && m.status !== 'done') poolNewFrame(poolTourBreakerSeat(m));
+    }
+
+    // Setup's draft: four players (the smallest full bracket), you in slot 1.
+    function poolTourSetupFresh() {
+        const names = Array.from({ length: PT_MAX }, () => '');
+        names[0] = poolMe();
+        return poolTourSetupRace({ n: 4, names, name: '', clock: 30, guide: 'full', call: '8', shuffle: false, size: 0, race: [] });
+    }
+    // The race-to columns follow the bracket size; a new size starts from its defaults.
+    function poolTourSetupRace(d) {
+        const size = ptSizeFor(d.n);
+        if (d.size !== size) { d.size = size; d.race = ptRaceColumns(size).map(c => PT_RACE_DEFAULT[size][c.rounds[0]]); }
+        return d;
+    }
+    function poolTourStart() {
+        const T = poolS.tour, d = T.setup, cols = ptRaceColumns(d.size);
+        const race = Array.from({ length: ptRoundsFor(d.size) }, (_, r) => d.race[cols.findIndex(c => c.rounds.indexOf(r) !== -1)]);
+        T.t = ptCreate({ names: d.names.slice(0, d.n), you: 0, name: d.name, settings: { race, clock: d.clock, guide: d.guide, call: d.call, shuffle: d.shuffle } });
+        T.t.current = null;
+        T.setup = null;
+        poolTourSave();
+        T.screen = 'bracket'; T.tab = 0;
+        poolTourBump();
+    }
+
+    // The screens' and dialogs' buttons (pool-tour-ui.js data-pu-act, and edits).
+    const poolTourOn = {
+        edit: (field, value) => {
+            const d = poolS.tour.setup;
+            if (!d) return;
+            const v = String(value === undefined || value === null ? '' : value);
+            if (field === 'tname') d.name = v.slice(0, 24);
+            else if (field.indexOf('name:') === 0) d.names[+field.slice(5)] = v.slice(0, 16);
+            else if (field.indexOf('race:') === 0) d.race[+field.slice(5)] = Math.max(1, Math.min(5, parseInt(v, 10) || 1));
+            // No re-render: the field keeps its caret, and nothing else depends on it.
+        },
+        count: arg => { const d = poolS.tour.setup; if (!d) return; d.n = Math.max(PT_MIN, Math.min(PT_MAX, d.n + (+arg || 0))); poolTourSetupRace(d); poolTourBump(); },
+        set: arg => {
+            const d = poolS.tour.setup, i = String(arg).indexOf(':');
+            if (!d || i < 0) return;
+            const k = String(arg).slice(0, i), v = String(arg).slice(i + 1);
+            if (k === 'clock') d.clock = v === '45' ? 45 : v === '0' ? 0 : 30;
+            else if (k === 'guide') d.guide = v === 'short' || v === 'off' ? v : 'full';
+            else if (k === 'call') d.call = v === 'every' ? 'every' : '8';
+            poolTourBump();
+        },
+        shuffle: () => { const d = poolS.tour.setup; if (d) { d.shuffle = !d.shuffle; poolTourBump(); } },
+        start: () => { if (poolS.tour.setup) poolTourStart(); },
+        tab: arg => { poolS.tour.tab = Math.max(0, +arg || 0); poolTourBump(); },
+        play: () => { const T = poolS.tour, n = T.t && ptNext(T.t); if (!n) return; T.introId = n.id; T.screen = 'intro'; poolTourBump(); },
+        ready: () => {
+            const T = poolS.tour, m = T.t && T.introId && ptById(T.t, T.introId);
+            if (!m || m.status === 'done') return;
+            T.screen = null; poolTourBump();
+            poolTourSeat(m, false);
+        },
+        resume: () => poolTourResume(),
+        resumeTour: () => poolTourResume(),
+        bracket: () => { const T = poolS.tour; if (!T.t) return; T.screen = 'bracket'; T.tab = poolTourTab(); poolTourBump(); },
+        champion: () => { const T = poolS.tour; if (T.t && ptChampion(T.t) !== null) { T.screen = 'champion'; poolTourBump(); } },
+        // Leaving a screen. From the champion the tournament is finished and let go; with
+        // no match in progress, a tournament table goes back to quick matches.
+        close: () => {
+            const T = poolS.tour;
+            if (T.screen === 'champion' || (T.t && ptChampion(T.t) !== null)) T.t = null;
+            T.screen = null; T.setup = null; poolTourBump();
+            if (poolMode === 'tour' && !(T.t && T.t.current)) poolLeaveTour();
+        },
+        new: () => {
+            const T = poolS.tour;
+            T.t = null; poolTourSave();
+            if (poolMode === 'tour') poolLeaveTour();
+            T.setup = poolTourSetupFresh(); T.screen = 'setup'; poolTourBump();
+        },
+        cabinet: () => { const T = poolS.tour; T.cabBack = T.screen; T.screen = 'cabinet'; poolTourBump(); },
+        cabinetBack: () => { const T = poolS.tour; T.screen = T.cabBack || null; T.cabBack = null; poolTourBump(); },
+        unpause: () => { poolS.tour.dialog = null; poolTourBump(); },
+        // Pause → Leave for now: the match is saved as it stands, to be resumed later.
+        leave: () => { const T = poolS.tour; T.dialog = null; poolTourBump(); poolLeaveTour(); },
+        abandon: () => { const T = poolS.tour; T.dlgBack = T.dialog; T.dialog = 'abandon'; poolTourBump(); },
+        keep: () => { const T = poolS.tour; T.dialog = T.dlgBack || null; T.dlgBack = null; poolTourBump(); },
+        abandonYes: () => {
+            const T = poolS.tour;
+            T.t = null; T.dialog = null; T.dlgBack = null; T.screen = null; poolTourSave(); poolTourBump();
+            if (poolMode === 'tour') poolLeaveTour();
+        },
+    };
+
+    // The HUD's tournament header: "CITY OPEN" over "Semi-final · race to 2", FRAME n.
+    function poolTourHead() {
+        const S = poolS, m = poolTourMatch();
+        if (!m) return null;
+        const n = S.phase === 'over' ? m.frames.length : m.frames.length + 1;
+        return { kicker: S.tour.t.name.toUpperCase(), title: ptRoundName(S.tour.t.rounds, m.round) + ' · race to ' + m.raceTo, frame: 'FRAME ' + Math.max(1, n) };
+    }
+    // The Game mode sheet's Tournament tab: resume the saved one, or set one up.
+    function poolTourSheet() {
+        const t = poolS.tour.t;
+        if (!t) return { saved: false };
+        const m = (t.current && ptById(t, t.current)) || ptNext(t);
+        return { saved: true, name: t.name, where: m ? t.slots[m.a].name + ' vs ' + t.slots[m.b].name + ' · ' + ptRoundName(t.rounds, m.round) : '' };
+    }
+    // Renders the screen and dialog over whichever HUD is showing, only when either changed.
+    function poolTourSync() {
+        const S = poolS, T = S.tour, hud = S.hud, max = hud.layout === 'max';
+        const pu = puMount(hud, poolTourOn);
+        const miniW = (hud.miniW && hud.miniW.w === hud.el.clientWidth && hud.miniW.v) || (max ? 440 : Math.max(240, Math.min(388, (hud.el.clientWidth || 368) - 34)));
+        const liveId = T.t && T.t.current;
+        const needsT = T.screen && T.screen !== 'setup' && T.screen !== 'cabinet';
+        const screen = T.screen && !(needsT && !T.t) && !(T.screen === 'setup' && !T.setup) ? T.screen : null;
+        const dialog = T.dialog && T.t ? T.dialog : null;
+        // Max: the full tree takes the HUD's width and what the 64 px header leaves of its height.
+        const maxW = max ? hud.el.clientWidth || 1232 : 0, maxH = max ? Math.max(300, (hud.el.clientHeight || 752) - 80) : 0;
+        const key = { screen: screen ? screen + '|' + T.rev + '|' + miniW + '|' + maxW + 'x' + maxH : '', dialog: dialog ? dialog + '|' + T.rev : '' };
+        if (pu.key.screen === key.screen && pu.key.dialog === key.dialog) return;
+        let html = '';
+        if (screen === 'setup') html = puSetupHTML(T.setup);
+        else if (screen === 'bracket') html = puBracketHTML({ t: T.t, tab: Math.min(T.tab, T.t.rounds - 1), liveId, layout: hud.layout, miniW, maxW, maxH });
+        else if (screen === 'intro') html = puIntroHTML({ t: T.t, matchId: T.introId });
+        else if (screen === 'result') html = puResultHTML({ t: T.t, matchId: T.matchId, miniW });
+        else if (screen === 'champion') html = puChampionHTML({ t: T.t, layout: hud.layout, miniW });
+        else if (screen === 'cabinet') html = puCabinetHTML({ cab: poolCabinet() });
+        puSync(hud, poolTourOn, { screen: html, dialog: dialog ? puDialogHTML(dialog, { t: T.t, liveId }) : '', key });
+        hud.el.classList.toggle('is-pu', !!screen);
+        // The mini tree is laid out for its box's real width (the body's scrollbar takes
+        // some): measured after the render, and drawn again once if it was off.
+        const box = screen && pu.screen.querySelector('.pu-mini:not(.is-big)');
+        if (box && box.clientWidth && Math.abs(box.clientWidth - miniW) > 0.5) { hud.miniW = { w: hud.el.clientWidth, v: box.clientWidth }; pu.key.screen = null; }
     }
 
     // ── Theme ─────────────────────────────────────────────────────────

@@ -3375,6 +3375,233 @@
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — TOURNAMENT MODEL (v2)
+    // ═══════════════════════════════════════════════════════════════════
+    // A single-elimination bracket for 3–16 people on one computer, humans
+    // only (POOL_V2_PLAN.md, Tournament). Pure: plain objects in, plain
+    // objects out, so it is tested in Node and saved as JSON.
+    //
+    //   size   S = the next power of two ≥ N (min 4); byes = S − N go to the
+    //          top seeds, so no first-round match is bye against bye
+    //   seeds  the standard order: seed s meets 2n+1−s, every other pair
+    //          flipped (1v8, 4v5, 3v6, 2v7), as the design's brackets draw it
+    //   play   a round is finished before the next starts, left to right;
+    //          winners feed forward by index (match j → j >> 1, side j & 1)
+    //   breaks the lower seed (the higher number) breaks first, then they
+    //          alternate
+    // A tournament: { v, id, seed, name, created, settings, slots, size,
+    // rounds, matches: [{ id, round, index, a, b, raceTo, frames, winner,
+    // status }], snapshot }. Slots are indices into `slots`; a is the upper
+    // line of a match, b the lower.
+
+    const PT_VERSION = 1;
+    const PT_MIN = 3, PT_MAX = 16;
+    const PT_NAMES = { 4: 'Club Cup', 8: 'City Open', 16: 'Masters' };
+    // Race-to by round, as setup defaults them: the semi and final longer.
+    const PT_RACE_DEFAULT = { 4: [2, 3], 8: [1, 2, 3], 16: [1, 1, 2, 3] };
+
+    const ptSizeFor = n => (n <= 4 ? 4 : n <= 8 ? 8 : 16);
+    const ptRoundsFor = size => Math.round(Math.log2(size));
+
+    // "Final", "Semi-final", "Quarter-final", "Round of 16", from the end.
+    function ptRoundName(rounds, r) {
+        const fromEnd = rounds - 1 - r;
+        return fromEnd === 0 ? 'Final' : fromEnd === 1 ? 'Semi-final' : fromEnd === 2 ? 'Quarter-final' : 'Round of ' + Math.pow(2, fromEnd + 1);
+    }
+    // Setup's short column names: the rounds before the semi share one race.
+    function ptRaceColumns(size) {
+        const rounds = ptRoundsFor(size);
+        return rounds === 2 ? [{ label: 'Semi', rounds: [0] }, { label: 'Final', rounds: [1] }]
+            : [{ label: rounds === 3 ? 'Quarter' : 'Round 1', rounds: Array.from({ length: rounds - 2 }, (_, i) => i) },
+               { label: 'Semi', rounds: [rounds - 2] }, { label: 'Final', rounds: [rounds - 1] }];
+    }
+
+    // Bracket positions by seed: order(2) = [1, 2]; order(2n) pairs each seed s
+    // of order(n) with 2n+1−s, flipping every other pair.
+    function ptSeedOrder(size) {
+        let order = [1, 2];
+        while (order.length < size) {
+            const n2 = order.length * 2 + 1, next = [];
+            order.forEach((s, i) => { if (i % 2 === 0) next.push(s, n2 - s); else next.push(n2 - s, s); });
+            order = next;
+        }
+        return order;
+    }
+
+    // A reproducible shuffle (Fisher–Yates on mulberry32), so a seed replays the draw.
+    function ptShuffle(list, seed) {
+        const rng = ppRandom(seed >>> 0), a = list.slice();
+        for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; }
+        return a;
+    }
+
+    // opts: { names: [...], you: 0 (the slot that is the account owner, or -1),
+    //         settings: { race: [per round], clock: 30|45|0, guide: 'full'|'short'|'off',
+    //         call: '8'|'every', shuffle }, name, seed, created (ms) }
+    function ptCreate(opts) {
+        const o = opts || {};
+        const names = (o.names || []).map(n => String(n || '').trim().slice(0, 16)).slice(0, PT_MAX);
+        if (names.length < PT_MIN) throw new Error('a tournament needs at least ' + PT_MIN + ' players');
+        const size = ptSizeFor(names.length), rounds = ptRoundsFor(size);
+        const seed = (o.seed === undefined ? Date.now() : o.seed) >>> 0;
+        const set = Object.assign({ clock: 30, guide: 'full', call: '8', shuffle: false }, o.settings);
+        const race = (set.race && set.race.length === rounds ? set.race : PT_RACE_DEFAULT[size]).map(x => Math.max(1, Math.min(5, x | 0)));
+        set.race = race;
+        // Seeding: entry order, or the shuffled order. Seed k is slot k − 1.
+        const entries = names.map((name, i) => ({ name: name || 'Player ' + (i + 1), you: i === (o.you === undefined ? 0 : o.you) }));
+        const seeded = set.shuffle ? ptShuffle(entries, seed) : entries;
+        const slots = seeded.map((e, i) => ({ name: e.name, seed: i + 1, you: e.you }));
+        const t = {
+            v: PT_VERSION, id: 't' + seed.toString(36), seed, name: String(o.name || '').trim().slice(0, 24) || PT_NAMES[size],
+            created: o.created || Date.now(), settings: set, slots, size, rounds, matches: [], snapshot: null,
+        };
+        const order = ptSeedOrder(size);
+        for (let r = 0, count = size / 2; r < rounds; r++, count /= 2) {
+            for (let j = 0; j < count; j++) {
+                t.matches.push({ id: 'r' + r + 'm' + j, round: r, index: j, a: null, b: null, raceTo: race[r], frames: [], winner: null, status: 'pending' });
+            }
+        }
+        // Round one: the better seed on the upper line; a seed past N is a bye.
+        for (let j = 0; j < size / 2; j++) {
+            const s1 = order[2 * j], s2 = order[2 * j + 1];
+            const hi = Math.min(s1, s2), lo = Math.max(s1, s2);
+            const m = ptMatch(t, 0, j);
+            m.a = hi <= slots.length ? hi - 1 : null;
+            m.b = lo <= slots.length ? lo - 1 : null;
+            if (m.b === null) { m.status = 'bye'; m.winner = m.a; ptAdvance(t, m); }
+        }
+        return t;
+    }
+
+    const ptMatch = (t, round, index) => t.matches.find(m => m.round === round && m.index === index);
+    const ptById = (t, id) => t.matches.find(m => m.id === id);
+
+    // The winner goes up a round: match j feeds j >> 1, upper line if j is even.
+    function ptAdvance(t, m) {
+        if (m.round === t.rounds - 1) return;
+        const next = ptMatch(t, m.round + 1, m.index >> 1);
+        if (m.index % 2 === 0) next.a = m.winner; else next.b = m.winner;
+    }
+
+    // Matches in the order they are played: round by round, left to right, byes left out.
+    const ptPlayable = t => t.matches.filter(m => m.status !== 'bye').sort((x, y) => x.round - y.round || x.index - y.index);
+    // The next match to play: both players known, not finished. null once there is a champion.
+    function ptNext(t) {
+        return ptPlayable(t).find(m => m.status !== 'done' && m.a !== null && m.b !== null) || null;
+    }
+    // "Match 3 of 5".
+    function ptMatchNumber(t, m) {
+        const list = ptPlayable(t);
+        return { n: list.indexOf(m) + 1, of: list.length };
+    }
+    // Frames won in a match, per line.
+    function ptScore(m) {
+        return [m.frames.filter(w => w === m.a).length, m.frames.filter(w => w === m.b).length];
+    }
+    // Who breaks frame k (0-based) of a match: the lower seed first, then alternating.
+    function ptBreaker(t, m, k) {
+        const aSeed = t.slots[m.a].seed, bSeed = t.slots[m.b].seed;
+        const lower = aSeed > bSeed ? m.a : m.b, upper = lower === m.a ? m.b : m.a;
+        return k % 2 === 0 ? lower : upper;
+    }
+
+    // A frame is over: returns { t, matchOver, winner }. Pure: t is copied.
+    function ptRecordFrame(t0, matchId, winnerSlot) {
+        const t = JSON.parse(JSON.stringify(t0));
+        const m = ptById(t, matchId);
+        if (!m || m.status === 'done' || m.status === 'bye' || (winnerSlot !== m.a && winnerSlot !== m.b)) return { t: t0, matchOver: false, winner: null };
+        m.frames.push(winnerSlot);
+        m.status = 'live';
+        const [sa, sb] = ptScore(m);
+        let matchOver = false;
+        if (sa >= m.raceTo || sb >= m.raceTo) {
+            m.winner = sa > sb ? m.a : m.b;
+            m.status = 'done';
+            matchOver = true;
+            ptAdvance(t, m);
+        }
+        t.snapshot = null;
+        return { t, matchOver, winner: matchOver ? m.winner : null };
+    }
+
+    // The champion's slot, or null.
+    function ptChampion(t) {
+        const f = ptMatch(t, t.rounds - 1, 0);
+        return f && f.status === 'done' ? f.winner : null;
+    }
+    // Where a player went out, or null if they are still in (or won).
+    function ptOut(t, slot) {
+        const lost = t.matches.find(m => m.status === 'done' && (m.a === slot || m.b === slot) && m.winner !== slot);
+        return lost ? lost.round : null;
+    }
+    // A player's run, round by round: bye, a win, or the loss that ended it.
+    function ptRun(t, slot) {
+        const out = [];
+        for (let r = 0; r < t.rounds; r++) {
+            const m = t.matches.find(x => x.round === r && (x.a === slot || x.b === slot));
+            if (!m) break;
+            const name = ptRoundName(t.rounds, r);
+            if (m.status === 'bye') { out.push({ round: r, name, kind: 'bye', text: 'Bye as top seed', score: '' }); continue; }
+            if (m.status !== 'done') { out.push({ round: r, name, kind: 'pending', text: '', score: '' }); break; }
+            const [sa, sb] = ptScore(m), mine = m.a === slot ? sa : sb, theirs = m.a === slot ? sb : sa;
+            const opp = t.slots[m.a === slot ? m.b : m.a].name;
+            if (m.winner === slot) out.push({ round: r, name, kind: 'won', text: 'beat ' + opp, score: mine + '–' + theirs });
+            else { out.push({ round: r, name, kind: 'lost', text: 'lost to ' + opp, score: mine + '–' + theirs }); break; }
+        }
+        return out;
+    }
+    // Frames won and lost across the whole tournament.
+    function ptFrames(t, slot) {
+        let won = 0, lost = 0;
+        t.matches.forEach(m => { if (m.a === slot || m.b === slot) m.frames.forEach(w => { if (w === slot) won++; else lost++; }); });
+        return { won, lost };
+    }
+
+    // A saved tournament, or null when it is not one this version can resume.
+    // Checked field by field, because a half-loaded bracket is worse than none.
+    function ptValidate(x) {
+        try {
+            if (!x || typeof x !== 'object' || x.v !== PT_VERSION) return null;
+            if (!Array.isArray(x.slots) || x.slots.length < PT_MIN || x.slots.length > PT_MAX) return null;
+            if ([4, 8, 16].indexOf(x.size) === -1 || x.rounds !== ptRoundsFor(x.size) || x.slots.length > x.size) return null;
+            if (!Array.isArray(x.matches) || x.matches.length !== x.size - 1) return null;
+            const ok = s => s === null || (Number.isInteger(s) && s >= 0 && s < x.slots.length);
+            for (const m of x.matches) {
+                if (!ok(m.a) || !ok(m.b) || !ok(m.winner) || !Array.isArray(m.frames) || !m.frames.every(ok)) return null;
+                if (['pending', 'live', 'done', 'bye'].indexOf(m.status) === -1 || !(m.raceTo >= 1 && m.raceTo <= 5)) return null;
+            }
+            if (!x.slots.every(s => s && typeof s.name === 'string' && Number.isInteger(s.seed))) return null;
+            return x;
+        } catch (_) { return null; }
+    }
+
+    // ── Trophy cabinet (local only) ───────────────────────────────────
+    // { v, titles: { key: { name, 4, 8, 16 } }, recent: [{ name, date, players, size, champ }] }.
+    // A player is their name trimmed and lowercased, so Ayesha and ayesha are one person.
+    const PT_RECENT = 20;
+    const ptKey = name => String(name || '').trim().toLowerCase();
+    function ptCabinetEmpty() { return { v: 1, titles: {}, recent: [] }; }
+    function ptCabinetAdd(cab0, t) {
+        const cab = cab0 && cab0.v === 1 && cab0.titles && Array.isArray(cab0.recent) ? JSON.parse(JSON.stringify(cab0)) : ptCabinetEmpty();
+        const c = ptChampion(t);
+        if (c === null || cab.recent.some(r => r.id === t.id)) return cab;
+        const name = t.slots[c].name, k = ptKey(name);
+        const row = cab.titles[k] || (cab.titles[k] = { name, 4: 0, 8: 0, 16: 0 });
+        row.name = name;
+        row[t.size]++;
+        cab.recent.unshift({ id: t.id, name: t.name, date: Date.now(), players: t.slots.length, size: t.size, champ: name });
+        cab.recent = cab.recent.slice(0, PT_RECENT);
+        return cab;
+    }
+    // Title table rows, most titles first.
+    function ptCabinetRows(cab) {
+        return Object.keys((cab && cab.titles) || {}).map(k => {
+            const r = cab.titles[k];
+            return { name: r.name, 4: r[4] || 0, 8: r[8] || 0, 16: r[16] || 0, total: (r[4] || 0) + (r[8] || 0) + (r[16] || 0) };
+        }).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — CAMERA (v2)
     // ═══════════════════════════════════════════════════════════════════
     // Poses, projection and unprojection for the two cameras in the design
@@ -4387,6 +4614,11 @@
     //   cpuTurn,                     the CPU is at the table: its own hint, no human controls
     //   sheet: { open, mode, note }, the Game mode sheet: which tab, and a line under the list
     //   difficulty,                  the picked CPU difficulty ('adaptive' or a tier)
+    //   pots: { 1: [ids], 2: [ids] } the object balls each seat has potted this frame, shown
+    //                                on its card while the table is open
+    //   tour: { kicker, title, frame } | null   a tournament match: the header strip, and
+    //                                the footer becomes Bracket / Pause / Max
+    //   tourSheet: { saved, name }   the sheet's Tournament tab: resume, or set one up
     //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
     //   secondaryLabel,              the frame-over dialog's second button, when the default does not apply
     //   result: { win, title, reason, recordLabel, record, delta, note } | null,
@@ -4403,6 +4635,8 @@
         const sheetOpen = !!(g.sheet && g.sheet.open);
         const sheetMode = (g.sheet && g.sheet.mode) || (g.mode === 'pvp' ? 'pvp' : 'cpu');
         const onTable = new Set(g.world.balls.filter(b => b.state !== 'pocketed').map(b => b.id));
+        // The big spin picker: only while you are the one aiming.
+        const pickerOpen = !!g.spinOpen && aiming && !g.cpuTurn && !g.handoff && !toast && !g.dragging && !sheetOpen;
 
         const cards = [1, 2].map(seat => {
             const active = !over && g.frame.turn === seat;
@@ -4424,19 +4658,23 @@
                 tagShort: { 'BALL IN HAND': 'IN HAND', 'TO BREAK': 'BREAK', 'TO SHOOT': 'SHOOT' }[tag] || '',
                 clock: clockLeft !== null && g.clock.total > 0 ? Math.max(0, Math.min(100, clockLeft / g.clock.total * 100)) : 0,
                 open: !group, group: ids.map(id => ({ id, down: !onTable.has(id) })),
+                // On an open table the card shows what this player has potted, so the break's
+                // balls are known before the groups are. Beyond three the balls carry it alone.
+                potted: !group && g.pots ? (g.pots[seat] || []).filter(id => !onTable.has(id)) : [],
                 initials: phInitials(g.names[seat], seat),
                 cpu: g.mode === 'cpu' && seat === 2,
             };
         });
 
-        // The pill names what the shooter is on, or what the table needs.
+        // The pill names what the shooter is on: state only. What to do about it (call a
+        // pocket) is the hint's, or in 3D the call card's, so it is never said twice.
         const shooterGroup = g.frame.groups[g.frame.turn];
         let pill;
         if (bih) pill = g.frame.ballInHand === 'kitchen' ? 'Break · kitchen only' : 'Ball in hand';
-        else if (aiming && st.callRequired) pill = st.onThe8 ? 'On the 8 · call it' : g.mode === 'cpu' && g.frame.callEvery ? 'Pro · call every shot' : 'Call every shot';
         else if (g.frame.isBreak) pill = 'Break';
+        else if (st.onThe8) pill = 'On the 8';
         else pill = shooterGroup ? shooterGroup[0].toUpperCase() + shooterGroup.slice(1) : 'Open table';
-        if (max && !bih && !(aiming && st.callRequired) && !g.frame.isBreak) {
+        if (max && !bih && !g.frame.isBreak) {
             const who = g.names[g.frame.turn];
             pill = (who === 'You' ? 'Your shot' : who + "'s shot") + ' · ' + pill;
         }
@@ -4455,6 +4693,14 @@
             else if (st.callRequired && g.called >= 0) hint = { text: PH_POCKETS[g.called] + ' called · drag to shoot', tone: '' };
             else hint = { text: 'Press and drag for power', tone: '' };
         }
+
+        // The call card (3D): the pocket map and the hint in one, bottom right. The pocket
+        // lit on the map names the call, so the caption only says what comes next. The spin
+        // picker covers the corner it would share with Move cue ball, so it steps aside then.
+        const card = aiming && st.callRequired && g.camera === '3d' && !g.cpuTurn && !g.handoff && !toast && !pickerOpen && !sheetOpen;
+        const pwr = Math.round(g.power || 0);
+        const cardCap = g.dragging ? { text: 'Release · ' + pwr + '%', tone: pwr >= PH_POWER_HOT ? 'hot' : 'power' }
+            : callNeeded ? { text: 'Tap a pocket', tone: 'call' } : { text: 'Drag to shoot', tone: '' };
 
         // The tip: anywhere in the miscue ring (g.tip), or a preset by index (g.spin).
         const spin = g.tip ? phClampTip(g.tip.x, g.tip.y)
@@ -4489,18 +4735,19 @@
             },
             spin: {
                 show: !bih && !over && !toast && !moving && !sheetOpen, label: phSpinLabel(spin), readout: phSpinReadout(spin), x: spin.x, y: spin.y,
-                // The big picker: only while you are the one aiming.
-                open: !!g.spinOpen && aiming && !g.cpuTurn && !g.handoff && !toast && !g.dragging && !sheetOpen,
+                open: pickerOpen,
                 preset: PH_SPINS.findIndex(p => Math.abs(p.x - spin.x) < 1e-6 && Math.abs(p.y - spin.y) < 1e-6),
             },
-            hint: { show: !!hint && !over && !toast && !sheetOpen, text: hint ? hint.text : '', tone: hint ? hint.tone : '' },
+            hint: { show: !!hint && !over && !toast && !sheetOpen && !card, text: hint ? hint.text : '', tone: hint ? hint.tone : '' },
             bihNote: note ? { show: true, text: note.text, x: note.x, y: note.y } : { show: false },
             // Back to placing: only before the shot, and never mid-stroke.
             replace: { show: !!g.canReplace && g.phase === 'aim' && !g.dragging && !g.handoff && !over },
-            mini: { show: aiming && st.callRequired && is3d, called: g.called >= 0 ? g.called : -1 },
+            mini: { show: card, called: g.called >= 0 ? g.called : -1, caption: cardCap.text, tone: cardCap.tone },
             dialog: over && g.result ? Object.assign({ show: true, kicker: 'FRAME OVER · ' + (g.frames ? g.frames[0] + '–' + g.frames[1] : ''),
-                primary: 'NEW FRAME', secondary: g.secondaryLabel || (g.mode === 'cpu' ? 'Change difficulty' : 'Change mode') }, g.result) : { show: false },
-            foot: { show: !g.handoff, modeLabel: g.mode === 'cpu' ? 'Vs CPU' : g.mode === 'tour' ? 'Tournament' : '2 Players' },
+                primary: g.mode === 'tour' ? 'NEXT FRAME' : 'NEW FRAME',
+                secondary: g.secondaryLabel || (g.mode === 'cpu' ? 'Change difficulty' : g.mode === 'tour' ? 'Bracket' : 'Change mode') }, g.result) : { show: false },
+            foot: { show: !g.handoff, tour: g.mode === 'tour', modeLabel: g.mode === 'cpu' ? 'Vs CPU' : g.mode === 'tour' ? 'Tournament' : '2 Players' },
+            tour: g.tour ? { show: true, kicker: g.tour.kicker, title: g.tour.title, frame: g.tour.frame } : { show: false },
             handoff: g.handoff ? {
                 show: true, to: 'Pass to ' + g.names[g.handoff],
                 from: g.names[3 - g.handoff] + ', swap seats',
@@ -4512,6 +4759,8 @@
                 diffs: PH_DIFFS.map(d => ({ key: d.key, name: d.name, desc: d.desc, checked: (g.difficulty || 'adaptive') === d.key })),
                 chip: 'NOW ' + String(g.adaptiveTier || 'normal').toUpperCase(),
                 note: (g.sheet && g.sheet.note) || '',
+                tour: g.tourSheet && g.tourSheet.saved ? { saved: true, cta: 'RESUME ' + String(g.tourSheet.name || 'TOURNAMENT').toUpperCase(), sub: g.tourSheet.where || '' }
+                    : { saved: false, cta: 'SET UP TOURNAMENT', sub: '' },
             } : { show: false },
         };
     }
@@ -4534,6 +4783,8 @@
         exit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"></path></svg>',
         swap: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13l-3-3M20 16H7l3 3"></path></svg>',
         hand: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v7.5a6.5 6.5 0 0 1-6.5 6.5h-.6a6 6 0 0 1-4.6-2.2L3.6 15a1.6 1.6 0 0 1 2.4-2l2 2"></path></svg>',
+        bracket: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h5v5H3M3 14h5v5H3M8 7.5h4v9H8M12 12h4M16 9h5v6h-5z"></path></svg>',
+        pause: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5v14M15 5v14"></path></svg>',
         close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
         cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
     };
@@ -4541,7 +4792,7 @@
     function phCardHTML(seat, max) {
         const top = '<div class="ph-card-top"><span class="ph-name" data-ph="name"></span>' +
             (max ? '<span class="ph-rec" data-ph="rec"></span>' : '<span class="ph-tag ph-label" data-ph="tag"></span>') + '</div>';
-        const group = '<div class="ph-group" data-ph="group"></div><div class="ph-open" data-ph="open">Open table</div>';
+        const group = '<div class="ph-group" data-ph="group"></div><div class="ph-open" data-ph="open"><span class="ph-open-l" data-ph="openl">Open table</span><span class="ph-open-balls" data-ph="openb"></span></div>';
         const body = max
             ? '<div class="ph-avatar" data-ph="avatar"></div><div class="ph-card-body">' + top + group + '</div>'
             : top + '<div class="ph-rec" data-ph="rec"></div>' + group;
@@ -4549,7 +4800,7 @@
     }
 
     function phViewHTML(max) {
-        const mini = [[0, 0], [56, 0], [112, 0], [0, 56], [56, 56], [112, 56]]
+        const mini = [[0, 0], [26, 0], [52, 0], [0, 26], [26, 26], [52, 26]]
             .map((p, i) => '<button type="button" data-ph-call="' + i + '" style="left:' + p[0] + 'px;top:' + p[1] + 'px" aria-label="Call ' + PH_POCKETS[i].toLowerCase() + ' pocket" aria-pressed="false"><span></span></button>')
             .join('');
         return '<div class="ph-view" data-ph="view"><canvas class="ph-canvas" data-ph="canvas"></canvas><div class="ph-layer">' +
@@ -4577,7 +4828,8 @@
             '<div class="ph-hint ph-glass" data-ph="hint"><span data-ph="hintt"></span></div>' +
             '<div class="ph-bihnote ph-label" data-ph="bihnote" hidden></div>' +
             '<button type="button" class="ph-replace ph-glass" data-ph="replace" hidden>' + PH_ICON.hand + '<span>Move cue ball</span></button>' +
-            '<div class="ph-mini ph-glass" data-ph="mini" hidden><div class="ph-mini-table"></div><div style="position:relative;width:156px;height:100px">' + mini + '</div></div>' +
+            '<div class="ph-mini ph-glass" data-ph="mini" hidden><span class="ph-mini-cap" data-ph="minicap"></span>' +
+            '<div class="ph-mini-pad"><div class="ph-mini-table"></div>' + mini + '</div></div>' +
             '<div class="ph-scrim" data-ph="scrim" hidden><div class="ph-dialog" role="dialog" aria-label="Frame over" data-ph="dialog">' +
             '<div class="ph-dialog-head"><span class="ph-dialog-icon" data-ph="dlgi"></span><span style="display:flex;flex-direction:column;gap:2px">' +
             '<span class="ph-dialog-kicker ph-label" data-ph="dlgk"></span><span class="ph-dialog-title" data-ph="dlgt"></span></span></div>' +
@@ -4603,13 +4855,24 @@
             '<div class="ph-sheet-head"><span class="ph-sheet-title">Game mode</span><button type="button" class="ph-btn is-icon" data-ph="sheetx" aria-label="Close">' + PH_ICON.close + '</button></div>' +
             '<div class="ph-sheet-modes" role="radiogroup" aria-label="Mode">' +
             '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="cpu" aria-checked="false">' + PH_ICON.chip + '<span>Vs CPU</span></button>' +
-            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="pvp" aria-checked="false">' + PH_ICON.people + '<span>2 Players</span></button></div>' +
+            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="pvp" aria-checked="false">' + PH_ICON.people + '<span>2 Players</span></button>' +
+            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="tour" aria-checked="false">' + PH_ICON.bracket + '<span>Tournament</span></button></div>' +
             '<div class="ph-sheet-cpu" data-ph="sheetcpu"><div class="ph-sheet-l ph-label">CPU DIFFICULTY</div>' +
             '<div class="ph-sheet-diffs" role="radiogroup" aria-label="CPU difficulty">' + diffs + '</div>' +
             '<div class="ph-sheet-note" data-ph="sheetnote" hidden></div></div>' +
+            '<div class="ph-sheet-pvp" data-ph="sheettour" hidden><span>Knockout bracket for 3 to 16 people taking turns on this computer. Humans only, no CPU players.</span>' +
+            '<button type="button" class="ph-primary ph-label is-two" data-ph="sheettourgo"><span data-ph="sheettourcta">SET UP TOURNAMENT</span><span class="ph-primary-sub" data-ph="sheettoursub"></span></button>' +
+            '<div class="ph-sheet-links"><button type="button" class="ph-btn" data-ph="sheetcab">' + PH_ICON.cup + '<span>Trophy cabinet</span></button>' +
+            '<button type="button" class="ph-btn is-hot" data-ph="sheetabandon" hidden><span>Abandon</span></button></div></div>' +
             '<div class="ph-sheet-pvp" data-ph="sheetpvp" hidden><span>Hot-seat on this computer. Hand the panel over after each turn; the game tells you whose shot it is.</span>' +
             '<button type="button" class="ph-primary ph-label" data-ph="sheetstart">START 2-PLAYER FRAME</button></div>' +
             '</div>';
+    }
+
+    // A tournament match: "CITY OPEN" over "Semi-final · race to 2", and a FRAME n pill.
+    function phTourHeadHTML() {
+        return '<div class="ph-tourhead" data-ph="tourhead" hidden><span class="ph-tourhead-t"><span class="ph-tourhead-k ph-label" data-ph="tourk"></span>' +
+            '<span class="ph-tourhead-n" data-ph="tourn"></span></span><span class="ph-tourhead-f ph-label" data-ph="tourf"></span></div>';
     }
 
     function phHandoffHTML() {
@@ -4625,17 +4888,21 @@
         const cards = phCardHTML(1, max) + '<div class="ph-frames"><span class="ph-frames-n" data-ph="frames">0–0</span><span class="ph-frames-l ph-label">FRAMES</span></div>' + phCardHTML(2, max);
         let html;
         if (max) {
-            html = '<div class="ph-top"><div class="ph-title">' + (o.title || '8-Ball Pool') + '</div><div class="ph-cards">' + cards + '</div>' +
-                '<div class="ph-actions"><span class="ph-trophy">' + PH_ICON.cup + '<span class="ph-num" data-ph="trophies">0</span></span>' +
+            html = '<div class="ph-top"><div class="ph-title" data-ph="title">' + (o.title || '8-Ball Pool') + '</div>' + phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' +
+                '<div class="ph-actions"><span class="ph-trophy" data-ph="trophy">' + PH_ICON.cup + '<span class="ph-num" data-ph="trophies">0</span></span>' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="reset" aria-label="Reset rack" title="Reset rack">' + PH_ICON.reset + '</button>' +
+                '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
+                '<button type="button" class="ph-btn is-icon" data-ph="pause" aria-label="Pause" title="Pause" hidden>' + PH_ICON.pause + '</button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="max" aria-label="Exit full view" title="Exit full view">' + PH_ICON.exit + '</button></div></div>' +
                 phViewHTML(true) + phHandoffHTML() + phSheetHTML();
         } else {
-            html = '<div class="ph-cards">' + cards + '</div>' + phViewHTML(false) +
+            html = phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' + phViewHTML(false) +
                 '<div class="ph-foot" data-ph="foot">' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn" data-ph="reset">' + PH_ICON.reset + '<span>Reset</span></button>' +
+                '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
+                '<button type="button" class="ph-btn" data-ph="pause" hidden>' + PH_ICON.pause + '<span>Pause</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="max">' + PH_ICON.max + '<span>Max</span></button></div>' +
                 phHandoffHTML() + phSheetHTML();
         }
@@ -4651,14 +4918,15 @@
         ['view', 'canvas', 'frames', 'trophies', 'cam', 'cam2d', 'cam3d', 'cam2dl', 'cam3dl', 'pill', 'pillt', 'toast', 'toasti', 'toastt', 'toasts',
             'lean', 'leanv', 'leanf', 'leant', 'leani', 'gauge', 'gaugef', 'lock', 'spin', 'spind', 'spinv', 'spinball', 'spinpop', 'spinr', 'spinbig', 'spinbigd',
             'hint', 'hintt', 'bihnote', 'replace',
-            'mini', 'scrim', 'dialog', 'dlgi', 'dlgk', 'dlgt', 'dlgr', 'dlgrec', 'dlgrl', 'dlgrv', 'dlgd', 'dlgn', 'dlgnt', 'dlgp', 'dlgs',
+            'mini', 'minicap', 'scrim', 'dialog', 'dlgi', 'dlgk', 'dlgt', 'dlgr', 'dlgrec', 'dlgrl', 'dlgrv', 'dlgd', 'dlgn', 'dlgnt', 'dlgp', 'dlgs',
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
-            'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart'].forEach(n => { hud[n] = ref(n); });
+            'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart',
+            'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
             const r = n => q('[data-ph="' + n + '"]', c);
-            return { el: c, name: r('name'), tag: r('tag'), rec: r('rec'), group: r('group'), open: r('open'), clock: r('clock'), avatar: r('avatar'), dots: [] };
+            return { el: c, name: r('name'), tag: r('tag'), rec: r('rec'), group: r('group'), open: r('open'), openl: r('openl'), openb: r('openb'), clock: r('clock'), avatar: r('avatar'), dots: [] };
         });
         hud.miniButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-call]'));
 
@@ -4734,6 +5002,11 @@
         hud.sheetx.addEventListener('click', () => fire('sheetClose'));
         hud.sheetscrim.addEventListener('click', () => fire('sheetClose'));
         hud.sheetstart.addEventListener('click', () => fire('startPvp'));
+        hud.sheettourgo.addEventListener('click', () => fire('tourGo'));
+        hud.sheetcab.addEventListener('click', () => fire('tourCabinet'));
+        hud.sheetabandon.addEventListener('click', () => fire('tourAbandon'));
+        hud.bracket.addEventListener('click', () => fire('tourBracket'));
+        hud.pause.addEventListener('click', () => fire('tourPause'));
         hud.sheet.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('sheetClose'); hud.mode.focus(); e.preventDefault(); e.stopPropagation(); } });
         return hud;
     }
@@ -4785,10 +5058,17 @@
             s(k + 'clock', c.clock, v => { r.clock.style.width = v + '%'; });
             s(k + 'open', c.open, v => { phShow(r.open, v); phShow(r.group, !v); });
             const ids = c.group.map(d => d.id).join();
+            // A new group (a new frame, or the open table decided) rebuilds the dots. Each is
+            // drawn potted or not at once, and the per-dot cache starts over: the old frame's
+            // values would otherwise match and skip the update, leaving a potted ball lit.
             s(k + 'ids', ids, () => {
-                r.group.innerHTML = c.group.map(d => '<i class="ph-dot" style="background:' + phDotStyle(d.id) + '"></i>').join('');
+                r.group.innerHTML = c.group.map(d => '<i class="ph-dot' + (d.down ? ' is-down' : '') + '" style="background:' + phDotStyle(d.id) + '"></i>').join('');
                 r.dots = Array.prototype.slice.call(r.group.children);
+                for (let j = 0; j < 7; j++) delete hud.last[k + 'down' + j];
+                c.group.forEach((d, j) => { hud.last[k + 'down' + j] = d.down; });
             });
+            s(k + 'openl', c.potted.length ? (c.potted.length > 3 ? '' : 'Potted') : 'Open table', v => { r.openl.textContent = v; phShow(r.openl, !!v); });
+            s(k + 'openb', c.potted.join(), () => { r.openb.innerHTML = c.potted.map(id => '<i class="ph-dot" style="background:' + phDotStyle(id) + '"></i>').join(''); });
             c.group.forEach((d, j) => s(k + 'down' + j, d.down, v => r.dots[j] && r.dots[j].classList.toggle('is-down', v)));
         });
         s('frames', vm.frames, v => { hud.frames.textContent = v; });
@@ -4864,7 +5144,10 @@
 
         s('replace.show', vm.replace.show, v => phShow(hud.replace, v));
 
-        s('mini.show', vm.mini.show, v => phShow(hud.mini, v));
+        // While the call card holds the corner, the gauge steps up and Move cue ball goes left.
+        s('mini.show', vm.mini.show, v => { phShow(hud.mini, v); hud.view.classList.toggle('is-calling', v); });
+        s('mini.cap', vm.mini.caption || '', v => { hud.minicap.textContent = v; });
+        s('mini.tone', vm.mini.tone || '', v => { hud.mini.className = 'ph-mini ph-glass' + (v ? ' is-' + v : ''); });
         s('mini.called', vm.mini.called, v => hud.miniButtons.forEach((b, i) => b.setAttribute('aria-pressed', i === v ? 'true' : 'false')));
 
         s('dlg.show', vm.dialog.show, v => phShow(hud.scrim, v));
@@ -4884,17 +5167,28 @@
         }
 
         if (hud.foot) s('foot.show', vm.foot.show, v => phShow(hud.foot, v));
+        // In a tournament match: Bracket / Pause in place of the mode and Reset.
+        s('foot.tour', vm.foot.tour, v => { phShow(hud.mode, !v); phShow(hud.reset, !v); phShow(hud.bracket, v); phShow(hud.pause, v); if (hud.trophy) phShow(hud.trophy, !v); });
+        s('tour.show', vm.tour.show, v => { phShow(hud.tourhead, v); if (hud.title) phShow(hud.title, !v); });
+        if (vm.tour.show) {
+            s('tour.k', vm.tour.kicker, v => { hud.tourk.textContent = v; });
+            s('tour.n', vm.tour.title, v => { hud.tourn.textContent = v; });
+            s('tour.f', vm.tour.frame, v => { hud.tourf.textContent = v; });
+        }
         s('foot.mode', vm.foot.modeLabel, v => { hud.model.textContent = v; });
         const sh = vm.sheet;
         s('sheet.show', sh.show, v => { phShow(hud.sheet, v); phShow(hud.sheetscrim, v); hud.mode.setAttribute('aria-expanded', v ? 'true' : 'false'); });
         if (sh.show) {
             s('sheet.mode', sh.mode, v => {
                 hud.modeButtons.forEach(b => b.setAttribute('aria-checked', b.getAttribute('data-ph-mode') === v ? 'true' : 'false'));
-                phShow(hud.sheetcpu, v === 'cpu'); phShow(hud.sheetpvp, v === 'pvp');
+                phShow(hud.sheetcpu, v === 'cpu'); phShow(hud.sheetpvp, v === 'pvp'); phShow(hud.sheettour, v === 'tour');
             });
             s('sheet.diff', sh.diffs.map(d => d.checked ? 1 : 0).join(''), () => hud.diffButtons.forEach((b, i) => b.setAttribute('aria-checked', sh.diffs[i].checked ? 'true' : 'false')));
             s('sheet.chip', sh.chip, v => { hud.sheetchip.textContent = v; });
             s('sheet.note', sh.note, v => { hud.sheetnote.textContent = v; phShow(hud.sheetnote, !!v); });
+            s('sheet.tour', sh.tour.cta + '|' + sh.tour.sub + '|' + sh.tour.saved, () => {
+                hud.sheettourcta.textContent = sh.tour.cta; hud.sheettoursub.textContent = sh.tour.sub; phShow(hud.sheettoursub, !!sh.tour.sub); phShow(hud.sheetabandon, sh.tour.saved);
+            });
         }
         s('ho.show', vm.handoff.show, v => phShow(hud.handoff, v));
         if (vm.handoff.show) {
@@ -4948,6 +5242,354 @@
     }
 
     function phThemeChanged(hud) { if (hud) hud.theme = null; }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — TOURNAMENT SCREENS (v2)
+    // ═══════════════════════════════════════════════════════════════════
+    // The tournament's screens from the design (TournamentSetup, BracketTree,
+    // BracketCompact, BracketFull, MatchIntro, MatchResult, Champion,
+    // ChampionFull, TrophyCabinet, and InMatch's resume, abandon and pause
+    // dialogs), over the pool HUD.
+    //
+    //   puTree(t, opts)        the bracket as HTML + SVG, the design's geometry:
+    //                          column (W − champ − rounds·gap) / rounds, card
+    //                          min(64, slot − 12), elbows at the gutter midpoint
+    //   pu*HTML(model)         each screen as HTML, from the tournament and the
+    //                          screen's own state
+    //   puMount / puSync       one overlay per HUD; the controller hands it the
+    //                          screen and it re-renders only when that changes.
+    //                          Clicks and edits come back through data-pu-act
+    //                          and data-pu-in to the controller's handlers
+    // Names are typed by people, so everything that goes into HTML is escaped.
+
+    const puEsc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const PU_ICON = {
+        back: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>',
+        minus: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg>',
+        plus: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
+        bracket: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h5v5H3M3 14h5v5H3M8 7.5h4v9H8M12 12h4M16 9h5v6h-5z"></path></svg>',
+        cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
+        cupBig: '<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3" fill="currentColor" fill-opacity="0.1"></path><path d="M9.5 7.2v1.6a2.5 2.5 0 0 0 1.4 2.2" stroke-opacity="0.6"></path></svg>',
+        you: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4.5 4.2-7 8-7s7 2.5 8 7"></path></svg>',
+        check: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>',
+        play: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"></path></svg>',
+        pause: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14"></path></svg>',
+        warn: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 16.5h-19L12 3z"></path><path d="M12 10v4M12 17.2v.1"></path></svg>',
+        exit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"></path></svg>',
+        close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
+        ball: '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="#F3EEE2"></circle><circle cx="8.8" cy="8.6" r="2" fill="#FFFFFF" fill-opacity="0.8"></circle></svg>',
+    };
+
+    // "QF", "SF", "F", "R16" for the TBD lines: "Winner QF 2".
+    function puShort(rounds, r) {
+        const fromEnd = rounds - 1 - r;
+        return fromEnd === 0 ? 'F' : fromEnd === 1 ? 'SF' : fromEnd === 2 ? 'QF' : 'R' + Math.pow(2, fromEnd + 1);
+    }
+    // How a match reads right now: 'bye' | 'done' | 'live' | 'next' | ''.
+    function puState(t, m, liveId) {
+        if (m.status === 'bye') return 'bye';
+        if (m.status === 'done') return 'done';
+        if (m.id === liveId || m.status === 'live') return 'live';
+        const n = ptNext(t);
+        return n && n.id === m.id ? 'next' : '';
+    }
+    // One line of a match: the player, or the bye, or who it is waiting for.
+    function puLine(t, m, side) {
+        const slot = side === 'a' ? m.a : m.b;
+        if (slot !== null) return { name: t.slots[slot].name, seed: String(t.slots[slot].seed), tbd: false };
+        if (m.round === 0) return { name: 'Bye', seed: '', tbd: true };
+        const feeder = ptMatch(t, m.round - 1, 2 * m.index + (side === 'a' ? 0 : 1));
+        if (feeder && feeder.status === 'bye') return { name: t.slots[feeder.a].name, seed: String(t.slots[feeder.a].seed), tbd: false };
+        return { name: 'Winner ' + puShort(t.rounds, m.round - 1) + ' ' + (2 * m.index + (side === 'a' ? 1 : 2)), seed: '', tbd: true };
+    }
+    // The round's name where a column is narrow: Last 16, Quarters, Semis, Final.
+    function puRoundShort(rounds, r) {
+        const fromEnd = rounds - 1 - r;
+        return fromEnd === 0 ? 'Final' : fromEnd === 1 ? 'Semis' : fromEnd === 2 ? 'Quarters' : 'Last ' + Math.pow(2, fromEnd + 1);
+    }
+    // The path to highlight: the champion's, else the YOU player's while still in.
+    function puPath(t) {
+        const champ = ptChampion(t);
+        let slot = champ;
+        if (slot === null) { const y = t.slots.findIndex(s => s.you); slot = y >= 0 && ptOut(t, y) === null ? y : null; }
+        const ids = new Set();
+        if (slot === null) return { ids, champ: false, name: '' };
+        // Every match they won, and the one they are in now (the design lights the way in).
+        t.matches.forEach(m => {
+            if (m.a !== slot && m.b !== slot) return;
+            if (((m.status === 'done' || m.status === 'bye') && m.winner === slot) || m.status === 'pending' || m.status === 'live') ids.add(m.id);
+        });
+        return { ids, champ: champ !== null, name: t.slots[slot].name };
+    }
+
+    // The mini tree's height: a row of first-round cards needs about 30 px each.
+    const puMiniH = t => Math.max(160, t.size / 2 * 30);
+    // opts: { w, h, mini, liveId }
+    function puTree(t, opts) {
+        const o = opts || {}, W = o.w || 900, H = o.h || 520, mini = !!o.mini;
+        const fx = v => Math.round(v * 10) / 10;
+        const cols = t.rounds, n0 = t.size / 2;
+        const hdr = mini ? 0 : 30, champW = mini ? 78 : 188, gap = mini ? 16 : 40;
+        const cardW = (W - champW - cols * gap) / cols;
+        const slotH = (H - hdr) / n0;
+        const cardH = mini ? Math.min(40, slotH - 6) : Math.min(64, slotH - 12);
+        const pos = (r, j) => { const cy = hdr + slotH * (j + 0.5) * Math.pow(2, r); return { x: r * (cardW + gap), y: cy - cardH / 2, cy }; };
+        const path = puPath(t);
+        let lines = '', hi = '', cards = '';
+        t.matches.forEach(m => {
+            const p = pos(m.round, m.index), st = puState(t, m, o.liveId);
+            const a = puLine(t, m, 'a'), b = puLine(t, m, 'b');
+            const [sa, sb] = ptScore(m), showScore = st === 'done' || st === 'live';
+            const aWin = (st === 'done' && m.winner === m.a) || st === 'bye', bWin = st === 'done' && m.winner === m.b;
+            const row = (L, score, win, lose) => '<div class="pu-tr-row' + (win ? ' is-win' : '') + (lose ? ' is-lose' : '') + (L.tbd ? ' is-tbd' : '') + '">' +
+                (mini ? '' : '<span class="pu-tr-seed">' + puEsc(L.seed) + '</span>') +
+                '<span class="pu-tr-name">' + puEsc(L.name) + '</span><span class="pu-tr-score">' + (showScore ? score : '') + '</span></div>';
+            cards += '<div class="pu-tr-card is-' + (st || 'wait') + (path.ids.has(m.id) ? ' is-path' : '') + '" style="left:' + fx(p.x) + 'px;top:' + fx(p.y) + 'px;width:' + fx(cardW) + 'px;height:' + fx(cardH) + 'px">' +
+                row(a, sa, aWin, st === 'done' && !aWin) + row(b, sb, bWin, st === 'done' && !bWin) +
+                (st && !mini ? '<span class="pu-chip is-' + st + '">' + st.toUpperCase() + '</span>' : '') + '</div>';
+            if (m.round > 0) [2 * m.index, 2 * m.index + 1].forEach(fj => {
+                const f = pos(m.round - 1, fj), x1 = f.x + cardW, mx = x1 + gap / 2;
+                const d = 'M' + fx(x1) + ' ' + fx(f.cy) + 'H' + fx(mx) + 'V' + fx(p.cy) + 'H' + fx(p.x);
+                if (path.ids.has(ptMatch(t, m.round - 1, fj).id) && path.ids.has(m.id)) hi += d; else lines += d;
+            });
+        });
+        const fp = pos(cols - 1, 0), chH = mini ? cardH : Math.max(cardH, 104), chX = cols * (cardW + gap);
+        const cd = 'M' + fx(fp.x + cardW) + ' ' + fx(fp.cy) + 'H' + fx(chX);
+        if (path.champ) hi += cd; else lines += cd;
+        const champ = ptChampion(t);
+        const heads = mini ? '' : Array.from({ length: cols }, (_, r) => '<div class="pu-tr-head" style="left:' + fx(r * (cardW + gap)) + 'px;width:' + fx(cardW) + 'px">' +
+            puEsc((cardW < 190 ? puRoundShort(t.rounds, r) : ptRoundName(t.rounds, r)).toUpperCase() + ' · RACE TO ' + t.settings.race[r]) + '</div>').join('') +
+            '<div class="pu-tr-head" style="left:' + fx(chX) + 'px;width:' + fx(champW) + 'px">CHAMPION</div>';
+        return '<div class="pu-tree' + (mini ? ' is-mini' : '') + '" role="img" aria-label="Tournament bracket" style="width:' + W + 'px;height:' + H + 'px">' + heads +
+            '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true"><path class="pu-tr-line" d="' + lines + '" stroke-width="' + (mini ? 1.25 : 1.5) + '"></path>' +
+            '<path class="pu-tr-hi" d="' + hi + '" stroke-width="' + (mini ? 1.25 : 1.5) + '"></path></svg>' + cards +
+            '<div class="pu-tr-champ' + (champ !== null ? ' is-won' : '') + '" style="left:' + fx(chX) + 'px;top:' + fx(fp.cy - chH / 2) + 'px;width:' + fx(champW) + 'px;height:' + fx(chH) + 'px">' +
+            PU_ICON.cup + (mini ? '' : '<span class="pu-tr-champ-l">CHAMPION</span>') + '<span class="pu-tr-champ-n">' + puEsc(champ !== null ? t.slots[champ].name : 'TBD') + '</span></div></div>';
+    }
+
+    // ── Screens ───────────────────────────────────────────────────────
+    const puHead = (kicker, title, back, right) => '<div class="pu-head">' +
+        (back ? '<button type="button" class="pu-iconbtn" data-pu-act="' + back + '" aria-label="Back">' + PU_ICON.back + '</button>' : '') +
+        '<div class="pu-head-t"><span class="pu-kicker">' + puEsc(kicker) + '</span><span class="pu-title">' + puEsc(title) + '</span></div>' + (right || '') + '</div>';
+    const puPill = text => '<span class="pu-pill">' + puEsc(text) + '</span>';
+    const puSeg = (label, key, opts, cur) => '<div class="pu-seg-row" role="radiogroup" aria-label="' + puEsc(label) + '"><span class="pu-seg-l">' + puEsc(label) + '</span>' +
+        '<div class="pu-seg" style="grid-template-columns:repeat(' + opts.length + ',minmax(0,1fr))">' +
+        opts.map(o => '<button type="button" role="radio" aria-checked="' + (o[0] === cur ? 'true' : 'false') + '" data-pu-act="set" data-pu-arg="' + key + ':' + o[0] + '">' + puEsc(o[1]) + '</button>').join('') + '</div></div>';
+
+    // s = { n, names, name, race: [per column], clock, guide, call, shuffle }
+    function puSetupHTML(s) {
+        const size = ptSizeFor(s.n), byes = size - s.n, cols = ptRaceColumns(size);
+        const rows = s.names.slice(0, s.n).map((nm, i) => '<div class="pu-player"><label class="pu-seedl" for="pu-p' + i + '">' + String(i + 1).padStart(2, '0') + '</label>' +
+            '<div class="pu-player-in"><input id="pu-p' + i + '" class="pu-input' + (i === 0 ? ' is-you' : '') + '" type="text" maxlength="16" placeholder="Player name" value="' + puEsc(nm) + '" data-pu-in="name:' + i + '" aria-label="' + (i === 0 ? 'Player 1 name (you)' : 'Player ' + (i + 1) + ' name') + '">' +
+            (i === 0 ? '<span class="pu-you">' + PU_ICON.you + 'YOU</span>' : '') + '</div></div>').join('');
+        const races = cols.map((c, ci) => '<label class="pu-race"><span>' + c.label + '</span><select data-pu-in="race:' + ci + '" aria-label="' + c.label + ', race to">' +
+            [1, 2, 3, 4, 5].map(v => '<option value="' + v + '"' + (v === s.race[ci] ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label>').join('');
+        return '<div class="pu-screen-in">' + puHead('TOURNAMENT · HUMANS ONLY', 'New tournament', 'close') +
+            '<div class="pu-body">' +
+            '<label class="pu-field"><span class="pu-seg-l">Name</span><input class="pu-input" type="text" maxlength="24" placeholder="' + puEsc(PT_NAMES[size]) + '" value="' + puEsc(s.name) + '" data-pu-in="tname" aria-label="Tournament name"></label>' +
+            '<div class="pu-count"><span class="pu-count-t"><span class="pu-strong">Contestants</span><span class="pu-note">Bracket of ' + size + (byes ? ' · ' + byes + (byes === 1 ? ' bye' : ' byes') + ' to top seeds' : '') + '</span></span>' +
+            '<div class="pu-stepper" role="group" aria-label="Contestants"><button type="button" data-pu-act="count" data-pu-arg="-1" aria-label="Fewer contestants"' + (s.n <= PT_MIN ? ' disabled' : '') + '>' + PU_ICON.minus + '</button>' +
+            '<span class="pu-count-n" aria-live="polite">' + s.n + '</span><button type="button" data-pu-act="count" data-pu-arg="1" aria-label="More contestants"' + (s.n >= PT_MAX ? ' disabled' : '') + '>' + PU_ICON.plus + '</button></div></div>' +
+            '<div class="pu-players">' + rows + '</div>' +
+            '<div class="pu-group"><span class="pu-kicker">FRAMES PER ROUND · RACE TO</span><div class="pu-races" style="grid-template-columns:repeat(' + cols.length + ',minmax(0,1fr))">' + races + '</div></div>' +
+            puSeg('Shot clock', 'clock', [[30, '30s'], [45, '45s'], [0, 'Off']], s.clock) +
+            puSeg('Guideline', 'guide', [['full', 'Full'], ['short', 'Short'], ['off', 'Off']], s.guide) +
+            puSeg('Call pocket', 'call', [['8', '8 only'], ['every', 'Every shot']], s.call) +
+            '<div class="pu-count"><span class="pu-count-t"><span class="pu-strong" id="pu-shuf">Shuffle seeds</span><span class="pu-note">Off keeps the list order as seeding</span></span>' +
+            '<button type="button" class="pu-switch" role="switch" aria-checked="' + (s.shuffle ? 'true' : 'false') + '" aria-labelledby="pu-shuf" data-pu-act="shuffle"><span><span></span></span></button></div>' +
+            '</div>' +
+            '<button type="button" class="pu-primary" data-pu-act="start">' + PU_ICON.bracket + 'START TOURNAMENT</button></div>';
+    }
+
+    // One match card on the compact bracket's round page.
+    function puMatchCard(t, m, liveId) {
+        const st = puState(t, m, liveId), [sa, sb] = ptScore(m), showScore = st === 'done' || st === 'live';
+        const code = puShort(t.rounds, m.round) + (t.rounds - 1 - m.round === 0 ? 'INAL' : ' ' + (m.index + 1));
+        const title = code === 'FINAL' ? 'FINAL · RACE TO ' + m.raceTo : st === 'bye' ? code + ' · BYE' : code + ' · RACE TO ' + m.raceTo;
+        const a = puLine(t, m, 'a'), b = st === 'bye' ? { name: 'Advances to ' + ptRoundName(t.rounds, m.round + 1).toLowerCase(), seed: '', tbd: true } : puLine(t, m, 'b');
+        const row = (L, score, win, lose) => '<div class="pu-mrow' + (win ? ' is-win' : '') + (lose ? ' is-lose' : '') + (L.tbd ? ' is-tbd' : '') + '"><span class="pu-mseed">' + puEsc(L.seed) + '</span>' +
+            '<span class="pu-mname">' + puEsc(L.name) + '</span><span class="pu-mscore">' + (showScore ? score : '') + '</span></div>';
+        return '<div class="pu-match is-' + (st || 'wait') + '"><div class="pu-match-h"><span class="pu-kicker">' + puEsc(title) + '</span>' +
+            (st ? '<span class="pu-chip is-' + st + '">' + st.toUpperCase() + '</span>' : '') + '</div>' +
+            row(a, sa, st === 'bye' || (st === 'done' && m.winner === m.a), st === 'done' && m.winner !== m.a) +
+            row(b, sb, st === 'done' && m.winner === m.b, st === 'done' && m.winner !== m.b) + '</div>';
+    }
+    // The CTA line under PLAY NEXT MATCH: "Ayesha vs Bilal · Semi-final".
+    function puNextLine(t) {
+        const n = ptNext(t);
+        return n ? t.slots[n.a].name + ' vs ' + t.slots[n.b].name + ' · ' + ptRoundName(t.rounds, n.round) : '';
+    }
+    // v = { t, tab, liveId, layout, miniW, maxW, maxH (the full tree's box in Max) }
+    function puBracketHTML(v) {
+        const t = v.t, next = ptNext(t), live = v.liveId && ptById(t, v.liveId);
+        const cta = live ? { act: 'resume', title: 'RESUME MATCH', sub: t.slots[live.a].name + ' vs ' + t.slots[live.b].name + ' · ' + ptRoundName(t.rounds, live.round) }
+            : next ? { act: 'play', title: 'PLAY NEXT MATCH', sub: puNextLine(t) } : { act: 'champion', title: 'SEE THE CHAMPION', sub: '' };
+        if (v.layout === 'max') {
+            const played = ptPlayable(t).filter(m => m.status === 'done').length, cur = next || live;
+            const stage = cur ? ptRoundName(t.rounds, cur.round) + ' · ' + played + ' of ' + ptPlayable(t).length + ' played' : 'Complete';
+            const path = puPath(t);
+            return '<div class="pu-screen-in is-max"><div class="pu-maxhead"><div class="pu-head-t"><span class="pu-kicker">' + puEsc(t.name.toUpperCase() + ' · ' + t.slots.length + ' PLAYERS') + '</span>' +
+                '<span class="pu-title is-big">' + puEsc(stage) + '</span></div>' +
+                '<div class="pu-legend"><span><span class="pu-chip is-live">LIVE</span>At the table</span><span><span class="pu-chip is-next">NEXT</span>Up next</span>' +
+                (path.name ? '<span><span class="pu-legend-line"></span>' + puEsc((path.champ ? 'Champion\'s path · ' : 'Your path · ') + path.name) + '</span>' : '') + '</div>' +
+                '<div class="pu-maxacts"><button type="button" class="pu-primary is-inline" data-pu-act="' + cta.act + '">' + PU_ICON.play + puEsc(cta.act === 'champion' ? cta.title : cta.title.replace(' MATCH', '') + (cta.sub ? ' · ' + cta.sub.split(' · ')[0].toUpperCase() : '')) + '</button>' +
+                '<button type="button" class="pu-iconbtn" data-pu-act="' + (live ? 'resume' : 'close') + '" aria-label="' + (live ? 'Back to the match' : 'Leave the bracket') + '">' + PU_ICON.back + '</button></div></div>' +
+                '<div class="pu-maxtree">' + puTree(t, { w: v.maxW || 1232, h: v.maxH || 672, liveId: v.liveId }) + '</div></div>';
+        }
+        const tabs = Array.from({ length: t.rounds }, (_, r) => {
+            const done = t.matches.filter(m => m.round === r).every(m => m.status === 'done' || m.status === 'bye');
+            return '<button type="button" role="tab" aria-selected="' + (r === v.tab ? 'true' : 'false') + '" data-pu-act="tab" data-pu-arg="' + r + '">' + (done ? PU_ICON.check : '') + puEsc(t.rounds > 3 ? puRoundShort(t.rounds, r) : ptRoundName(t.rounds, r)) + '</button>';
+        }).join('');
+        const page = t.matches.filter(m => m.round === v.tab).map(m => puMatchCard(t, m, v.liveId)).join('');
+        return '<div class="pu-screen-in">' + puHead(t.name.toUpperCase(), 'Bracket', live ? 'resume' : 'close', puPill(t.slots.length + ' PLAYERS')) +
+            '<div class="pu-tabs" role="tablist" aria-label="Rounds" style="grid-template-columns:repeat(' + t.rounds + ',minmax(0,1fr))">' + tabs + '</div>' +
+            '<div class="pu-body" role="tabpanel">' + page +
+            (v.tab > 0 ? '<div class="pu-group"><span class="pu-kicker">WHOLE BRACKET</span><div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: puMiniH(t), mini: true, liveId: v.liveId }) + '</div></div>' : '') + '</div>' +
+            '<button type="button" class="pu-primary is-two" data-pu-act="' + cta.act + '"><span>' + cta.title + '</span>' + (cta.sub ? '<span class="pu-primary-sub">' + puEsc(cta.sub) + '</span>' : '') + '</button></div>';
+    }
+
+    // Seed and route, for the intro: "Seed 4 · beat Zara 1–0", "Seed 1 · bye in QF".
+    function puRoute(t, slot, round) {
+        const bits = ['Seed ' + t.slots[slot].seed];
+        const prev = t.matches.find(m => m.round === round - 1 && (m.a === slot || m.b === slot));
+        if (prev && prev.status === 'bye') bits.push('bye in ' + puShort(t.rounds, prev.round));
+        else if (prev && prev.status === 'done') { const r = ptRun(t, slot)[round - 1]; if (r) bits.push(r.text + ' ' + r.score); }
+        return bits.join(' · ');
+    }
+    // v = { t, matchId }
+    function puIntroHTML(v) {
+        const t = v.t, m = ptById(t, v.matchId), num = ptMatchNumber(t, m);
+        const A = t.slots[m.a], B = t.slots[m.b], br = t.slots[ptBreaker(t, m, m.frames.length)];
+        const side = (S, slot, cls) => '<div class="pu-vs-side ' + cls + '"><div class="pu-avatar' + (slot === m.a ? ' is-lead' : '') + '">' + puEsc((S.name[0] || '?').toUpperCase()) + '</div>' +
+            '<span class="pu-vs-name">' + puEsc(S.name) + '</span><span class="pu-note">' + puEsc(puRoute(t, slot, m.round)) + '</span></div>';
+        return '<div class="pu-screen-in is-intro">' + puHead(t.name.toUpperCase() + ' · MATCH ' + num.n + ' OF ' + num.of, '', 'bracket') +
+            '<div class="pu-body is-center"><div class="pu-round"><span class="pu-round-n">' + puEsc(ptRoundName(t.rounds, m.round).toUpperCase()) + '</span><span class="pu-round-r">Race to ' + m.raceTo + '</span></div>' +
+            '<div class="pu-vs">' + side(A, m.a, 'is-a') + '<span class="pu-vs-x">VS</span>' + side(B, m.b, 'is-b') + '</div>' +
+            '<div class="pu-breaks">' + PU_ICON.ball + '<span><strong>' + puEsc(br.name) + ' breaks</strong><span class="pu-note"> · breaks alternate after</span></span></div></div>' +
+            '<div class="pu-foot"><span class="pu-note is-center">' + puEsc(A.name + ' and ' + B.name + ', take the seat when it\'s your shot.') + '</span>' +
+            '<button type="button" class="pu-primary" data-pu-act="ready">READY</button></div></div>';
+    }
+
+    // v = { t, matchId }
+    function puResultHTML(v) {
+        const t = v.t, m = ptById(t, v.matchId), num = ptMatchNumber(t, m), [sa, sb] = ptScore(m);
+        const W = t.slots[m.winner], L = t.slots[m.winner === m.a ? m.b : m.a];
+        const final = m.round === t.rounds - 1, next = ptNext(t);
+        const frames = m.frames.map((w, i) => '<div class="pu-frame' + (w === m.winner ? ' is-win' : '') + '"><span class="pu-kicker">FRAME ' + (i + 1) + '</span><span>' + puEsc(t.slots[w].name) + '</span></div>').join('');
+        return '<div class="pu-screen-in">' + puHead(t.name.toUpperCase(), ptRoundName(t.rounds, m.round) + ' · race to ' + m.raceTo, '', puPill('MATCH ' + num.n + ' OF ' + num.of)) +
+            '<div class="pu-body"><div class="pu-won"><div class="pu-won-top"><div class="pu-avatar is-lead">' + puEsc((W.name[0] || '?').toUpperCase()) + '</div>' +
+            '<div class="pu-won-t"><span class="pu-kicker is-accent">' + (final ? 'CHAMPION' : 'MATCH WON') + '</span><span class="pu-won-n">' + puEsc(W.name) + '</span></div>' +
+            '<span class="pu-won-s">' + Math.max(sa, sb) + '–' + Math.min(sa, sb) + '</span></div><div class="pu-frames" style="grid-template-columns:repeat(' + Math.min(3, m.frames.length) + ',minmax(0,1fr))">' + frames + '</div></div>' +
+            '<div class="pu-out"><span class="pu-avatar is-small">' + puEsc((L.name[0] || '?').toUpperCase()) + '</span><span class="pu-out-t">' + puEsc(L.name + ' is out') + '</span><span class="pu-note">' + puEsc(ptRoundName(t.rounds, m.round) + ' finish') + '</span></div>' +
+            '<div class="pu-group"><span class="pu-kicker">' + puEsc(final ? W.name.toUpperCase() + ' WINS ' + t.name.toUpperCase() : W.name.toUpperCase() + ' ADVANCES TO THE ' + ptRoundName(t.rounds, m.round + 1).toUpperCase()) + '</span>' +
+            '<div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: puMiniH(t), mini: true }) + '</div></div></div>' +
+            '<button type="button" class="pu-primary is-two" data-pu-act="' + (final ? 'champion' : 'bracket') + '"><span>CONTINUE</span><span class="pu-primary-sub">' +
+            puEsc(final ? 'The champion' : next ? 'Next: ' + t.slots[next.a].name + ' vs ' + t.slots[next.b].name + ' · ' + ptRoundName(t.rounds, next.round) : '') + '</span></button></div>';
+    }
+
+    const puDate = ms => { try { return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch (_) { return ''; } };
+    // v = { t, layout }
+    function puChampionHTML(v) {
+        const t = v.t, c = ptChampion(t), C = t.slots[c], fr = ptFrames(t, c);
+        const run = ptRun(t, c).map(r => '<div class="pu-run' + (r.round === t.rounds - 1 ? ' is-final' : '') + '"><span class="pu-kicker">' + puEsc(puRoundShort(t.rounds, r.round).toUpperCase()) + '</span>' +
+            '<span class="pu-run-t' + (r.kind === 'bye' ? ' is-muted' : '') + '">' + puEsc(r.text) + '</span><span class="pu-run-s">' + puEsc(r.score || '—') + '</span></div>').join('');
+        // A no-break space before each dot, so a wrapped line never starts with one.
+        const meta = t.slots.length + ' players\u00a0· ' + puDate(t.created) + '\u00a0· ' + fr.won + ' frames won, ' + fr.lost + ' lost';
+        const x = '<button type="button" class="pu-iconbtn pu-champ-x" data-pu-act="close" aria-label="Close">' + PU_ICON.close + '</button>';
+        const hero = '<div class="pu-hero"><span class="pu-hero-cup">' + PU_ICON.cupBig + '</span><span class="pu-kicker is-accent is-wide">' + puEsc('CHAMPION · ' + t.name.toUpperCase()) + '</span>' +
+            '<span class="pu-hero-n">' + puEsc(C.name) + '</span><span class="pu-note">' + puEsc(meta) + '</span></div>';
+        const acts = '<div class="pu-champ-acts"><button type="button" class="pu-primary" data-pu-act="new">NEW TOURNAMENT</button>' +
+            '<button type="button" class="pu-btn" data-pu-act="cabinet">' + PU_ICON.cup + 'Trophy cabinet</button></div>';
+        if (v.layout === 'max') {
+            return '<div class="pu-screen-in is-max is-champ">' + x + '<div class="pu-champ-grid"><div class="pu-champ-l">' + hero + '<div class="pu-runs">' + run + '</div>' + acts + '</div>' +
+                '<div class="pu-champ-r"><div class="pu-mini is-big">' + puTree(t, { w: 724, h: 520 }) + '</div></div></div></div>';
+        }
+        return '<div class="pu-screen-in is-champ">' + x + '<div class="pu-body">' + hero + '<div class="pu-runs">' + run + '</div>' +
+            '<div class="pu-group"><span class="pu-kicker">FINAL BRACKET</span><div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: puMiniH(t), mini: true }) + '</div></div></div>' + acts + '</div>';
+    }
+
+    // v = { cab }
+    function puCabinetHTML(v) {
+        const rows = ptCabinetRows(v.cab);
+        const cell = n => '<span class="pu-cab-c' + (n ? '' : ' is-zero') + '">' + (n || '–') + '</span>';
+        const table = rows.length ? rows.map((r, i) => '<div class="pu-cab-row" role="row"><span role="rowheader" class="pu-cab-name">' + (i === 0 ? '<span class="pu-crown">' + PU_ICON.cup + '</span>' : '<span class="pu-crown"></span>') +
+            puEsc(r.name) + '</span>' + cell(r[4]) + cell(r[8]) + cell(r[16]) + '<span class="pu-cab-t">' + r.total + '</span></div>').join('')
+            : '<div class="pu-empty">No titles yet. The first tournament you finish lands here.</div>';
+        const recent = (v.cab.recent || []).map(r => '<div class="pu-recent" role="listitem"><span class="pu-recent-s">' + r.size + '</span><span class="pu-recent-t"><span class="pu-strong">' + puEsc(r.name) + '</span>' +
+            '<span class="pu-note">' + puEsc(puDate(r.date) + ' · ' + r.players + ' players') + '</span></span><span class="pu-recent-c">' + PU_ICON.cup + puEsc(r.champ) + '</span></div>').join('');
+        return '<div class="pu-screen-in">' + puHead('SAVED ON THIS COMPUTER', 'Trophy cabinet', 'cabinetBack') +
+            '<div class="pu-body"><div class="pu-group"><span class="pu-kicker">TITLES BY BRACKET SIZE</span><div class="pu-cab" role="table" aria-label="Titles by bracket size">' +
+            '<div class="pu-cab-row is-head" role="row"><span>PLAYER</span><span>4</span><span>8</span><span>16</span><span class="is-accent">TOTAL</span></div>' + table + '</div></div>' +
+            (recent ? '<div class="pu-group"><span class="pu-kicker">RECENT TOURNAMENTS</span><div class="pu-recents" role="list">' + recent + '</div></div>' : '') + '</div></div>';
+    }
+
+    // The dialogs over the table: resume, abandon, pause. v = { t, liveId }
+    function puDialogHTML(kind, v) {
+        const t = v.t;
+        if (kind === 'pause') return '<div class="pu-dlg" role="dialog" aria-label="Paused"><span class="pu-dlg-icon">' + PU_ICON.pause + '</span>' +
+            '<span class="pu-dlg-t"><span class="pu-kicker">' + puEsc(t.name.toUpperCase()) + '</span><span class="pu-dlg-title">Paused</span><span class="pu-note">The shot clock is stopped.</span></span>' +
+            '<div class="pu-dlg-acts"><button type="button" class="pu-primary" data-pu-act="unpause">RESUME</button>' +
+            '<button type="button" class="pu-btn" data-pu-act="leave">Leave for now</button></div>' +
+            '<span class="pu-note is-center">Leaving keeps the match saved. Resume it from Game mode.</span></div>';
+        const live = (v.liveId && ptById(t, v.liveId)) || ptNext(t);
+        const where = live ? ptRoundName(t.rounds, live.round) : 'Final';
+        if (kind === 'abandon') return '<div class="pu-dlg is-hot" role="alertdialog" aria-label="Abandon tournament"><span class="pu-dlg-icon">' + PU_ICON.warn + '</span>' +
+            '<span class="pu-dlg-t"><span class="pu-dlg-title">' + puEsc('Abandon ' + t.name + '?') + '</span><span class="pu-note">' + puEsc('The bracket and every result for all ' + t.slots.length + ' players will be deleted from this computer. This can\'t be undone.') + '</span></span>' +
+            '<div class="pu-dlg-acts"><button type="button" class="pu-btn" data-pu-act="keep">Keep tournament</button><button type="button" class="pu-primary is-hot" data-pu-act="abandonYes">ABANDON TOURNAMENT</button></div></div>';
+        const score = live ? ptScore(live) : [0, 0];
+        return '<div class="pu-dlg" role="dialog" aria-label="Tournament in progress"><span class="pu-dlg-icon">' + PU_ICON.bracket + '</span>' +
+            '<span class="pu-dlg-t"><span class="pu-kicker">TOURNAMENT IN PROGRESS</span><span class="pu-dlg-title">' + puEsc(t.name + ' · ' + where) + '</span>' +
+            (live ? '<span class="pu-note">' + puEsc(t.slots[live.a].name + ' vs ' + t.slots[live.b].name + ', frame ' + (live.frames.length + 1)) + '</span>' : '') + '</span>' +
+            (live ? '<div class="pu-dlg-score"><span>' + puEsc(t.slots[live.a].name) + '</span><span class="pu-dlg-n">' + score[0] + '–' + score[1] + '</span><span>' + puEsc(t.slots[live.b].name) + '</span></div>' : '') +
+            '<div class="pu-dlg-acts"><button type="button" class="pu-primary" data-pu-act="resumeTour">RESUME</button><button type="button" class="pu-btn is-hot" data-pu-act="abandon">Abandon</button></div></div>';
+    }
+
+    // ── Mounting ──────────────────────────────────────────────────────
+    // One screen layer and one dialog layer per HUD, both inside .pool-hud.
+    function puMount(hud, on) {
+        if (hud.pu) return hud.pu;
+        const screen = document.createElement('div'), dialog = document.createElement('div');
+        screen.className = 'pu-screen'; screen.hidden = true;
+        dialog.className = 'pu-scrim'; dialog.hidden = true;
+        hud.el.appendChild(screen); hud.el.appendChild(dialog);
+        const act = e => {
+            const b = e.target.closest && e.target.closest('[data-pu-act]');
+            if (!b || b.disabled || !hud.el.contains(b)) return;
+            const f = on[b.getAttribute('data-pu-act')];
+            if (typeof f === 'function') f(b.getAttribute('data-pu-arg'));
+        };
+        const edit = e => {
+            const f = e.target.getAttribute && e.target.getAttribute('data-pu-in');
+            if (f && typeof on.edit === 'function') on.edit(f, e.target.value);
+        };
+        screen.addEventListener('click', act); dialog.addEventListener('click', act);
+        screen.addEventListener('input', edit); screen.addEventListener('change', edit);
+        // Keys typed into a field stay there: the host's number-key game shortcuts skip
+        // inputs but not selects, so "3" in a race-to select would switch to Tetris.
+        screen.addEventListener('keydown', e => { if (e.target.closest && e.target.closest('input, select, textarea')) e.stopPropagation(); });
+        hud.pu = { screen, dialog, key: { screen: null, dialog: null } };
+        return hud.pu;
+    }
+    // view = { screen: html | '', dialog: html | '', key: { screen, dialog } }
+    function puSync(hud, on, view) {
+        const pu = puMount(hud, on);
+        if (pu.key.screen !== view.key.screen) {
+            pu.key.screen = view.key.screen;
+            // Keep keyboard focus on the same control across a re-render (a stepper
+            // press re-renders the list; the focus stays on that button).
+            const a = document.activeElement, had = a && pu.screen.contains(a) && a.getAttribute('data-pu-act');
+            const sel = had ? '[data-pu-act="' + had + '"]' + (a.getAttribute('data-pu-arg') !== null ? '[data-pu-arg="' + a.getAttribute('data-pu-arg') + '"]' : '') : null;
+            pu.screen.innerHTML = view.screen || '';
+            pu.screen.hidden = !view.screen;
+            const again = sel && pu.screen.querySelector(sel);
+            if (again) again.focus({ preventScroll: true });
+        }
+        if (pu.key.dialog !== view.key.dialog) {
+            pu.key.dialog = view.key.dialog;
+            pu.dialog.innerHTML = view.dialog || '';
+            pu.dialog.hidden = !view.dialog;
+        }
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — CPU (v2)
@@ -5489,7 +6131,8 @@
     //   poolDetach()          switchGame left: stop the loop, drop the window
     //                         listeners, close Max
     //   resetPoolGame()       a fresh rack
-    //   togglePoolMode()      Vs CPU ⇄ 2 Players, then a fresh rack
+    //   togglePoolMode()      Vs CPU ⇄ 2 Players, then a fresh rack (from a tournament
+    //                         match: back to the mode before it)
     //   togglePoolMaximize()  the Max view, through the shared toggleGameMaxModal
     //   poolOnThemeChange()   applyPreferences ran: re-read the theme tokens
     //   poolMode, poolGamesWon, poolMaximized, poolRecord
@@ -5504,6 +6147,10 @@
     //   ←/→    ±0.1° while the table has the mouse or Max is open
     //   ball in hand: drag the cue ball; it stops at the cushions and, on
     //          the break, at the head string. Move cue ball picks it up again
+    // Tournaments (pool-tour.js, pool-tour-ui.js): poolMode 'tour' while a match is on
+    // the table. The bracket is saved to localStorage (poolTournament) after every frame,
+    // with a snapshot of the table after every shot, and offered back when the panel
+    // next opens. Titles go to the trophy cabinet (poolTrophyCabinet).
     // Escape never resets the frame here; it cancels a power drag, else the
     // Max modal's own handler closes Max.
 
@@ -5515,8 +6162,10 @@
     const POOL_POT_XP = 5;
     const POOL_MAX_W = 1280, POOL_MAX_H = 800;
     const POOL_DEG = Math.PI / 180;
+    const POOL_TOUR_KEY = 'poolTournament', POOL_CAB_KEY = 'poolTrophyCabinet';
+    const POOL_RESULT_MS = 1100;             // the last pot drops before the match result covers the table
 
-    let poolMode = 'cpu';                    // 'cpu' | 'pvp'
+    let poolMode = 'cpu';                    // 'cpu' | 'pvp' | 'tour'
     let poolGamesWon = 0;                    // all-time wins, as stored by savePoolHighScore
     let poolRecord = null;                   // { p1Wins, p1Losses, p2Wins, p2Losses }
     let poolMaximized = false;
@@ -5532,20 +6181,29 @@
         world: null, frame: null, rackId: 0, awardedRack: -1, breaker: 1, frames: [0, 0], seed: 0, rng: null,
         phase: 'aim', aim: 0, power: 0, tip: { x: 0, y: 0 }, spinOpen: false, called: -1, guide: null, guideKey: '',
         drops: [], down: new Set(), drag: null, strikeT: 0, shot: null,
+        // The object balls each seat has potted this frame (the cards show them on an open
+        // table).
+        pots: { 1: [], 2: [] },
         toast: null, toastMs: 0, fouled: 0, handoff: 0, result: null, placed: false, clockLeft: POOL_CLOCK_S,
         cpu: null, wins: 0,
         // Your record against the CPU (adaptive difficulty reads it), and the Game mode sheet.
         cpuRec: null, sheet: { open: false, mode: 'cpu' },
         // Table settings: guide length (full | short | off) and call every shot. Fixed for
         // quick matches today; tournaments (Phase 7) and the pro tier (Phase 6) set them.
-        guideMode: 'full', callEvery: false,
+        guideMode: 'full', callEvery: false, clockTotal: POOL_CLOCK_S,
+        // The tournament: the bracket (t, with t.current the match in progress), the screen
+        // and dialog over the panel, the match on the table, setup's draft, the cabinet.
+        tour: { t: null, screen: null, dialog: null, dlgBack: null, tab: 0, matchId: null, setup: null, cab: null, cabBack: null,
+            prevMode: 'cpu', pending: 0, rev: 0, checked: false },
         running: false, raf: null, lastMs: 0, acc: 0, sinceDraw: 0, drawKey: '',
         attached: false, armed: false, lastX: null, leanSave: null, scheme: null,
     };
 
     // ── Seats, names, records ─────────────────────────────────────────
+    const poolMe = () => (typeof lbDisplayName === 'string' && lbDisplayName.trim() ? lbDisplayName.trim().slice(0, 16) : '');
     function poolNames() {
-        const me = typeof lbDisplayName === 'string' && lbDisplayName.trim() ? lbDisplayName.trim().slice(0, 16) : '';
+        const me = poolMe(), m = poolTourMatch();
+        if (m) return { 1: poolS.tour.t.slots[m.a].name, 2: poolS.tour.t.slots[m.b].name };
         return poolMode === 'cpu' ? { 1: me || 'You', 2: 'CPU' } : { 1: me || 'Player 1', 2: 'Player 2' };
     }
     // The picked difficulty: 'adaptive' (the default) or a pinned tier.
@@ -5567,6 +6225,8 @@
     const poolFrameFresh = () => !!poolS.frame && poolS.frame.isBreak && poolS.phase !== 'moving' && poolS.phase !== 'strike';
 
     function poolRecordText(seat) {
+        const m = poolTourMatch();
+        if (m) return 'Seed ' + poolS.tour.t.slots[seat === 1 ? m.a : m.b].seed;
         const r = poolRecord || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
         if (poolMode === 'cpu' && seat === 2) {
             const label = PA_TIERS[poolCpuTier].label;
@@ -5599,19 +6259,24 @@
         S.rackId++;
         // Inside the kitchen, not on its line, so a press on the ball never rounds past it.
         S.world.balls[0].x = S.world.table.headX - 80; S.world.balls[0].y = 0;
-        S.down = new Set(); S.drops = []; S.called = -1; S.guide = null; S.guideKey = '';
+        S.down = new Set(); S.drops = []; S.called = -1; S.guide = null; S.guideKey = ''; S.pots = { 1: [], 2: [] };
         S.aim = 0; S.power = 0; S.tip = { x: 0, y: 0 }; S.spinOpen = false; S.phase = 'bih'; S.placed = false; S.drag = null; S.shot = null;
         S.toast = null; S.toastMs = 0; S.fouled = 0; S.result = null; S.cpu = null;
-        S.handoff = 0; S.clockLeft = POOL_CLOCK_S;
+        // A tournament's later frames start with the breaker taking the seat.
+        const tm = poolTourMatch();
+        S.handoff = tm && tm.frames.length > 0 ? S.breaker : 0; S.clockLeft = S.clockTotal || POOL_CLOCK_S;
         S.drawKey = '';
     }
 
     function resetPoolGame() {
         if (!poolS.cfg) poolS.cfg = ppCreateWorld().cfg;
+        // A tournament frame is not re-rackable: that would undo a lost frame.
+        if (poolMode === 'tour' && poolTourMatch()) return;
         poolNewFrame(poolS.breaker);
     }
 
     function togglePoolMode() {
+        if (poolMode === 'tour') { poolLeaveTour(); return; }
         poolMode = poolMode === 'cpu' ? 'pvp' : 'cpu';
         poolS.frames = [0, 0];
         poolNewFrame(1);
@@ -5623,6 +6288,8 @@
         const S = poolS, w = v.winner;
         if (S.awardedRack === S.rackId) return;
         S.awardedRack = S.rackId;
+        // Tournament frames go to the bracket, not to the quick-match records or XP (Phase 8).
+        if (poolMode === 'tour') { poolTourFrameOver(w); return; }
         if (!poolRecord) poolRecord = loadPoolRecord();
         // Seed the per-mode split before the all-time count moves; seeded after,
         // it would copy this win in and then count it again.
@@ -5651,7 +6318,7 @@
     // +5 XP per legal pot, for the seats today's game pays: yours against the
     // CPU, and both in 2 Players (problem 8, changed in Phase 8).
     function poolAwardPots(seat, n) {
-        if (!n || !(seat === 1 || poolMode === 'pvp') || !xpSystemReady) return;
+        if (!n || poolMode === 'tour' || !(seat === 1 || poolMode === 'pvp') || !xpSystemReady) return;
         const xpGained = n * POOL_POT_XP;
         userXP.currentXP += xpGained;
         userXP.totalXP += xpGained;
@@ -5679,6 +6346,7 @@
             const w = v.winner, t = prText(v, poolNames());
             const you = poolMode === 'cpu' ? w === 1 : null;
             poolEndFrame(v);
+            if (poolMode === 'tour') { poolTourResult(t); return; }
             S.result = {
                 win: you === null ? true : you, title: t.title, reason: t.sub,
                 recordLabel: (poolMode === 'cpu' ? poolNames()[1] : poolNames()[w]).toUpperCase() + ' · RECORD',
@@ -5691,13 +6359,15 @@
         }
         S.fouled = v.foul ? shooter : 0;
         // Hot-seat: when the table changes hands, the next player takes the seat first.
-        if (poolMode === 'pvp' && S.frame.turn !== shooter) S.handoff = S.frame.turn;
+        if (poolMode !== 'cpu' && S.frame.turn !== shooter) S.handoff = S.frame.turn;
         if (S.frame.ballInHand) {
             const c = poolCueBall();
             if (c.state === 'pocketed') prPlaceCue(S.world, S.world.table.headX - 80, 0);
             S.phase = 'bih'; S.placed = false;
         } else { S.phase = 'aim'; poolAimAtNearest(); }
-        S.clockLeft = POOL_CLOCK_S;
+        S.clockLeft = S.clockTotal || POOL_CLOCK_S;
+        // A shot boundary: the table is still, so this is the state a reload comes back to.
+        poolTourSnapshot();
     }
 
     function poolSettle() {
@@ -5734,14 +6404,14 @@
         S.guide = pgGuide(S.world, { angle: S.aim, speed: poolSpeedOf(p), tipX: t.x, tipY: t.y });
     }
     // A human may act: not in the hand-off, not while the CPU plays.
-    const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over' && !poolS.sheet.open;
+    const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over' && !poolS.sheet.open && !poolTourBlocked();
 
     // ── The CPU's turn ────────────────────────────────────────────────
     // Wait a beat, place the ball if it has it in hand, think (time-sliced),
     // turn the cue onto the line, draw it back, then strike.
     function poolCpuTick(dt) {
         const S = poolS;
-        if (!poolCpuTurn() || S.phase === 'moving' || S.phase === 'strike') return;
+        if (!poolCpuTurn() || poolTourBlocked() || S.phase === 'moving' || S.phase === 'strike') return;
         const c = S.cpu || (S.cpu = { stage: 'wait', t: 0 });
         c.t += dt;
         if (S.phase === 'bih') {
@@ -5805,13 +6475,17 @@
                 S.world.balls.forEach(b => {
                     if (b.state === 'pocketed' && !S.down.has(b.id)) {
                         S.down.add(b.id);
+                        // The shooter's, whatever the verdict: a ball down on a foul stays down.
+                        // The 8 is left out; on the break it comes back.
+                        if (b.id !== 0 && b.id !== 8) S.pots[S.frame.turn].push(b.id);
                         S.drops.push({ ball: Object.assign({}, b, { q: b.q.slice() }), pocket: b.pocket, t: 0 });
                     }
                 });
                 if (ppSettled(S.world)) { ppSimulate(S.world, 0.001); poolSettle(); break; }
             }
-        } else if (S.phase === 'aim' && poolCanAct() && !S.drag) {
-            // The clock waits for the hand-off and for ball in hand, as today.
+        } else if (S.phase === 'aim' && poolCanAct() && !S.drag && S.clockTotal) {
+            // The clock waits for the hand-off and for ball in hand, as today, and a
+            // tournament can turn it off.
             S.clockLeft -= dt / 1000;
             if (S.clockLeft <= 0) {
                 const v = prTimeout(S.frame);
@@ -5820,6 +6494,8 @@
             }
         }
         poolCpuTick(dt);
+        // A match just ended: its result covers the table once the last ball has dropped.
+        if (S.tour.pending > 0) { S.tour.pending -= dt; if (S.tour.pending <= 0) { S.tour.pending = 0; S.tour.screen = 'result'; poolTourBump(); } }
         if (S.toastMs) { S.toastMs -= dt; if (S.toastMs <= 0) { S.toastMs = 0; if (!S.handoff) S.toast = null; } }
         S.drops.forEach(d => { d.t += dt / 250; });
         S.drops = S.drops.filter(d => d.t < 1);
@@ -5876,7 +6552,7 @@
             frames: S.frames, trophies: S.wins,
             frame: S.frame, world: S.world, phase: S.phase, camera: userPreferences.poolCamera === '2d' ? '2d' : '3d',
             lean: poolLean(), power: S.power, dragging: !!(S.drag && S.drag.kind === 'power'), tip: S.tip, spinOpen: S.spinOpen, called: S.called,
-            clock: !cpuTurn ? { left: Math.max(0, S.clockLeft), total: POOL_CLOCK_S } : null,
+            clock: !cpuTurn && S.clockTotal ? { left: Math.max(0, S.clockLeft), total: S.clockTotal } : null,
             toast: S.toast, fouled: S.fouled, handoff: S.handoff,
             bih: S.phase === 'bih' ? { valid: !bihBad, reason: bihBad, placed: S.placed, sx: gs && gs[0], sy: gs && gs[1], sr: gs ? S.cfg.ballR * gs[2] : 0 } : null,
             result: S.result,
@@ -5884,7 +6560,10 @@
             cpuTurn,
             sheet: { open: S.sheet.open, mode: S.sheet.mode, note: poolSheetNote() },
             difficulty: poolDifficulty(), adaptiveTier: paAdaptiveTier(poolCpuRec()),
+            tour: poolTourHead(), tourSheet: poolTourSheet(),
+            pots: S.pots,
         }));
+        poolTourSync();
     }
 
     // Under the difficulty list: when the pick cannot apply to the frame being played.
@@ -6014,6 +6693,10 @@
         if (e.target && e.target.closest && e.target.closest('.ph-spinpop')) return;
         // Esc closes the Game mode sheet first, and nothing else sees it.
         if (e.key === 'Escape' && S.sheet.open) { S.sheet.open = false; e.preventDefault(); e.stopImmediatePropagation(); return; }
+        // Esc resumes from Pause, and backs out of the abandon question.
+        if (e.key === 'Escape' && (S.tour.dialog === 'pause' || S.tour.dialog === 'abandon')) {
+            poolTourOn[S.tour.dialog === 'pause' ? 'unpause' : 'keep'](); e.preventDefault(); e.stopImmediatePropagation(); return;
+        }
         if (e.key === 'Escape' && S.drag && S.drag.kind === 'power') {
             // Cancel the stroke, and nothing else: not the Max modal, not a reset.
             S.drag = null; S.power = 0;
@@ -6044,7 +6727,7 @@
         spinClose: () => { poolS.spinOpen = false; },
         // The footer's mode button and the frame-over dialog's second button open the Game mode sheet.
         mode: () => { const S = poolS; S.sheet = { open: !S.sheet.open, mode: poolMode }; S.spinOpen = false; },
-        sheetTab: m => { poolS.sheet.mode = m === 'pvp' ? 'pvp' : 'cpu'; },
+        sheetTab: m => { poolS.sheet.mode = m === 'pvp' || m === 'tour' ? m : 'cpu'; },
         sheetClose: () => { poolS.sheet.open = false; },
         // A difficulty: remembered (the same setting as ⚙️), in force now if nothing has
         // been hit yet, else from the next frame. From 2 Players it switches to Vs CPU.
@@ -6052,19 +6735,31 @@
             const S = poolS;
             userPreferences.poolDifficulty = PA_TIERS[d] ? d : 'adaptive';
             savePreferences();
-            if (poolMode !== 'cpu') { togglePoolMode(); S.sheet.open = false; return; }
+            if (poolMode !== 'cpu') { poolSetMode('cpu'); S.sheet.open = false; return; }
             if (poolFrameFresh()) { poolLockTier(); S.sheet.open = false; }
         },
-        startPvp: () => { if (poolMode !== 'pvp') togglePoolMode(); poolS.sheet.open = false; },
+        startPvp: () => { poolSetMode('pvp'); poolS.sheet.open = false; },
+        // The sheet's Tournament tab, and the tournament footer.
+        tourGo: () => {
+            const T = poolS.tour;
+            poolS.sheet.open = false;
+            if (T.t && T.t.current) { poolTourResume(); return; }
+            if (T.t) { T.screen = 'bracket'; T.tab = poolTourTab(); } else { T.setup = poolTourSetupFresh(); T.screen = 'setup'; }
+            poolTourBump();
+        },
+        tourCabinet: () => { const T = poolS.tour; poolS.sheet.open = false; T.cabBack = null; T.screen = 'cabinet'; poolTourBump(); },
+        tourAbandon: () => { const T = poolS.tour; poolS.sheet.open = false; if (!T.t) return; T.dlgBack = null; T.dialog = 'abandon'; poolTourBump(); },
+        tourBracket: () => { const T = poolS.tour; if (!T.t) return; poolS.spinOpen = false; T.screen = 'bracket'; T.tab = poolTourTab(); poolTourBump(); },
+        tourPause: () => { const T = poolS.tour; if (!T.t) return; poolS.spinOpen = false; poolS.drag = null; poolS.power = 0; T.dialog = 'pause'; poolTourBump(); },
         reset: () => resetPoolGame(),
         max: () => togglePoolMaximize(),
         call: i => { if (poolCanAct()) poolS.called = i; },
-        ready: () => { const S = poolS; S.handoff = 0; S.toast = null; S.fouled = 0; S.clockLeft = POOL_CLOCK_S; },
+        ready: () => { const S = poolS; S.handoff = 0; S.toast = null; S.fouled = 0; S.clockLeft = S.clockTotal || POOL_CLOCK_S; },
         // Pick the cue ball up again. The clock pauses in ball in hand and
         // carries on from where it was once the ball is down, so this never buys time back.
         replace: () => { const S = poolS; if (S.phase === 'aim' && S.frame.ballInHand && poolCanAct() && !S.drag) { S.phase = 'bih'; S.placed = false; S.power = 0; } },
-        primary: () => poolNewFrame(3 - poolS.breaker),
-        secondary: () => { poolS.sheet = { open: true, mode: poolMode }; },
+        primary: () => { if (poolMode === 'tour') poolTourNextFrame(); else poolNewFrame(3 - poolS.breaker); },
+        secondary: () => { if (poolMode === 'tour') poolOn.tourBracket(); else poolS.sheet = { open: true, mode: poolMode }; },
     };
 
     function poolBuild(root) {
@@ -6091,6 +6786,12 @@
         if (!S.hudC || !root.contains(S.hudC.el)) poolBuild(root);
         // A frame in progress survives switching to another game and back.
         if (!S.world) poolNewFrame(1);
+        // Once per page: a tournament saved last time is offered back.
+        if (!S.tour.checked) {
+            S.tour.checked = true;
+            const t = poolTourLoad();
+            if (t) { S.tour.t = t; S.tour.dialog = 'resume'; poolTourBump(); }
+        }
         poolAttach();
         poolRefreshScoreBtn();
     }
@@ -6120,6 +6821,7 @@
 
     function poolDetach() {
         const S = poolS;
+        poolTourSnapshot();
         if (poolMaximized) togglePoolMaximize();
         S.running = false;
         if (S.raf) { cancelAnimationFrame(S.raf); S.raf = null; }
@@ -6139,6 +6841,307 @@
         S.scheme = null;
         S.drag = null; S.power = S.phase === 'strike' ? S.power : 0;
         poolDisarm();
+    }
+
+    // ── Tournament ────────────────────────────────────────────────────
+    // The bracket lives in poolS.tour.t; poolMode is 'tour' only while one of its
+    // matches is on the table (tour.matchId). Screens and dialogs cover the panel
+    // and stop the clock and every input under them.
+    const poolTourMatch = () => { const T = poolS.tour; return poolMode === 'tour' && T.t && T.matchId ? ptById(T.t, T.matchId) || null : null; };
+    const poolTourBlocked = () => !!(poolS.tour.screen || poolS.tour.dialog || poolS.tour.pending);
+    function poolTourBump() { poolS.tour.rev++; }
+    // Seat 1 is the match's upper line (a), seat 2 the lower (b).
+    const poolTourBreakerSeat = m => (ptBreaker(poolS.tour.t, m, m.frames.length) === m.a ? 1 : 2);
+    // The round the bracket opens on: the match in progress, else the next one, else the final.
+    function poolTourTab() {
+        const t = poolS.tour.t, m = (t.current && ptById(t, t.current)) || ptNext(t);
+        return m ? m.round : t.rounds - 1;
+    }
+
+    // A finished tournament is not kept: it is in the cabinet, and there is nothing to resume.
+    function poolTourSave() {
+        const t = poolS.tour.t;
+        try {
+            if (t && ptChampion(t) === null) localStorage.setItem(POOL_TOUR_KEY, JSON.stringify(t));
+            else localStorage.removeItem(POOL_TOUR_KEY);
+        } catch (_) {}
+    }
+    // The saved tournament, or null. A corrupt one, or one from another version, is
+    // dropped behind a toast; it is never half-loaded.
+    function poolTourLoad() {
+        let raw = null;
+        try { raw = localStorage.getItem(POOL_TOUR_KEY); } catch (_) { return null; }
+        if (!raw) return null;
+        let t = null;
+        try { t = ptValidate(JSON.parse(raw)); } catch (_) { t = null; }
+        if (t && t.current) {
+            const m = ptById(t, t.current);
+            if (!m || m.status === 'done' || m.status === 'bye' || m.a === null || m.b === null) t.current = null;
+        }
+        if (t && ptChampion(t) === null) return t;
+        try { localStorage.removeItem(POOL_TOUR_KEY); } catch (_) {}
+        if (!t) poolShowToast({ kind: 'notice', title: "Couldn't resume the tournament", sub: 'The saved bracket was damaged or out of date' });
+        return null;
+    }
+    function poolCabinet() {
+        const T = poolS.tour;
+        if (!T.cab) {
+            let c = null;
+            try { c = JSON.parse(localStorage.getItem(POOL_CAB_KEY) || 'null'); } catch (_) {}
+            T.cab = c && c.v === 1 && c.titles && typeof c.titles === 'object' && Array.isArray(c.recent) ? c : ptCabinetEmpty();
+        }
+        return T.cab;
+    }
+
+    // The table after a shot: the balls, the rules state and the clock. Written only when
+    // nothing is moving; restored only into the same frame of the same match.
+    function poolTourSnapshot() {
+        const S = poolS, T = S.tour, m = poolTourMatch();
+        if (!m || !T.t.current || !S.world || S.phase === 'moving' || S.phase === 'strike' || S.phase === 'over' || S.frame.over) return;
+        T.t.snapshot = {
+            match: m.id, frames: m.frames.length, breaker: S.breaker, frame: JSON.parse(JSON.stringify(S.frame)),
+            balls: S.world.balls.map(b => ({ id: b.id, x: b.x, y: b.y, q: b.q.slice(), state: b.state, pocket: b.pocket })),
+            clockLeft: S.clockLeft, fouled: S.fouled, pots: { 1: S.pots[1].slice(), 2: S.pots[2].slice() },
+        };
+        poolTourSave();
+    }
+    function poolTourRestore(snap, m) {
+        const S = poolS;
+        let world = null;
+        try {
+            if (!snap || snap.match !== m.id || snap.frames !== m.frames.length || !Array.isArray(snap.balls) || snap.balls.length !== 16) return false;
+            const f = snap.frame;
+            if (!f || f.v !== 1 || (f.turn !== 1 && f.turn !== 2) || f.over) return false;
+            world = ppCreateWorld();
+            world.balls = snap.balls.map(b => {
+                if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) throw new Error('ball');
+                const ball = ppMakeBall(b.id | 0, b.x, b.y);
+                ball.state = b.state === 'pocketed' ? 'pocketed' : 'stationary';
+                ball.pocket = b.pocket | 0;
+                if (Array.isArray(b.q) && b.q.length === 4 && b.q.every(Number.isFinite)) ball.q = b.q.slice();
+                return ball;
+            });
+        } catch (_) { return false; }
+        poolNewFrame(snap.breaker === 2 ? 2 : 1);
+        S.world = world; S.frame = JSON.parse(JSON.stringify(snap.frame));
+        S.clockLeft = Number.isFinite(snap.clockLeft) && snap.clockLeft > 0 ? snap.clockLeft : S.clockTotal || POOL_CLOCK_S;
+        S.fouled = snap.fouled === 1 || snap.fouled === 2 ? snap.fouled : 0;
+        const potsOf = a => (Array.isArray(a) ? a.filter(id => Number.isInteger(id) && id > 0 && id < 16 && id !== 8) : []);
+        S.pots = { 1: potsOf(snap.pots && snap.pots[1]), 2: potsOf(snap.pots && snap.pots[2]) };
+        if (poolCueBall().state === 'pocketed') prPlaceCue(S.world, S.world.table.headX - 80, 0);
+        S.down = new Set(S.world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+        if (S.frame.ballInHand) { S.phase = 'bih'; S.placed = false; } else { S.phase = 'aim'; poolAimAtNearest(); }
+        S.drawKey = '';
+        return true;
+    }
+
+    // The table follows the tournament's settings while one of its matches is on.
+    function poolTourApply() {
+        const S = poolS, set = S.tour.t.settings;
+        S.guideMode = set.guide === 'short' || set.guide === 'off' ? set.guide : 'full';
+        S.callEvery = set.call === 'every';
+        S.clockTotal = set.clock === 45 ? 45 : set.clock === 0 ? 0 : POOL_CLOCK_S;
+    }
+    // Puts a match on the table: from the start, or from its snapshot.
+    function poolTourSeat(m, fromSnapshot) {
+        const S = poolS, T = S.tour;
+        if (poolMode !== 'tour') T.prevMode = poolMode;
+        poolMode = 'tour';
+        T.matchId = m.id; T.t.current = m.id;
+        poolTourApply();
+        S.frames = ptScore(m); S.sheet.open = false; S.spinOpen = false;
+        if (!(fromSnapshot && poolTourRestore(T.t.snapshot, m))) poolNewFrame(poolTourBreakerSeat(m));
+        poolTourSave();
+    }
+    // Back to quick matches (the mode before the tournament, or the one asked for).
+    // The tournament stays saved and can be resumed from the Game mode sheet.
+    function poolLeaveTour(mode) {
+        const S = poolS, T = S.tour;
+        poolTourSnapshot();
+        poolMode = mode === 'pvp' || mode === 'cpu' ? mode : T.prevMode === 'pvp' ? 'pvp' : 'cpu';
+        T.matchId = null; T.pending = 0;
+        S.guideMode = 'full'; S.callEvery = false; S.clockTotal = POOL_CLOCK_S;
+        S.frames = [0, 0];
+        poolNewFrame(1);
+        poolRefreshScoreBtn();
+    }
+    function poolSetMode(mode) {
+        if (poolMode === 'tour') poolLeaveTour(mode);
+        else if (poolMode !== mode) togglePoolMode();
+    }
+    // Resume: the match in progress goes back on the table (the whole-table state from
+    // the last shot) and whoever is on the shot takes the seat; with none, the bracket.
+    function poolTourResume() {
+        const S = poolS, T = S.tour, t = T.t;
+        T.dialog = null; T.screen = null; poolTourBump();
+        const m = t && t.current && ptById(t, t.current);
+        if (!m) { if (t) { T.screen = 'bracket'; T.tab = poolTourTab(); } return; }
+        if (poolTourMatch() === m) return;
+        poolTourSeat(m, true);
+        S.handoff = S.frame.turn;
+    }
+
+    // Called by poolEndFrame: the frame goes into the bracket, and it is saved.
+    function poolTourFrameOver(seat) {
+        const S = poolS, T = S.tour, m = poolTourMatch();
+        if (!m || (seat !== 1 && seat !== 2)) return;
+        const r = ptRecordFrame(T.t, m.id, seat === 1 ? m.a : m.b);
+        T.t = r.t;
+        S.frames = ptScore(ptById(T.t, m.id));
+        if (r.matchOver) {
+            T.t.current = null;
+            if (ptChampion(T.t) !== null) {
+                T.cab = ptCabinetAdd(poolCabinet(), T.t);
+                try { localStorage.setItem(POOL_CAB_KEY, JSON.stringify(T.cab)); } catch (_) {}
+            }
+        }
+        poolTourSave();
+        poolTourBump();
+    }
+    // The frame-over dialog for a frame that leaves the match going; a won match goes
+    // to its result screen instead, once the last ball has dropped.
+    function poolTourResult(text) {
+        const S = poolS, m = poolTourMatch();
+        S.phase = 'over'; S.toast = null;
+        if (!m) return;
+        if (m.status === 'done') { S.result = null; S.tour.pending = POOL_RESULT_MS; return; }
+        S.result = {
+            win: true, title: text.title, reason: text.sub,
+            recordLabel: 'MATCH · RACE TO ' + m.raceTo, record: S.frames[0] + '–' + S.frames[1],
+            delta: '+1 FRAME', note: '',
+        };
+    }
+    function poolTourNextFrame() {
+        const m = poolTourMatch();
+        if (m && m.status !== 'done') poolNewFrame(poolTourBreakerSeat(m));
+    }
+
+    // Setup's draft: four players (the smallest full bracket), you in slot 1.
+    function poolTourSetupFresh() {
+        const names = Array.from({ length: PT_MAX }, () => '');
+        names[0] = poolMe();
+        return poolTourSetupRace({ n: 4, names, name: '', clock: 30, guide: 'full', call: '8', shuffle: false, size: 0, race: [] });
+    }
+    // The race-to columns follow the bracket size; a new size starts from its defaults.
+    function poolTourSetupRace(d) {
+        const size = ptSizeFor(d.n);
+        if (d.size !== size) { d.size = size; d.race = ptRaceColumns(size).map(c => PT_RACE_DEFAULT[size][c.rounds[0]]); }
+        return d;
+    }
+    function poolTourStart() {
+        const T = poolS.tour, d = T.setup, cols = ptRaceColumns(d.size);
+        const race = Array.from({ length: ptRoundsFor(d.size) }, (_, r) => d.race[cols.findIndex(c => c.rounds.indexOf(r) !== -1)]);
+        T.t = ptCreate({ names: d.names.slice(0, d.n), you: 0, name: d.name, settings: { race, clock: d.clock, guide: d.guide, call: d.call, shuffle: d.shuffle } });
+        T.t.current = null;
+        T.setup = null;
+        poolTourSave();
+        T.screen = 'bracket'; T.tab = 0;
+        poolTourBump();
+    }
+
+    // The screens' and dialogs' buttons (pool-tour-ui.js data-pu-act, and edits).
+    const poolTourOn = {
+        edit: (field, value) => {
+            const d = poolS.tour.setup;
+            if (!d) return;
+            const v = String(value === undefined || value === null ? '' : value);
+            if (field === 'tname') d.name = v.slice(0, 24);
+            else if (field.indexOf('name:') === 0) d.names[+field.slice(5)] = v.slice(0, 16);
+            else if (field.indexOf('race:') === 0) d.race[+field.slice(5)] = Math.max(1, Math.min(5, parseInt(v, 10) || 1));
+            // No re-render: the field keeps its caret, and nothing else depends on it.
+        },
+        count: arg => { const d = poolS.tour.setup; if (!d) return; d.n = Math.max(PT_MIN, Math.min(PT_MAX, d.n + (+arg || 0))); poolTourSetupRace(d); poolTourBump(); },
+        set: arg => {
+            const d = poolS.tour.setup, i = String(arg).indexOf(':');
+            if (!d || i < 0) return;
+            const k = String(arg).slice(0, i), v = String(arg).slice(i + 1);
+            if (k === 'clock') d.clock = v === '45' ? 45 : v === '0' ? 0 : 30;
+            else if (k === 'guide') d.guide = v === 'short' || v === 'off' ? v : 'full';
+            else if (k === 'call') d.call = v === 'every' ? 'every' : '8';
+            poolTourBump();
+        },
+        shuffle: () => { const d = poolS.tour.setup; if (d) { d.shuffle = !d.shuffle; poolTourBump(); } },
+        start: () => { if (poolS.tour.setup) poolTourStart(); },
+        tab: arg => { poolS.tour.tab = Math.max(0, +arg || 0); poolTourBump(); },
+        play: () => { const T = poolS.tour, n = T.t && ptNext(T.t); if (!n) return; T.introId = n.id; T.screen = 'intro'; poolTourBump(); },
+        ready: () => {
+            const T = poolS.tour, m = T.t && T.introId && ptById(T.t, T.introId);
+            if (!m || m.status === 'done') return;
+            T.screen = null; poolTourBump();
+            poolTourSeat(m, false);
+        },
+        resume: () => poolTourResume(),
+        resumeTour: () => poolTourResume(),
+        bracket: () => { const T = poolS.tour; if (!T.t) return; T.screen = 'bracket'; T.tab = poolTourTab(); poolTourBump(); },
+        champion: () => { const T = poolS.tour; if (T.t && ptChampion(T.t) !== null) { T.screen = 'champion'; poolTourBump(); } },
+        // Leaving a screen. From the champion the tournament is finished and let go; with
+        // no match in progress, a tournament table goes back to quick matches.
+        close: () => {
+            const T = poolS.tour;
+            if (T.screen === 'champion' || (T.t && ptChampion(T.t) !== null)) T.t = null;
+            T.screen = null; T.setup = null; poolTourBump();
+            if (poolMode === 'tour' && !(T.t && T.t.current)) poolLeaveTour();
+        },
+        new: () => {
+            const T = poolS.tour;
+            T.t = null; poolTourSave();
+            if (poolMode === 'tour') poolLeaveTour();
+            T.setup = poolTourSetupFresh(); T.screen = 'setup'; poolTourBump();
+        },
+        cabinet: () => { const T = poolS.tour; T.cabBack = T.screen; T.screen = 'cabinet'; poolTourBump(); },
+        cabinetBack: () => { const T = poolS.tour; T.screen = T.cabBack || null; T.cabBack = null; poolTourBump(); },
+        unpause: () => { poolS.tour.dialog = null; poolTourBump(); },
+        // Pause → Leave for now: the match is saved as it stands, to be resumed later.
+        leave: () => { const T = poolS.tour; T.dialog = null; poolTourBump(); poolLeaveTour(); },
+        abandon: () => { const T = poolS.tour; T.dlgBack = T.dialog; T.dialog = 'abandon'; poolTourBump(); },
+        keep: () => { const T = poolS.tour; T.dialog = T.dlgBack || null; T.dlgBack = null; poolTourBump(); },
+        abandonYes: () => {
+            const T = poolS.tour;
+            T.t = null; T.dialog = null; T.dlgBack = null; T.screen = null; poolTourSave(); poolTourBump();
+            if (poolMode === 'tour') poolLeaveTour();
+        },
+    };
+
+    // The HUD's tournament header: "CITY OPEN" over "Semi-final · race to 2", FRAME n.
+    function poolTourHead() {
+        const S = poolS, m = poolTourMatch();
+        if (!m) return null;
+        const n = S.phase === 'over' ? m.frames.length : m.frames.length + 1;
+        return { kicker: S.tour.t.name.toUpperCase(), title: ptRoundName(S.tour.t.rounds, m.round) + ' · race to ' + m.raceTo, frame: 'FRAME ' + Math.max(1, n) };
+    }
+    // The Game mode sheet's Tournament tab: resume the saved one, or set one up.
+    function poolTourSheet() {
+        const t = poolS.tour.t;
+        if (!t) return { saved: false };
+        const m = (t.current && ptById(t, t.current)) || ptNext(t);
+        return { saved: true, name: t.name, where: m ? t.slots[m.a].name + ' vs ' + t.slots[m.b].name + ' · ' + ptRoundName(t.rounds, m.round) : '' };
+    }
+    // Renders the screen and dialog over whichever HUD is showing, only when either changed.
+    function poolTourSync() {
+        const S = poolS, T = S.tour, hud = S.hud, max = hud.layout === 'max';
+        const pu = puMount(hud, poolTourOn);
+        const miniW = (hud.miniW && hud.miniW.w === hud.el.clientWidth && hud.miniW.v) || (max ? 440 : Math.max(240, Math.min(388, (hud.el.clientWidth || 368) - 34)));
+        const liveId = T.t && T.t.current;
+        const needsT = T.screen && T.screen !== 'setup' && T.screen !== 'cabinet';
+        const screen = T.screen && !(needsT && !T.t) && !(T.screen === 'setup' && !T.setup) ? T.screen : null;
+        const dialog = T.dialog && T.t ? T.dialog : null;
+        // Max: the full tree takes the HUD's width and what the 64 px header leaves of its height.
+        const maxW = max ? hud.el.clientWidth || 1232 : 0, maxH = max ? Math.max(300, (hud.el.clientHeight || 752) - 80) : 0;
+        const key = { screen: screen ? screen + '|' + T.rev + '|' + miniW + '|' + maxW + 'x' + maxH : '', dialog: dialog ? dialog + '|' + T.rev : '' };
+        if (pu.key.screen === key.screen && pu.key.dialog === key.dialog) return;
+        let html = '';
+        if (screen === 'setup') html = puSetupHTML(T.setup);
+        else if (screen === 'bracket') html = puBracketHTML({ t: T.t, tab: Math.min(T.tab, T.t.rounds - 1), liveId, layout: hud.layout, miniW, maxW, maxH });
+        else if (screen === 'intro') html = puIntroHTML({ t: T.t, matchId: T.introId });
+        else if (screen === 'result') html = puResultHTML({ t: T.t, matchId: T.matchId, miniW });
+        else if (screen === 'champion') html = puChampionHTML({ t: T.t, layout: hud.layout, miniW });
+        else if (screen === 'cabinet') html = puCabinetHTML({ cab: poolCabinet() });
+        puSync(hud, poolTourOn, { screen: html, dialog: dialog ? puDialogHTML(dialog, { t: T.t, liveId }) : '', key });
+        hud.el.classList.toggle('is-pu', !!screen);
+        // The mini tree is laid out for its box's real width (the body's scrollbar takes
+        // some): measured after the render, and drawn again once if it was off.
+        const box = screen && pu.screen.querySelector('.pu-mini:not(.is-big)');
+        if (box && box.clientWidth && Math.abs(box.clientWidth - miniW) > 0.5) { hud.miniW = { w: hud.el.clientWidth, v: box.clientWidth }; pu.key.screen = null; }
     }
 
     // ── Theme ─────────────────────────────────────────────────────────
@@ -16718,6 +17721,9 @@
                 --pool-backdrop-3d: radial-gradient(ellipse 80% 70% at 50% 28%, #251f33 0%, #101315 55%, #06080a 100%);
                 --pool-backdrop-2d: radial-gradient(ellipse 75% 75% at 50% 50%, #1d1a26 0%, #0b0d0f 80%);
                 --pool-backdrop-grid: none;
+                /* The tournament screens: opaque, over the whole panel. */
+                --pool-screen: linear-gradient(180deg, #16151f 0%, #0b0c11 100%);
+                --pool-scheme: dark;
             }
 
             @media (prefers-color-scheme: light) {
@@ -16734,6 +17740,8 @@
                     /* Aurora blue is 2:1 on the light panel; this deeper blue is over 4.5:1. */
                     --pool-accent-ink: #1f6fd1;
                     --pool-hot-ink: #c8243f;
+                    --pool-screen: linear-gradient(180deg, #faf9fd 0%, #f3f2fa 100%);
+                    --pool-scheme: light;
                 }
             }
 
@@ -16780,6 +17788,8 @@
                 --pool-backdrop-grid:
                     linear-gradient(var(--rt-grid) 1px, transparent 1px) 0 0 / 24px 24px,
                     linear-gradient(90deg, var(--rt-grid) 1px, transparent 1px) 0 0 / 24px 24px;
+                --pool-screen: linear-gradient(135deg, var(--rt-bg-1), var(--rt-bg-2));
+                --pool-scheme: dark;
             }
 
             /* ── Components ─────────────────────────────────────────────── */
@@ -16843,7 +17853,10 @@
             .pool-hud .ph-group { display: flex; gap: 4px; }
             .pool-hud .ph-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; transition: opacity 0.25s ease; }
             .pool-hud .ph-dot.is-down { opacity: 0.2; }
-            .pool-hud .ph-open { font-size: 11px; font-weight: 500; color: var(--pool-muted); }
+            .pool-hud .ph-open { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; font-weight: 500; color: var(--pool-muted); white-space: nowrap; }
+            .pool-hud .ph-card[data-seat="2"] .ph-open { flex-direction: row-reverse; }
+            .pool-hud .ph-open-balls { display: flex; gap: 3px; }
+            .pool-hud .ph-open-balls:empty { display: none; }
             .pool-hud .ph-clock {
                 position: absolute; bottom: 0; left: 0; height: 3px; width: 0;
                 background: var(--pool-accent);
@@ -17012,18 +18025,36 @@
             .pool-hud .ph-replace:hover { border-color: rgba(var(--pool-accent-rgb), 0.6); color: var(--pool-accent); }
             .pool-hud .ph-replace:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
 
-            .pool-hud .ph-mini { left: 10px; top: 54px; width: 172px; height: 116px; box-sizing: border-box; padding: 8px; border-radius: var(--pool-radius); pointer-events: auto; }
-            .pool-hud .ph-mini-table { position: absolute; left: 30px; top: 30px; width: 112px; height: 56px; box-sizing: border-box; border-radius: 4px; background: #1d6e55; border: 4px solid #553220; }
+            /* The call card (3D): the hint's corner, holding the hint's line and the pocket map,
+               so calling adds nothing else to the table. Bottom right is the near rail in the
+               chase camera, clear of the shot. Six 24 px targets on a 52 x 26 table. */
+            .pool-hud .ph-mini {
+                right: 10px; bottom: 10px; min-width: 88px; width: max-content; box-sizing: border-box; padding: 5px 6px 6px; border-radius: var(--pool-radius-sm);
+                display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: auto;
+            }
+            .pool-hud .ph-mini-cap { max-width: 100%; font-size: 11px; font-weight: 600; line-height: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-mini.is-call { border-color: rgba(var(--pool-accent-rgb), 0.6); }
+            .pool-hud .ph-mini.is-call .ph-mini-cap, .pool-hud .ph-mini.is-power .ph-mini-cap { color: var(--pool-accent); }
+            .pool-hud .ph-mini.is-hot { border-color: rgba(var(--pool-hot-rgb), 0.6); background: var(--pool-hot-edge) left top / 3px 100% no-repeat, var(--pool-overlay); }
+            .pool-hud .ph-mini.is-hot .ph-mini-cap { color: var(--pool-hot); }
+            .pool-hud .ph-mini-pad { position: relative; width: 76px; height: 50px; }
+            .pool-hud .ph-mini-table { position: absolute; left: 12px; top: 12px; width: 52px; height: 26px; box-sizing: border-box; border-radius: 3px; background: #1d6e55; border: 3px solid #553220; }
             .pool-hud .ph-mini button {
-                position: absolute; width: 44px; height: 44px; padding: 0; border: 0; background: transparent;
+                position: absolute; width: 24px; height: 24px; padding: 0; border: 0; background: transparent;
                 display: flex; align-items: center; justify-content: center; cursor: pointer;
             }
             .pool-hud .ph-mini button span {
-                width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; display: flex; align-items: center; justify-content: center;
                 border: 2px solid rgba(var(--pool-accent-rgb), 0.55); background: var(--pool-overlay);
             }
             .pool-hud .ph-mini button[aria-pressed="true"] span { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.25); }
-            .pool-hud .ph-mini button[aria-pressed="true"] span::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--pool-accent); }
+            .pool-hud .ph-mini button:hover span { border-color: var(--pool-accent); }
+            /* While the card holds the corner: the gauge and its padlock step up over it, and
+               Move cue ball goes bottom left, over the spin control (the lean slider is hidden). */
+            .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-gauge { bottom: 98px; height: min(140px, calc(100% - 248px)); }
+            .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-lock { bottom: calc(102px + min(140px, calc(100% - 248px))); }
+            .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-replace { right: auto; left: 10px; bottom: 62px; }
+            .pool-hud .ph-mini button[aria-pressed="true"] span::after { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--pool-accent); }
 
             /* Frame-over dialog */
             .pool-hud .ph-scrim { inset: 0; background: rgba(7, 9, 10, 0.62); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; pointer-events: auto; }
@@ -17140,7 +18171,8 @@
             .pool-hud[data-layout="max"] .ph-spinpop-chips .ph-btn { height: 26px; padding: 0 14px; font-size: 12px; }
             .pool-hud[data-layout="max"] .ph-replace { right: 16px; bottom: 58px; height: 32px; padding: 0 13px; border-radius: 16px; font-size: 12px; }
             .pool-hud[data-layout="max"] .ph-hint { right: 16px; bottom: 16px; height: 34px; padding: 0 14px; border-radius: 17px; font-size: 13px; }
-            .pool-hud[data-layout="max"] .ph-mini { left: 16px; top: 68px; }
+            .pool-hud[data-layout="max"] .ph-mini { right: 16px; bottom: 16px; transform: scale(1.3); transform-origin: right bottom; }
+            .pool-hud[data-layout="max"] .ph-view.is-calling .ph-replace { right: auto; left: 16px; bottom: 100px; }
             .pool-hud[data-layout="max"] .ph-handoff { width: 520px; align-self: center; }
 
             /* ── The Max view's surface ─────────────────────────────────── */
@@ -17276,6 +18308,384 @@
             @container pool-hud (max-width: 359px) {
                 .pool-hud .ph-sheet { padding: 12px; gap: 10px; }
                 .pool-hud .ph-sheet-diff { gap: 10px; padding: 0 10px; }
+            }
+
+            /* ── Tournament: the in-match header, footer and the sheet's tab ─ */
+            .pool-hud .ph-sheet-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .pool-hud .ph-tourhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; }
+            .pool-hud .ph-tourhead-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+            .pool-hud .ph-tourhead-k { font-size: 10px; letter-spacing: 0.14em; color: var(--pool-accent-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-tourhead-n { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-tourhead-f {
+                display: flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 12px; flex-shrink: 0; white-space: nowrap;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.35); color: var(--pool-accent-ink); font-size: 10px;
+            }
+            .pool-hud[data-layout="max"] .ph-tourhead { justify-content: flex-start; gap: 14px; }
+            .pool-hud[data-layout="max"] .ph-tourhead-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; }
+            .pool-hud[data-layout="max"] .ph-tourhead-f { height: 30px; padding: 0 14px; border-radius: 15px; font-size: 11px; }
+            .pool-hud .ph-primary.is-two { height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+            .pool-hud .ph-primary-sub { font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.85; }
+            .pool-hud .ph-sheet-links { display: flex; gap: 8px; }
+            .pool-hud .ph-sheet-links .ph-btn {
+                flex: 1 1 0; height: 40px; display: flex; align-items: center; justify-content: center; gap: 6px;
+                color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); font-size: 12px;
+            }
+            .pool-hud .ph-sheet-links .ph-btn.is-hot { color: var(--pool-hot); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+
+            /* ── Tournament screens (pool-tour-ui.js) ───────────────────── */
+            /* Each screen covers the whole panel, opaque; its body scrolls and its
+               primary button stays pinned at the bottom. Dialogs sit on the table
+               in the frame-over dialog's dark glass. */
+            .pool-hud .pu-screen {
+                position: absolute; inset: 0; z-index: 12; overflow: hidden; border-radius: var(--pool-radius);
+                background: var(--pool-screen); color: var(--pool-text); color-scheme: var(--pool-scheme);
+                border: 1px solid var(--pool-card-line); box-sizing: border-box;
+            }
+            .pool-hud .pu-screen-in { position: relative; height: 100%; box-sizing: border-box; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+            .pool-hud .pu-head { display: flex; align-items: center; gap: 10px; min-height: 44px; flex-shrink: 0; }
+            .pool-hud .pu-head-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex-grow: 1; }
+            .pool-hud .pu-kicker {
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); text-transform: var(--pool-label-case);
+                font-size: 10px; letter-spacing: 0.14em; color: var(--pool-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .pool-hud .pu-kicker.is-accent { color: var(--pool-accent-ink); }
+            .pool-hud .pu-kicker.is-wide { letter-spacing: 0.2em; }
+            .pool-hud .pu-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 18px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-title.is-big { font-size: 26px; }
+            .pool-hud .pu-title:empty { display: none; }
+            .pool-hud .pu-pill {
+                display: flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 12px; flex-shrink: 0; white-space: nowrap;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.35); color: var(--pool-accent-ink);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.12em;
+            }
+            .pool-hud .pu-body {
+                flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 14px;
+                margin: 0 -6px; padding: 2px 6px; scrollbar-width: thin; scrollbar-color: var(--pool-faint) transparent; overscroll-behavior: contain;
+            }
+            .pool-hud .pu-body.is-center { justify-content: center; align-items: stretch; text-align: center; gap: 20px; }
+            .pool-hud .pu-note { font-size: 11px; color: var(--pool-muted); }
+            .pool-hud .pu-note.is-center { text-align: center; }
+            .pool-hud .pu-strong { font-size: 13px; font-weight: 600; }
+            .pool-hud .pu-group { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+
+            .pool-hud .pu-primary {
+                flex-shrink: 0; width: 100%; height: 48px; border: 0; border-radius: var(--pool-radius-sm); cursor: pointer;
+                display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; box-sizing: border-box;
+                background: var(--pool-primary); color: var(--pool-primary-text);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); text-transform: var(--pool-label-case);
+                font-size: 14px; letter-spacing: 0.08em; transition: filter 0.15s ease, transform 0.1s ease;
+            }
+            .pool-hud .pu-primary:hover { filter: brightness(1.07); }
+            .pool-hud .pu-primary:active, .pool-hud .pu-btn:active, .pool-hud .pu-iconbtn:active { transform: translateY(1px); }
+            .pool-hud .pu-primary.is-two { height: 56px; flex-direction: column; gap: 2px; }
+            .pool-hud .pu-primary-sub {
+                font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.85;
+                max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .pool-hud .pu-primary.is-inline { width: auto; height: 44px; }
+            .pool-hud .pu-primary.is-hot { background: var(--pool-hot); color: #ffffff; }
+            .pool-hud .pu-btn, .pool-hud .pu-iconbtn {
+                height: 44px; border: 1px solid var(--pool-control-line); border-radius: var(--pool-radius-sm); cursor: pointer;
+                background: var(--pool-control); color: var(--pool-text); font-size: 13px; font-weight: 600;
+                display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; box-sizing: border-box;
+                transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+            }
+            .pool-hud .pu-iconbtn { width: 44px; padding: 0; flex-shrink: 0; }
+            .pool-hud .pu-btn:hover, .pool-hud .pu-iconbtn:hover { background: var(--pool-hover); color: var(--pool-hover-text); }
+            .pool-hud .pu-btn.is-hot { color: var(--pool-hot-ink); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+            .pool-hud .pu-screen button:focus-visible, .pool-hud .pu-scrim button:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
+            .pool-hud .pu-screen button:disabled { opacity: 0.35; cursor: default; }
+
+            /* Setup */
+            .pool-hud .pu-field { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+            .pool-hud .pu-seg-l { font-size: 11px; font-weight: 600; color: var(--pool-muted); }
+            .pool-hud .pu-input {
+                width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; border-radius: var(--pool-radius-sm);
+                border: 1px solid var(--pool-control-line); background: var(--pool-control); color: var(--pool-text);
+                font: inherit; font-size: 13px; outline: none;
+            }
+            .pool-hud .pu-input::placeholder { color: var(--pool-faint); }
+            .pool-hud .pu-input:focus { border-color: var(--pool-accent); box-shadow: 0 0 0 3px rgba(var(--pool-accent-rgb), 0.2); }
+            .pool-hud .pu-input.is-you { padding-right: 64px; }
+            .pool-hud .pu-count { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+            .pool-hud .pu-count-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            .pool-hud .pu-stepper { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+            .pool-hud .pu-stepper button {
+                width: 36px; height: 36px; padding: 0; display: flex; align-items: center; justify-content: center; cursor: pointer;
+                border: 1px solid var(--pool-control-line); border-radius: var(--pool-radius-sm); background: var(--pool-control); color: var(--pool-text);
+            }
+            .pool-hud .pu-stepper button:hover:not(:disabled) { background: var(--pool-hover); color: var(--pool-hover-text); }
+            .pool-hud .pu-count-n { width: 32px; text-align: center; font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 700; }
+            .pool-hud .pu-players {
+                display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
+            }
+            .pool-hud .pu-player { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 8px; }
+            .pool-hud .pu-seedl { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--pool-faint); }
+            .pool-hud .pu-player-in { position: relative; }
+            .pool-hud .pu-you {
+                position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 4px;
+                height: 20px; padding: 0 7px; border-radius: 10px; border: 1px solid rgba(var(--pool-accent-rgb), 0.4); color: var(--pool-accent-ink);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.12em; pointer-events: none;
+            }
+            .pool-hud .pu-races { display: grid; gap: 8px; }
+            .pool-hud .pu-race { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--pool-muted); }
+            .pool-hud .pu-race select {
+                height: 36px; padding: 0 8px; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-control-line);
+                background: var(--pool-control); color: var(--pool-text); font: inherit; font-size: 13px; cursor: pointer;
+            }
+            .pool-hud .pu-race select:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
+            .pool-hud .pu-seg-row { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+            .pool-hud .pu-seg { display: grid; gap: 2px; padding: 3px; border-radius: 11px; background: var(--pool-control); border: 1px solid var(--pool-control-line); }
+            .pool-hud .pu-seg button {
+                height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--pool-muted);
+                font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+            }
+            .pool-hud .pu-seg button:hover { color: var(--pool-text); }
+            .pool-hud .pu-seg button[aria-checked="true"] { background: var(--pool-primary); color: var(--pool-primary-text); }
+            .pool-hud .pu-switch { width: 44px; height: 26px; padding: 0; border: 0; background: transparent; cursor: pointer; flex-shrink: 0; }
+            .pool-hud .pu-switch > span {
+                position: relative; display: block; width: 44px; height: 26px; box-sizing: border-box; border-radius: 13px;
+                background: var(--pool-track); border: 1px solid var(--pool-control-line); transition: background 0.15s ease;
+            }
+            .pool-hud .pu-switch > span > span {
+                position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%;
+                background: var(--pool-text); transition: transform 0.15s ease;
+            }
+            .pool-hud .pu-switch[aria-checked="true"] > span { background: var(--pool-accent); border-color: var(--pool-accent); }
+            .pool-hud .pu-switch[aria-checked="true"] > span > span { transform: translateX(18px); background: #ffffff; }
+
+            /* Bracket: round tabs and match cards */
+            .pool-hud .pu-tabs { display: grid; gap: 2px; padding: 3px; border-radius: 11px; background: var(--pool-control); border: 1px solid var(--pool-control-line); flex-shrink: 0; }
+            .pool-hud .pu-tabs button {
+                height: 32px; min-width: 0; padding: 0 4px; border: 1px solid transparent; border-radius: 8px; background: transparent;
+                color: var(--pool-muted); font-size: 11px; font-weight: 600; cursor: pointer;
+                display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; overflow: hidden;
+            }
+            .pool-hud .pu-tabs button svg { color: var(--pool-accent-ink); flex-shrink: 0; }
+            .pool-hud .pu-tabs button[aria-selected="true"] { background: var(--pool-card); border-color: rgba(var(--pool-accent-rgb), 0.5); color: var(--pool-text); }
+            .pool-hud .pu-match {
+                display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-card); border: 1px solid var(--pool-card-line); flex-shrink: 0;
+            }
+            .pool-hud .pu-match.is-live { border-color: var(--pool-accent); box-shadow: var(--pool-glow); }
+            .pool-hud .pu-match.is-next { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .pu-match-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+            .pool-hud .pu-mrow { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 13px; }
+            .pool-hud .pu-mseed { font-family: var(--pool-num); font-size: 11px; color: var(--pool-faint); }
+            .pool-hud .pu-mname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-mscore { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; }
+            .pool-hud .pu-mrow.is-win .pu-mname { font-weight: 600; }
+            .pool-hud .pu-mrow.is-lose { color: var(--pool-muted); }
+            .pool-hud .pu-mrow.is-tbd { color: var(--pool-faint); font-style: italic; }
+            .pool-hud .pu-chip {
+                display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; box-sizing: border-box;
+                border: 1px solid var(--pool-control-line); color: var(--pool-muted); background: var(--pool-screen);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 8px; letter-spacing: 0.12em; font-style: normal;
+            }
+            .pool-hud .pu-chip.is-live { border-color: var(--pool-accent); color: var(--pool-accent-ink); }
+            .pool-hud .pu-chip.is-next { border-color: rgba(var(--pool-accent-rgb), 0.5); color: var(--pool-accent-ink); }
+            .pool-hud .pu-chip.is-bye { color: var(--pool-faint); }
+
+            /* The tree (the design's geometry, laid out by puTree) */
+            .pool-hud .pu-mini { overflow: hidden; flex-shrink: 0; }
+            .pool-hud .pu-tree { position: relative; flex-shrink: 0; }
+            .pool-hud .pu-tree > svg { position: absolute; left: 0; top: 0; overflow: visible; }
+            .pool-hud .pu-tr-line { fill: none; stroke: var(--pool-card-line); }
+            .pool-hud .pu-tr-hi { fill: none; stroke: var(--pool-accent); }
+            .pool-hud .pu-tr-head {
+                position: absolute; top: 0; height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.14em; color: var(--pool-muted);
+            }
+            .pool-hud .pu-tr-card {
+                position: absolute; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; padding: 0 8px;
+                border-radius: 8px; border: 1px solid var(--pool-card-line); background: var(--pool-screen);
+            }
+            .pool-hud .pu-tr-card::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--pool-card); pointer-events: none; }
+            .pool-hud .pu-tr-card.is-path { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .pu-tr-card.is-live { border-color: var(--pool-accent); box-shadow: var(--pool-glow); }
+            .pool-hud .pu-tr-card.is-next { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .pu-tr-card .pu-chip { position: absolute; right: 6px; top: -8px; }
+            .pool-hud .pu-tr-row { position: relative; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 6px; font-size: 12px; min-height: 0; flex: 1 1 0; }
+            .pool-hud .pu-tr-seed { font-family: var(--pool-num); font-size: 10px; color: var(--pool-faint); }
+            .pool-hud .pu-tr-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-tr-score { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; }
+            .pool-hud .pu-tr-row.is-win .pu-tr-name { font-weight: 600; }
+            .pool-hud .pu-tr-row.is-lose { color: var(--pool-muted); }
+            .pool-hud .pu-tr-row.is-tbd { color: var(--pool-faint); font-style: italic; }
+            .pool-hud .pu-tree.is-mini .pu-tr-card { padding: 0 5px; border-radius: 6px; }
+            .pool-hud .pu-tree.is-mini .pu-tr-row { grid-template-columns: minmax(0, 1fr) auto; gap: 4px; font-size: 9.5px; }
+            .pool-hud .pu-tr-champ {
+                position: absolute; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+                padding: 0 8px; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-card-line); background: var(--pool-card); color: var(--pool-muted);
+            }
+            .pool-hud .pu-tr-champ.is-won { border-color: var(--pool-accent); color: var(--pool-accent-ink); box-shadow: var(--pool-glow); }
+            .pool-hud .pu-tr-champ-l { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.14em; }
+            .pool-hud .pu-tr-champ-n { max-width: 100%; font-size: 13px; font-weight: 600; color: var(--pool-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-tree.is-mini .pu-tr-champ { gap: 2px; padding: 0 4px; border-radius: 6px; }
+            .pool-hud .pu-tree.is-mini .pu-tr-champ svg { width: 12px; height: 12px; }
+            .pool-hud .pu-tree.is-mini .pu-tr-champ-n { font-size: 9.5px; }
+
+            /* Match intro */
+            .pool-hud .pu-round { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+            .pool-hud .pu-round-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 22px; letter-spacing: 0.06em; }
+            .pool-hud .pu-round-r { font-size: 12px; color: var(--pool-muted); }
+            .pool-hud .pu-vs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; }
+            .pool-hud .pu-vs-side { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+            .pool-hud .pu-vs-name { max-width: 100%; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-vs-x { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 13px; letter-spacing: 0.14em; color: var(--pool-faint); }
+            .pool-hud .pu-avatar {
+                width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+                background: var(--pool-control); border: 1px solid var(--pool-control-line); color: var(--pool-muted);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px;
+            }
+            .pool-hud .pu-avatar.is-lead { background: var(--pool-primary); color: var(--pool-primary-text); border-color: transparent; }
+            .pool-hud .pu-avatar.is-small { width: 28px; height: 28px; font-size: 12px; }
+            .pool-hud .pu-breaks {
+                display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-card); border: 1px solid var(--pool-card-line); font-size: 12px; text-align: left;
+            }
+            .pool-hud .pu-breaks svg { flex-shrink: 0; }
+            .pool-hud .pu-foot { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+
+            /* Match result */
+            .pool-hud .pu-won {
+                display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: var(--pool-radius);
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.45); background: rgba(var(--pool-accent-rgb), 0.08); flex-shrink: 0;
+            }
+            .pool-hud .pu-won-top { display: flex; align-items: center; gap: 12px; }
+            .pool-hud .pu-won-top .pu-avatar { width: 44px; height: 44px; font-size: 17px; }
+            .pool-hud .pu-won-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex-grow: 1; }
+            .pool-hud .pu-won-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-won-s { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 28px; font-weight: 700; flex-shrink: 0; }
+            .pool-hud .pu-frames { display: grid; gap: 6px; }
+            .pool-hud .pu-frame {
+                display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 8px 10px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-control); border: 1px solid var(--pool-control-line); font-size: 12px;
+            }
+            .pool-hud .pu-frame > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-frame.is-win { border-color: rgba(var(--pool-accent-rgb), 0.45); }
+            .pool-hud .pu-out {
+                display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-card); border: 1px solid var(--pool-card-line); flex-shrink: 0;
+            }
+            .pool-hud .pu-out-t { flex-grow: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-out .pu-note { flex-shrink: 0; }
+
+            /* Champion: a quiet rise, the run, the final bracket */
+            .pool-hud .pu-champ-x { position: absolute; right: 12px; top: 12px; z-index: 1; }
+            .pool-hud .pu-hero { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 44px 4px; text-align: center; flex-shrink: 0; animation: pu-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+            .pool-hud .pu-hero-cup { display: flex; padding: 10px; border-radius: 50%; color: var(--pool-accent-ink); background: radial-gradient(circle, rgba(var(--pool-accent-rgb), 0.2) 0%, rgba(var(--pool-accent-rgb), 0) 70%); }
+            .pool-hud .pu-hero .pu-note { text-wrap: balance; }
+            .pool-hud .pu-hero-n { max-width: 100%; font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 28px; line-height: 1.15; overflow-wrap: anywhere; }
+            @keyframes pu-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+            @media (prefers-reduced-motion: reduce) { .pool-hud .pu-hero { animation: none; } }
+            .pool-hud .pu-runs { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+            .pool-hud .pu-run {
+                display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px;
+                border-radius: var(--pool-radius-sm); background: var(--pool-card); border: 1px solid var(--pool-card-line);
+            }
+            .pool-hud .pu-run.is-final { border-color: rgba(var(--pool-accent-rgb), 0.45); }
+            .pool-hud .pu-run-t { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-run-t.is-muted { color: var(--pool-muted); }
+            .pool-hud .pu-run-s { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; }
+            .pool-hud .pu-champ-acts { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+
+            /* Trophy cabinet */
+            .pool-hud .pu-cab { display: flex; flex-direction: column; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-card-line); overflow: hidden; flex-shrink: 0; }
+            .pool-hud .pu-cab-row {
+                display: grid; grid-template-columns: minmax(0, 1fr) 34px 34px 34px 46px; align-items: center; gap: 2px;
+                min-height: 40px; padding: 0 12px; border-top: 1px solid var(--pool-card-line); font-size: 13px;
+            }
+            .pool-hud .pu-cab-row.is-head {
+                min-height: 32px; border-top: 0; background: var(--pool-control); color: var(--pool-muted);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.12em;
+            }
+            .pool-hud .pu-cab-row.is-head > span:not(:first-child) { text-align: center; }
+            .pool-hud .pu-cab-row .is-accent { color: var(--pool-accent-ink); }
+            .pool-hud .pu-cab-name { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-crown { width: 16px; flex-shrink: 0; display: flex; color: var(--pool-accent-ink); }
+            .pool-hud .pu-cab-c { text-align: center; font-family: var(--pool-num); font-variant-numeric: tabular-nums; }
+            .pool-hud .pu-cab-c.is-zero { color: var(--pool-faint); }
+            .pool-hud .pu-cab-t { text-align: center; font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; color: var(--pool-accent-ink); }
+            .pool-hud .pu-empty { padding: 18px 14px; font-size: 12px; color: var(--pool-muted); text-align: center; border-top: 1px solid var(--pool-card-line); }
+            .pool-hud .pu-recents { display: flex; flex-direction: column; gap: 6px; }
+            .pool-hud .pu-recent {
+                display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px;
+                border-radius: var(--pool-radius-sm); background: var(--pool-card); border: 1px solid var(--pool-card-line);
+            }
+            .pool-hud .pu-recent-s {
+                width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+                background: var(--pool-control); font-family: var(--pool-num); font-weight: 700; font-size: 12px;
+            }
+            .pool-hud .pu-recent-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+            .pool-hud .pu-recent-t > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-recent-c { display: flex; align-items: center; gap: 5px; max-width: 120px; font-size: 12px; font-weight: 600; color: var(--pool-accent-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-recent-c svg { flex-shrink: 0; }
+
+            /* Resume, abandon and pause: on the table, like the frame-over dialog */
+            .pool-hud .pu-scrim {
+                position: absolute; inset: 0; z-index: 13; border-radius: var(--pool-radius); display: flex; align-items: center; justify-content: center;
+                background: rgba(7, 9, 10, 0.62); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+            }
+            .pool-hud .pu-dlg {
+                width: min(320px, calc(100% - 32px)); box-sizing: border-box; padding: 20px; border-radius: var(--pool-radius);
+                background: var(--pool-overlay-strong); border: 1px solid rgba(var(--pool-accent-rgb), 0.45); color: var(--pool-overlay-text);
+                box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55); display: flex; flex-direction: column; gap: 14px;
+            }
+            .pool-hud .pu-dlg.is-hot { border-color: rgba(var(--pool-hot-rgb), 0.5); background: var(--pool-hot-edge) left top / 4px 100% no-repeat, var(--pool-overlay-strong); }
+            .pool-hud .pu-dlg-icon { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.14); color: var(--pool-accent); }
+            .pool-hud .pu-dlg.is-hot .pu-dlg-icon { background: rgba(var(--pool-hot-rgb), 0.16); color: var(--pool-hot); }
+            .pool-hud .pu-dlg-t { display: flex; flex-direction: column; gap: 4px; }
+            .pool-hud .pu-dlg-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; line-height: 1.2; overflow-wrap: anywhere; }
+            .pool-hud .pu-dlg .pu-kicker, .pool-hud .pu-dlg .pu-note { color: var(--pool-overlay-muted); }
+            .pool-hud .pu-dlg .pu-note { font-size: 12px; }
+            .pool-hud .pu-dlg-score {
+                display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px 12px;
+                border-radius: var(--pool-radius-sm); background: rgba(255, 255, 255, 0.06); font-size: 13px; font-weight: 600;
+            }
+            .pool-hud .pu-dlg-score > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-dlg-score > span:last-child { text-align: right; }
+            .pool-hud .pu-dlg-n { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 700; }
+            .pool-hud .pu-dlg-acts { display: flex; flex-direction: column; gap: 8px; }
+            .pool-hud .pu-dlg .pu-btn { color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
+            .pool-hud .pu-dlg .pu-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--pool-overlay-text); }
+            .pool-hud .pu-dlg .pu-btn.is-hot { color: var(--pool-hot); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+
+            /* Max: the bracket and champion have their own full layouts; the rest
+               keep the compact column, centred. */
+            .pool-hud[data-layout="max"] .pu-screen { border-radius: 18px; border: 0; }
+            .pool-hud[data-layout="max"] .pu-screen-in:not(.is-max) { width: 456px; margin: 0 auto; padding: 24px 8px; }
+            .pool-hud[data-layout="max"] .pu-screen-in.is-max { padding: 0; gap: 16px; }
+            .pool-hud .pu-maxhead { height: 64px; display: flex; align-items: center; gap: 28px; flex-shrink: 0; padding: 0 20px; }
+            .pool-hud .pu-maxhead .pu-head-t { flex-grow: 0; min-width: 240px; }
+            .pool-hud .pu-legend { display: flex; align-items: center; gap: 18px; font-size: 12px; color: var(--pool-muted); flex-grow: 1; min-width: 0; overflow: hidden; }
+            .pool-hud .pu-legend > span { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+            .pool-hud .pu-legend-line { display: inline-block; width: 20px; height: 2px; border-radius: 1px; background: var(--pool-accent); }
+            .pool-hud .pu-maxacts { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+            .pool-hud .pu-maxacts .pu-primary { max-width: 440px; }
+            .pool-hud .pu-maxtree { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+            .pool-hud[data-layout="max"] .pu-screen-in.is-max.is-champ { padding: 32px 40px; }
+            .pool-hud .pu-champ-grid { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 40px; align-items: center; height: 100%; }
+            .pool-hud .pu-champ-l { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+            .pool-hud .pu-champ-r { display: flex; align-items: center; justify-content: center; min-width: 0; }
+            .pool-hud .pu-mini.is-big { overflow: visible; }
+            .pool-hud[data-layout="max"] .pu-hero-n { font-size: 40px; }
+            .pool-hud[data-layout="max"] .pu-dlg { width: 380px; }
+
+            /* Cyberpunk: the corner cut on buttons, the glow on text, as the HUD */
+            .retro-theme .pool-hud .pu-primary, .retro-theme .pool-hud .pu-btn, .retro-theme .pool-hud .pu-iconbtn,
+            .retro-theme .pool-hud .pu-stepper button {
+                clip-path: polygon(7px 0, 100% 0, 100% 100%, 0 100%, 0 7px);
+            }
+            .retro-theme .pool-hud .pu-btn, .retro-theme .pool-hud .pu-iconbtn { border-color: var(--rt-border-strong); text-shadow: var(--rt-glow-soft); }
+            .retro-theme .pool-hud .pu-screen { border-color: var(--rt-border); }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .pu-screen-in { padding: 12px; gap: 10px; }
+                .pool-hud .pu-title { font-size: 16px; }
+                .pool-hud .pu-run { grid-template-columns: 76px minmax(0, 1fr) auto; gap: 8px; padding: 8px 10px; }
+                .pool-hud .pu-cab-row { grid-template-columns: minmax(0, 1fr) 28px 28px 28px 40px; padding: 0 10px; }
+                .pool-hud .pu-tabs button { font-size: 10px; }
+                .pool-hud .ph-sheet-mode { font-size: 11px; }
             }
             /* ═══ END POOL THEME ═══ */
 

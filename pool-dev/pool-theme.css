@@ -35,6 +35,9 @@
                 --pool-primary-text: #ffffff;
                 --pool-accent: var(--aurora-4);
                 --pool-accent-rgb: 79, 172, 254;
+                /* The accent as text on the panel (tags, the Max trophy); overlays on the felt keep --pool-accent. */
+                --pool-accent-ink: var(--pool-accent);
+                --pool-hot-ink: var(--pool-hot);
                 --pool-felt-accent: var(--aurora-3);
                 --pool-hot: #ff5d73;
                 --pool-hot-rgb: 255, 93, 115;
@@ -71,6 +74,9 @@
                     --pool-muted: rgba(0, 0, 0, 0.60);
                     --pool-faint: rgba(0, 0, 0, 0.40);
                     --pool-glow: 0 0 20px rgba(var(--pool-accent-rgb), 0.18);
+                    /* Aurora blue is 2:1 on the light panel; this deeper blue is over 4.5:1. */
+                    --pool-accent-ink: #1f6fd1;
+                    --pool-hot-ink: #c8243f;
                 }
             }
 
@@ -90,6 +96,8 @@
                 --pool-primary-text: var(--rt-bg-1);
                 --pool-accent: var(--rt-accent);
                 --pool-accent-rgb: var(--rt-accent-rgb);
+                --pool-accent-ink: var(--rt-accent);
+                --pool-hot-ink: var(--pool-hot);
                 --pool-felt-accent: var(--rt-accent);
                 --pool-hot: #ff4d6d;
                 --pool-hot-rgb: 255, 77, 109;
@@ -118,13 +126,22 @@
             }
 
             /* ── Components ─────────────────────────────────────────────── */
+            /* The design is 368 wide, but the widget's side panel is 350 on screens up
+               to 1400 px (316 for the HUD) and full width below 1200. So the compact HUD
+               is fluid: the viewport keeps 368:412, the overlays that run down it are
+               anchored to its height (they land on the design's pixels at 368), and
+               below 360 px wide the camera toggle drops its "AUTO" suffix. It stops
+               growing at 420 px so a stacked layout does not get a table taller than
+               the screen. */
             .pool-hud {
                 display: flex;
                 flex-direction: column;
                 gap: 12px;
                 color: var(--pool-text);
                 font-family: var(--pool-body);
+                container: pool-hud / inline-size;
             }
+            .pool-hud[data-layout="compact"] { max-width: 420px; margin: 0 auto; }
             .pool-hud button { font: inherit; color: inherit; }
             .pool-hud .ph-label {
                 font-family: var(--pool-display);
@@ -161,8 +178,8 @@
             .pool-hud .ph-card-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; }
             .pool-hud .ph-card[data-seat="2"] .ph-card-top { flex-direction: row-reverse; }
             .pool-hud .ph-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-            .pool-hud .ph-tag { font-size: 9px; color: var(--pool-accent); white-space: nowrap; flex-shrink: 0; text-transform: none; letter-spacing: 0.06em; }
-            .pool-hud .ph-tag.is-hot { color: var(--pool-hot); }
+            .pool-hud .ph-tag { font-size: 9px; color: var(--pool-accent-ink); white-space: nowrap; flex-shrink: 0; text-transform: none; letter-spacing: 0.06em; }
+            .pool-hud .ph-tag.is-hot { color: var(--pool-hot-ink); }
             .pool-hud .ph-tag.is-pulse { animation: ph-pulse 1s ease-in-out infinite; }
             @keyframes ph-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
             .pool-hud .ph-rec { font-size: 11px; color: var(--pool-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
@@ -235,7 +252,7 @@
             .pool-hud .ph-toast-sub { font-size: 12px; }
 
             .pool-hud .ph-lean {
-                left: 10px; top: 60px; width: 40px; height: 288px; box-sizing: border-box; padding: 10px 0;
+                left: 10px; top: 60px; width: 40px; height: min(288px, calc(100% - 124px)); box-sizing: border-box; padding: 10px 0;
                 display: flex; flex-direction: column; align-items: center; gap: 6px; border-radius: 20px; pointer-events: auto;
             }
             .pool-hud .ph-lean-l { font-size: 9px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); }
@@ -251,8 +268,9 @@
                 cursor: ns-resize; writing-mode: vertical-lr; direction: rtl;
             }
 
+            /* Anchored above Move cue ball and the hint: at 412 tall this is the design's 190–330. */
             .pool-hud .ph-gauge {
-                right: 12px; top: 190px; width: 8px; height: 140px; border-radius: 4px; overflow: hidden;
+                right: 12px; bottom: 82px; width: 8px; height: min(140px, calc(100% - 232px)); border-radius: 4px; overflow: hidden;
                 background: var(--pool-overlay); border: 1px solid var(--pool-overlay-line); opacity: 0.45;
                 transition: opacity 0.15s ease;
             }
@@ -260,7 +278,7 @@
             .pool-hud .ph-gauge.is-locked { opacity: 0.3; }
             .pool-hud .ph-gauge-fill { position: absolute; left: 0; bottom: 0; width: 100%; height: 0; background: var(--pool-accent); box-shadow: 0 0 10px var(--pool-accent); }
             .pool-hud .ph-gauge.is-hot .ph-gauge-fill { background: var(--pool-hot); box-shadow: 0 0 10px var(--pool-hot); }
-            .pool-hud .ph-lock { right: 6px; top: 168px; width: 20px; height: 18px; display: flex; align-items: center; justify-content: center; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-lock { right: 6px; bottom: calc(86px + min(140px, calc(100% - 232px))); width: 20px; height: 18px; display: flex; align-items: center; justify-content: center; color: var(--pool-overlay-muted); }
 
             .pool-hud .ph-spin {
                 left: 10px; bottom: 10px; display: flex; align-items: center; gap: 8px; height: 44px;
@@ -277,7 +295,41 @@
             .pool-hud .ph-spin-dot { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #d2352b; box-shadow: 0 0 0 2px rgba(210, 53, 43, 0.25); transition: left 0.15s ease, top 0.15s ease; }
             .pool-hud .ph-spin-text { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
             .pool-hud .ph-spin-l { font-size: 9px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); }
-            .pool-hud .ph-spin-v { font-size: 12px; font-weight: 600; }
+            .pool-hud .ph-spin-v { font-size: 12px; font-weight: 600; white-space: nowrap; }
+            .pool-hud .ph-spin.is-open { border-color: rgba(var(--pool-accent-rgb), 0.6); }
+            /* The dot can be dragged on the small ball itself. */
+            .pool-hud .ph-spin-ball { cursor: grab; touch-action: none; }
+            .pool-hud .ph-spin-ball:active { cursor: grabbing; }
+
+            /* The spin picker: a big ball face above the control, the miscue ring
+               (0.6 R) drawn on it, and the presets beside it. */
+            .pool-hud .ph-spinpop {
+                left: 10px; bottom: 62px; z-index: 3; box-sizing: border-box; padding: 10px;
+                display: flex; flex-direction: column; gap: 8px; border-radius: var(--pool-radius);
+                background: var(--pool-overlay-strong); pointer-events: auto;
+                box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+            }
+            .pool-hud .ph-spinpop-read { font-size: 11px; font-weight: 600; color: var(--pool-overlay-text); white-space: nowrap; }
+            .pool-hud .ph-spinpop-body { display: flex; gap: 10px; align-items: center; }
+            .pool-hud .ph-spinpop-ball {
+                position: relative; width: 112px; height: 112px; border-radius: 50%; flex-shrink: 0;
+                background: radial-gradient(circle at 35% 30%, #ffffff 0%, #ede7da 45%, #bdb6a6 100%);
+                box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 6px 14px rgba(0, 0, 0, 0.35);
+                cursor: crosshair; touch-action: none; outline: none;
+            }
+            .pool-hud .ph-spinpop-ball::before, .pool-hud .ph-spinpop-ball::after { content: ''; position: absolute; left: 50%; top: 50%; background: rgba(20, 25, 27, 0.18); }
+            .pool-hud .ph-spinpop-ball::before { width: 1px; height: 80%; transform: translate(-50%, -50%); }
+            .pool-hud .ph-spinpop-ball::after { width: 80%; height: 1px; transform: translate(-50%, -50%); }
+            .pool-hud .ph-spinpop-ball:focus-visible { box-shadow: 0 0 0 3px rgba(var(--pool-accent-rgb), 0.55), 0 6px 14px rgba(0, 0, 0, 0.35); }
+            .pool-hud .ph-spinpop-ring {
+                position: absolute; left: 20%; top: 20%; width: 60%; height: 60%; box-sizing: border-box;
+                border-radius: 50%; border: 1px dashed rgba(20, 25, 27, 0.35); pointer-events: none;
+            }
+            .pool-hud .ph-spinpop-ball .ph-spin-dot { width: 14px; height: 14px; margin: -7px 0 0 -7px; box-shadow: 0 0 0 3px rgba(210, 53, 43, 0.25); transition: none; pointer-events: none; }
+            .pool-hud .ph-spinpop-chips { display: flex; flex-direction: column; gap: 4px; }
+            .pool-hud .ph-spinpop-chips .ph-btn { height: 20px; padding: 0 10px; font-size: 10px; color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
+            .pool-hud .ph-spinpop-chips .ph-btn[aria-pressed="true"] { border-color: var(--pool-accent); color: var(--pool-accent); }
+            .pool-hud .ph-spinpop-chips .ph-btn:hover { background: var(--pool-hover); color: var(--pool-hover-text); }
 
             .pool-hud .ph-hint {
                 right: 10px; bottom: 10px; display: flex; align-items: center; height: 28px; padding: 0 10px;
@@ -363,8 +415,8 @@
             }
             .pool-hud .ph-handoff-icon { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.14); color: var(--pool-accent); }
             .pool-hud .ph-handoff-text { display: flex; flex-direction: column; gap: 1px; flex-grow: 1; min-width: 0; }
-            .pool-hud .ph-handoff-to { font-size: 13px; font-weight: 600; }
-            .pool-hud .ph-handoff-from { font-size: 11px; color: var(--pool-muted); }
+            .pool-hud .ph-handoff-to { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-handoff-from { font-size: 11px; color: var(--pool-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .pool-hud .ph-handoff .ph-primary { height: 44px; padding: 0 14px; font-size: 13px; letter-spacing: 0.06em; white-space: nowrap; }
 
             /* Cyberpunk shape: buttons get the .snake-btn corner cut; panels keep
@@ -406,7 +458,7 @@
             .pool-hud[data-layout="max"] .ph-actions .ph-btn.is-icon { padding: 0; width: 44px; }
             .pool-hud[data-layout="max"] .ph-trophy {
                 display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 18px;
-                background: var(--pool-card); border: 1px solid rgba(var(--pool-accent-rgb), 0.28); color: var(--pool-accent); font-size: 16px; font-weight: 700;
+                background: var(--pool-card); border: 1px solid rgba(var(--pool-accent-rgb), 0.28); color: var(--pool-accent-ink); font-size: 16px; font-weight: 700;
             }
             .pool-hud[data-layout="max"] .ph-view { aspect-ratio: 1232 / 672; border-radius: 18px; flex: 1 1 auto; }
             .pool-hud[data-layout="max"] .ph-cam { left: 16px; top: 16px; gap: 3px; padding: 4px; border-radius: 13px; }
@@ -416,14 +468,93 @@
             .pool-hud[data-layout="max"] .ph-lean { left: 16px; top: 150px; width: 48px; height: 360px; border-radius: 24px; }
             .pool-hud[data-layout="max"] .ph-lean-l { font-size: 10px; }
             .pool-hud[data-layout="max"] .ph-lean-v { font-size: 13px; }
-            .pool-hud[data-layout="max"] .ph-gauge { right: 20px; top: 226px; width: 10px; height: 220px; border-radius: 5px; }
-            .pool-hud[data-layout="max"] .ph-lock { right: 15px; top: 202px; }
+            .pool-hud[data-layout="max"] .ph-gauge { right: 20px; top: 226px; bottom: auto; width: 10px; height: 220px; border-radius: 5px; }
+            .pool-hud[data-layout="max"] .ph-lock { right: 15px; top: 202px; bottom: auto; }
             .pool-hud[data-layout="max"] .ph-spin { left: 16px; bottom: 16px; height: 72px; padding: 0 18px 0 6px; gap: 12px; border-radius: 36px; }
             .pool-hud[data-layout="max"] .ph-spin-ball { width: 60px; height: 60px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 6px 14px rgba(0, 0, 0, 0.35); }
             .pool-hud[data-layout="max"] .ph-spin-dot { width: 12px; height: 12px; margin: -6px 0 0 -6px; box-shadow: 0 0 0 3px rgba(210, 53, 43, 0.25); }
             .pool-hud[data-layout="max"] .ph-spin-l { font-size: 10px; }
             .pool-hud[data-layout="max"] .ph-spin-v { font-size: 16px; }
+            .pool-hud[data-layout="max"] .ph-spinpop { left: 16px; bottom: 100px; padding: 14px; gap: 10px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-read { font-size: 13px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-ball { width: 160px; height: 160px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-ball .ph-spin-dot { width: 18px; height: 18px; margin: -9px 0 0 -9px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-chips { gap: 6px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-chips .ph-btn { height: 26px; padding: 0 14px; font-size: 12px; }
             .pool-hud[data-layout="max"] .ph-replace { right: 16px; bottom: 58px; height: 32px; padding: 0 13px; border-radius: 16px; font-size: 12px; }
             .pool-hud[data-layout="max"] .ph-hint { right: 16px; bottom: 16px; height: 34px; padding: 0 14px; border-radius: 17px; font-size: 13px; }
             .pool-hud[data-layout="max"] .ph-mini { left: 16px; top: 68px; }
             .pool-hud[data-layout="max"] .ph-handoff { width: 520px; align-self: center; }
+
+            /* ── The Max view's surface ─────────────────────────────────── */
+            /* toggleGameMaxModal builds the overlay and panel (cfg.build); pool
+               empties the panel and draws its own 1280 x 800 frame, scaled to fit
+               the window by poolFitMax(). The frame is body-level, so it carries
+               copies of the widget's theme classes for Cyberpunk to resolve. */
+            .pool-modal-panel.pool-max-panel {
+                position: relative;
+                width: auto;
+                padding: 0;
+                overflow: visible;
+                background: none;
+                border: 0;
+                border-radius: 0;
+                box-shadow: none;
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+            }
+            .pool-max-frame {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 1280px;
+                height: 800px;
+                box-sizing: border-box;
+                padding: 24px;
+                border-radius: 20px;
+                transform-origin: 0 0;
+                overflow: hidden;
+                background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(118, 75, 162, 0.30) 0%, rgba(12, 13, 20, 0.98) 72%), #0b0c12;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+            }
+            @media (prefers-color-scheme: light) {
+                .pool-max-frame {
+                    background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(118, 75, 162, 0.14) 0%, rgba(247, 246, 253, 0.98) 72%), #f5f4fb;
+                    border-color: rgba(0, 0, 0, 0.08);
+                    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.25);
+                }
+            }
+            .pool-max-frame.retro-theme {
+                border-radius: var(--rt-radius);
+                background: var(--rt-brackets), linear-gradient(135deg, var(--rt-bg-1), var(--rt-bg-2));
+                border-color: var(--rt-border);
+                box-shadow: var(--rt-glow-soft);
+            }
+
+            /* ── The widget's narrow column (316 px on screens up to 1400) ── */
+            @container pool-hud (max-width: 359px) {
+                /* More room for a name beside its tag: a slimmer frames column, tighter padding. */
+                .pool-hud .ph-cards { grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr); gap: 6px; }
+                .pool-hud .ph-card { padding: 10px 9px; }
+                .pool-hud .ph-card-top { gap: 4px; }
+                /* The hand-off strip: the READY button gives the "Pass to" text its room. */
+                .pool-hud .ph-handoff { gap: 8px; padding-left: 8px; }
+                .pool-hud .ph-handoff-icon { width: 28px; height: 28px; }
+                .pool-hud .ph-handoff .ph-primary { padding: 0 10px; font-size: 11px; letter-spacing: 0.03em; }
+                .pool-hud .ph-cam-more { display: none; }
+                .pool-hud .ph-cam button { padding: 0 8px; }
+                .pool-hud .ph-pill { padding: 0 9px; }
+            }
+            /* phRender marks a card is-tight when its name would be cut off beside the tag. */
+            .pool-hud .ph-tag-short { display: none; }
+            .pool-hud .ph-card.is-tight .ph-tag-long { display: none; }
+            .pool-hud .ph-card.is-tight .ph-tag-short { display: inline; }
+            .pool-hud .ph-spin-side-s { display: none; }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .ph-spin-side { display: none; }
+                .pool-hud .ph-spin-side-s { display: inline; }
+            }
+            .pool-hud .ph-ready-short { display: none; }
+            .pool-hud .ph-handoff.is-tight .ph-ready-long { display: none; }
+            .pool-hud .ph-handoff.is-tight .ph-ready-short { display: inline; }

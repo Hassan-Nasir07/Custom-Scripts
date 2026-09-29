@@ -26,11 +26,43 @@
         { label: 'Left', x: -0.45, y: 0 },
         { label: 'Right', x: 0.45, y: 0 },
     ];
+    // The cue tip can strike anywhere inside the miscue ring, 0.6 R from the
+    // centre (PP_DEFAULTS.maxTip); the presets are quick picks inside it.
+    const PH_TIP_MAX = 0.6;
+    const PH_TIP_DEAD = 0.05;        // closer to the centre than this reads as Center
+    function phClampTip(x, y) {
+        x = Number(x) || 0; y = Number(y) || 0;
+        const m = Math.hypot(x, y);
+        return m > PH_TIP_MAX ? { x: x * PH_TIP_MAX / m, y: y * PH_TIP_MAX / m } : { x, y };
+    }
+    // "Follow · Right" for the button; the popover's readout adds how much.
+    function phSpinLabel(t) {
+        const v = t.y > PH_TIP_DEAD ? 'Follow' : t.y < -PH_TIP_DEAD ? 'Draw' : '';
+        const h = t.x > PH_TIP_DEAD ? 'Right' : t.x < -PH_TIP_DEAD ? 'Left' : '';
+        return [v, h].filter(Boolean).join(' · ') || 'Center';
+    }
+    function phSpinReadout(t) {
+        const pct = a => Math.round(Math.abs(a) / PH_TIP_MAX * 100) + '%';
+        const parts = [];
+        if (Math.abs(t.y) > PH_TIP_DEAD) parts.push((t.y > 0 ? 'Follow ' : 'Draw ') + pct(t.y));
+        if (Math.abs(t.x) > PH_TIP_DEAD) parts.push((t.x > 0 ? 'Right ' : 'Left ') + pct(t.x));
+        return parts.join(' · ') || 'Center ball';
+    }
     const PH_CLOCK_HOT = 5;          // seconds left when the clock goes hot
     const PH_POWER_HOT = 85;         // % at which the gauge goes hot
     const PH_BIH_NOTE = { overlap: 'Overlaps a ball', kitchen: 'Behind the head string only', outside: 'Keep it on the felt' };
 
     const phWins = (name) => (name === 'You' ? 'You win' : name + ' wins');
+
+    // The Max avatar: YOU for you, the first letter of two words (Player 1 → P1,
+    // Ayesha Khan → AK), or the first two letters of one (Bilal → BI).
+    function phInitials(name, seat) {
+        const n = String(name || '').trim();
+        if (n === 'You') return 'YOU';
+        const words = n.split(/\s+/).map(w => w.replace(/[^A-Za-z0-9]/g, '')).filter(Boolean);
+        const s = words.length > 1 ? words[0][0] + words[1][0] : (words[0] || '').slice(0, 2);
+        return s.toUpperCase() || 'P' + seat;
+    }
 
     // ── View model ────────────────────────────────────────────────────
     // game = {
@@ -39,12 +71,17 @@
     //   frame,                       the rules state (pool-rules.js)
     //   world,                       the physics world, for the trackers
     //   phase: 'aim' | 'strike' | 'moving' | 'bih' | 'over',
-    //   camera: '3d' | '2d', lean, power, dragging, spin (index), called,
+    //   camera: '3d' | '2d', lean, power, dragging, called,
+    //   tip: { x, y },               the cue tip in R (follow is +y, right is +x); or
+    //   spin (index into PH_SPINS),  a preset, when there is no tip
+    //   spinOpen,                    the big spin picker is open
     //   clock: { left, total } | null,
     //   toast: prText(…) | null, fouled: seat | 0,
     //   handoff: seat | 0,           "Pass to …" while seats swap
     //   bih: { valid, reason, placed, sx, sy, sr } | null,
     //   canReplace,                  the shooter placed the cue ball and may pick it up again
+    //   cpuTurn,                     the CPU is at the table: its own hint, no human controls
+    //   secondaryLabel,              the frame-over dialog's second button, when the default does not apply
     //   result: { win, title, reason, recordLabel, record, delta, note } | null,
     // }
     function phModel(g) {
@@ -74,9 +111,11 @@
             return {
                 seat, name: g.names[seat], rec: g.records[seat] || '',
                 active, hot, tag, tagHot: g.fouled === seat || hot, tagPulse: hot,
+                // The short form, for when the name would not fit beside the long one.
+                tagShort: { 'BALL IN HAND': 'IN HAND', 'TO BREAK': 'BREAK', 'TO SHOOT': 'SHOOT' }[tag] || '',
                 clock: clockLeft !== null && g.clock.total > 0 ? Math.max(0, Math.min(100, clockLeft / g.clock.total * 100)) : 0,
                 open: !group, group: ids.map(id => ({ id, down: !onTable.has(id) })),
-                initials: (g.names[seat] || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || 'P' + seat,
+                initials: phInitials(g.names[seat], seat),
                 cpu: g.mode === 'cpu' && seat === 2,
             };
         });
@@ -98,6 +137,8 @@
             if (g.bih && g.bih.placed) hint = { text: 'Placed · aim when ready', tone: '' };
             else if (g.bih && g.bih.valid === false) hint = { text: 'Release on open felt', tone: 'hot' };
             else hint = { text: g.frame.ballInHand === 'kitchen' ? 'Place behind the head string' : 'Drag the cue ball to place it', tone: '' };
+        } else if (aiming && g.cpuTurn) {
+            hint = { text: (g.names[g.frame.turn] || 'CPU') + ' is lining up', tone: '' };
         } else if (aiming) {
             const pw = Math.round(g.power || 0);
             if (g.dragging) hint = { text: 'Release to shoot · ' + pw + '%', tone: pw >= PH_POWER_HOT ? 'hot' : 'power' };
@@ -106,7 +147,9 @@
             else hint = { text: 'Press and drag for power', tone: '' };
         }
 
-        const spin = PH_SPINS[((g.spin || 0) % PH_SPINS.length + PH_SPINS.length) % PH_SPINS.length];
+        // The tip: anywhere in the miscue ring (g.tip), or a preset by index (g.spin).
+        const spin = g.tip ? phClampTip(g.tip.x, g.tip.y)
+            : PH_SPINS[((g.spin || 0) % PH_SPINS.length + PH_SPINS.length) % PH_SPINS.length];
         const lean = Math.max(0, Math.min(100, Math.round(g.lean || 0)));
         const is3d = g.camera === '3d' && !bih;
         const note = bih && g.bih && g.bih.valid === false && g.bih.sx !== undefined
@@ -133,16 +176,21 @@
             gauge: {
                 show: aiming,
                 power: Math.max(0, Math.min(100, g.power || 0)),
-                live: !!g.dragging, hot: (g.power || 0) >= PH_POWER_HOT, locked: callNeeded,
+                live: !!g.dragging || (!!g.cpuTurn && (g.power || 0) > 0), hot: (g.power || 0) >= PH_POWER_HOT, locked: callNeeded,
             },
-            spin: { show: !bih && !over && !toast && !moving, label: spin.label, x: spin.x, y: spin.y },
+            spin: {
+                show: !bih && !over && !toast && !moving, label: phSpinLabel(spin), readout: phSpinReadout(spin), x: spin.x, y: spin.y,
+                // The big picker: only while you are the one aiming.
+                open: !!g.spinOpen && aiming && !g.cpuTurn && !g.handoff && !toast && !g.dragging,
+                preset: PH_SPINS.findIndex(p => Math.abs(p.x - spin.x) < 1e-6 && Math.abs(p.y - spin.y) < 1e-6),
+            },
             hint: { show: !!hint && !over && !toast, text: hint ? hint.text : '', tone: hint ? hint.tone : '' },
             bihNote: note ? { show: true, text: note.text, x: note.x, y: note.y } : { show: false },
             // Back to placing: only before the shot, and never mid-stroke.
             replace: { show: !!g.canReplace && g.phase === 'aim' && !g.dragging && !g.handoff && !over },
             mini: { show: aiming && st.callRequired && is3d, called: g.called >= 0 ? g.called : -1 },
             dialog: over && g.result ? Object.assign({ show: true, kicker: 'FRAME OVER · ' + (g.frames ? g.frames[0] + '–' + g.frames[1] : ''),
-                primary: 'NEW FRAME', secondary: g.mode === 'cpu' ? 'Change difficulty' : 'Change mode' }, g.result) : { show: false },
+                primary: 'NEW FRAME', secondary: g.secondaryLabel || (g.mode === 'cpu' ? 'Change difficulty' : 'Change mode') }, g.result) : { show: false },
             foot: { show: !g.handoff, modeLabel: g.mode === 'cpu' ? 'Vs CPU' : g.mode === 'tour' ? 'Tournament' : '2 Players' },
             handoff: g.handoff ? {
                 show: true, to: 'Pass to ' + g.names[g.handoff],
@@ -201,8 +249,15 @@
             '<span class="ph-lean-chev">' + PH_ICON.down + '</span></div>' +
             '<div class="ph-gauge" data-ph="gauge" aria-hidden="true"><div class="ph-gauge-fill" data-ph="gaugef"></div></div>' +
             '<div class="ph-lock" data-ph="lock" hidden>' + PH_ICON.lock + '</div>' +
-            '<button type="button" class="ph-spin ph-glass" data-ph="spin"><span class="ph-spin-ball"><span class="ph-spin-dot" data-ph="spind"></span></span>' +
+            '<button type="button" class="ph-spin ph-glass" data-ph="spin" aria-haspopup="dialog" aria-expanded="false"><span class="ph-spin-ball" data-ph="spinball"><span class="ph-spin-dot" data-ph="spind"></span></span>' +
             '<span class="ph-spin-text"><span class="ph-spin-l ph-label">SPIN</span><span class="ph-spin-v" data-ph="spinv"></span></span></button>' +
+            // The big picker: drag the dot anywhere inside the miscue ring, or take a preset.
+            '<div class="ph-spinpop ph-glass" data-ph="spinpop" role="dialog" aria-label="Cue ball spin" hidden>' +
+            '<div class="ph-spinpop-read ph-num" data-ph="spinr"></div>' +
+            '<div class="ph-spinpop-body"><div class="ph-spinpop-ball" data-ph="spinbig" tabindex="0" role="group" aria-label="Where the cue strikes the ball. Press or drag to set it; arrow keys move it, Enter confirms">' +
+            '<span class="ph-spinpop-ring"></span><span class="ph-spin-dot" data-ph="spinbigd"></span></div>' +
+            '<div class="ph-spinpop-chips">' + PH_SPINS.map((p, i) => '<button type="button" class="ph-btn" data-ph-tip="' + i + '" aria-pressed="false">' + p.label + '</button>').join('') + '</div></div>' +
+            '</div>' +
             '<div class="ph-hint ph-glass" data-ph="hint"><span data-ph="hintt"></span></div>' +
             '<div class="ph-bihnote ph-label" data-ph="bihnote" hidden></div>' +
             '<button type="button" class="ph-replace ph-glass" data-ph="replace" hidden>' + PH_ICON.hand + '<span>Move cue ball</span></button>' +
@@ -225,7 +280,8 @@
             '<button type="button" class="ph-primary ph-label" data-ph="ready"></button></div>';
     }
 
-    // on = { camera(mode), lean(value), spin(), mode(), reset(), max(), call(i), ready(), replace(), primary(), secondary() }
+    // on = { camera(mode), lean(value), tip({x, y}), tipStep({x, y}), spinToggle(), spinClose(),
+    //        mode(), reset(), max(), call(i), ready(), replace(), primary(), secondary() }
     function phBuild(root, opts) {
         const o = opts || {}, max = o.layout === 'max', on = o.on || {};
         const cards = phCardHTML(1, max) + '<div class="ph-frames"><span class="ph-frames-n" data-ph="frames">0–0</span><span class="ph-frames-l ph-label">FRAMES</span></div>' + phCardHTML(2, max);
@@ -255,7 +311,8 @@
         const ref = n => q('[data-ph="' + n + '"]');
         const hud = { el, layout: max ? 'max' : 'compact', last: {}, theme: null };
         ['view', 'canvas', 'frames', 'trophies', 'cam', 'cam2d', 'cam3d', 'cam2dl', 'cam3dl', 'pill', 'pillt', 'toast', 'toasti', 'toastt', 'toasts',
-            'lean', 'leanv', 'leanf', 'leant', 'leani', 'gauge', 'gaugef', 'lock', 'spin', 'spind', 'spinv', 'hint', 'hintt', 'bihnote', 'replace',
+            'lean', 'leanv', 'leanf', 'leant', 'leani', 'gauge', 'gaugef', 'lock', 'spin', 'spind', 'spinv', 'spinball', 'spinpop', 'spinr', 'spinbig', 'spinbigd',
+            'hint', 'hintt', 'bihnote', 'replace',
             'mini', 'scrim', 'dialog', 'dlgi', 'dlgk', 'dlgt', 'dlgr', 'dlgrec', 'dlgrl', 'dlgrv', 'dlgd', 'dlgn', 'dlgnt', 'dlgp', 'dlgs',
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
@@ -270,7 +327,58 @@
         hud.cam2d.addEventListener('click', () => fire('camera', '2d'));
         hud.cam3d.addEventListener('click', () => fire('camera', '3d'));
         hud.leani.addEventListener('input', e => fire('lean', +e.target.value));
-        hud.spin.addEventListener('click', () => fire('spin'));
+        // Spin. Dragging the dot on the small ball moves the tip there; a click on
+        // the control (no drag) opens the big picker, where a press puts the dot
+        // under the pointer at once. Both map the pointer onto the ball face (its
+        // radius is R) and clamp it to the miscue ring.
+        const tipAt = (el, e) => {
+            const b = el.getBoundingClientRect(), r = b.width / 2 || 1;
+            return phClampTip((e.clientX - b.left - r) / r, -(e.clientY - b.top - r) / r);
+        };
+        let spinDrag = null, spinDragged = false;
+        const spinDown = (el, immediate) => e => {
+            if (e.button) return;
+            spinDrag = { el, x: e.clientX, y: e.clientY, moved: immediate };
+            try { el.setPointerCapture(e.pointerId); } catch (_) {}
+            if (immediate) fire('tip', tipAt(el, e));
+            e.preventDefault();
+        };
+        const spinMove = e => {
+            if (!spinDrag || e.currentTarget !== spinDrag.el) return;
+            if (!spinDrag.moved && Math.hypot(e.clientX - spinDrag.x, e.clientY - spinDrag.y) < 3) return;
+            spinDrag.moved = true;
+            fire('tip', tipAt(spinDrag.el, e));
+        };
+        const spinUp = e => {
+            if (!spinDrag || e.currentTarget !== spinDrag.el) return;
+            // A drag on the small ball is not also a click that opens the picker.
+            spinDragged = spinDrag.moved && spinDrag.el === hud.spinball;
+            // Letting go on the big ball is the choice: it confirms and closes.
+            const big = spinDrag.el === hud.spinbig && e.type === 'pointerup';
+            spinDrag = null;
+            if (big) fire('spinClose');
+        };
+        [[hud.spinball, false], [hud.spinbig, true]].forEach(([el, now]) => {
+            el.addEventListener('pointerdown', spinDown(el, now));
+            el.addEventListener('pointermove', spinMove);
+            el.addEventListener('pointerup', spinUp);
+            el.addEventListener('pointercancel', spinUp);
+        });
+        hud.spin.addEventListener('click', () => { if (spinDragged) { spinDragged = false; return; } fire('spinToggle'); });
+        hud.spinbig.addEventListener('keydown', e => {
+            // Arrows nudge the tip; Enter (or Space) confirms, Esc closes: both keep the tip.
+            if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') { fire('spinClose'); hud.spin.focus(); e.preventDefault(); e.stopPropagation(); return; }
+            const d = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
+            if (!d) return;
+            e.preventDefault(); e.stopPropagation();
+            fire('tipStep', { x: d[0] * 0.05, y: d[1] * 0.05 });
+        });
+        hud.tipButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-tip]'));
+        hud.tipButtons.forEach(b => b.addEventListener('click', () => {
+            const p = PH_SPINS[+b.getAttribute('data-ph-tip')];
+            fire('tip', { x: p.x, y: p.y });
+            fire('spinClose');
+        }));
         hud.mode.addEventListener('click', () => fire('mode'));
         hud.reset.addEventListener('click', () => fire('reset'));
         hud.max.addEventListener('click', () => fire('max'));
@@ -306,9 +414,22 @@
             s(k + 'name', c.name, v => { r.name.textContent = v; });
             s(k + 'rec', c.rec, v => { r.rec.textContent = v; });
             if (r.tag) {
-                s(k + 'tag', c.tag, v => { r.tag.textContent = v; });
+                s(k + 'tag', c.tag + '|' + c.tagShort, () => {
+                    r.tag.textContent = '';
+                    if (!c.tagShort) { r.tag.textContent = c.tag; return; }
+                    const long = document.createElement('span'), short = document.createElement('span');
+                    long.className = 'ph-tag-long'; long.textContent = c.tag;
+                    short.className = 'ph-tag-short'; short.textContent = c.tagShort;
+                    r.tag.append(long, short);
+                });
                 s(k + 'tagHot', c.tagHot, v => r.tag.classList.toggle('is-hot', v));
                 s(k + 'tagPulse', c.tagPulse, v => r.tag.classList.toggle('is-pulse', v));
+                // When the name would be cut off beside the tag, the tag goes short
+                // (TO SHOOT → SHOOT). Measured only when the name, tag or width changes.
+                s(k + 'fit', c.name + '|' + c.tag + '|' + hud.el.clientWidth, () => {
+                    r.el.classList.remove('is-tight');
+                    if (c.tagShort && r.name.scrollWidth > r.name.clientWidth + 1) r.el.classList.add('is-tight');
+                });
             }
             if (r.avatar) s(k + 'avatar', c.cpu ? '' : c.initials, v => { r.avatar.innerHTML = c.cpu ? PH_ICON.chip : ''; if (!c.cpu) r.avatar.textContent = v; });
             s(k + 'active', c.active, v => r.el.classList.toggle('is-active', v));
@@ -331,7 +452,12 @@
             hud.cam2d.setAttribute('aria-pressed', v ? 'false' : 'true');
             hud.view.classList.toggle('is-2d', !v);
         });
-        s('cam.l2', vm.cam.label2d, v => { hud.cam2dl.textContent = v; });
+        // "2D · AUTO": the suffix is its own span, so a narrow panel can drop it.
+        s('cam.l2', vm.cam.label2d, v => {
+            const i = v.indexOf(' · ');
+            hud.cam2dl.textContent = i === -1 ? v : v.slice(0, i);
+            if (i !== -1) { const more = document.createElement('span'); more.className = 'ph-cam-more'; more.textContent = v.slice(i); hud.cam2dl.appendChild(more); }
+        });
         s('cam.l3', vm.cam.label3d, v => { hud.cam3dl.textContent = v; });
         s('pill.show', vm.pill.show, v => phShow(hud.pill, v));
         s('pill.text', vm.pill.text, v => { hud.pillt.textContent = v; });
@@ -359,12 +485,24 @@
 
         s('spin.show', vm.spin.show, v => phShow(hud.spin, v));
         s('spin.label', vm.spin.label, v => {
-            hud.spinv.textContent = v;
-            hud.spin.setAttribute('aria-label', 'Cue ball spin: ' + v + '. Change spin');
-            // The dot sits where the tip strikes: follow is above centre.
-            hud.spind.style.left = (50 + vm.spin.x * 55) + '%';
-            hud.spind.style.top = (50 - vm.spin.y * 55) + '%';
+            // "Follow · Right"; the narrow column shows "Follow R" (the dot shows the rest).
+            const i = v.indexOf(' · ');
+            hud.spinv.textContent = i === -1 ? v : v.slice(0, i);
+            if (i !== -1) {
+                const side = v.slice(i + 3), long = document.createElement('span'), short = document.createElement('span');
+                long.className = 'ph-spin-side'; long.textContent = ' · ' + side;
+                short.className = 'ph-spin-side-s'; short.textContent = ' ' + side[0];
+                hud.spinv.append(long, short);
+            }
+            hud.spin.setAttribute('aria-label', 'Cue ball spin: ' + vm.spin.readout + '. Drag the dot, or open the spin picker');
         });
+        // The dot sits where the tip strikes, on a face whose radius is R: follow is above centre.
+        s('spin.pos', vm.spin.x.toFixed(4) + ',' + vm.spin.y.toFixed(4), () => {
+            [hud.spind, hud.spinbigd].forEach(d => { d.style.left = (50 + vm.spin.x * 50) + '%'; d.style.top = (50 - vm.spin.y * 50) + '%'; });
+        });
+        s('spin.open', vm.spin.open, v => { phShow(hud.spinpop, v); hud.spin.setAttribute('aria-expanded', v ? 'true' : 'false'); hud.spin.classList.toggle('is-open', v); });
+        s('spin.read', vm.spin.readout, v => { hud.spinr.textContent = v; });
+        s('spin.preset', vm.spin.preset, v => hud.tipButtons.forEach((b, i) => b.setAttribute('aria-pressed', i === v ? 'true' : 'false')));
 
         s('hint.show', vm.hint.show, v => phShow(hud.hint, v));
         s('hint.text', vm.hint.text, v => { hud.hintt.textContent = v; });
@@ -403,7 +541,19 @@
         if (vm.handoff.show) {
             s('ho.to', vm.handoff.to, v => { hud.hot.textContent = v; });
             s('ho.from', vm.handoff.from, v => { hud.hof.textContent = v; });
-            s('ho.ready', vm.handoff.ready, v => { hud.ready.textContent = v; });
+            s('ho.ready', vm.handoff.ready, v => {
+                hud.ready.textContent = '';
+                const long = document.createElement('span'), short = document.createElement('span');
+                long.className = 'ph-ready-long'; long.textContent = v;
+                short.className = 'ph-ready-short'; short.textContent = 'READY';
+                hud.ready.append(long, short);
+            });
+            // "Pass to <name>" beside "<NAME>'S READY": when the name would be cut off,
+            // the button says READY alone (the line beside it already names the player).
+            s('ho.fit', vm.handoff.to + '|' + vm.handoff.ready + '|' + hud.el.clientWidth, () => {
+                hud.handoff.classList.remove('is-tight');
+                if (hud.hot.scrollWidth > hud.hot.clientWidth + 1 || hud.hof.scrollWidth > hud.hof.clientWidth + 1) hud.handoff.classList.add('is-tight');
+            });
         }
         s('cursor', vm.cursor, v => {
             hud.canvas.classList.toggle('is-dragging', v === 'dragging');

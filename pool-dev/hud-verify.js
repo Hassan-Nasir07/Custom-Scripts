@@ -124,9 +124,22 @@ const vm = o => P.phModel(game(o));
     const mx = vm({ layout: 'max', names: { 1: 'You', 2: 'CPU' } });
     ok('Max: "2D TOP-DOWN" / "3D AIM", pill "Your shot · Solids"', mx.cam.label2d === '2D TOP-DOWN' && mx.cam.label3d === '3D AIM' && mx.pill.text === 'Your shot · Solids', mx.pill.text);
     ok('Max: someone else\'s shot reads "Bilal\'s shot · Stripes"', vm({ layout: 'max', mode: 'pvp', frame: { turn: 2 } }).pill.text === "Bilal's shot · Stripes");
-    ok('Max: initials for the avatar, the CPU gets its chip', mx.cards[0].initials === 'YO' && mx.cards[1].cpu);
+    ok('Max: YOU on your avatar, the CPU gets its chip', mx.cards[0].initials === 'YOU' && mx.cards[1].cpu);
+    ok('initials: two words give two letters, one word its first two', P.phInitials('Player 1', 1) === 'P1' && P.phInitials('Ayesha Khan', 1) === 'AK' && P.phInitials('Bilal', 2) === 'BI' && P.phInitials('', 2) === 'P2');
     ok('spin presets cycle through all five', [0, 1, 2, 3, 4, 5].map(i => vm({ spin: i }).spin.label).join() === 'Center,Follow,Draw,Left,Right,Center');
     ok('spin presets sit inside the miscue circle', P.PH_SPINS.every(s => Math.hypot(s.x, s.y) <= P.ppCreateWorld().cfg.maxTip));
+    // Free spin: any tip inside the ring, clamped to it, named by where it is.
+    ok('the picker\'s limit is the physics\' miscue radius', P.PH_TIP_MAX === P.ppCreateWorld().cfg.maxTip);
+    const far = P.phClampTip(3, 4);
+    ok('a tip dragged past the ring stops on it, in the same direction', Math.abs(Math.hypot(far.x, far.y) - 0.6) < 1e-12 && Math.abs(far.y / far.x - 4 / 3) < 1e-12);
+    ok('a tip inside the ring is kept exactly', P.phClampTip(0.1, -0.2).x === 0.1 && P.phClampTip(0.1, -0.2).y === -0.2);
+    const ft = vm({ tip: { x: 0.12, y: 0.3 } });
+    ok('any tip: the button names it, the readout says how much', ft.spin.label === 'Follow · Right' && ft.spin.readout === 'Follow 50% · Right 20%' && ft.spin.x === 0.12, ft.spin.readout);
+    ok('near the middle reads Center', vm({ tip: { x: 0.03, y: -0.02 } }).spin.label === 'Center' && vm({ tip: { x: 0, y: 0 } }).spin.readout === 'Center ball');
+    ok('a free tip that matches a preset lights that chip', vm({ tip: { x: 0, y: -0.55 } }).spin.preset === 2 && vm({ tip: { x: 0.1, y: 0.1 } }).spin.preset === -1);
+    ok('the picker opens only while you aim',
+       vm({ spinOpen: true }).spin.open && !vm({ spinOpen: true, cpuTurn: true }).spin.open && !vm({ spinOpen: true, phase: 'moving' }).spin.open &&
+       !vm({ spinOpen: true, dragging: true, power: 20 }).spin.open && !vm({ spinOpen: true, handoff: 2 }).spin.open);
 }
 
 // ── 2. The theme contract ─────────────────────────────────────────────

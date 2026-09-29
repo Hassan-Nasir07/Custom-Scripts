@@ -1,63 +1,113 @@
 # pool-dev
 
 The 8-Ball Pool engine, kept outside `AttendanceTimeCheckerPlus.js` so it can be read,
-diffed and tested on its own. The userscript carries a **verbatim copy** of
-`pool-core.js` + `pool-ui.js`; `pool-verify.js` asserts the two are byte-identical.
+diffed and tested on its own. Since Phase 5 the userscript runs **v2**: it carries a
+verbatim copy of the seven modules below (the *engine* block) and of `pool-theme.css`
+(the *theme* block), and `pool-verify.js` asserts both are byte-identical.
 
 **Edit the files here, never the copy in the userscript.** Editing the copy is how they
 drift, and the drift is silent until the next reinsert refuses to run.
 
-Work is tracked in [`POOL_V2_PLAN.md`](../POOL_V2_PLAN.md). As of Phase 0 these files
-hold the *current* engine, moved unchanged. Phase 1 onwards replaces it.
+Work is tracked in [`POOL_V2_PLAN.md`](../POOL_V2_PLAN.md).
 
 ```
-node pool-dev/reinsert.js                 # splice pool-dev/ into the userscript
-node pool-dev/reinsert.js --check         # exit 1 if the userscript copy differs
-node pool-dev/pool-verify.js              # the pool suite
+node pool-dev/reinsert.js                 # splice both blocks into the userscript
+node pool-dev/reinsert.js --check         # exit 1 if either copy differs
+node pool-dev/pool-verify.js              # the splice, the host wiring, the match headless, the stand-in CPU
+node pool-dev/host-run.js [dir]           # the REAL userscript in Chrome: boot, play, Max, themes, awards
+node pool-dev/host-run.js --open          # the same fake portal in a visible Chrome, to play by hand
 node pool-dev/physics-verify.js 2000      # the v2 physics, with a 2000-shot fuzz
 node pool-dev/rules-verify.js 300         # the v2 rules, with 300 whole frames
 node pool-dev/render-verify.js            # the v2 camera and renderer
 node pool-dev/hud-verify.js               # the v2 HUD view model and theme contract
-node pool-dev/snapshot.js [dir] [scene]   # real-Chrome PNGs of the v2 panel, every scene by default
+node pool-dev/snapshot.js [dir] [scene]   # real-Chrome PNGs of the prototype, every scene by default
 node pool-dev/snapshot.js --check [dir]   # …plus an in-browser layout and theme audit per scene
-start pool-dev/pool-table.html            # play the v2 table: renderer, camera, physics, rules
-node ludo-dev/verify-all.js               # every suite, pool included
-node pool-dev/baseline-check.js 1000 1    # today's CPU vs scripted humans
-node pool-dev/preview.js out.png all      # render the real canvas to a PNG
+start pool-dev/pool-table.html            # the widget's own controller on host stand-ins, plus design scenes
 start pool-dev/pool-harness.html          # shoot and tune the v2 physics live
+node pool-dev/v1/baseline-check.js 1000 1 # v1's CPU vs scripted humans: the bar for Phase 6
+node ludo-dev/verify-all.js               # every suite, pool included
 ```
 
-Everything needs Node 14+ because the userscript uses `??` and optional chaining. The
-default `node` here is 10, so use the Volta image:
+Everything needs Node 14+ because the userscript uses `??` and optional chaining;
+`host-run.js` and `snapshot.js` need Node 22 (global `WebSocket` and `fetch`). The
+default `node` here is 10, so use a newer one:
 
 ```
-"$LOCALAPPDATA/Volta/tools/image/node/22.22.2/node.exe" pool-dev/pool-verify.js
+"C:/Program Files/nodejs/node.exe" pool-dev/pool-verify.js
 ```
 
 ## Files
 
+The engine block is these seven, in this order (`load.js` `FILES`):
+
 | file | what it is |
 |---|---|
-| `pool-core.js` | state, constants, rack, physics, BCA turn rules, the CPU, `poolFireShot` |
-| `pool-ui.js` | canvas rendering, the canvas HUD, mouse/touch input, the loop, lifecycle, `togglePoolMaximize` |
-| `load.js` | evaluates both as one unit against a stub browser and returns the internals |
-| `pool-verify.js` | the splice contract, host wiring, and headless engine checks |
-| `baseline-check.js` | measures today's CPU; the bar the v2 hard tier has to clear |
-| `preview.js` | renders `drawPoolFrame` to a PNG |
-| `reinsert.js` | mechanical splice into `AttendanceTimeCheckerPlus.js` |
-| `pool-physics.js` | **v2 physics** (Phase 1): table geometry, sliding/rolling ball model, cue strike, collisions, stepping. Pure and deterministic. **Not spliced yet**; it replaces the physics in `pool-core.js` when the new renderer lands |
-| `physics-verify.js` | checks `pool-physics.js` against real ball behaviour, plus a fuzz for the invariants |
-| `pool-harness.html` | live table running the real `pool-physics.js`: shoot with a drag, set spin, tune every constant with sliders, see trails and the shot's events |
-| `pool-rules.js` | **v2 rules** (Phase 2): WPA 8-ball judged from the physics event log, seat-aware copy, cue-ball placement and re-spotting. Pure except the two table helpers. **Not spliced yet**, like the physics |
+| `pool-physics.js` | the physics: table geometry, sliding/rolling ball model, cue strike, collisions, stepping. Pure and deterministic |
+| `pool-rules.js` | WPA 8-ball judged from the physics event log, seat-aware copy, cue-ball placement and the ball-in-hand clamp. Pure except the table helpers |
+| `pool-camera.js` | chase, broadcast, survey and 2D poses, projection, near-plane clipping, unprojection, and the director that eases between them. Pure |
+| `pool-render.js` | the table, 3D pocket shafts, rolling balls, shadows, cue, physics-true guides, rings, ball in hand, pocket drops. Canvas only |
+| `pool-hud.js` | `phModel` (pure view model), `phBuild` (compact or Max DOM), `phRender`, and the canvas theme bridge `phThemeTokens` |
+| `pool-ai.js` | the **stand-in CPU** until Phase 6: direct pots checked on a cloned world with the real physics and rules, execution noise, time-sliced |
+| `pool-game.js` | the controller: the match, input, the loop, the CPU's turn, XP and records, Max, theme, lifecycle. What the host calls |
+
+The rest:
+
+| file | what it is |
+|---|---|
+| `pool-theme.css` | the `--pool-*` tokens for Glassmorphic dark/light and Cyberpunk, the HUD's component CSS, and the Max frame; the theme block |
+| `load.js` | evaluates the modules as they sit in the userscript: `physics()` … `ai()` for the pure layers, `game(opts)` for everything against a stubbed host |
+| `reinsert.js` | mechanical splice of both blocks |
+| `pool-verify.js` | the splice contract, the host wiring, the match headless (frames, clock, ball in hand, XP, the one-award guard), the stand-in CPU |
+| `host-run.js` | serves a stand-in portal page over DevTools, runs the real userscript in it, and plays and audits pool inside the widget; in light mode it also audits text contrast (3:1) across the whole widget, every game, ⚙️ and Max |
+| `physics-verify.js` | `pool-physics.js` against real ball behaviour, plus a fuzz for the invariants |
 | `rules-verify.js` | one case per rule row, the rules on real shots, and a fuzz of whole frames |
-| `pool-camera.js` | **v2 cameras** (Phase 3): chase, broadcast, survey and 2D poses, projection, near-plane clipping, unprojection, and the director that eases between them. Pure |
-| `pool-render.js` | **v2 renderer** (Phase 3): the design's table, 3D pocket shafts, rolling balls, shadows, cue, physics-true guides, rings, ball in hand, pocket drops. Canvas only, no DOM |
-| `render-verify.js` | the cameras against the design's own projection code, unprojection round-trips, the director, the polygon clipper, the guides, and frames through the rasterizer |
-| `pool-hud.js` | **v2 HUD** (Phase 4): `phModel` (pure view model), `phBuild` (compact or Max DOM), `phRender`, and the canvas theme bridge `phThemeTokens` |
-| `pool-theme.css` | the `--pool-*` tokens for Glassmorphic dark/light and Cyberpunk, and the HUD's component CSS; drops into the style template |
-| `hud-verify.js` | the HUD's view model against every design state, and the theme contract (no design hex, no filter/clip-path on the viewport, complete token blocks) |
-| `pool-table.html` | the playable prototype and theme harness: the real table, HUD and themes (it loads `../cyber-dev/cyber-theme.css` and `cyber-hud.js` directly) in a host-like panel, with Vs CPU / 2 Players, the shot clock and the Max view. `?still=1&scene=…` renders one state for `snapshot.js` |
-| `snapshot.js` | drives `pool-table.html` in headless Chrome and saves each scene as a PNG; `--check` also runs the page's HUD audit |
+| `render-verify.js` | the cameras against the design's own projection, unprojection, the director, the clipper, the guides, rasterizer frames |
+| `hud-verify.js` | the HUD's view model against every design state, and the theme contract |
+| `pool-table.html` | the prototype: `pool-game.js` itself (and the stand-in CPU) on stand-ins for the host (the storage helpers copied from it, `toggleGameMaxModal`'s build path), in a host-like panel, with the themes, the 316 px column, and scenes that set design states straight onto `poolS` for `snapshot.js`. It cannot drift from the widget |
+| `snapshot.js` | drives `pool-table.html` in headless Chrome and saves each scene as a PNG; `--check` runs the page's HUD audit. `narrow:` scenes use the widget's 316 px column |
+| `pool-harness.html` | a live table on the real physics: shoot with a drag, set spin, tune every constant |
+| `v1/` | the v1 engine (`pool-core.js`, `pool-ui.js`) and its loader, frozen when v2 replaced it. `baseline-check.js` still measures v1's CPU, and `preview.js` still draws it |
+
+## pool-game.js
+
+The host calls six things, and reads four:
+
+| host call | what it does |
+|---|---|
+| `initPoolGame()` | `switchGame` opened the panel: builds the HUD into `#pool-root` once, keeps a frame in progress, binds input, starts the loop |
+| `poolDetach()` | `switchGame` left: stops the loop, drops pool's window listeners, closes Max. The frame stays |
+| `resetPoolGame()` / `togglePoolMode()` | a fresh rack / Vs CPU ⇄ 2 Players |
+| `togglePoolMaximize()` | the Max view through `toggleGameMaxModal`'s `cfg.build` hook |
+| `poolOnThemeChange()` | from `applyPreferences` (theme, colour pickers, glass options) and pool's own `prefers-color-scheme` listener |
+| reads `poolMode`, `poolGamesWon`, `poolRecord`, `poolMaximized` | the leaderboard, the achievement check, tests |
+
+The match lives in one object, `poolS`. A frame is recorded once per rack (`rackId` against
+`awardedRack`): Reset or a new frame is a new rack, and a finished rack cannot pay twice.
+Pot XP follows today's rule until Phase 8 (yours against the CPU, both seats in 2 Players).
+The shot clock (30 s) runs only while a human aims; it waits in ball in hand, in the
+hand-off and on the CPU's turn. Escape cancels a power stroke and nothing else: the host's
+Escape-resets-the-game shortcut no longer applies to pool.
+
+Spin is free: `poolS.tip` is the cue tip in R (follow +y, right +x), clamped by
+`phClampTip` to the physics' miscue radius (0.6 R). The dot on the SPIN control drags
+directly; a click opens the picker (a big ball face and the presets): letting go of the
+ball or taking a preset confirms and closes it; arrow keys nudge, Enter confirms. The tip resets to the centre after every shot.
+
+The compact HUD is fluid. The widget's column is 400 px wide on big screens but 350 on
+screens up to 1400 px (316 for the HUD), and full width when the layout stacks below
+1200. The viewport keeps 368:412, the lean slider, power gauge and padlock are anchored to
+its height (they land on the design's pixels at 368), below 360 px the camera toggle drops
+its *AUTO* suffix and the card tag *BALL IN HAND* reads *IN HAND*, and the panel stops
+growing at 420 px. Max is the design's fixed 1280 × 800, scaled to fit the window.
+
+## pool-ai.js (stand-in)
+
+For every legal ball × pocket it aims at the ghost ball, ranks by cut and distance, then
+plays the best eight out on a cloned world at three speeds and judges each with `prJudge`.
+Anything that fouls, scratches or drops the 8 early is dropped; among the rest, a pot that
+leaves more follow-up pots wins. Execution noise is 0.2° aim and 3% power. Measured on 30
+self-play frames: pots on 52% of visits, fouls on 6.3%, 26 ms of thinking per shot spread
+over frames in 3 ms steps. Without noise it pots 78%. Phase 6 replaces it with the four tiers.
 
 ## pool-camera.js and pool-render.js
 
@@ -66,6 +116,12 @@ design's own `toCam`/`toScr` beside ours and they agree to 1e-9 px. One thing di
 on purpose: the design's world frame is left-handed, so its 3D view is the mirror image
 of its 2D view. Ours is not mirrored, so the table's right side is on your right in both
 cameras, and English goes the way it looks.
+
+With the shot camera on *Stay 3D*, the director stands up into `pcSurvey` while balls
+run: the shot's heading at a 58° pitch, with the distance fitted so the whole table (rails
+and apron) sits inside the viewport clear of the top overlays. Upright poses blend as an
+orbit around the look point, so the camera swings round to a new aim instead of cutting
+across the table.
 
 The renderer paints only polygons. The pocket shafts and the ball markings are clipped
 with a convex polygon clipper, not `ctx.clip()`, so a frame also draws on the headless
@@ -77,14 +133,8 @@ The guides run the real physics on a cloned world: the cue ball's line to first 
 own path after contact, so draw bends back and follow runs through. After contact the
 clone keeps only the cue ball: 1.4 ms on a full rack, 0.4 ms mid-frame.
 
-With the shot camera on *Stay 3D*, the director stands up into `pcSurvey` while balls
-run: the shot's heading at a 58° pitch, with the distance fitted so the whole table (rails
-and apron) sits inside the viewport clear of the top overlays. Upright poses blend as an
-orbit around the look point, so the camera swings round to a new aim instead of cutting
-across the table.
-
-Judge the look with `snapshot.js` (real Chrome). The rasterizer flattens gradients, so
-its frames prove geometry and layer order, not finish.
+Judge the look with `snapshot.js` or `host-run.js` (real Chrome). The rasterizer flattens
+gradients, so its frames prove geometry and layer order, not finish.
 
 ## pool-rules.js
 
@@ -136,71 +186,39 @@ resolved one at a time. Three details matter:
   A ball drops when its centre enters the circle. A ball that somehow leaves the table
   is counted in `world.escapes`, which the fuzz asserts stays at zero.
 
-The CPU (Phase 6) will call `ppCloneWorld` + `ppSimulate` to test shots, so it uses
-exactly the game's physics. That fixes problem 5.
-
 ## What stays in the host
 
 These are pool-related but live outside the sentinels, on purpose:
 
-- **`toggleGameMaxModal`**, the shared Max modal. Ludo calls it too.
+- **`toggleGameMaxModal`**, the shared Max modal. Ludo uses its canvas path; pool uses the
+  `cfg.build` path, which hands it an empty panel and moves no canvas.
 - **The storage helpers** `loadPoolHighScore` … `savePoolRecord`. The leaderboard's
   `collectGameModeBests` and the gist restore path read them, and neither is loaded with
   the pool block. `load.js` slices the real ones out of the userscript rather than
   stubbing them.
+- **The panel markup**: `#pool-scoreboard` (the header's wins button), `#pool-root` (the
+  HUD is built in here) and an empty `#pool-controls` (pool's footer is part of the HUD).
+- **The ⚙️ options** *Pool Table Color* and *Pool Shot Camera* (`userPreferences.poolTableColor`,
+  `poolShotCam`), and the defaults for `poolCamera` and `poolLean`, which the HUD writes.
 - **`prayerCount`**. It used to be declared in the middle of the pool state, but the
   Prayer Counter owns it.
 
-## load.js
-
-The same trick as `snake-dev/load.js`: both module files are indented blocks of the
-userscript's IIFE body, so wrapping them in a `Function` makes one source both
-drop-in-able and testable. Two differences:
-
-- Host dependencies are passed as **parameters**, not globals, so two loads in one process
-  never share stubs.
-- Every top-level `let` gets a getter and setter, generated from the source, so tests can
-  reach any piece of state without a hand-kept list.
-
-`load({ seed })` replaces `Math.random` for that load only (mulberry32), which makes
-racks, breaks and CPU decisions reproducible.
-
-## pool-verify.js
-
-It pins **today's** behaviour, bugs included. Assertions tagged *(problem N)* pin a
-numbered problem from the plan and are meant to be rewritten when that problem is fixed.
-The rewrite is the evidence that it was fixed.
-
-## baseline-check.js
-
-The human model is the CPU's own shot planner run for seat 1, then perturbed by Gaussian
-aim and power error. Shot selection is identical on both sides, so the profiles differ
-only in execution. Seat 1 always breaks, as it does in the current game.
-
-## preview.js
-
-It uses the software rasterizer from `ludo-dev/preview.js` (shared, not copied), plus
-local patches for `scale`, `roundRect` and a no-op `clip`. The rasterizer is exact on
-geometry but not on finish:
-
-- strokes have no antialiasing and no dashes
-- text uses a 3×5 bitmap font
-- gradients flatten to their middle stop
-- striped balls render as solid discs, because clip does nothing
-
-Judge layout and colour from it, not polish. With no path given it writes to the OS temp
-folder, so a bare run never leaves a PNG in the repo.
-
 ## The reinsert contract
 
-`reinsert.js` finds the block between two sentinel comments:
+`reinsert.js` finds each block between its two sentinel comments:
 
 ```js
     // ═══ POOL ENGINE — generated from pool-dev/, do not edit here ═══
     …
     // ═══ END POOL ENGINE ═══
+
+            /* ═══ POOL THEME — generated from pool-dev/pool-theme.css, do not edit here ═══ */
+            …
+            /* ═══ END POOL THEME ═══ */
 ```
 
-It refuses to write if either sentinel is missing, appears twice, or they are out of
-order. It writes the block in whatever line ending the userscript already uses, so a
-splice never leaves mixed endings.
+It refuses to write if a sentinel is missing, appears twice, or the pair is out of order.
+The theme block sits inside the `modernStyles` template literal, right after the
+Cyberpunk theme, so a backtick, `${` or an unbalanced brace in `pool-theme.css` is
+refused before anything is written. Each block is written in whatever line ending the
+userscript already uses, so a splice never leaves mixed endings.

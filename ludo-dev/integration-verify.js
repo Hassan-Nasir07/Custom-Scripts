@@ -75,8 +75,11 @@ head('Shared Max modal (Pool migration)');
 ok('toggleGameMaxModal exists', has('function toggleGameMaxModal(cfg)'));
 ok('Pool now calls it',
    /function togglePoolMaximize\(\)\s*\{[\s\S]{0,320}?toggleGameMaxModal\(\{/.test(src));
-ok('Pool keeps its original 2x buffer',
-   /canvasId: 'pool-canvas'[\s\S]{0,220}?bufferW: POOL_W[\s\S]{0,90}?bufferH: POOL_CANVAS_H/.test(src));
+// Pool v2 brings its own Max layout (the design's 1280x800 view) instead of a
+// scaled canvas; the helper's build branch hands it an empty panel.
+ok('Pool brings its own Max layout through cfg.build',
+   /canvasId: 'pool-root'[\s\S]{0,220}?build: poolBuildMax[\s\S]{0,90}?unbuild: poolUnbuildMax/.test(src) &&
+   has('if (!openState && cfg.build) {'));
 ok('Ludo passes its own buffer',
    /canvasId: 'ludo-canvas'[\s\S]{0,220}?bufferW: LUDO_CANVAS_W/.test(src));
 ok('old per-Pool modal state fully removed',

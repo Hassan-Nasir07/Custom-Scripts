@@ -4,7 +4,7 @@
 > deviation in the **Decision log** at the bottom. Attach this file as context in later
 > sessions.
 >
-> Status: `IN PROGRESS`, Phases 0–3 done, Phase 4 built (awaiting test) · Last updated: 2026-09-29 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
+> Status: `IN PROGRESS`, Phases 0–5 done (**v2 is in the userscript**), Phase 6 next · Last updated: 2026-09-29 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
 
 ## Context
 
@@ -97,9 +97,12 @@ Most in-match states are one component, `InMatch.dc.html`, switched by a `varian
 2. **Pause** in the tournament footer is not specified. It freezes the shot clock and
    covers the table with a `Paused · Resume` dialog in the same style as the resume
    prompt. Nothing is saved, because saving already happens at every shot boundary.
-3. **The spin control stays a tap-to-cycle of five presets**, as drawn: Center, Follow,
-   Draw, Left, Right. The physics accepts any tip offset, so a free-drag picker can come
-   later without engine changes.
+3. **Spin is free, not five presets** (revised 2026-09-29, the user's test: v1 allowed any
+   spin). Drag the dot on the SPIN control's ball, or click the control for a big picker:
+   drag or press anywhere inside the miscue ring (0.6 R) and letting go confirms and closes
+   it (the user's follow-up); Center / Follow / Draw / Left / Right stay as quick picks and
+   close it too; arrow keys step 0.05 R and Enter confirms.
+   The tip resets to the centre after every shot.
 4. **The shot clock waits for the hand-off.** In PvP and tournaments the clock starts only
    after `<NAME>'S READY` is pressed.
 5. **Adaptive difficulty re-evaluates between frames, not between matches.** The tier is
@@ -283,7 +286,8 @@ Found while reading the code. Each one becomes a regression test in `pool-verify
 | `pool-ai.js` | candidate generation (direct, bank, kick, combo, safety), **evaluation by cloning the world and running the real `step`**, position scoring, tier noise | ✅ |
 | `pool-camera.js` | `project(world→screen)` for the 2D ortho and 3D chase cameras, near-plane clip, camera tweening, screen→table unprojection for input | ✅ |
 | `pool-render.js` | the table layer (cached per camera pose), balls with orientation, shadows, cue, guides, pocket drop animation, overlays drawn on canvas (ghost ball in hand, called-pocket marker) | canvas |
-| `pool-ui.js` | DOM HUD (cards, frames, spin picker, lean, power, hint, toggles), input handling, the loop, lifecycle hooks the host calls, Max layout | DOM |
+| `pool-hud.js` | the DOM HUD (cards, frames, spin, lean, power, hint, toggles, Max layout) as a pure view model plus a diffing renderer | DOM |
+| `pool-game.js` | the controller: input, the loop, the CPU's turn, XP and records, lifecycle hooks the host calls, Max, theme (was `pool-ui.js` in the first draft of this plan) | DOM |
 | `pool-tournament.js` | bracket model (pure section), setup/bracket/intro/result/champion/cabinet screens (DOM section), persistence | mixed |
 | `pool-theme.css` | the `--pool-*` token mappings for Glassmorphic (light and dark) and Cyberpunk, plus pool's component CSS; spliced into the style template under its own sentinels | CSS |
 | `load.js`, `reinsert.js`, `pool-verify.js`, `preview.js`, `pool-harness.html`, `README.md` | tooling, same contracts as Snake | – |
@@ -390,7 +394,7 @@ harness. Every change goes in the Decision log.
 | Fine aim | `Shift`+move = 0.05°/px; `←/→` = ±0.1° (only while the pool panel has focus) | same |
 | Power | press, then **pull back or push forward along the shot line** (the old engine's rule; sideways movement adds nothing). Full power = the longer of the two runs from the press point to the canvas edge, at most 140 px, and the pointer is clamped to the canvas, so a full stroke always fits inside the table. The gauge fills; the hint shows `Release to shoot · 62%` | same |
 | Cancel | return to under 3% and release, or `Esc` | same |
-| Spin | tap **SPIN** → popover with the ball face; drag the dot inside the 0.6R ring; Center/Follow/Draw/Left/Right chips | same |
+| Spin | drag the red dot on **SPIN**'s ball; or click **SPIN** → a big ball face: press or drag anywhere inside the 0.6R miscue ring and let go to confirm and close, or take a Center/Follow/Draw/Left/Right chip (also closes); ←↑→↓ step it and Enter confirms. The button names it (*Follow · Right*, *Follow R* in the narrow column); the picker reads *Follow 50% · Right 20%* | same |
 | Lean | vertical slider, 3D only | – |
 | Ball in hand | camera auto-switches to top-down; press anywhere to pick the cue ball up and drag it with a hand cursor. **It stops at the cushions and, on the break, at the head string** (`prClampPlace`, as v1 did), sliding along them even with the pointer off the canvas, so there is no kitchen warning to read. Only a spot on another ball is refused (red, *Overlaps a ball*). Release to put it down | same |
 | Move cue ball | after placing, a small **Move cue ball** button (above the hint) picks the ball up again, any time before the shot. The shot clock pauses while the ball is in hand and carries on from where it was, so re-placing never buys time back | same |
@@ -399,7 +403,7 @@ harness. Every change goes in the Decision log.
 Pointer events replace the separate mouse and touch handlers at
 [:4310-4445](AttendanceTimeCheckerPlus.js#L4310-L4445). The host's `switchGame`
 add/remove listener blocks at [:9929](AttendanceTimeCheckerPlus.js#L9929) and
-[:10004](AttendanceTimeCheckerPlus.js#L10004) collapse to `poolAttach()` / `poolDetach()`.
+[:10004](AttendanceTimeCheckerPlus.js#L10004) collapse to `initPoolGame()` / `poolDetach()` (done in Phase 5).
 Keyboard handlers are scoped to the pool panel and do not collide with the `1-9` game
 shortcuts at [:19994](AttendanceTimeCheckerPlus.js#L19994).
 
@@ -789,7 +793,7 @@ Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verif
       the bounds; the *Overhead / Stay 3D* shot-camera switch.
 - [x] The user's test of those changes: "Its a pass."
 
-### Phase 4: HUD, controls, layouts — built 2026-09-25, awaiting the user's test
+### Phase 4: HUD, controls, layouts — done 2026-09-29
 Built as `pool-dev/` modules and exercised on the prototype page; they go into the
 userscript with the input in Phase 5 (Decision log). The host-side items are listed at the
 end, since they belong to that splice.
@@ -832,18 +836,105 @@ end, since they belong to that splice.
   - camera toggle, spin, lean, and Max open and Esc close (with the canvas moved across)
   - a foul in 2 Players showing the hand-off
   - READY restoring the footer, and the mode switch
-- [ ] The user's test in `pool-table.html`.
-- [ ] **At the Phase 5 splice (host side):**
+- [x] The user's test in `pool-table.html`: "testing passed" (2026-09-29).
+- [x] **At the Phase 5 splice (host side)**, all done in Phase 5:
   - the panel DOM replaces the pool scoreboard and control blocks ([:19649](AttendanceTimeCheckerPlus.js#L19649), [:19757](AttendanceTimeCheckerPlus.js#L19757)); the header keeps `#game-title` and the trophy button
   - `toggleGameMaxModal` gains `cfg.build(panel)`, Ludo's Max byte-identical. Pool's Max root copies the widget's `retro-theme` + shape classes and `applyCyberTokens`, as the host does for PiP
   - `poolOnThemeChange()` → `phThemeChanged` + table-cache reset, from `applyCyberpunkTheme` / `clearCyberpunkTheme`, the colour pickers and the `prefers-color-scheme` listener
   - ⚙️ *Shot camera: Overhead / Stay 3D* as `userPreferences.poolShotCam` (gap decision 9)
 
-### Phase 5: input
-- [ ] Pointer-events handlers; 3D rotate-aim; 2D point-aim; fine aim; power curve; spin
-      popover; lean; ball-in-hand drag; call pocket; `Esc` cancel.
-- [ ] Remove Play and move the anti-farm guard (problem 10). The test asserts that
-      Reset → play → win pays once.
+### Phase 5: input and the splice — done 2026-09-29
+v2 replaces v1 in the userscript. The engine block is now the seven modules in load order
+(physics, rules, camera, render, HUD, the stand-in CPU, the controller), and
+`pool-theme.css` is a second spliced block right after the Cyberpunk theme. v1 is frozen
+in `pool-dev/v1/` for `baseline-check.js`.
+
+- [x] `pool-game.js`, the controller (the prototype's loop, made the real thing):
+  - input on pointer events: 3D rotate-aim (0.3°/px, Shift 0.05°/px) that keeps following
+    past the table's edge, 2D point-aim, ←/→ fine aim, along-the-line power, ball-in-hand
+    drag with the kitchen clamp, *Move cue ball*, pocket calls, spin presets, lean
+  - **Esc** cancels a power stroke and stops the key there; with no stroke it passes on
+    and the Max modal closes itself. The host's Escape-resets-the-game no longer applies
+    to pool (Decision log)
+  - the fixed 60 Hz physics step every animation frame; drawing honours the FPS setting
+    and skips the canvas when nothing on it changed
+  - the shot clock (30 s, human turns only), the hot-seat hand-off, the frame-over dialog,
+    NEW FRAME alternating the break
+  - records and XP through the host's own helpers, **once per rack** (`rackId` /
+    `awardedRack`): Reset or a new frame is a new rack, and a finished rack cannot pay
+    twice. The win's per-mode split is seeded before the all-time count moves. Pot XP
+    keeps today's rule until Phase 8
+  - a frame in progress survives switching to another game and back
+  - camera, lean and shot camera in `userPreferences` (`poolCamera`, `poolLean`, `poolShotCam`)
+  - names: your leaderboard name (16 characters) or *You* against the CPU; *Player 1* /
+    *Player 2* in 2 Players
+- [x] `pool-ai.js`, a **stand-in CPU** until Phase 6, so Vs CPU works on the new engine:
+  direct pots only, checked on a cloned world with the real physics and `prJudge`, aim
+  noise 0.2° and power 3%, time-sliced in 3 ms steps. Self-play: pots on 52% of visits,
+  fouls on 6.3% (v1 today: 65% / 13.4%); without noise it pots 78%. It places ball in hand
+  behind its easiest pot, calls its pocket when a call is required, and takes its turn in
+  stages the player can follow: a beat, the cue turning onto the line, the draw, the strike
+- [x] Host edits: `#pool-root` replaces `#pool-canvas`; the header keeps the title and the
+  wins button; no controls row and no Play; `switchGame` calls `initPoolGame()` /
+  `poolDetach()`; the four window bridges only the old buttons used are gone; the old
+  `#pool-canvas` CSS is gone; `applyPreferences` calls `poolOnThemeChange()`; ⚙️ gains
+  *Pool Shot Camera*; `toggleGameMaxModal` gains `cfg.build` (Ludo's canvas path unchanged)
+- [x] **The compact HUD is fluid** (found by the real-host run): the widget's column is
+  350 px on screens up to 1400 px, so the HUD gets 316, not the design's 368. The viewport
+  keeps 368:412; the lean slider, gauge and padlock are anchored to its height (exactly
+  the design's pixels at 368); under 360 px the toggle drops *· AUTO* and the card tag
+  *BALL IN HAND* reads *IN HAND*; the panel caps at 420 px. Max stays the fixed 1280 × 800,
+  scaled to the window
+- [x] `pool-verify.js` rewritten for v2, **81 assertions**: both blocks byte-identical and
+  in order; no v1 name left; the whole userscript parses and every engine name is
+  declared once; the host wiring; the match headless (the clock, ball in hand, the CPU's
+  turn, 6 whole frames each paying once and filed right, Reset / NEW FRAME / mode switch,
+  pot XP per seat, the 2 Players hand-off, Esc and arrows, the preferences); the stand-in
+  CPU (a straight pot, legal placement, ≥ 90% legal and ≥ 60% pots without noise, the
+  3 ms slices)
+- [x] `host-run.js`: **the real userscript in Chrome**. It serves a stand-in portal page at
+  the portal's URL over DevTools (one attendance row, the script inline, every other
+  request failed), then boots the widget, opens pool, places and breaks by mouse, Esc
+  mid-stroke, lets the CPU play, opens and closes Max, switches Glassmorphic dark →
+  Cyberpunk → light with the layout audit in each (compact and Max), switches games and
+  back, sets the shot camera in ⚙️, and records a win through the real host helpers:
+  **79–90 checks, 0 failed** (the audit's overlap pairs count only what is on screen).
+  `--open` runs the same fake portal in a visible Chrome, to play by hand
+- [x] **Light mode across the widget** (the user's go-ahead, 2026-09-29). `host-run.js` gained a
+  contrast audit: every visible text composited over what is really behind it (gradients
+  by the average of their stops), in light mode, on the widget, every game's panel, ⚙️ and
+  pool's Max; under 3:1 fails. It found, and these now pass:
+  - every game's header score button: white on the white header (no light style at all)
+  - the header's side figures (lines, level, mode, turn) at 2.9:1
+  - ⚙️ and Ludo's Max panel: their light rules were scoped under `.attendance-summary`,
+    but both live on `<body>`, so they never applied; now keyed off the page not being in
+    Cyberpunk (pool's Max panel excluded), including the Ludo rule rows
+  - the worked and remaining timers, the XP milestone, *View All*, the image placeholder,
+    the prayer counter's labels
+  - pool's own: the card tags and the Max trophy use `--pool-accent-ink` / `--pool-hot-ink`,
+    deeper in light mode, while the overlays on the felt keep the bright accent
+- [x] **Free spin** (the user's test): the tip goes anywhere inside the miscue ring instead of
+  five presets (gap decision 3, revised). `hud-verify.js` +7 (the clamp, labels, readout,
+  preset lighting, when the picker opens); `pool-verify.js` +4 (the strike uses exactly the
+  placed tip, then it resets); `host-run.js` +7, by real mouse: drag the small dot, open
+  the picker, press on the big ball, a chip, ↑ without turning the aim, close on the table;
+  `snapshot.js` +7 picker scenes (normal, free, Max, Cyberpunk, light, two narrow)
+- [x] Other suites: `integration-verify.js` (pool's Max through `cfg.build`),
+  `host-smoke.js` (+5: the build path hands over an empty panel, moves no canvas,
+  unbuilds once), `snake-verify.js` (the pool header reads only `poolMode` now)
+- [x] `snapshot.js` gains 15 `narrow:` scenes at the widget's 316 px: **649/649** across 49
+- [x] `verify-all.js`: **1,962 assertions, 0 failed**
+- [x] **`pool-table.html` runs the real controller** (the user's ask: keep it alongside). It loads
+  `pool-ai.js` and `pool-game.js` on stand-ins for the host, and its scenes set design states
+  straight onto `poolS`, so it can no longer drift from the widget. Running it found two real
+  widget issues, both fixed: a name beside its card tag was cut off in 2 Players (*Player 2*
+  is longer than the design's *Bilal*), so a card whose name would not fit shows the tag's
+  short form (*SHOOT*, *BREAK*, *IN HAND*), measured only when name, tag or width change; and
+  the hand-off strip's *Pass to Player 2* was squeezed by *PLAYER 2'S READY*, so when tight the
+  button reads *READY*. The narrow column also slims the frames column and card padding.
+  The audit gained a hand-off overflow check: **768/768** across 56 scenes
+- [x] Two settings on `poolS` for later phases: `guideMode` (full / short / off) and `callEvery`
+- [x] The user's test in the widget: "The testing passed" (2026-09-29)
 
 ### Phase 6: CPU v2
 - [ ] Candidates, cloned-world evaluation, position scoring, safeties, time slicing, four
@@ -931,6 +1022,7 @@ carries over and what would be new:
 
 ## Open questions ❓
 
+
 1. **Compact 2D ball size:** the design's top-down fit gives R≈4.5px, down from today's
    6px. If it reads too small in `preview.js`, should the compact 2D view rotate the table
    to portrait (R≈5px) or slim the rails?
@@ -979,6 +1071,15 @@ carries over and what would be new:
 | 2026-09-29 | **Ball in hand is clamped, not warned: the cue ball stops at the cushions and, on the break, at the head string** | The user's review, and v1's behaviour: a drag cannot reach an illegal spot, so the *Behind the head string only* prompt no longer comes up. Overlapping a ball is still refused, because pushing balls aside would be a table change the player did not ask for |
 | 2026-09-29 | **Move cue ball: the shooter can pick the placed cue ball up again until the shot** | The user's review. The clock pauses in hand and resumes rather than resets, so re-placing gives no time back. It waits while the ball is in hand, as it already did for the first placement |
 | 2026-09-29 | **Snooker is recorded as a later mode, not scheduled** | The user's review of the table. Everything but the rules, the markings, the HUD's scores and the CPU's evaluation is shared with 8-ball |
+| 2026-09-29 | **v2 ships in Phase 5 with a stand-in CPU (`pool-ai.js`)**, not v1's CPU and not a wait for Phase 6 | v1's CPU reads v1's ball state and physics, so it cannot drive the new table, and Vs CPU cannot be missing from the widget between phases. The stand-in checks every candidate on the real physics and rules (so it never plans a scratch) and adds execution noise; measured at 52% pots and 6.3% fouls per visit, a little under v1 (65% / 13.4%). Phase 6 replaces it with the four tiers |
+| 2026-09-29 | **Escape no longer resets a pool frame.** In pool it cancels a power stroke (and stops there), else the Max modal closes itself | The host's Escape resets the current game, which in pool would throw away a frame in progress, and Esc is already pool's cancel key (Input). Reset stays one click away in the footer |
+| 2026-09-29 | **The compact HUD is fluid, not fixed at 368 px** | The widget's side column is 350 px wide on screens up to 1400 px, so the HUD gets 316; on stacked layouts it is full width. Found by running the real userscript (`host-run.js`): at 316 the toggle hit the pill and the lean slider hit spin. The viewport keeps the design's 368:412 and the overlays are anchored so they sit on the design's pixels at 368; a container query shortens two labels under 360; the panel caps at 420 so a stacked layout does not get a table taller than the screen |
+| 2026-09-29 | **v1 is frozen in `pool-dev/v1/`**, not deleted | `baseline-check.js` measures v1's CPU, which is the bar Phase 6 has to clear, and it needs v1's engine to run |
+| 2026-09-29 | **The frame-over dialog's second button reads *Change mode* until Phase 6** | The design's *Change difficulty* has nothing to open before the tiers exist |
+| 2026-09-29 | **The real-host harness (`host-run.js`) is the integration test for the controller**; `pool-table.html` stays the design and theme harness with its own loop | The prototype sets design states directly (a foul toast, a clock at 4 s, a won frame), which the controller should not expose. The controller is tested headless in `pool-verify.js` and inside the real widget in `host-run.js` |
+| 2026-09-29 | **Light-mode fixes outside pool are in this phase** (the header score buttons, ⚙️, Ludo's Max, the timers and XP card, the prayer labels) | The user's call: "fix all the light mode issues". Found by `host-run.js`'s contrast audit; each fix keeps the hue and deepens it, or restores a light rule that never matched. Cyberpunk and dark mode are untouched (every rule is scoped to not-Cyberpunk inside the light media query) |
+| 2026-09-29 | **Revised: spin is free, anywhere inside the miscue ring**, with the five presets kept as quick picks | The user's test: v1 let you set any amount of spin, and five fixed spots were a step back. The physics always took any tip; only the control changes. The small ball on the SPIN control is draggable (the user's ask), and a click opens a bigger face for precise placement, because a 34 px ball is coarse under a mouse |
+| 2026-09-29 | **Revised: `pool-table.html` runs the widget's controller**, not its own loop | The user asked for the prototype to be kept alongside the widget. Loading `pool-game.js` on host stand-ins does that by construction, and the scenes need no production API because `poolS` is one object they can set. This replaces the earlier row that kept the prototype's own loop |
 
 ---
 

@@ -47,6 +47,11 @@ const SCENES = {
     'loss': 'scene=loss',
     'light:main-3d': 'scene=mid&camera=3d',
     'max-3d': 'scene=mid&camera=3d&max=1',
+    'spin-open': 'scene=mid&camera=3d&spinopen=1&tipx=0.22&tipy=0.3',
+    'spin-free': 'scene=mid&camera=3d&tipx=-0.35&tipy=-0.4',
+    'max-spin-open': 'scene=mid&camera=3d&max=1&spinopen=1&tipx=-0.3&tipy=0.25',
+    'cyber-spin-open': 'scene=mid&camera=3d&theme=cyber&spinopen=1&tipx=0.4&tipy=-0.2',
+    'light:spin-open': 'scene=mid&camera=3d&spinopen=1&tipx=0.1&tipy=0.45',
     // Cyberpunk HUD
     'cyber-main-3d': 'scene=mid&camera=3d&theme=cyber',
     'cyber-foul': 'scene=foul&mode=pvp&theme=cyber',
@@ -60,6 +65,11 @@ const CHECK = process.argv.includes('--check');         // also run the page's H
 const ARGS = process.argv.slice(2).filter(a => a !== '--check');
 const outDir = ARGS[0] || path.join(os.tmpdir(), 'pool-snapshots');
 const picks = ARGS.slice(1);
+// The widget's narrow column (350 wide on screens up to 1400 px, so 316 for the HUD):
+// the same states again, derived so they cannot drift from the originals.
+['main-3d', 'main-2d', 'power', 'bih', 'bih-break', 'foul-handoff', 'call-3d', 'clock-hot', 'win', 'bih-placed',
+    'cyber-main-3d', 'cyber-call-3d', 'cyber-foul', 'light:main-3d', 'break-stay3d', 'spin-open', 'cyber-spin-open'].forEach(n => { SCENES['narrow:' + n] = SCENES[n] + '&narrow=1'; });
+
 const list = (picks.length ? picks : Object.keys(SCENES)).map(s => [SCENES[s] ? s : s.replace(/[^\w=-]+/g, '_'), SCENES[s] || s]);
 const page = 'file:///' + path.join(__dirname, 'pool-table.html').replace(/\\/g, '/').replace(/ /g, '%20');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -94,14 +104,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await send('Emulation.setDeviceMetricsOverride', { width: 1400, height: 900, deviceScaleFactor: 2, mobile: false });
     for (const [name, query] of list) {
         const before = errors.length;
-        const light = name.startsWith('light:');
+        const light = name.includes('light:');
         await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: light ? 'light' : 'dark' }] });
         await send('Page.navigate', { url: page + '?still=1&' + query });
         let ready = false;
         for (let i = 0; i < 50 && !ready; i++) { await sleep(100); ready = await evaluate('window.__ready === true'); }
         const box = await evaluate('(() => { const el = document.querySelector(".pool-max-frame") || document.querySelector(".snake-game-container"); const r = el.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; })()');
         const shot = await send('Page.captureScreenshot', { format: 'png', clip: { x: box[0], y: box[1], width: box[2], height: box[3], scale: 1 } });
-        const file = path.join(outDir, name.replace(':', '-') + '.png');
+        const file = path.join(outDir, name.replace(/:/g, '-') + '.png');
         fs.writeFileSync(file, Buffer.from(shot.result.data, 'base64'));
         console.log((ready ? '  ✓ ' : '  ✗ not ready ') + name + '  → ' + file + (errors.length > before ? '  ERRORS: ' + errors.slice(before).join(' | ') : ''));
         if (CHECK) {

@@ -20,12 +20,13 @@ const SUITES = [
     // Same contract again for the Cyberpunk HUD theme: CSS + two JS modules
     // under cyber-dev/, spliced by sentinel and asserted byte-identical.
     ['Cyberpunk HUD',  '../cyber-dev/cyber-verify.js'],
-    // Pool v2 (POOL_V2_PLAN.md): pool-core.js + pool-ui.js under pool-dev/, the
-    // same sentinel splice and byte-identity contract as Snake.
+    // Pool v2 (POOL_V2_PLAN.md): the pool-dev/ modules and pool-theme.css, spliced
+    // by sentinel and asserted byte-identical, plus the match (pool-game.js) headless.
+    // The same contract in a real browser is pool-dev/host-run.js.
     ['Pool',           '../pool-dev/pool-verify.js'],
-    // The v2 physics (pool-physics.js), headless until the renderer lands in Phase 3.
+    // The v2 physics (pool-physics.js).
     ['Pool physics',   '../pool-dev/physics-verify.js'],
-    // The v2 rules (pool-rules.js) on top of that physics, also headless until Phase 3.
+    // The v2 rules (pool-rules.js) on top of that physics.
     ['Pool rules',     '../pool-dev/rules-verify.js'],
     // The v2 camera and renderer (pool-camera.js, pool-render.js), headless via the rasterizer.
     ['Pool render',    '../pool-dev/render-verify.js'],

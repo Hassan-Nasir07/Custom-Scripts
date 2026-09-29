@@ -986,8 +986,9 @@ ok('the old "Best: …" label pairs are gone',
     ['aimScore', 'let'], ['flappyScore', 'let'], ['flappyHighScore', 'let'],
     ['tetrisScore', 'let'], ['tetrisLines', 'let'], ['tetrisLevel', 'let'],
     ['tetrisHighScore', 'let'], ['breakoutScore', 'let'], ['breakoutHighScore', 'let'],
-    ['breakoutLevel', 'let'], ['breakoutLives', 'let'], ['poolMode', 'let'],
-    ['poolPlayer1Pocketed', 'let'], ['poolPlayer2Pocketed', 'let'], ['snakeMode', 'let'],
+    // Pool v2's header shows only the wins in the mode being played; the balls-potted
+    // counts moved onto the player cards (pool-game.js), so poolMode is all it reads.
+    ['breakoutLevel', 'let'], ['breakoutLives', 'let'], ['poolMode', 'let'], ['snakeMode', 'let'],
 ].forEach(([name]) => {
     ok('scoreboard state "' + name + '" is declared',
        new RegExp('(?:let|const|var)\\s+' + name + '\\b').test(src));

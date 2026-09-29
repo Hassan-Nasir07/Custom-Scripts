@@ -11,8 +11,9 @@
     /* ──────────────────────────────────────────────────────────────────
        HOST BASE: the handful of widget rules the pool HUD sits inside
        (aurora tokens, the glass games container and its header, light
-       mode), copied from AttendanceTimeCheckerPlus.js so the HUD renders
-       here as it will in the panel. Everything pool is pool-theme.css.
+       mode, the Max modal's overlay), copied from AttendanceTimeCheckerPlus.js
+       so the HUD renders here as it does in the panel. Everything pool,
+       the Max frame included, is pool-theme.css.
        ────────────────────────────────────────────────────────────────── */
     :root { --aurora-1: #667eea; --aurora-2: #764ba2; --aurora-3: #f093fb; --aurora-4: #4facfe; }
     * { box-sizing: border-box; }
@@ -32,10 +33,8 @@
         .snake-game-title { color: rgba(0, 0, 0, 0.88); }
         .game-score-btn { background: rgba(0, 0, 0, 0.05); border-color: rgba(0, 0, 0, 0.12); color: rgba(0, 0, 0, 0.85); }
     }
-    /* The host's Max modal (toggleGameMaxModal), reduced to what matters here. */
-    .pool-modal-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.6); }
-    .pool-max-frame { width: 1280px; height: 800px; padding: 24px; border-radius: 20px; background: radial-gradient(ellipse 70% 50% at 50% 0%, #162022 0%, #0b0e10 70%); transform-origin: center; flex-shrink: 0; }
-    .pool-max-frame.retro-theme { background: linear-gradient(135deg, var(--rt-bg-1), var(--rt-bg-2)); border: 1px solid var(--rt-border); }
+    /* The host's Max modal (toggleGameMaxModal): the overlay; pool empties the panel. */
+    .pool-modal-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.65); }
 
     /* The rig's own controls. */
     .side { width: 290px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: #d8d4ca; }
@@ -44,8 +43,8 @@
     .side button, .side select { background: #222a30; color: #e8e4da; border: 1px solid #36424a; border-radius: 8px; padding: 5px 9px; cursor: pointer; font: inherit; }
     .side button.on { background: #3a4a55; border-color: #6d8796; }
     .side label { display: flex; gap: 6px; align-items: center; }
-    .side input[type=range] { width: 120px; }
     .side .hint { font-size: 12px; color: #9aa4a9; line-height: 1.45; }
+    .side #xplog { font-size: 11px; color: #9aa4a9; white-space: pre-line; max-height: 90px; overflow: auto; }
 </style>
 </head>
 <body>
@@ -56,7 +55,7 @@
                 <div class="snake-game-header">
                     <span id="game-title" class="snake-game-title">🎱 8-Ball Pool</span>
                     <div class="snake-scoreboard">
-                        <button class="game-score-btn" type="button"><span class="gsb-best" id="trophies">0</span><span class="gsb-trophy">🏆</span></button>
+                        <button id="pool-lb-btn" class="game-score-btn" type="button"><span class="gsb-best" id="pool-wins">0</span><span class="gsb-trophy">🏆</span></button>
                     </div>
                 </div>
                 <div id="pool-root"></div>
@@ -68,11 +67,11 @@
             <button data-theme="glassmorphic">Glassmorphic</button><button data-theme="retro-futuristic">Cyberpunk</button>
             <label>Palette <select id="palette"></select></label>
             <label>Shape <select id="shape"><option>notched</option><option>chamfered</option><option>stepped</option><option>rounded</option></select></label>
+            <label><input id="narrow" type="checkbox"> The widget's 316 px column</label>
             <div class="hint">Light or dark Glassmorphic follows your OS setting, as the widget does.</div>
         </fieldset>
         <fieldset><legend>Match</legend>
             <label>Mode <select id="mode"><option value="cpu">Vs CPU</option><option value="pvp">2 Players</option></select></label>
-            <label>Shot clock <select id="clock"><option value="0">Off</option><option value="30">30 s</option><option value="60">60 s</option></select></label>
             <label><input id="every" type="checkbox"> Call every shot</label>
         </fieldset>
         <fieldset><legend>Table</legend>
@@ -83,29 +82,94 @@
         <fieldset><legend>Scenes</legend>
             <button data-scene="mid">Mid-frame</button><button data-scene="eight">On the 8</button><button data-scene="bih">Ball in hand</button>
         </fieldset>
+        <fieldset><legend>Records and XP (this page only)</legend>
+            <div id="xplog">No frames finished yet.</div>
+        </fieldset>
         <div class="hint">
+            This page runs the widget's own controller (pool-game.js) and the stand-in CPU, on stand-ins for the host.
             3D: move the mouse sideways to aim (Shift for fine); it keeps aiming past the table's edge. 2D: point to aim.
             Press, then pull back or push forward along the shot line for power, and release. Return to the start or press Esc to cancel.
-            Ball in hand: drag the cue ball. When a call is needed, tap a pocket ring (or the mini-map in 3D).<br><br>
-            Phase 4 prototype: the real HUD, both themes and the Max view, with the Phase 3 table. Until the CPU lands (Phase 6)
-            you play both seats in Vs CPU mode.
+            Spin: drag the red dot on SPIN, or click SPIN for the big picker (letting go confirms).
+            Ball in hand: drag the cue ball; Move cue ball picks it up again. When a call is needed, tap a pocket ring (or the mini-map in 3D).
         </div>
     </div>
 </div>
 
 <script>
-/* Stubs cyber-hud.js expects from the userscript's scope (as in cyber-harness.html). */
+/* ──────────────────────────────────────────────────────────────────────
+   Stand-ins for what pool-game.js and cyber-hud.js find in the userscript's
+   scope. The storage helpers are the host's own, so records behave as they
+   do in the widget (on this page's localStorage).
+   ────────────────────────────────────────────────────────────────────── */
 var userPreferences = Object.assign({
     displayTheme: 'glassmorphic',
     cyberBgPrimary: '#07091a', cyberBgSecondary: '#11142b', cyberAccent: '#fff200', cyberHighlight: '#00e5ff',
     cyberPanelTint: '#00e5ff', cyberText: '#fff200', cyberGlow: '#fff200', cyberBorder: '#fff200',
-    cyberGlowIntensity: 0.6, cyberPanelShape: 'notched', gameFps: 60
+    cyberGlowIntensity: 0.6, cyberPanelShape: 'notched', gameFps: 60,
+    poolTableColor: 'green', poolCamera: '3d', poolLean: 35, poolShotCam: 'overhead',
 }, (() => { try { return JSON.parse(localStorage.getItem('poolProtoPrefs') || '{}'); } catch (_) { return {}; } })());
 var isPipActive = false, pipWindow = null;
+var currentGame = 'pool', lbDisplayName = 'Ayesha', xpSystemReady = false;
 function savePreferences() { try { localStorage.setItem('poolProtoPrefs', JSON.stringify(userPreferences)); } catch (_) {} }
 function hexToRgbStr(hex) {
     const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
     return m ? parseInt(m[1], 16) + ', ' + parseInt(m[2], 16) + ', ' + parseInt(m[3], 16) : '0, 0, 0';
+}
+function getFrameInterval() { return 1000 / (Number(userPreferences.gameFps) === 30 ? 30 : 60); }
+function updateGameScoreBtn(game, cur, best) { const el = document.getElementById(game + '-wins'); if (el) el.textContent = best; }
+function awardGameXP(type, perf) {
+    const log = document.getElementById('xplog');
+    if (log) log.textContent = (log.textContent === 'No frames finished yet.' ? '' : log.textContent + '\n') +
+        new Date().toLocaleTimeString() + '  ' + (perf.won ? 'won: +80 XP' : 'lost: +15 XP');
+}
+function loadPoolHighScore() {
+    const saved = localStorage.getItem('poolGamesWon');
+    return saved ? parseInt(saved) : 0;
+}
+function savePoolHighScore(score) { localStorage.setItem('poolGamesWon', score.toString()); }
+function loadPoolWinsByMode() {
+    let rec = null;
+    try { rec = JSON.parse(localStorage.getItem('poolWinsByMode') || 'null'); } catch (_) {}
+    if (!rec || typeof rec !== 'object') {
+        rec = { cpu: parseInt(localStorage.getItem('poolGamesWon') || '0', 10) || 0, pvp: 0 };
+        localStorage.setItem('poolWinsByMode', JSON.stringify(rec));
+    }
+    return { cpu: parseInt(rec.cpu, 10) || 0, pvp: parseInt(rec.pvp, 10) || 0 };
+}
+function savePoolWinByMode(mode) {
+    const rec = loadPoolWinsByMode();
+    rec[mode === 'pvp' ? 'pvp' : 'cpu']++;
+    localStorage.setItem('poolWinsByMode', JSON.stringify(rec));
+}
+function loadPoolRecord() {
+    const saved = localStorage.getItem('poolRecord');
+    return saved ? JSON.parse(saved) : { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
+}
+function savePoolRecord(rec) { localStorage.setItem('poolRecord', JSON.stringify(rec)); }
+// The host's shared Max modal, its cfg.build path only (the one pool uses):
+// an overlay and an empty panel, backdrop click and Escape to close, cfg.unbuild on close.
+const _gameMaxModals = {};
+function toggleGameMaxModal(cfg) {
+    const open = _gameMaxModals[cfg.canvasId];
+    if (!open) {
+        const overlay = document.createElement('div');
+        overlay.className = 'pool-modal-overlay';
+        const panel = document.createElement('div');
+        panel.className = 'pool-modal-panel' + (cfg.panelClass ? ' ' + cfg.panelClass : '');
+        overlay.appendChild(panel);
+        document.body.appendChild(overlay);
+        cfg.build(panel);
+        overlay.addEventListener('click', e => { if (e.target === overlay) cfg.onToggle(); });
+        overlay._esc = e => { if (e.key === 'Escape') cfg.onToggle(); };
+        document.addEventListener('keydown', overlay._esc);
+        _gameMaxModals[cfg.canvasId] = { overlay, unbuild: cfg.unbuild };
+        return true;
+    }
+    open.unbuild();
+    document.removeEventListener('keydown', open.overlay._esc);
+    open.overlay.remove();
+    delete _gameMaxModals[cfg.canvasId];
+    return false;
 }
 </script>
 <script src="../cyber-dev/cyber-hud.js"></script>
@@ -114,124 +178,52 @@ function hexToRgbStr(hex) {
 <script src="pool-camera.js"></script>
 <script src="pool-render.js"></script>
 <script src="pool-hud.js"></script>
+<script src="pool-ai.js"></script>
+<script src="pool-game.js"></script>
 <script>
 (() => {
     const Q = new URLSearchParams(location.search);
-    const still = Q.has('still');                      // render one frame for snapshot.js, no loop
+    const still = Q.has('still');                      // one frame for snapshot.js: no loop, no CPU
     const $ = id => document.getElementById(id);
     const widget = $('total-time-summary');
+    const S = poolS;
     const DEG = Math.PI / 180;
-    const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (_) { return null; } };
+
+    // The widget's column on screens up to 1400 px: 350 wide, so 316 for the HUD.
+    const setNarrow = on => { document.querySelector('.left-panel').style.width = on ? '350px' : ''; };
+    setNarrow(Q.has('narrow'));
 
     // ── Theme ─────────────────────────────────────────────────────────
+    // The query string sets a scene's look for this load only; the rig's
+    // controls change and remember it.
     if (Q.get('theme')) userPreferences.displayTheme = Q.get('theme') === 'cyber' ? 'retro-futuristic' : 'glassmorphic';
+    else if (still) userPreferences.displayTheme = 'glassmorphic';
     if (Q.get('shape')) userPreferences.cyberPanelShape = Q.get('shape');
     if (Q.get('palette') && CYBER_PALETTES[Q.get('palette')]) Object.assign(userPreferences, CYBER_PALETTES[Q.get('palette')]);
-    function applyTheme() {
+    if (Q.has('camera')) userPreferences.poolCamera = Q.get('camera') === '2d' ? '2d' : '3d';
+    else if (still) userPreferences.poolCamera = '3d';
+    if (Q.has('lean')) userPreferences.poolLean = +Q.get('lean'); else if (still) userPreferences.poolLean = 35;
+    if (Q.has('shotcam')) userPreferences.poolShotCam = Q.get('shotcam'); else if (still) userPreferences.poolShotCam = 'overhead';
+    if (Q.has('felt')) userPreferences.poolTableColor = Q.get('felt'); else if (still) userPreferences.poolTableColor = 'green';
+    // As the host's applyPreferences does, then pool's hook.
+    function applyTheme(save) {
         const cyber = userPreferences.displayTheme === 'retro-futuristic';
         widget.classList.toggle('retro-theme', cyber);
         if (cyber) applyCyberpunkTheme(widget); else clearCyberpunkTheme(widget);
-        if (maxFrame) syncMaxTheme();
-        phThemeChanged(hudC); phThemeChanged(hudM);
-        cache = {};
+        poolOnThemeChange();
         document.querySelectorAll('[data-theme]').forEach(b => b.classList.toggle('on', b.dataset.theme === userPreferences.displayTheme));
-        savePreferences();
-    }
-    // The Max modal is body-level: give it the widget's theme classes and tokens,
-    // as the host does for its PiP clone, so the Cyberpunk tokens resolve there.
-    function syncMaxTheme() {
-        const cyber = widget.classList.contains('retro-theme');
-        maxFrame.classList.toggle('retro-theme', cyber);
-        if (cyber) { applyCyberTokens(maxFrame); applyCyberShape(maxFrame); }
-        else { clearCyberTokens(maxFrame); clearCyberShape(maxFrame); }
+        if (save) savePreferences();
     }
 
-    // ── The match ─────────────────────────────────────────────────────
-    let mode = Q.get('mode') === 'pvp' ? 'pvp' : 'cpu';
-    const names = () => (mode === 'cpu' ? { 1: 'Ayesha', 2: 'CPU' } : { 1: 'Ayesha', 2: 'Bilal' });
-    const record = { 1: [0, 0], 2: [0, 0] }, frames = [0, 0];
-    let clockTotal = +(Q.get('clock') || store('poolProtoClock') || 0);
-    let clockLeft = clockTotal;
+    // ── The widget's own controller ───────────────────────────────────
+    if (Q.get('mode') === 'pvp') poolMode = 'pvp';
+    S.guideMode = Q.get('guides') || 'full';
+    S.callEvery = Q.has('every');
+    applyTheme(false);
+    initPoolGame();                                     // builds the HUD, racks, attaches, starts the loop
+    if (still) { S.running = false; if (S.raf) cancelAnimationFrame(S.raf); S.raf = null; }
 
-    const cfg = ppCreateWorld().cfg;
-    let world, frame, director = pcDirector(368, 412, cfg), cache = {};
-    let camera = Q.get('camera') === '2d' ? '2d' : '3d';
-    let lean = Q.has('lean') ? +Q.get('lean') : 35;
-    let shotCam = Q.get('shotcam') || store('poolProtoShotCam') || 'overhead';
-    let aim = 0, power = 0, spin = 0;
-    let phase = 'aim';                                  // aim | strike | moving | bih | over
-    let called = -1, guide = null, guideKey = '', drops = [], downPocketed = new Set();
-    let drag = null, strikeT = 0, breaker = 1, seed = +Q.get('seed') || 7;
-    let felt = Q.get('felt') || 'green', guideMode = Q.get('guides') || 'full';
-    let callEvery = Q.has('every');
-    let toast = null, toastMs = 0, fouled = 0, handoff = 0, result = null, placed = false;
-    let lastMs = 0, acc = 0;
-    const tipOf = () => PH_SPINS[spin % PH_SPINS.length];
-
-    // ── HUD ───────────────────────────────────────────────────────────
-    const on = {
-        camera: m => { camera = m; },
-        lean: v => { lean = v; },
-        spin: () => { spin = (spin + 1) % PH_SPINS.length; },
-        mode: () => { mode = mode === 'cpu' ? 'pvp' : 'cpu'; $('mode').value = mode; newFrame(1); },
-        reset: () => newFrame(breaker),
-        max: () => toggleMax(),
-        call: i => { called = i; },
-        ready: () => { handoff = 0; toast = null; fouled = 0; clockLeft = clockTotal; },
-        // Pick the cue ball up again. The clock pauses in ball in hand and
-        // carries on from where it was once the ball is down, so this never buys time back.
-        replace: () => { if (phase === 'aim' && frame.ballInHand && canAct() && !drag) { phase = 'bih'; placed = false; power = 0; } },
-        primary: () => newFrame(3 - breaker),
-        secondary: () => { mode = mode === 'cpu' ? 'pvp' : 'cpu'; $('mode').value = mode; newFrame(1); },
-    };
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const hudC = phBuild($('pool-root'), { layout: 'compact', on, canvas });
-    let hudM = null, maxFrame = null, hud = hudC;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    let W = 0, H = 0;
-
-    function fit() {
-        const r = hud.view.getBoundingClientRect();
-        const w = Math.round(r.width), h = Math.round(r.height);
-        if (w === W && h === H) return;
-        W = w; H = h;
-        canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
-        pcResize(director, W, H); cache = {};
-    }
-    function toggleMax() {
-        if (maxFrame) {
-            hudC.view.insertBefore(canvas, hudC.view.firstChild);
-            maxFrame.parentElement.remove(); maxFrame = null; hudM = null; hud = hudC;
-        } else {
-            const overlay = document.createElement('div');
-            overlay.className = 'pool-modal-overlay';
-            maxFrame = document.createElement('div');
-            maxFrame.className = 'pool-max-frame';
-            overlay.appendChild(maxFrame);
-            document.body.appendChild(overlay);
-            hudM = phBuild(maxFrame, { layout: 'max', on, canvas });
-            hud = hudM;
-            syncMaxTheme();
-            const k = Math.min(1, (innerWidth - 32) / 1280, (innerHeight - 32) / 800);
-            maxFrame.style.transform = 'scale(' + k + ')';
-            overlay.addEventListener('click', e => { if (e.target === overlay) toggleMax(); });
-        }
-        W = H = 0; fit();
-    }
-    window.addEventListener('keydown', e => { if (e.key === 'Escape' && maxFrame && !drag) toggleMax(); });
-
-    // ── Frames and scenes ─────────────────────────────────────────────
-    function newFrame(b) {
-        world = ppRack(ppCreateWorld(), ppRandom(seed++));
-        breaker = b || breaker;
-        frame = prNewFrame({ breaker, callEvery });
-        downPocketed = new Set(); drops = []; called = -1;
-        // Inside the kitchen, not on its line, so a click on the ball never rounds past it.
-        world.balls[0].x = world.table.headX - 80; world.balls[0].y = 0;
-        aim = 0; phase = 'bih'; placed = false; toast = null; fouled = 0; result = null;
-        handoff = 0; clockLeft = clockTotal;
-    }
+    // ── Scenes: design states set straight onto the controller ────────
     // The design's layouts (Table.dc.html), in its y-down frame; flipped here.
     const LAYOUTS = {
         mid: { balls: [[1, 230, -120], [3, 140, 20], [4, 330, 150], [6, -60, -160], [7, 420, -60], [8, 60, 190], [9, -300, -90], [11, 370, 40], [12, -380, 180], [15, -230, -200]], cue: [-160, 70] },
@@ -239,320 +231,85 @@ function hexToRgbStr(hex) {
         late: { balls: [[11, 370, 40], [12, -380, 180], [15, -230, -200]], cue: [60, 80] },
     };
     function scene(name) {
-        const L = LAYOUTS[name === 'bih' || name === 'bihbad' || name === 'foul' || name === 'clock' || name === 'win' || name === 'loss' ? (name === 'win' || name === 'loss' ? 'late' : 'mid') : name];
-        if (!L) { newFrame(1); return; }
-        world = ppCreateWorld();
+        const key = name === 'win' || name === 'loss' ? 'late' : ['bih', 'bihbad', 'foul', 'clock'].includes(name) ? 'mid' : name;
+        const L = LAYOUTS[key];
+        poolNewFrame(1);
+        if (!L) return;
+        const w = ppCreateWorld();
         const onT = new Set(L.balls.map(b => b[0]));
-        world.balls = [ppMakeBall(0, L.cue[0], -L.cue[1])].concat(L.balls.map(([id, x, y]) => ppMakeBall(id, x, -y)));
-        for (let id = 1; id <= 15; id++) if (!onT.has(id)) world.balls.push(Object.assign(ppMakeBall(id, 0, 0), { state: 'pocketed' }));
-        frame = prNewFrame({ breaker: 1, callEvery });
-        Object.assign(frame, { isBreak: false, ballInHand: null, shots: 5, groups: { 1: 'solids', 2: 'stripes' } });
-        downPocketed = new Set(world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
-        drops = []; called = -1; toast = null; fouled = 0; handoff = 0; result = null; placed = false;
-        aim = Q.has('aim') ? -(+Q.get('aim')) * DEG : 6.8 * DEG;
-        phase = 'aim';
-        if (name === 'bih' || name === 'bihbad') { phase = 'bih'; frame.ballInHand = 'anywhere'; }
-        if (name === 'bihbad') { const b = world.balls.find(o => o.id === 3); prPlaceCue(world, b.x + 10, b.y + 6); }
+        w.balls = [ppMakeBall(0, L.cue[0], -L.cue[1])].concat(L.balls.map(([id, x, y]) => ppMakeBall(id, x, -y)));
+        for (let id = 1; id <= 15; id++) if (!onT.has(id)) w.balls.push(Object.assign(ppMakeBall(id, 0, 0), { state: 'pocketed' }));
+        S.world = w;
+        Object.assign(S.frame, { isBreak: false, ballInHand: null, shots: 5, groups: { 1: 'solids', 2: 'stripes' } });
+        S.down = new Set(w.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+        S.aim = Q.has('aim') ? -(+Q.get('aim')) * DEG : 6.8 * DEG;
+        S.phase = 'aim'; S.guideKey = '';
+        if (name === 'bih' || name === 'bihbad') { S.phase = 'bih'; S.frame.ballInHand = 'anywhere'; }
+        if (name === 'bihbad') { const b = w.balls.find(o => o.id === 3); prPlaceCue(w, b.x + 10, b.y + 6); }
     }
 
-    // ── Aim helpers ───────────────────────────────────────────────────
-    const cueBall = () => world.balls[0];
-    function legalTarget(id) {
-        const st = prStatus(frame, world);
-        if (frame.isBreak) return true;
-        if (st.onThe8) return id === 8;
-        if (id === 8) return false;
-        return !st.group || prGroupOf(id) === st.group;
-    }
-    function aimAtNearest() {
-        const c = cueBall();
-        const cands = world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed' && legalTarget(b.id));
-        if (!cands.length) return;
-        cands.sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y));
-        aim = Math.atan2(cands[0].y - c.y, cands[0].x - c.x);
-    }
-    const speedOf = p => cfg.maxSpeed * p / 100;
-    function refreshGuide() {
-        if (phase !== 'aim' && phase !== 'strike') { guide = null; return; }
-        const p = drag ? Math.max(power, 5) : 50, t = tipOf();
-        const key = [aim.toFixed(5), Math.round(p), t.x, t.y, world.t].join();
-        if (key === guideKey) return;
-        guideKey = key;
-        guide = pgGuide(world, { angle: aim, speed: speedOf(p), tipX: t.x, tipY: t.y });
-    }
-    const canAct = () => !handoff && !(hud === hudC && maxFrame);
-
-    // ── Input ─────────────────────────────────────────────────────────
-    const view = () => pcView(director.pose || pcDirect(director, camInput(), 0));
-    function local(e) { const r = canvas.getBoundingClientRect(); const k = r.width / W || 1; return [(e.clientX - r.left) / k, (e.clientY - r.top) / k]; }
-    function tableAt(sx, sy) { return view().unproject(sx, sy, cfg.ballR); }
-    // Aiming belongs to the table from the moment the mouse enters it and keeps
-    // following the mouse after it leaves (up to AIM_REACH px out). It lets go on
-    // another control, further away, or a press anywhere else.
-    const AIM_REACH = 240;
-    let armed = false, lastX = null;
-    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-    const isControl = el => !!(el && el.closest && el.closest('button, input, select, label, a, fieldset'));
-    const disarm = () => { armed = false; lastX = null; };
-    canvas.addEventListener('pointerenter', e => { armed = true; lastX = local(e)[0]; });
-    window.addEventListener('pointerdown', e => { if (e.target !== canvas) disarm(); }, true);
-    document.documentElement.addEventListener('pointerleave', disarm);
-    window.addEventListener('blur', disarm);
-    // Power, as in the old engine: only movement along the shot line counts,
-    // pulled back or pushed forward; full power fits inside the canvas.
-    function shotAxis() {
-        const v = view(), c = cueBall(), R = cfg.ballR;
-        const a = pcProject(v, [c.x, c.y, R]), b = pcProject(v, [c.x + Math.cos(aim) * 60, c.y + Math.sin(aim) * 60, R]);
-        if (!a || !b) return [0, -1];
-        const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-        return [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
-    }
-    function room(px, py, ux, uy) {
-        let t = Infinity;
-        if (ux > 1e-9) t = Math.min(t, (W - px) / ux); else if (ux < -1e-9) t = Math.min(t, -px / ux);
-        if (uy > 1e-9) t = Math.min(t, (H - py) / uy); else if (uy < -1e-9) t = Math.min(t, -py / uy);
-        return Math.max(0, t);
-    }
-    const DEAD = 4;
-    canvas.addEventListener('pointerdown', e => {
-        if (!canAct()) return;
-        const [sx, sy] = local(e);
-        canvas.setPointerCapture(e.pointerId);
-        armed = true; lastX = sx;
-        if (phase === 'bih') { drag = { kind: 'place' }; placed = false; place(sx, sy); return; }
-        if (phase !== 'aim') return;
-        const st = prStatus(frame, world);
-        if (st.callRequired) {
-            const hit = pgPocketMarks(view(), world.table).find(m => m.inView && Math.hypot(m.x - sx, m.y - sy) < Math.max(22, m.r));
-            if (hit) { called = hit.i; return; }
-            if (called < 0) return;
-        }
-        const ax = shotAxis();
-        const reach = clamp(Math.max(room(sx, sy, ax[0], ax[1]), room(sx, sy, -ax[0], -ax[1])) - 6, 40, W > 1000 ? 220 : 140);
-        drag = { kind: 'power', x: sx, y: sy, ax, reach };
-        power = 0;
-    });
-    window.addEventListener('pointermove', e => {
-        const [sx, sy] = local(e);
-        if (drag && drag.kind === 'place') { place(sx, sy); return; }
-        if (drag && drag.kind === 'power') {
-            const px = clamp(sx, 0, W), py = clamp(sy, 0, H);
-            const along = Math.abs((px - drag.x) * drag.ax[0] + (py - drag.y) * drag.ax[1]);
-            power = Math.min(100, Math.max(0, along - DEAD) / (drag.reach - DEAD) * 100);
-            return;
-        }
-        if (!armed) return;
-        const far = sx < -AIM_REACH || sx > W + AIM_REACH || sy < -AIM_REACH || sy > H + AIM_REACH;
-        if (far || isControl(e.target)) { disarm(); return; }
-        const dx = lastX === null ? 0 : sx - lastX;
-        lastX = sx;
-        if (phase !== 'aim' || !canAct()) return;
-        if (camera === '3d') aim -= dx * (e.shiftKey ? 0.05 : 0.3) * DEG;
-        else {
-            const p = tableAt(sx, sy), c = cueBall();
-            if (p && Math.hypot(p[0] - c.x, p[1] - c.y) > 2) aim = Math.atan2(p[1] - c.y, p[0] - c.x);
-        }
-    });
-    canvas.addEventListener('pointerup', () => {
-        if (!drag) return;
-        const d = drag; drag = null;
-        if (d.kind === 'place') {
-            const c = cueBall();
-            if (!prCanPlace(world, c.x, c.y, frame.ballInHand)) { placed = true; phase = 'aim'; aimAtNearest(); }
-            return;
-        }
-        if (power < 3) { power = 0; return; }
-        phase = 'strike'; strikeT = 0;
-    });
-    window.addEventListener('keydown', e => {
-        if (e.key === 'Escape' && drag && drag.kind === 'power') { drag = null; power = 0; }
-        if (phase === 'aim' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-            aim += (e.key === 'ArrowLeft' ? 1 : -1) * 0.1 * DEG; e.preventDefault();
-        }
-    });
-    // The ball follows the pointer but stops at the cushions and, on the
-    // break, at the head string, so it can be dragged along them (as v1 did).
-    function place(sx, sy) {
-        const p = pcView(pcOrtho(W, H, cfg)).unproject(sx, sy);
-        const q = prClampPlace(world, p[0], p[1], frame.ballInHand);
-        prPlaceCue(world, q[0], q[1]);
-    }
-
-    // ── Rig controls ──────────────────────────────────────────────────
-    document.querySelectorAll('[data-theme]').forEach(b => b.onclick = () => { userPreferences.displayTheme = b.dataset.theme; applyTheme(); });
-    const pal = $('palette');
-    pal.innerHTML = '<option value="">(custom)</option>' + Object.keys(CYBER_PALETTES).map(k => '<option value="' + k + '">' + CYBER_PALETTES[k].label + '</option>').join('');
-    pal.onchange = () => { if (pal.value) { Object.assign(userPreferences, CYBER_PALETTES[pal.value]); applyTheme(); } };
-    $('shape').value = userPreferences.cyberPanelShape;
-    $('shape').onchange = e => { userPreferences.cyberPanelShape = e.target.value; applyTheme(); };
-    $('mode').value = mode; $('mode').onchange = e => { mode = e.target.value; newFrame(1); };
-    $('clock').value = String(clockTotal);
-    $('clock').onchange = e => { clockTotal = +e.target.value; clockLeft = clockTotal; store('poolProtoClock', String(clockTotal)); };
-    $('every').checked = callEvery; $('every').onchange = e => { callEvery = e.target.checked; frame.callEvery = callEvery; };
-    $('shotcam').value = shotCam; $('shotcam').onchange = e => { shotCam = e.target.value; store('poolProtoShotCam', shotCam); };
-    $('guides').value = guideMode; $('guides').onchange = e => { guideMode = e.target.value; };
-    $('felt').value = felt; $('felt').onchange = e => { felt = e.target.value; cache = {}; };
-    document.querySelectorAll('[data-scene]').forEach(b => b.onclick = () => scene(b.dataset.scene));
-
-    // ── The loop ──────────────────────────────────────────────────────
-    function camInput() {
-        const c = cueBall();
-        return { camera, shotCam, phase: phase === 'moving' ? 'moving' : phase === 'bih' ? 'bih' : 'aim', cue: [c.x, c.y], aim, lean };
-    }
-    function recordText(seat) {
-        if (mode === 'cpu' && seat === 2) return 'Adaptive · Normal';
-        return record[seat][0] + 'W · ' + record[seat][1] + 'L';
-    }
-    function showToast(t) { toast = t; toastMs = t && t.kind !== 'foul' ? 2200 : 0; }
-    function afterTurn(v) {
-        const shooter = v.shooter;
-        frame = v.next; called = -1; spin = 0; power = 0;
-        if (v.frameOver) {
-            const w = v.winner, l = 3 - w;
-            record[w][0]++; record[l][1]++; frames[w - 1]++;
-            const t = prText(v, names());
-            const you = mode === 'cpu' ? w === 1 : null;
-            result = {
-                win: you === null ? true : you, title: t.title, reason: t.sub,
-                recordLabel: (mode === 'cpu' ? names()[1] : names()[w]).toUpperCase() + ' · RECORD',
-                record: recordText(mode === 'cpu' ? 1 : w),
-                delta: mode === 'cpu' ? (you ? '+1 WIN' : '+1 LOSS') : '+1 WIN',
-                note: mode === 'cpu' ? 'Adaptive stays at Normal' : '',
-            };
-            phase = 'over'; toast = null; return;
-        }
-        fouled = v.foul ? shooter : 0;
-        // Hot-seat: when the table changes hands, the next player takes the seat first.
-        if (mode === 'pvp' && frame.turn !== shooter) handoff = frame.turn;
-        if (frame.ballInHand) {
-            const c = cueBall();
-            if (c.state === 'pocketed') prPlaceCue(world, world.table.headX - 80, 0);
-            phase = 'bih'; placed = false;
-        } else { phase = 'aim'; aimAtNearest(); }
-        clockLeft = clockTotal;
-    }
-    function settle() {
-        const v = prJudge(frame, world, called);
-        showToast(prText(v, names()));
-        if (v.respot8) prSpotBall(world, 8);
-        afterTurn(v);
-    }
-    function tick(ms) {
-        const dt = lastMs ? Math.min(100, ms - lastMs) : 16; lastMs = ms;
-        if (phase === 'strike') {
-            strikeT += dt;
-            if (strikeT >= 90) {
-                world.log = [];
-                const t = tipOf();
-                ppStrike(world, { angle: aim, speed: speedOf(power), tipX: t.x, tipY: t.y });
-                phase = 'moving'; acc = 0; toast = null; fouled = 0;
-            }
-        } else if (phase === 'moving') {
-            acc += dt;
-            while (acc >= 1000 / 60) {
-                ppStep(world, 1 / 60); acc -= 1000 / 60;
-                world.balls.forEach(b => {
-                    if (b.state === 'pocketed' && !downPocketed.has(b.id)) {
-                        downPocketed.add(b.id);
-                        drops.push({ ball: Object.assign({}, b, { q: b.q.slice() }), pocket: b.pocket, t: 0 });
-                    }
-                });
-                if (ppSettled(world)) { ppSimulate(world, 0.001); settle(); break; }
-            }
-        } else if (phase === 'aim' && clockTotal && canAct() && !drag) {
-            // The clock waits for the hand-off and for ball in hand, as today.
-            clockLeft -= dt / 1000;
-            if (clockLeft <= 0) {
-                const v = prTimeout(frame);
-                showToast(prText(v, names()));
-                afterTurn(v);
-            }
-        }
-        if (toastMs) { toastMs -= dt; if (toastMs <= 0) { toastMs = 0; if (!handoff) toast = null; } }
-        drops.forEach(d => { d.t += dt / 250; });
-        drops = drops.filter(d => d.t < 1);
-        downPocketed = new Set(world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
-        draw(dt);
-        if (!still) requestAnimationFrame(tick);
-    }
-    function draw(dt) {
-        fit();
-        const pose = pcDirect(director, camInput(), dt);
-        const v = pcView(pose);
-        refreshGuide();
-        const st = prStatus(frame, world);
-        const aiming = (phase === 'aim' || phase === 'strike') && !handoff;
-        const pull = 8 + power * 1.1;
-        const gap = phase === 'strike' ? pull + (1 - pull) * Math.min(1, strikeT / 90) : pull;
-        const c = cueBall();
-        const bihBad = phase === 'bih' ? prCanPlace(world, c.x, c.y, frame.ballInHand) : null;
-        pgRender(ctx, {
-            view: v, world, felt, dpr, cache, theme: phThemeTokens(hud),
-            makeCanvas: (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h }),
-            aim: aiming ? { angle: aim, power, gap } : null,
-            guide: aiming ? guide : null, guideMode,
-            illegal: !!(guide && guide.hit > 0 && !legalTarget(guide.hit)),
-            bih: phase === 'bih' ? { x: c.x, y: c.y, valid: !bihBad } : null,
-            kitchen: phase === 'bih' && frame.ballInHand === 'kitchen',
-            call: aiming && st.callRequired ? { called } : null,
-            drops,
-        });
-        const gs = phase === 'bih' ? pcProject(v, [c.x, c.y, cfg.ballR]) : null;
-        const vm = phModel({
-            layout: hud.layout, mode, names: names(), records: { 1: recordText(1), 2: recordText(2) }, frames, trophies: record[1][0],
-            frame, world, phase, camera, lean, power, dragging: !!(drag && drag.kind === 'power'), spin, called,
-            clock: clockTotal ? { left: Math.max(0, clockLeft), total: clockTotal } : null,
-            toast, fouled, handoff,
-            bih: phase === 'bih' ? { valid: !bihBad, reason: bihBad, placed, sx: gs && gs[0], sy: gs && gs[1], sr: gs ? cfg.ballR * gs[2] : 0 } : null,
-            result,
-            canReplace: !!frame.ballInHand && placed && canAct(),
-        });
-        phRender(hud, vm);
-        $('trophies').textContent = record[1][0];
-    }
-
-    // ── Start ─────────────────────────────────────────────────────────
-    applyTheme();
     const sc = Q.get('scene') || 'rack';
-    if (sc === 'rack' || sc === 'break') newFrame(1); else scene(sc);
-    if (sc === 'rack' && still && !Q.has('bihbreak')) { phase = 'aim'; aim = 0; }
-    if (Q.has('power')) { power = +Q.get('power'); drag = { kind: 'power', x: 0, y: 0, ax: [0, -1], reach: 140 }; }
-    if (Q.has('call')) called = +Q.get('call');
-    if (Q.has('spin')) spin = +Q.get('spin');
-    if (Q.has('max')) toggleMax();
-    if (Q.has('placed') && phase === 'bih') { placed = true; phase = 'aim'; aimAtNearest(); }
-    // Design states for snapshot.js.
+    if (sc !== 'rack' && sc !== 'break') scene(sc);
+    if (sc === 'rack' && still && !Q.has('bihbreak')) { S.phase = 'aim'; S.aim = 0; }
+    if (Q.has('power')) { S.power = +Q.get('power'); S.drag = { kind: 'power', x: 0, y: 0, ax: [0, -1], reach: 140 }; }
+    if (Q.has('call')) S.called = +Q.get('call');
+    // ?spin=i picks a preset, ?tipx=&tipy= any tip, ?spinopen=1 opens the picker.
+    if (Q.has('spin')) { const p = PH_SPINS[+Q.get('spin') % PH_SPINS.length]; S.tip = { x: p.x, y: p.y }; }
+    if (Q.has('tipx') || Q.has('tipy')) S.tip = phClampTip(+Q.get('tipx') || 0, +Q.get('tipy') || 0);
+    if (Q.has('spinopen')) S.spinOpen = true;
+    if (Q.has('max')) togglePoolMaximize();
+    if (Q.has('placed') && S.phase === 'bih') { S.placed = true; S.phase = 'aim'; poolAimAtNearest(); }
     if (sc === 'foul') {
-        mode = 'pvp';
-        const v = Object.assign(prJudge(frame, Object.assign({}, world, { log: [{ type: 'strike' }, { type: 'ball', a: 0, b: 12 }, { type: 'cushion', ball: 0 }] }), -1));
-        showToast(prText(v, names())); afterTurn(v); camera = '2d';
+        poolMode = 'pvp';
+        const v = prJudge(S.frame, Object.assign({}, S.world, { log: [{ type: 'strike' }, { type: 'ball', a: 0, b: 12 }, { type: 'cushion', ball: 0 }] }), -1);
+        poolShowToast(prText(v, poolNames())); poolAfterTurn(v);
+        userPreferences.poolCamera = '2d';
     }
-    if (sc === 'clock') { mode = 'pvp'; clockTotal = 30; clockLeft = Q.has('hot') ? 4 : 18; }
+    if (sc === 'clock') { poolMode = 'pvp'; S.clockLeft = Q.has('hot') ? 4 : 18; }
     if (sc === 'win' || sc === 'loss') {
         const w = sc === 'win' ? 1 : 2;
-        afterTurn({ frameOver: true, winner: w, shooter: w === 1 ? 1 : 1, reason: sc === 'win' ? 'eightPotted' : 'eightScratch', foul: sc === 'loss' ? 'scratch' : null,
-            next: Object.assign({}, frame, { over: true, winner: w }) });
+        poolAfterTurn({ frameOver: true, winner: w, shooter: 1, reason: sc === 'win' ? 'eightPotted' : 'eightScratch', foul: sc === 'loss' ? 'scratch' : null,
+            next: Object.assign({}, S.frame, { over: true, winner: w }) });
     }
     if (sc === 'break') {
-        phase = 'aim';
-        if (Q.has('aim')) aim = -(+Q.get('aim')) * DEG;
-        pcDirect(director, camInput(), 0);              // the camera sees the aim before the strike
-        phase = 'moving';
-        ppStrike(world, { angle: aim, speed: cfg.maxSpeed, tipX: 0, tipY: 0 });
-        for (let i = 0; i < (+Q.get('t') || 15); i++) ppStep(world, 1 / 60);
-        pcDirect(director, camInput(), 0); pcDirect(director, camInput(), 5000);
+        S.phase = 'aim';
+        if (Q.has('aim')) S.aim = -(+Q.get('aim')) * DEG;
+        poolFit(); pcDirect(S.director, poolCamInput(), 0);    // the camera sees the aim before the strike
+        prPlaceCue(S.world, S.world.table.headX - 80, 0);
+        ppStrike(S.world, { angle: S.aim, speed: S.cfg.maxSpeed, tipX: 0, tipY: 0 });
+        S.phase = 'moving';
+        for (let i = 0; i < (+Q.get('t') || 15); i++) ppStep(S.world, 1 / 60);
+        pcDirect(S.director, poolCamInput(), 0); pcDirect(S.director, poolCamInput(), 5000);
     }
     if (still) {
         requestAnimationFrame(() => {
-            fit();
-            pcDirect(director, camInput(), 0);
-            draw(0);
-            if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { draw(0); window.__ready = true; });
+            const settle = () => { S.drawKey = ''; poolDraw(0); poolDraw(5000); };
+            settle();
+            if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { settle(); window.__ready = true; });
             else window.__ready = true;
         });
-    } else requestAnimationFrame(tick);
+    }
+
+    // ── Rig controls ──────────────────────────────────────────────────
+    document.querySelectorAll('[data-theme]').forEach(b => b.onclick = () => { userPreferences.displayTheme = b.dataset.theme; applyTheme(true); });
+    const pal = $('palette');
+    pal.innerHTML = '<option value="">(custom)</option>' + Object.keys(CYBER_PALETTES).map(k => '<option value="' + k + '">' + CYBER_PALETTES[k].label + '</option>').join('');
+    pal.onchange = () => { if (pal.value) { Object.assign(userPreferences, CYBER_PALETTES[pal.value]); applyTheme(true); } };
+    $('shape').value = userPreferences.cyberPanelShape;
+    $('shape').onchange = e => { userPreferences.cyberPanelShape = e.target.value; applyTheme(true); };
+    $('narrow').checked = Q.has('narrow'); $('narrow').onchange = e => setNarrow(e.target.checked);
+    $('mode').value = poolMode; $('mode').onchange = e => { if (e.target.value !== poolMode) togglePoolMode(); };
+    $('every').checked = S.callEvery; $('every').onchange = e => { S.callEvery = e.target.checked; S.frame.callEvery = S.callEvery; };
+    $('shotcam').value = userPreferences.poolShotCam; $('shotcam').onchange = e => { userPreferences.poolShotCam = e.target.value; savePreferences(); };
+    $('guides').value = S.guideMode; $('guides').onchange = e => { S.guideMode = e.target.value; };
+    $('felt').value = userPreferences.poolTableColor; $('felt').onchange = e => { userPreferences.poolTableColor = e.target.value; savePreferences(); };
+    document.querySelectorAll('[data-scene]').forEach(b => b.onclick = () => scene(b.dataset.scene));
+    // The HUD's Vs CPU button switches the mode too; keep the rig's select in step.
+    setInterval(() => { if ($('mode').value !== poolMode) $('mode').value = poolMode; }, 300);
+
     // What only a real browser can check, run by `snapshot.js --check` on each scene.
     window.__hudAudit = () => {
+        const hud = S.hud, canvas = S.canvas, tip = S.tip;
         const out = [], ok = (name, cond, detail) => out.push([name, !!cond, detail === undefined ? '' : String(detail)]);
         const vr = hud.view.getBoundingClientRect();
         const visible = el => !el.closest('[hidden]') && el.getClientRects().length > 0;
@@ -571,22 +328,33 @@ function hexToRgbStr(hex) {
         const outside = layer.filter(el => { const r = el.getBoundingClientRect(); return r.left < vr.left - 1 || r.right > vr.right + 1 || r.top < vr.top - 1 || r.bottom > vr.bottom + 1; });
         ok('every overlay stays inside the table', !outside.length, outside.map(e => e.className).join(', '));
         const hit = (a, b) => { const p = a.getBoundingClientRect(), q = b.getBoundingClientRect(); return p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom; };
-        [['spin', 'hint'], ['cam', 'pill'], ['lean', 'spin'], ['mini', 'lean'], ['replace', 'hint'], ['replace', 'gauge'], ['replace', 'spin'], ['replace', 'toast'], ['replace', 'lock']].forEach(([a, b]) => {
+        [['spin', 'hint'], ['cam', 'pill'], ['lean', 'spin'], ['mini', 'lean'], ['replace', 'hint'], ['replace', 'gauge'], ['replace', 'spin'], ['replace', 'toast'], ['replace', 'lock'],
+         ['gauge', 'hint'], ['lock', 'pill'], ['gauge', 'pill'], ['spinpop', 'spin'], ['spinpop', 'hint'], ['spinpop', 'pill'], ['spinpop', 'cam']].forEach(([a, b]) => {
             if (hud[a] && hud[b] && visible(hud[a]) && visible(hud[b])) ok(a + ' and ' + b + ' do not overlap', !hit(hud[a], hud[b]));
         });
-        const clipped = Array.from(hud.el.querySelectorAll('.ph-name, .ph-tag, .ph-hint span, .ph-pill span, .ph-cam span, .ph-frames-n, .ph-toast-title, .ph-dialog-title, .ph-btn span, .ph-replace span'))
+        const clipped = Array.from(hud.el.querySelectorAll('.ph-name, .ph-tag, .ph-hint span, .ph-pill span, .ph-cam span, .ph-frames-n, .ph-toast-title, .ph-dialog-title, .ph-btn span, .ph-replace span, .ph-spinpop-read, .ph-spinpop-chips .ph-btn, .ph-spin-v, .ph-handoff-to, .ph-handoff-from, .ph-handoff .ph-primary'))
             .filter(visible).filter(el => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).display !== 'inline');
         ok('no label is cut off', !clipped.length, clipped.map(e => e.className + ' "' + e.textContent + '"').join(', '));
-        const cs = getComputedStyle(hud.el), card = cs.getPropertyValue('--pool-card').trim();
+        if (Q.has('spinopen')) {
+            ok('the spin picker is open', visible(hud.spinpop));
+            const b = hud.spinbig.getBoundingClientRect(), d = hud.spinbigd.getBoundingClientRect();
+            const ex = b.left + b.width / 2 + tip.x * b.width / 2, ey = b.top + b.height / 2 - tip.y * b.height / 2;
+            ok('the picker dot sits where the tip strikes', Math.abs(d.left + d.width / 2 - ex) < 1 && Math.abs(d.top + d.height / 2 - ey) < 1, [d.left + d.width / 2 - ex, d.top + d.height / 2 - ey].map(v => v.toFixed(2)).join());
+        }
+        if (visible(hud.handoff)) { const h = hud.handoff; ok('the hand-off strip holds its content', h.scrollHeight <= h.clientHeight + 1 && h.scrollWidth <= h.clientWidth + 1, h.scrollWidth + 'x' + h.scrollHeight + ' in ' + h.clientWidth + 'x' + h.clientHeight); }
         if (Q.has('placed')) ok('the Move cue ball button shows once the ball is placed', visible(hud.replace));
+        if (Q.has('narrow') && hud.layout === 'compact') ok('the narrow column gives the HUD 316 px, as the widget does', Math.abs(hud.el.getBoundingClientRect().width - 316) < 1, hud.el.getBoundingClientRect().width);
+        const card = getComputedStyle(hud.el).getPropertyValue('--pool-card').trim();
         ok('--pool-card resolves', card && !/var\(/.test(card), card);
         const t = phThemeTokens(hud);
         ok('the canvas bridge hands the renderer a hex accent', /^#[0-9a-f]{6}$/.test(t.accent), t.accent);
         if (widget.classList.contains('retro-theme')) ok('in Cyberpunk the felt accent is the user\'s accent', t.accent === (userPreferences.cyberAccent || '').toLowerCase(), t.accent + ' vs ' + userPreferences.cyberAccent);
-        ok('canvas backing store is CSS size × dpr', canvas.width === Math.round(W * dpr) && Math.abs(W - vr.width) < 1, canvas.width + ' for ' + W);
+        ok('canvas backing store is its CSS size × dpr', canvas.width === Math.round(S.W * S.dpr) && S.W === canvas.clientWidth, canvas.width + ' for ' + S.W);
         return out;
     };
-    window.__pool = { get world() { return world; }, get director() { return director; }, get frame() { return frame; }, get phase() { return phase; }, get aim() { return aim; }, get power() { return power; }, view, get hud() { return hud; } };
+    // For ad-hoc DevTools drives: the controller's state.
+    window.__pool = { S, get world() { return S.world; }, get frame() { return S.frame; }, get phase() { return S.phase; }, get aim() { return S.aim; },
+        get power() { return S.power; }, get director() { return S.director; }, get hud() { return S.hud; }, view: poolView };
 })();
 </script>
 </body>

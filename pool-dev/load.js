@@ -1,54 +1,59 @@
-// Shared loader: evaluates pool-core.js + pool-ui.js as one unit and hands back
-// their internals. Both files are indented blocks of the userscript's IIFE body,
-// so they have no exports of their own; wrapping them in a Function is what
-// makes the same source both drop-in-able and testable (the snake-dev trick).
+// Loads the v2 pool modules the way the userscript holds them: one scope, in
+// splice order. Each file is an indented block of the userscript's IIFE body,
+// so wrapping the concatenation in a Function makes the same source both
+// drop-in-able and testable (the snake-dev trick).
 //
-// Differences from snake-dev/load.js, both deliberate:
-//   - Host dependencies arrive as Function parameters, not globals, so two
-//     loads in one process cannot see each other's stubs.
-//   - The pool storage helpers are the REAL ones, sliced out of the userscript,
-//     because the leaderboard and restore paths depend on exactly how they seed
-//     poolWinsByMode. A stub would test a copy.
+//   require('./load').physics()   pp*                  the physics alone
+//   require('./load').rules()     + pr*                the rules
+//   require('./load').render()    + pc*, pg*           camera and renderer
+//   require('./load').hud()       + ph*                the HUD (its DOM parts need a browser)
+//   require('./load').ai()        physics, rules, pa*  the stand-in CPU
+//   require('./load').game(opts)  everything, pool-game.js included, against a
+//                                 stubbed host: the match, the CPU's turn, XP and
+//                                 records run headless; the DOM parts do not
 //
-//   const P = require('./load')({ seed: 7 });
-//   P.resetPoolGame(); P.balls.length === 16
+// The v1 engine and its loader are frozen in v1/ for baseline-check.js.
 const fs   = require('fs');
 const path = require('path');
 
-const FILES  = ['pool-core.js', 'pool-ui.js'];
+// Splice order: each file only uses names from the ones before it at call time,
+// but keeping the dependency order makes the block read top-down.
+const FILES = ['pool-physics.js', 'pool-rules.js', 'pool-camera.js', 'pool-render.js', 'pool-hud.js', 'pool-ai.js', 'pool-game.js'];
 const TARGET = path.join(__dirname, '..', 'AttendanceTimeCheckerPlus.js');
+// Module prefixes, plus the host-facing names pool-game.js keeps from v1.
+const PREFIX = /^    (?:function|const)\s+((?:pp|PP_|pr|PR_|pc|PC_|pg|PG_|ph|PH_|pa|PA_|pool|POOL_|initPool|resetPool|togglePool)[\w$]*)/gm;
 
-function source() {
-    return FILES.map(f => fs.readFileSync(path.join(__dirname, f), 'utf8')).join('\n\n');
+const read = f => fs.readFileSync(path.join(__dirname, f), 'utf8');
+
+function v2(files) {
+    const src = files.map(read).join('\n');
+    const names = [...src.matchAll(PREFIX)].map(m => m[1]);
+    return new Function(src + '\nreturn { ' + names.join(', ') + ' };')();
 }
 
-// loadPoolHighScore … savePoolRecord, verbatim from the host.
+// The v2 physics on its own. It needs nothing from the host.
+function physics() { return v2(['pool-physics.js']); }
+// The rules on top of the physics, in one scope as they will be in the userscript.
+function rules() { return v2(['pool-physics.js', 'pool-rules.js']); }
+// Physics, rules, camera and renderer together.
+function render() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-camera.js', 'pool-render.js']); }
+// Everything above plus the HUD. Its DOM functions touch `document` only when
+// called, so the pure view model (phModel) loads and runs in Node.
+function hud() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-camera.js', 'pool-render.js', 'pool-hud.js']); }
+// The rules plus the stand-in CPU.
+function ai() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-ai.js']); }
+
+// loadPoolHighScore … savePoolRecord, verbatim from the host: the leaderboard
+// and restore paths depend on exactly how they seed poolWinsByMode.
 function hostStorageHelpers() {
     const src = fs.readFileSync(TARGET, 'utf8').replace(/\r\n/g, '\n');
     const from = src.indexOf('    function loadPoolHighScore() {');
     const to   = src.indexOf('    // ludoGamesWon / ludoRecord live in the LUDO block');
-    if (from === -1 || to === -1 || to < from) {
-        throw new Error('pool storage helpers not found in AttendanceTimeCheckerPlus.js');
-    }
+    if (from === -1 || to === -1 || to < from) throw new Error('pool storage helpers not found in AttendanceTimeCheckerPlus.js');
     return src.slice(from, to);
 }
 
-// Every top-level `let` in the pool block, so the accessor object can expose
-// all state without a hand-kept list that silently goes stale.
-function stateNames(src) {
-    const names = [];
-    for (const line of src.split(/\r?\n/)) {
-        const m = /^    let\s+(.+?);/.exec(line);
-        if (!m) continue;
-        m[1].split(',').forEach(part => {
-            const id = part.trim().split(/[\s=]/)[0];
-            if (/^[A-Za-z_$][\w$]*$/.test(id)) names.push(id);
-        });
-    }
-    return names;
-}
-
-// mulberry32: small, fast, and good enough to make a rack or a CPU miss repeatable.
+// mulberry32, for a reproducible Math.random / Date.now inside one load.
 function seededRandom(seed) {
     let a = seed >>> 0;
     return function () {
@@ -60,145 +65,65 @@ function seededRandom(seed) {
     };
 }
 
-function makeCanvas(w, h, ctxFactory) {
-    const canvas = {
-        width: w, height: h, style: {},
-        getBoundingClientRect: () => ({ left: 0, top: 0, width: canvas.width, height: canvas.height }),
-        addEventListener() {}, removeEventListener() {},
-    };
-    canvas.getContext = () => (ctxFactory ? ctxFactory(canvas) : stubContext(canvas));
-    return canvas;
-}
-
-// Accepts every Canvas2D call and records nothing: proves the renderer runs, not what it draws.
-function stubContext(canvas) {
-    const noop = () => {};
-    return new Proxy({}, {
-        get: (t, k) => {
-            if (k === 'canvas') return canvas;
-            if (k in t) return t[k];
-            if (k === 'createLinearGradient' || k === 'createRadialGradient') return () => ({ addColorStop: noop });
-            if (k === 'measureText') return () => ({ width: 10 });
-            if (k === 'getLineDash') return () => [];
-            return noop;
-        },
-        set: (t, k, v) => { t[k] = v; return true; },
-    });
-}
-
 const HOST_PARAMS = [
-    'Math', 'document', 'localStorage', 'requestAnimationFrame', 'cancelAnimationFrame',
-    'userPreferences', 'FIXED_DT', 'getFrameInterval', 'currentGame',
+    'document', 'window', 'localStorage', 'requestAnimationFrame', 'cancelAnimationFrame', 'Date',
+    'userPreferences', 'savePreferences', 'getFrameInterval', 'currentGame', 'lbDisplayName',
     'xpSystemReady', 'userXP', 'checkLevelUp', 'saveUserXP', 'showXPNotification', 'updateXPDisplay',
     'awardGameXP', 'updateGameScoreBtn', 'toggleGameMaxModal',
+    'applyCyberTokens', 'applyCyberShape', 'clearCyberTokens', 'clearCyberShape',
 ];
 
-module.exports = function load(opts) {
+// opts: { store, prefs, name, seed, xpSystemReady }
+function game(opts) {
     opts = opts || {};
     const store = opts.store || {};
-    const log = { xp: [], notes: [], scoreBtn: [], maxModal: [] };
-
-    const canvas = opts.canvas || makeCanvas(368, 368, opts.ctxFactory);
-    const els = {};
-    const el = id => (els[id] = els[id] || { id, textContent: '', style: {} });
-    const document = {
-        getElementById: id => (id === 'pool-canvas' ? canvas : el(id)),
-        querySelectorAll: () => [],
-        addEventListener() {}, removeEventListener() {},
-    };
+    const log = { xp: [], notes: [], scoreBtn: [], maxModal: [], saves: 0 };
     const localStorage = {
         getItem: k => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
         setItem: (k, v) => { store[k] = String(v); },
         removeItem: k => { delete store[k]; },
     };
-    const rng = opts.seed == null ? Math.random : seededRandom(opts.seed);
-    const MathShim = Object.create(Math, { random: { value: rng } });
+    const noop = () => {};
+    // No panel in Node: initPoolGame() finds no #pool-root and returns.
+    const document = { getElementById: () => null, createElement: () => ({ getContext: () => null }), documentElement: { addEventListener: noop, removeEventListener: noop } };
+    const window = { addEventListener: noop, removeEventListener: noop, devicePixelRatio: 1, innerWidth: 1400, innerHeight: 900 };
+    const rng = seededRandom(opts.seed == null ? 7 : opts.seed);
+    let clock = 1.7e12;
+    const DateShim = { now: () => (clock += Math.floor(rng() * 1e6)) };
     const userXP = { currentXP: 0, totalXP: 0, achievements: [] };
     let modalOpen = false;
-
     const host = {
-        Math: MathShim,
-        document,
-        localStorage,
-        requestAnimationFrame: () => 1,
-        cancelAnimationFrame: () => {},
-        userPreferences: Object.assign({ poolTableColor: 'green', gameFps: 60 }, opts.prefs),
-        FIXED_DT: 1000 / 60,
-        getFrameInterval: () => 16.67,
+        document, window, localStorage,
+        requestAnimationFrame: () => 1, cancelAnimationFrame: noop, Date: DateShim,
+        userPreferences: Object.assign({ poolTableColor: 'green', gameFps: 60, poolShotCam: 'overhead', poolCamera: '3d', poolLean: 35 }, opts.prefs),
+        savePreferences: () => { log.saves++; },
+        getFrameInterval: () => 1000 / 60,
         currentGame: 'pool',
+        lbDisplayName: opts.name || '',
         xpSystemReady: opts.xpSystemReady !== false,
         userXP,
-        checkLevelUp: () => {},
-        saveUserXP: () => {},
+        checkLevelUp: noop, saveUserXP: noop, updateXPDisplay: noop,
         showXPNotification: (msg, kind) => log.notes.push({ msg, kind }),
-        updateXPDisplay: () => {},
         awardGameXP: (type, perf) => log.xp.push({ type, perf }),
-        updateGameScoreBtn: (game, score, best) => log.scoreBtn.push({ game, score, best }),
+        updateGameScoreBtn: (g, score, best) => log.scoreBtn.push({ game: g, score, best }),
         toggleGameMaxModal: cfg => { log.maxModal.push(cfg); modalOpen = !modalOpen; return modalOpen; },
+        applyCyberTokens: noop, applyCyberShape: noop, clearCyberTokens: noop, clearCyberShape: noop,
     };
-
-    const src = source();
-    const accessors = stateNames(src)
-        .map(n => `get ${n}() { return ${n}; }, set ${n}(v) { ${n} = v; }`)
-        .join(',\n');
-    const fns = [...src.matchAll(/^    function\s+([\w$]+)/gm)].map(m => m[1]);
-    const consts = [...src.matchAll(/^    const\s+(POOL_[A-Z0-9_]+)/gm)].map(m => m[1]);
-
+    const src = FILES.map(read).join('\n');
+    const names = [...src.matchAll(PREFIX)].map(m => m[1]);
+    const lets = ['poolMode', 'poolGamesWon', 'poolRecord', 'poolMaximized'];
     const factory = new Function(...HOST_PARAMS, hostStorageHelpers() + '\n' + src + `
         return {
-            ${fns.join(', ')},
-            ${consts.join(', ')},
-            loadPoolHighScore, savePoolHighScore, loadPoolWinsByMode, savePoolWinByMode,
-            loadPoolRecord, savePoolRecord,
-            ${accessors}
+            ${names.join(', ')},
+            loadPoolHighScore, savePoolHighScore, loadPoolWinsByMode, savePoolWinByMode, loadPoolRecord, savePoolRecord,
+            ${lets.map(n => `get ${n}() { return ${n}; }, set ${n}(v) { ${n} = v; }`).join(',\n')}
         };
     `);
     const P = factory(...HOST_PARAMS.map(k => host[k]));
     P.host = host;
     P.log = log;
     P.store = store;
-    P.canvas = canvas;
-    P.elements = els;
     return P;
-};
-
-// The v2 physics on its own. It needs nothing from the host, so there is no
-// stub environment: every pp* function and PP_* constant comes back as-is.
-function physics() {
-    const src = fs.readFileSync(path.join(__dirname, 'pool-physics.js'), 'utf8');
-    const names = [...src.matchAll(/^    (?:function|const)\s+((?:pp|PP_)[\w$]*)/gm)].map(m => m[1]);
-    return new Function(src + '\nreturn { ' + names.join(', ') + ' };')();
 }
 
-// The rules on top of the physics, in one scope as they will be in the
-// userscript: every pp*/PP_* and pr*/PR_* name.
-function rules() {
-    return v2(['pool-physics.js', 'pool-rules.js']);
-}
-
-// Physics, rules, camera and renderer together: every pp/pr/pc/pg name.
-function render() {
-    return v2(['pool-physics.js', 'pool-rules.js', 'pool-camera.js', 'pool-render.js']);
-}
-
-// Everything above plus the HUD. Its DOM functions touch `document` only
-// when called, so the pure view model (phModel) loads and runs in Node.
-function hud() {
-    return v2(['pool-physics.js', 'pool-rules.js', 'pool-camera.js', 'pool-render.js', 'pool-hud.js']);
-}
-
-function v2(files) {
-    const src = files.map(f => fs.readFileSync(path.join(__dirname, f), 'utf8')).join('\n');
-    const names = [...src.matchAll(/^    (?:function|const)\s+((?:pp|PP_|pr|PR_|pc|PC_|pg|PG_|ph|PH_)[\w$]*)/gm)].map(m => m[1]);
-    return new Function(src + '\nreturn { ' + names.join(', ') + ' };')();
-}
-
-module.exports.source = source;
-module.exports.physics = physics;
-module.exports.rules = rules;
-module.exports.render = render;
-module.exports.hud = hud;
-module.exports.stateNames = stateNames;
-module.exports.seededRandom = seededRandom;
-module.exports.makeCanvas = makeCanvas;
-module.exports.FILES = FILES;
+module.exports = { physics, rules, render, hud, ai, game, FILES, TARGET, seededRandom, hostStorageHelpers };

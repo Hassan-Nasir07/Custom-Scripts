@@ -13,7 +13,7 @@
 // no-op here, so striped balls render as solid discs. Judge layout, not polish.
 const fs   = require('fs');
 const path = require('path');
-const { Raster, Ctx, encodePNG, downsample, SS, DOWN } = require('../ludo-dev/preview.js');
+const { Raster, Ctx, encodePNG, downsample, SS, DOWN } = require('../../ludo-dev/preview.js');
 const load = require('./load');
 
 const W = 368, H = 368;

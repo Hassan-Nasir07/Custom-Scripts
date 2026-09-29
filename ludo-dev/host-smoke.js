@@ -377,6 +377,24 @@ head('Shared Max modal — Ludo');
     ok('canvas returned to the panel', c.parentNode === homeParent);
 }
 
+head('Shared Max modal — cfg.build (Pool v2)');
+{
+    // Pool brings its own Max layout: the helper hands it an empty panel and
+    // leaves every canvas alone.
+    const c = elements['pool-canvas'];
+    c.width = 368; c.height = 368;
+    const homeParent = c.parentNode, kidsBefore = gamePanel.children.length;
+    let built = null, unbuilt = 0;
+    const cfg = { canvasId: 'pool-canvas', title: '8-Ball Pool', panelClass: 'pool-max-panel',
+        build: p => { built = p; }, unbuild: () => { unbuilt++; } };
+    ok('opens through cfg.build', H.toggleGameMaxModal(cfg) === true);
+    ok('build gets the modal panel, with the caller\'s class', !!built && /pool-modal-panel/.test(built.className) && /pool-max-panel/.test(built.className), built && built.className);
+    ok('no placeholder, and the canvas neither moves nor resizes',
+       gamePanel.children.length === kidsBefore && c.parentNode === homeParent && c.width === 368 && c.height === 368);
+    ok('closes, and unbuild runs once', H.toggleGameMaxModal(cfg) === false && unbuilt === 1);
+    ok('reopens cleanly after closing', H.toggleGameMaxModal(cfg) === true && H.toggleGameMaxModal(cfg) === false && unbuilt === 2);
+}
+
 head('Board rotation, through the host');
 {
     // The setting is labelled by where Blue ends up, so check that against the

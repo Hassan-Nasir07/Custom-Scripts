@@ -24,6 +24,8 @@ node pool-dev/tour-verify.js              # the tournament model: brackets, seed
 node pool-dev/sync-verify.js              # the sync bot's script from github-actions-bot/, run headless
 node pool-dev/snapshot.js [dir] [scene]   # real-Chrome PNGs of the prototype, every scene by default
 node pool-dev/snapshot.js --check [dir]   # …plus an in-browser layout and theme audit per scene
+node pool-dev/theme-verify.js [--quick]   # every state × theme, shape and preset: layout, WCAG AA text contrast, live theme switch
+node pool-dev/perf-check.js               # frame cost (3D and 2D, the 316 px column) and the FPS cap, in Chrome
 start pool-dev/pool-table.html            # the widget's own controller on host stand-ins, plus design scenes
 start pool-dev/pool-harness.html          # shoot and tune the v2 physics live
 node pool-dev/balance-check.js 40         # the v2 CPU tiers vs scripted humans, beside v1's numbers
@@ -162,8 +164,14 @@ One planner, four tiers (`PA_TIERS`). For a shot it:
 4. replays the top three with the tier's noise (`robust`) and marks down lines that foul
    or lose the frame when a little off
 5. when no pot is likely enough (`safeBelow`), or none works, plays a safety or an escape
-   (full and half-ball hits, one-rail kicks), also replayed for risk
-6. adds the tier's execution noise
+   (full and half-ball hits, one-rail kicks), also replayed for risk (`robust`, pro's
+   `robustSafe`)
+6. when nothing pots and no safety is legal (snookered), hard and pro `sweep`: the cue turns
+   all the way round in 1° steps, each stepped to its first contact only; the gaps where
+   that is a legal ball are kept and the middle of each (the angle that forgives the most
+   aim error) is played out. The old last resort, a blind roll at the nearest legal ball,
+   fouled 53 times in 62 for hard and 44 in 46 for pro
+7. adds the tier's execution noise
 
 | tier | top · keep | spins | extra lines | aim σ (direct / other) | power σ | notes |
 |---|---|---|---|---|---|---|
@@ -179,6 +187,12 @@ is locked when a frame starts (`poolCpuTier`); a new pick applies at once only b
 the break. `balance-check.js` has the measured win rates.
 
 ## pool-camera.js and pool-render.js
+
+Frame cost (Phase 9, `perf-check.js`, software canvas so an upper bound): a full 3D repaint
+while aiming ~1.8 ms median, 3.5 p95; a rolling shot ~0.7 ms; an unchanged frame ~0. Two
+things made it: while the camera moves the table is drawn straight to the screen instead
+of into its cache and then copied (the cache is rebuilt once the pose holds), and ball
+numbers are small cached images (`pgDigit`) rather than text drawn every frame.
 
 The chase camera is the design's, number for number. `render-verify.js` runs the
 design's own `toCam`/`toScr` beside ours and they agree to 1e-9 px. One thing differs

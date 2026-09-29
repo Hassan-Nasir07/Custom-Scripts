@@ -658,5 +658,52 @@ head('Progression (pool-game.js)');
     ok('the title pays nothing, and no CPU tier is touched', P.log.xp.length === 2 && !P.store.poolWinsByTier && !P.store.poolCpuRecord);
 }
 
+// ── 8b. The escape sweep (Phase 9) ────────────────────────────────────
+head('Escapes (pool-ai.js)');
+{
+    // A real position (balance play, seed 4, shot 12): the CPU is on stripes with only the 11
+    // left, snookered behind the solids. The old last resort, a blind roll at the nearest legal
+    // ball, hit a solid first. Hard and pro now sweep the cue round for a legal first contact.
+    const P = L.ai();
+    const at = [[0, 470.841, 46.233], [2, 285.277, -141.786], [1, 479.415, -83.165], [8, 455.657, -15.608], [6, 257.967, 71.712],
+        [5, 127.622, 110.832], [11, -127.626, -163.325], [4, 302.415, -25.411], [3, 356.728, 29.976]];
+    const w = P.ppCreateWorld();
+    w.balls = at.map(([id, x, y]) => P.ppMakeBall(id, x, y));
+    for (let id = 1; id <= 15; id++) if (!at.some(a => a[0] === id)) w.balls.push(Object.assign(P.ppMakeBall(id, 0, 0), { state: 'pocketed' }));
+    const frame = Object.assign(P.prNewFrame({ breaker: 1 }), { turn: 2, isBreak: false, groups: { 1: 'solids', 2: 'stripes' }, ballInHand: null, shots: 12 });
+    const plan = tier => { const j = P.paPlan(w, frame, { tier, noise: false }); let n = 0; while (!j.step(3) && n++ < 5000); return j; };
+    const hard = plan('hard');
+    const v = P.paTrial(w, frame, 2, hard.shot).v;
+    ok('snookered, hard sweeps and finds a legal escape', hard.plan === 'escape' && !v.foul, hard.plan + ' / ' + v.foul);
+    const T = P.PA_TIERS.hard, keep = T.sweep;
+    T.sweep = false;
+    const blind = plan('hard');
+    T.sweep = keep;
+    ok('…where the blind roll it replaces fouls', blind.plan === 'fallback' && P.paTrial(w, frame, 2, blind.shot).v.foul === 'wrongBall', blind.plan);
+    ok('pro sweeps too; easy and normal keep the blind roll (their fouls are part of their level)',
+       plan('pro').plan === 'escape' && plan('easy').plan === 'fallback' && P.PA_TIERS.normal.sweep !== true);
+    ok('pro replays its safeties for risk (robustSafe), as hard does', P.PA_TIERS.pro.robustSafe >= 3 && P.PA_TIERS.hard.robust >= 3);
+}
+
+// ── 9. Keys (a mouse game) ────────────────────────────────────────────
+head('Keys (pool-game.js)');
+{
+    // Pool is played with the mouse. The one key it takes is ←/→ fine aim, 0.1°, while the
+    // mouse is over the table or Max is open; nothing shoots, sets power or calls from the keyboard.
+    const P = L.game({ seed: 61 });
+    const S = P.poolS;
+    P.poolNewFrame(1);
+    S.attached = true; S.phase = 'aim'; S.placed = true;
+    const key = (k, target) => P.poolOnKey({ key: k, shiftKey: false, target: target || {}, preventDefault() {}, stopImmediatePropagation() {} });
+    const a0 = S.aim;
+    key('ArrowLeft');
+    ok('← does nothing unless the mouse is over the table', S.aim === a0);
+    S.armed = true;
+    key('ArrowLeft');
+    ok('with the mouse over the table, ← turns the aim 0.1°', Math.abs((S.aim - a0) / (Math.PI / 180) - 0.1) < 1e-9);
+    ['ArrowUp', 'Enter', ' ', 'q', ']'].forEach(k => key(k));
+    ok('no key sets power, shoots or calls a pocket', S.power === 0 && S.phase === 'aim' && S.called === -1);
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

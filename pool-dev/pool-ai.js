@@ -35,16 +35,20 @@
     // robust: the top three finished lines are replayed this many times with the
     // tier's own noise, and a line that fouls or loses the frame when missed is
     // marked down (a zero-noise tier needs none: it plays what it verified).
+    // robustSafe: the same for safeties and escapes, where it differs from robust.
+    // sweep: when nothing pots and no safety is legal, turn the cue all the way
+    // round (1°), keep the gaps where the first ball hit is a legal one, and play
+    // the middle of each gap out: the escape a blind roll used to be.
     const PA_TIERS = {
         easy:   { label: 'Easy',   desc: 'Takes simple pots · misses often',     top: 4,  keep: 1, refine: 0, spins: ['stun'], speeds: [1],
                   position: 0, bank: false, kick: false, combo: false, safeBelow: 0,    aim: 1.2, aimAlt: 1.8, power: 0.12 },
         normal: { label: 'Normal', desc: 'Solid potting · little position play', top: 10, keep: 3, refine: 1, spins: ['stun', 'follow', 'draw'], speeds: [1, 1.4],
                   position: 1, bank: true,  kick: false, combo: false, safeBelow: 0.25, aim: 0.5, aimAlt: 0.8, power: 0.06, robust: 2 },
         hard:   { label: 'Hard',   desc: 'Plays position · rarely leaves a shot', top: 20, keep: 4, refine: 2, spins: ['stun', 'follow', 'draw', 'left', 'right'], speeds: [1, 1.4],
-                  position: 1, bank: true,  kick: true,  combo: true,  safeBelow: 0.4,  aim: 0.2, aimAlt: 0.4, power: 0.02, robust: 3 },
+                  position: 1, bank: true,  kick: true,  combo: true,  safeBelow: 0.4,  aim: 0.2, aimAlt: 0.4, power: 0.02, robust: 3, sweep: true },
         pro:    { label: 'Pro',    desc: 'Hardly misses · call every shot',      top: 24, keep: 5, refine: 2,
                   spins: ['stun', 'follow', 'draw', 'left', 'right', 'followLeft', 'followRight', 'drawLeft', 'drawRight'], speeds: [1, 1.4],
-                  position: 2, bank: true,  kick: true,  combo: true,  safeBelow: 0.5,  aim: 0,   aimAlt: 0.15, power: 0.0025, callEvery: true },
+                  position: 2, bank: true,  kick: true,  combo: true,  safeBelow: 0.5,  aim: 0,   aimAlt: 0.15, power: 0.0025, callEvery: true, robustSafe: 3, sweep: true },
     };
     const PA_TIER_NAMES = ['easy', 'normal', 'hard', 'pro'];
     // A zero-noise tier's make probability still allows a hair of error: the
@@ -229,6 +233,19 @@
         return paCandidates(world, frame, seat, cue.x, cue.y, tier === 'pro' ? 'hard' : tier, true).map(c => c.rank);
     }
 
+    // The first ball the cue ball touches on this shot, or -1 (none before it stops).
+    function paFirstContact(world, shot) {
+        const w = ppCloneWorld(world);
+        ppStrike(w, shot);
+        for (let i = 0; i < 400; i++) {
+            ppStep(w, 1 / 60);
+            const hit = w.log.find(e => e.type === 'ball' && (e.a === 0 || e.b === 0));
+            if (hit) return hit.a === 0 ? hit.b : hit.a;
+            if (ppSettled(w)) return -1;
+        }
+        return -1;
+    }
+
     // Steps a copy to the cue ball's first contact and returns the angle the
     // first object ball actually left at, or null.
     function paDeparture(world, shot, ballId) {
@@ -299,8 +316,9 @@
 
     // opts: { tier, rng, noise (default true), aimDeg / powerFrac (override the
     // tier's execution noise, for the balance check's human models) }.
-    // The job's shot is { angle, speed, tipX, tipY, call }, and job.plan says
-    // what it is ('break' | 'pot' | 'safety' | 'fallback').
+    // The job's shot is { angle, speed, tipX, tipY, call }, job.plan says
+    // what it is ('break' | 'pot' | 'safety' | 'escape' | 'fallback'), and job.kind the
+    // line ('direct' | 'bank' | 'kick' | 'combo' | 'safety').
     function paPlan(world, frame, opts) {
         const o = opts || {}, seat = frame.turn, cfg = world.cfg, R = cfg.ballR;
         const tier = PA_TIERS[o.tier] ? o.tier : 'normal', T = PA_TIERS[tier];
@@ -316,7 +334,7 @@
                 s.angle += paGauss(o.rng) * aim;
                 s.speed = Math.max(150, Math.min(cfg.maxSpeed, s.speed * (1 + paGauss(o.rng) * pw)));
             }
-            job.shot = s; job.plan = plan; job.done = true;
+            job.shot = s; job.plan = plan; job.kind = plan === 'break' ? 'break' : lineKind; job.done = true;
         };
 
         // The break: near full power at the head ball, never called.
@@ -331,9 +349,12 @@
 
         const cands = paCandidates(world, frame, seat, cue.x, cue.y, tier).slice(0, T.top);
         const call = c => (st.callRequired ? c.pocket : -1);
+        const legal = new Set(paTargets(world, frame, seat).map(b => b.id));
         const stageA = cands.map(c => ({ c }));
         const good = [], variants = [], safeties = [], scored = [], robustQ = [], safeScored = [], safeQ = [];
-        let stage = 'A', bestPot = null, bestSafe = null;
+        let stage = 'A', bestPot = null, bestSafe = null, bestEscape = null, swept = false;
+        const sweep = [], escapes = [];
+        const safeReps = T.robustSafe || T.robust;
 
         // Safety lines: each legal ball, full and half-ball either side, soft; and
         // one-rail kicks at it, for when the direct way is blocked.
@@ -427,8 +448,8 @@
                     if (!shot) {
                         // The best three safeties, replayed with the tier's noise: a safety or
                         // an escape that fouls when it is a little off is no safety.
-                        if (T.robust && o.rng && o.noise !== false && safeScored.length) {
-                            safeScored.sort((a, b) => b.score - a.score).slice(0, 3).forEach(e => { e.bad = 0; e.n = 0; for (let i = 0; i < T.robust; i++) safeQ.push(e); });
+                        if (safeReps && o.rng && o.noise !== false && safeScored.length) {
+                            safeScored.sort((a, b) => b.score - a.score).slice(0, 3).forEach(e => { e.bad = 0; e.n = 0; for (let i = 0; i < safeReps; i++) safeQ.push(e); });
                             stage = 'SR';
                         } else stage = 'done';
                         continue;
@@ -451,7 +472,37 @@
                     job.tried++;
                     e.n++;
                     if (r.v.foul || (r.v.frameOver && r.v.winner !== seat)) e.bad += r.v.frameOver ? 2 : 1;
+                } else if (stage === 'K') {
+                    // The sweep: the first ball hit, one degree at a time.
+                    const a = sweep.length;
+                    if (a < 360) { sweep.push(legal.has(paFirstContact(world, { angle: a * PA_DEG, speed: 1800, tipX: 0, tipY: 0 }))); continue; }
+                    // The legal gaps, widest first; the middle of each is the escape that
+                    // forgives the most aim error, so that is the one played out.
+                    const gaps = [];
+                    const start = sweep.indexOf(false);
+                    if (start === -1) gaps.push({ mid: 0, n: 360 });
+                    else for (let i = 1, run = 0; i <= 360; i++) {
+                        const at = (start + i) % 360;
+                        if (sweep[at] && i < 360) { run++; continue; }
+                        if (run) gaps.push({ mid: at - 1 - (run - 1) / 2, n: run });
+                        run = 0;
+                    }
+                    gaps.sort((x, y) => y.n - x.n).slice(0, 10).forEach(g => [1400, 2300].forEach(sp =>
+                        escapes.push({ angle: g.mid * PA_DEG, speed: Math.min(cfg.maxSpeed, sp), tipX: 0, tipY: 0, call: -1 })));
+                    stage = 'K2';
+                } else if (stage === 'K2') {
+                    const shot = escapes.shift();
+                    if (!shot) { stage = 'done'; continue; }
+                    const r = paTrial(world, frame, seat, shot);
+                    job.tried++;
+                    if (r.v.foul || (r.v.frameOver && r.v.winner !== seat)) continue;
+                    const score = paSafetyScore(r, seat);
+                    if (!bestEscape || score > bestEscape.score) bestEscape = { shot, score };
                 } else {
+                    // Nothing that pots, no legal safety: hard and pro sweep for an escape
+                    // before they settle for a blind roll.
+                    const settled = (bestPot && bestPot.score > 0) || (bestSafe && bestSafe.score > 0) || good.length;
+                    if (!settled && T.sweep && !swept) { swept = true; stage = 'K'; continue; }
                     // Choose. A likely pot; else a safety that leaves little; else the
                     // best pot anyway; else a legal survivor from stage A; else a roll.
                     const potOk = bestPot && bestPot.score > 0;
@@ -459,6 +510,7 @@
                     else if (bestSafe && bestSafe.score > 0) { lineKind = 'safety'; finish(bestSafe.shot, 'safety'); }
                     else if (potOk) { lineKind = bestPot.c.kind; finish(bestPot.shot, 'pot'); }
                     else if (good.length) { lineKind = good[0].c.kind; finish(good[0].shot, 'pot'); }
+                    else if (bestEscape) { lineKind = 'safety'; finish(bestEscape.shot, 'escape'); }
                     else {
                         // Nothing clean at all: roll a legal ball, the nearest, softly.
                         const b = paTargets(world, frame, seat).sort((x, y) => Math.hypot(x.x - cue.x, x.y - cue.y) - Math.hypot(y.x - cue.x, y.y - cue.y))[0];

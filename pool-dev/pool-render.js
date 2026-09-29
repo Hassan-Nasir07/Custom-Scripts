@@ -311,6 +311,30 @@
         return pts.map(scr);
     }
 
+    // A ball's number as a small image, drawn once per id, size and font: text is the
+    // dearest thing on the canvas (the font string is parsed and the glyphs shaped on every
+    // call), and up to fifteen of them change every frame. Rendered at 2× so the
+    // foreshortening transform does not blur it. Null when there is no canvas to draw into.
+    function pgDigit(sprites, make, id, fs, font) {
+        if (!sprites || !make) return null;
+        const px = Math.round(fs * 2) / 2, key = id + '|' + px + '|' + font;
+        let s = sprites.get(key);
+        if (!s) {
+            const w = Math.ceil(px * 1.5) * 2, h = Math.ceil(px * 1.3) * 2;
+            const c = make(w, h), g = c.getContext && c.getContext('2d');
+            if (!g) return null;
+            g.scale(2, 2);
+            g.fillStyle = '#15191B';
+            g.font = '700 ' + px.toFixed(1) + 'px ' + font;
+            g.textAlign = 'center'; g.textBaseline = 'middle';
+            g.fillText(String(id), w / 4, h / 4);
+            s = { c, w: w / 2, h: h / 2, px };
+            if (sprites.size > 400) sprites.clear();
+            sprites.set(key, s);
+        }
+        return s;
+    }
+
     // One ball at screen centre (cx, cy), radius rad. `v` is the view basis
     // at the ball: right, up and toward the viewer, all world vectors.
     function pgDrawBall(ctx, b, cx, cy, rad, v, theme, alpha) {
@@ -346,10 +370,16 @@
                     ctx.globalAlpha = (alpha === undefined ? 1 : alpha) * Math.min(1, (facing - 0.3) / 0.25);
                     // Text x along body y (mirrored on the far pole so it reads the right way), text down = −z.
                     ctx.transform(sgn * Y[0], -sgn * Y[1], -A[0], A[1], cx + n[0] * rad, cy - n[1] * rad);
-                    ctx.fillStyle = '#15191B';
-                    ctx.font = '700 ' + fs.toFixed(1) + 'px ' + theme.font;
-                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                    ctx.fillText(String(id), 0, fs * 0.04);
+                    const spr = pgDigit(theme.sprites, theme.makeCanvas, id, fs, theme.font);
+                    if (spr) {
+                        const k = fs / spr.px;
+                        ctx.drawImage(spr.c, -spr.w * k / 2, -spr.h * k / 2 + fs * 0.04, spr.w * k, spr.h * k);
+                    } else {
+                        ctx.fillStyle = '#15191B';
+                        ctx.font = '700 ' + fs.toFixed(1) + 'px ' + theme.font;
+                        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.fillText(String(id), 0, fs * 0.04);
+                    }
                     ctx.restore();
                 });
             }
@@ -476,14 +506,22 @@
     function pgRender(ctx, scene) {
         const view = scene.view, w = scene.world, cfg = w.cfg, table = w.table, R = cfg.ballR;
         const theme = Object.assign({}, PG_THEME, scene.theme);
+        if (scene.cache && scene.makeCanvas) { theme.sprites = scene.cache.digits || (scene.cache.digits = new Map()); theme.makeCanvas = scene.makeCanvas; }
         const dpr = scene.dpr || 1;
         ctx.save();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, view.W, view.H);
 
-        // Layers 1–4, cached per camera pose when the caller supplies a canvas.
+        // Layers 1–4, cached per camera pose when the caller supplies a canvas. While the
+        // camera is moving (aiming in 3D turns it every frame) a cached copy would be drawn
+        // once and thrown away, so the table goes straight to the screen, saving a
+        // whole-canvas copy; the first frame the pose holds, it is cached again.
         const key = JSON.stringify([view.pose, scene.felt, dpr]);
-        if (scene.cache && scene.makeCanvas) {
+        const moving = !!scene.cache && scene.cache.lastKey !== undefined && scene.cache.lastKey !== key;
+        if (scene.cache) scene.cache.lastKey = key;
+        if (scene.cache && scene.makeCanvas && moving && scene.cache.key !== key) {
+            pgDrawTable(ctx, view, cfg, table, scene.felt);
+        } else if (scene.cache && scene.makeCanvas) {
             const c = scene.cache;
             if (c.key !== key) {
                 if (!c.canvas || c.canvas.width !== Math.round(view.W * dpr) || c.canvas.height !== Math.round(view.H * dpr)) {

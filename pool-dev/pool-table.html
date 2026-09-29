@@ -405,6 +405,11 @@ function toggleGameMaxModal(cfg) {
          ['gauge', 'hint'], ['lock', 'pill'], ['gauge', 'pill'], ['spinpop', 'spin'], ['spinpop', 'hint'], ['spinpop', 'pill'], ['spinpop', 'cam']].forEach(([a, b]) => {
             if (hud[a] && hud[b] && visible(hud[a]) && visible(hud[b])) ok(a + ' and ' + b + ' do not overlap', !hit(hud[a], hud[b]));
         });
+        // Every control a keyboard or a screen reader can reach has a name.
+        const nameless = Array.from(hud.el.querySelectorAll('button, input, select, textarea, [tabindex], [role="img"]')).filter(visible)
+            .filter(el => !((el.getAttribute('aria-label') || '').trim() || el.getAttribute('aria-labelledby') || el.textContent.trim() ||
+                (el.id && hud.el.querySelector('label[for="' + el.id + '"]')) || el.closest('label')));
+        ok('every control has an accessible name', !nameless.length, nameless.map(e => e.tagName + '.' + e.className).join(', '));
         const clipped = Array.from(hud.el.querySelectorAll('.ph-name, .ph-tag, .ph-hint span, .ph-pill span, .ph-cam span, .ph-frames-n, .ph-toast-title, .ph-dialog-title, .ph-btn span, .ph-replace span, .ph-spinpop-read, .ph-spinpop-chips .ph-btn, .ph-spin-v, .ph-handoff-to, .ph-handoff-from, .ph-handoff .ph-primary, .ph-sheet-dn, .ph-sheet-dd, .ph-sheet-chip, .ph-sheet-mode span, .ph-sheet-title, .ph-mini-cap, .ph-tourhead-k, .ph-tourhead-n, .ph-tourhead-f, .ph-primary-sub, .ph-sheet-links .ph-btn span'))
             .filter(visible).filter(el => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).display !== 'inline');
         ok('no label is cut off', !clipped.length, clipped.map(e => e.className + ' "' + e.textContent + '"').join(', '));

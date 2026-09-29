@@ -4,7 +4,7 @@
 > deviation in the **Decision log** at the bottom. Attach this file as context in later
 > sessions.
 >
-> Status: `IN PROGRESS`, Phases 0–5 done (**v2 is in the userscript**), Phases 6–8 done, Phase 9 next · Last updated: 2026-09-29 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
+> Status: `DONE`, Phases 0–9 complete (**v2 is in the userscript**); Snooker is a later, unscheduled mode · Last updated: 2026-09-29 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
 
 ## Context
 
@@ -1047,20 +1047,46 @@ in `pool-dev/v1/` for `baseline-check.js`.
       before any client emits the tier keys.
 - [x] The user's test in the widget (2026-09-29).
 
-### Phase 9: polish and verification
-- [ ] CPU fouls to the Phase 6 targets (hard under 5%, pro under 2% a visit; measured 6.0%
-      and 4.5%): escapes and kicks are where they come from, so replay pro's escapes for
-      risk too and widen the kick search (two rails, swerve).
-- [ ] Performance: under 4ms per frame for the compact panel in 3D on the office laptops,
-      and FPS cap respected (`getFrameInterval`).
-- [ ] Accessibility: every control is a real button or input with an `aria-label`;
-      keyboard-only play is possible; colour-blind check on the solids/stripes trackers
-      (they differ by pattern, not only hue).
-- [ ] Theme pass: every artboard state checked in all four theme and mode combinations,
-      and in Cyberpunk under all four shapes and the six colour presets. Text on
-      `--pool-*` surfaces clears 4.5:1 (reuse `contrastRatio` from `cyber-hud.js`).
-      Switching theme mid-frame repaints the canvas with no reload.
-- [ ] **Portal verification** on `globalportal.mtbc.com` (the userscript only runs there).
+### Phase 9: polish and verification — done 2026-09-29
+- [x] **CPU fouls to the Phase 6 targets.** `balance-check.js` now tallies fouls by the line
+      played: nearly all came from the last resort, a blind roll at the nearest legal ball
+      when snookered (hard 53 fouls in 62, pro 44 in 46). Hard and pro now sweep the cue
+      round (1°, first contact only), keep the gaps where the first ball is legal and play
+      the middle of each out (`sweep`); pro also replays its safeties for risk
+      (`robustSafe: 3`). 40 frames a cell, seed 1:
+
+      | tier | vs skilled | vs casual | vs novice | fouls / visit | ms / shot |
+      |---|---|---|---|---|---|
+      | hard | 65.0% [50–78] | 97.5% [87–100] | 97.5% [87–100] | 3.9% (was 6.0%) | ~111 |
+      | pro | 97.5% [87–100] | 100% [91–100] | 97.5% [87–100] | 0.8% (was 4.5%) | ~149 |
+
+      Like for like (seed 2, 100 frames, hard vs skilled): with the sweep 75.0% [66–82] and
+      2.6% fouls, without it 60.0% [50–69] and 6.2%; the 80% seed 1 gave in Phase 6 was that
+      seed. Easy and normal keep the blind roll: their fouls are part of their level.
+      `pool-verify.js` pins the sweep on a real snookered position from balance play.
+- [x] **Performance** (`perf-check.js`, headless Chrome's software canvas, so an upper bound
+      on a laptop with GPU canvas): compact 3D, a full repaint while aiming 1.8 ms median
+      (3.5 p95), a rolling shot 0.7 ms, an unchanged frame ~0; the 316 px column and 2D are
+      lower. Was 5.0 ms median (6.6 p95) for the 3D repaint: the table no longer goes into
+      its cache and back out while the camera moves, and ball numbers are cached images, not
+      text. The 60 and 30 FPS settings give 60.5 and 29.5 draws a second.
+- [x] **Accessibility.** Every control a keyboard or screen reader reaches has a name
+      (`snapshot.js` audits it on every scene); every button and field in the HUD, the
+      sheet and the tournament screens is reachable by Tab. Shooting stays with the mouse
+      (see the Decision log): the only key the table takes is ←/→ fine aim, as before.
+      The trackers carry their state in words for a screen reader
+      (*Solids: 1, 3 on the table; 2, 4 potted*); solids and stripes differ by pattern, and a
+      potted ball by brightness, not hue.
+- [x] **Theme pass** (`theme-verify.js`): 36 states in Glassmorphic dark and light, compact
+      and Max, and 10 states under every Cyberpunk shape × preset (312 loads): the layout audit
+      (6,552 checks) and WCAG AA text contrast (4.5:1, large 3:1) on 11,244 texts, measured
+      against what is really behind them (over the table, the canvas pixels). It found the
+      dark accent and hot tags at 3.2–4.0:1, the light inks at 4.1–4.4:1, faint text at
+      3.8–4.1:1, the hot button's white on red at 3:1 and the button sub-lines at 85%; all
+      fixed in the tokens. Switching theme mid-frame repaints the canvas with the new accent.
+- [x] **Portal verification** on `globalportal.mtbc.com` (the userscript only runs there):
+      the user's test of the v9 userscript, 2026-09-29; keyboard shooting came out of it (see
+      the Decision log).
 
 ### Later: Snooker (not scheduled; after v2 ships)
 The user's review of the Phase 3 table: it is good enough to carry snooker rules. What
@@ -1097,10 +1123,11 @@ carries over and what would be new:
 ## Open questions ❓
 
 
-1. **Compact 2D ball size:** the design's top-down fit gives R≈4.5px, down from today's
+1. ~~**Compact 2D ball size:** the design's top-down fit gives R≈4.5px, down from today's
    6px. If it reads too small in `preview.js`, should the compact 2D view rotate the table
-   to portrait (R≈5px) or slim the rails?
-2. ***Called It* achievement** for beating the pro CPU: add it or not?
+   to portrait (R≈5px) or slim the rails?~~ Settled by use: the landscape fit stayed through
+   the user's tests of Phases 3–9 with no call to change it.
+2. ~~***Called It* achievement** for beating the pro CPU: add it or not?~~ Added in Phase 8 (📣, 120 XP).
 
 ---
 
@@ -1172,6 +1199,10 @@ carries over and what would be new:
 | 2026-09-29 | **The all-time and hot-seat counters (`pool:cpu`, `pool:pvp`, `ludo:cpu`) are not in the growth bound** | The plan bounds the tier keys. The all-time keys predate `gameModeBests` on many records, so a bound on them would drop players off the boards the first time they sync this build; the max merge still keeps them from going down |
 | 2026-09-29 | **A tournament shows the All-time board on the wins button** | Tournaments have no board (they are farmable), and All-time is the board a CPU win would also count towards |
 | 2026-09-29 | **Called It is 📣, 120 XP** | 🎯 is Sharpshooter's; 120 sits between Pool Shark (150) and the per-match Ludo achievements |
+| 2026-09-29 | **The escape sweep is hard's and pro's only** | Easy's and normal's fouls are part of what makes them beatable; the plan's targets were for hard and pro |
+| 2026-09-29 | **Contrast is WCAG AA (4.5:1, large text 3:1)**, not a flat 4.5:1 | Large text (the frame count, titles) is held to 3:1 by WCAG itself; everything else meets 4.5 |
+| 2026-09-29 | **Text colours on dark surfaces are mixed toward white (`color-mix`)** rather than new fixed colours | The accent follows the widget's aurora colours and the user's Cyberpunk picks; a mix keeps following them. Chrome 111 or later (the portal's browsers are) |
+| 2026-09-29 | **No keyboard shooting** (power, Enter to shoot, pocket keys, ball-in-hand keys, `[` `]`): built, then removed | The user's test: confusing, and nobody would shoot with keys; pool is a mouse game. The plan's *keyboard-only play is possible* is dropped. ←/→ fine aim stays as it was |
 
 ---
 

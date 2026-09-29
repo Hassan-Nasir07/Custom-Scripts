@@ -30,14 +30,21 @@
                 --pool-hover-text: var(--pool-text);
                 --pool-text: rgba(255, 255, 255, 0.92);
                 --pool-muted: rgba(255, 255, 255, 0.66);
-                --pool-faint: rgba(255, 255, 255, 0.42);
+                --pool-faint: rgba(255, 255, 255, 0.56);
                 --pool-primary: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
                 --pool-primary-text: #ffffff;
                 --pool-accent: var(--aurora-4);
                 --pool-accent-rgb: 79, 172, 254;
                 /* The accent as text on the panel (tags, the Max trophy); overlays on the felt keep --pool-accent. */
-                --pool-accent-ink: var(--pool-accent);
-                --pool-hot-ink: var(--pool-hot);
+                /* On the dark panel the aurora accent and the hot red read under 4.5:1 at tag size,
+                   so their text forms are lifted toward white. --pool-accent-lite is the same for
+                   accent text on the dark glass overlays (the sheet's chip). */
+                --pool-accent-lite: color-mix(in srgb, var(--pool-accent) 62%, #ffffff);
+                --pool-accent-ink: var(--pool-accent-lite);
+                --pool-hot-ink: color-mix(in srgb, var(--pool-hot) 58%, #ffffff);
+                --pool-hot-lite: color-mix(in srgb, var(--pool-hot) 62%, #ffffff);
+                /* A hot button's fill: deep enough for white text (the hot red is 3:1). */
+                --pool-hot-fill: #cf3049;
                 --pool-felt-accent: var(--aurora-3);
                 --pool-hot: #ff5d73;
                 --pool-hot-rgb: 255, 93, 115;
@@ -75,11 +82,11 @@
                     --pool-hover: rgba(0, 0, 0, 0.08);
                     --pool-text: rgba(0, 0, 0, 0.86);
                     --pool-muted: rgba(0, 0, 0, 0.60);
-                    --pool-faint: rgba(0, 0, 0, 0.40);
+                    --pool-faint: rgba(0, 0, 0, 0.56);
                     --pool-glow: 0 0 20px rgba(var(--pool-accent-rgb), 0.18);
                     /* Aurora blue is 2:1 on the light panel; this deeper blue is over 4.5:1. */
-                    --pool-accent-ink: #1f6fd1;
-                    --pool-hot-ink: #c8243f;
+                    --pool-accent-ink: #1a5cb0;
+                    --pool-hot-ink: #a81d35;
                     --pool-screen: linear-gradient(180deg, #faf9fd 0%, #f3f2fa 100%);
                     --pool-scheme: light;
                 }
@@ -94,7 +101,8 @@
                 --pool-hover-text: var(--rt-bg-1);
                 --pool-text: var(--rt-text);
                 --pool-muted: var(--rt-text-dim);
-                --pool-faint: var(--rt-text-faint);
+                /* Cyberpunk's faint tone is decoration-grade; text that means something takes dim. */
+                --pool-faint: var(--rt-text-dim);
                 /* The theme's one allowed inversion: a --rt-text fill with --rt-bg-1
                    type. An accent fill carrying text is never allowed in Cyberpunk. */
                 --pool-primary: var(--rt-text);
@@ -102,7 +110,10 @@
                 --pool-accent: var(--rt-accent);
                 --pool-accent-rgb: var(--rt-accent-rgb);
                 --pool-accent-ink: var(--rt-accent);
+                --pool-accent-lite: var(--rt-accent);
                 --pool-hot-ink: var(--pool-hot);
+                --pool-hot-lite: var(--pool-hot);
+                --pool-hot-fill: #c42a45;
                 --pool-felt-accent: var(--rt-accent);
                 --pool-hot: #ff4d6d;
                 --pool-hot-rgb: 255, 77, 109;
@@ -635,7 +646,7 @@
             .pool-hud .ph-sheet-dd { font-size: 11px; color: var(--pool-overlay-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .pool-hud .ph-sheet-chip {
                 display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; white-space: nowrap;
-                border: 1px solid rgba(var(--pool-accent-rgb), 0.45); color: var(--pool-accent); font-size: 8px; letter-spacing: 0.12em;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.45); color: var(--pool-accent-lite); font-size: 8px; letter-spacing: 0.12em;
             }
             .pool-hud .ph-sheet-note { font-size: 11px; color: var(--pool-overlay-muted); padding: 6px 12px 0; }
             .pool-hud .ph-sheet-pvp {
@@ -664,13 +675,13 @@
             .pool-hud[data-layout="max"] .ph-tourhead-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; }
             .pool-hud[data-layout="max"] .ph-tourhead-f { height: 30px; padding: 0 14px; border-radius: 15px; font-size: 11px; }
             .pool-hud .ph-primary.is-two { height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
-            .pool-hud .ph-primary-sub { font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.85; }
+            .pool-hud .ph-primary-sub { font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; }
             .pool-hud .ph-sheet-links { display: flex; gap: 8px; }
             .pool-hud .ph-sheet-links .ph-btn {
                 flex: 1 1 0; height: 40px; display: flex; align-items: center; justify-content: center; gap: 6px;
                 color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); font-size: 12px;
             }
-            .pool-hud .ph-sheet-links .ph-btn.is-hot { color: var(--pool-hot); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+            .pool-hud .ph-sheet-links .ph-btn.is-hot { color: var(--pool-hot-lite); border-color: rgba(var(--pool-hot-rgb), 0.5); }
 
             /* ── Tournament screens (pool-tour-ui.js) ───────────────────── */
             /* Each screen covers the whole panel, opaque; its body scrolls and its
@@ -719,11 +730,11 @@
             .pool-hud .pu-primary:active, .pool-hud .pu-btn:active, .pool-hud .pu-iconbtn:active { transform: translateY(1px); }
             .pool-hud .pu-primary.is-two { height: 56px; flex-direction: column; gap: 2px; }
             .pool-hud .pu-primary-sub {
-                font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.85;
+                font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none;
                 max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             .pool-hud .pu-primary.is-inline { width: auto; height: 44px; }
-            .pool-hud .pu-primary.is-hot { background: var(--pool-hot); color: #ffffff; }
+            .pool-hud .pu-primary.is-hot { background: var(--pool-hot-fill); color: #ffffff; }
             .pool-hud .pu-btn, .pool-hud .pu-iconbtn {
                 height: 44px; border: 1px solid var(--pool-control-line); border-radius: var(--pool-radius-sm); cursor: pointer;
                 background: var(--pool-control); color: var(--pool-text); font-size: 13px; font-weight: 600;
@@ -989,7 +1000,7 @@
             .pool-hud .pu-dlg-acts { display: flex; flex-direction: column; gap: 8px; }
             .pool-hud .pu-dlg .pu-btn { color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
             .pool-hud .pu-dlg .pu-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--pool-overlay-text); }
-            .pool-hud .pu-dlg .pu-btn.is-hot { color: var(--pool-hot); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+            .pool-hud .pu-dlg .pu-btn.is-hot { color: var(--pool-hot-lite); border-color: rgba(var(--pool-hot-rgb), 0.5); }
 
             /* Max: the bracket and champion have their own full layouts; the rest
                keep the compact column, centred. */

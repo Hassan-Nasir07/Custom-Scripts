@@ -63,7 +63,12 @@ function playFrame(tier, prof, rng, st) {
         if (cpu && !frame.isBreak) {
             st.cpuVisits++;
             if (v.continues) st.cpuPots++;
-            if (v.foul) { st.cpuFouls++; st.foulWhy[v.foul] = (st.foulWhy[v.foul] || 0) + 1; }
+            if (v.foul) {
+                st.cpuFouls++; st.foulWhy[v.foul] = (st.foulWhy[v.foul] || 0) + 1;
+                // Which line fouled: the plan and the kind of line it was.
+                const k = job.plan + '/' + job.kind; st.foulLine[k] = (st.foulLine[k] || 0) + 1;
+            }
+            { const k = job.plan + '/' + job.kind; st.lines[k] = (st.lines[k] || 0) + 1; }
             if (job.plan === 'safety') st.cpuSafeties++;
         }
         if (v.frameOver && v.winner === 1 && cpu) st.lossWhy[v.reason] = (st.lossWhy[v.reason] || 0) + 1;
@@ -83,7 +88,7 @@ const out = [];
 for (const tier of TIERS) {
     for (const prof of PROFILES) {
         const rng = P.ppRandom(SEED * 7919 + tier.length * 31 + prof.name.length);
-        const st = { cpuWins: 0, humanWins: 0, stalemates: 0, cpuVisits: 0, cpuPots: 0, cpuFouls: 0, cpuSafeties: 0, shots: 0, thinkMs: 0, foulWhy: {}, lossWhy: {} };
+        const st = { cpuWins: 0, humanWins: 0, stalemates: 0, cpuVisits: 0, cpuPots: 0, cpuFouls: 0, cpuSafeties: 0, shots: 0, thinkMs: 0, foulWhy: {}, lossWhy: {}, foulLine: {}, lines: {} };
         const t0 = Date.now();
         for (let i = 0; i < FRAMES; i++) playFrame(tier, prof, rng, st);
         const decided = st.cpuWins + st.humanWins, [lo, hi] = wilson(st.cpuWins, decided);
@@ -99,5 +104,12 @@ for (const tier of TIERS) {
 const fouls = {};
 out.forEach(r => Object.entries(r.st.foulWhy).forEach(([k, v]) => { fouls[r.tier] = fouls[r.tier] || {}; fouls[r.tier][k] = (fouls[r.tier][k] || 0) + v; }));
 console.log('\nCPU fouls by reason, per tier: ' + JSON.stringify(fouls));
+// Fouls by the line that was played (plan/kind), against how often each was played.
+const lines = {};
+out.forEach(r => { const t = lines[r.tier] = lines[r.tier] || {};
+    Object.entries(r.st.lines).forEach(([k, v]) => { t[k] = t[k] || { played: 0, fouled: 0 }; t[k].played += v; });
+    Object.entries(r.st.foulLine).forEach(([k, v]) => { t[k].fouled += v; }); });
+Object.entries(lines).forEach(([tier, t]) => console.log('fouls by line, ' + tier + ': ' +
+    Object.entries(t).sort((a, b) => b[1].fouled - a[1].fouled).map(([k, x]) => k + ' ' + x.fouled + '/' + x.played).join(', ')));
 console.log('CPU wins are over decided frames; the bracket is a Wilson 95% interval. Seat 1 (the human model) always breaks.\n');
 module.exports = out;

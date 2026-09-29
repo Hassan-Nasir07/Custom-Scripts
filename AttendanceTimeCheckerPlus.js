@@ -4215,6 +4215,30 @@
         return pts.map(scr);
     }
 
+    // A ball's number as a small image, drawn once per id, size and font: text is the
+    // dearest thing on the canvas (the font string is parsed and the glyphs shaped on every
+    // call), and up to fifteen of them change every frame. Rendered at 2× so the
+    // foreshortening transform does not blur it. Null when there is no canvas to draw into.
+    function pgDigit(sprites, make, id, fs, font) {
+        if (!sprites || !make) return null;
+        const px = Math.round(fs * 2) / 2, key = id + '|' + px + '|' + font;
+        let s = sprites.get(key);
+        if (!s) {
+            const w = Math.ceil(px * 1.5) * 2, h = Math.ceil(px * 1.3) * 2;
+            const c = make(w, h), g = c.getContext && c.getContext('2d');
+            if (!g) return null;
+            g.scale(2, 2);
+            g.fillStyle = '#15191B';
+            g.font = '700 ' + px.toFixed(1) + 'px ' + font;
+            g.textAlign = 'center'; g.textBaseline = 'middle';
+            g.fillText(String(id), w / 4, h / 4);
+            s = { c, w: w / 2, h: h / 2, px };
+            if (sprites.size > 400) sprites.clear();
+            sprites.set(key, s);
+        }
+        return s;
+    }
+
     // One ball at screen centre (cx, cy), radius rad. `v` is the view basis
     // at the ball: right, up and toward the viewer, all world vectors.
     function pgDrawBall(ctx, b, cx, cy, rad, v, theme, alpha) {
@@ -4250,10 +4274,16 @@
                     ctx.globalAlpha = (alpha === undefined ? 1 : alpha) * Math.min(1, (facing - 0.3) / 0.25);
                     // Text x along body y (mirrored on the far pole so it reads the right way), text down = −z.
                     ctx.transform(sgn * Y[0], -sgn * Y[1], -A[0], A[1], cx + n[0] * rad, cy - n[1] * rad);
-                    ctx.fillStyle = '#15191B';
-                    ctx.font = '700 ' + fs.toFixed(1) + 'px ' + theme.font;
-                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                    ctx.fillText(String(id), 0, fs * 0.04);
+                    const spr = pgDigit(theme.sprites, theme.makeCanvas, id, fs, theme.font);
+                    if (spr) {
+                        const k = fs / spr.px;
+                        ctx.drawImage(spr.c, -spr.w * k / 2, -spr.h * k / 2 + fs * 0.04, spr.w * k, spr.h * k);
+                    } else {
+                        ctx.fillStyle = '#15191B';
+                        ctx.font = '700 ' + fs.toFixed(1) + 'px ' + theme.font;
+                        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.fillText(String(id), 0, fs * 0.04);
+                    }
                     ctx.restore();
                 });
             }
@@ -4380,14 +4410,22 @@
     function pgRender(ctx, scene) {
         const view = scene.view, w = scene.world, cfg = w.cfg, table = w.table, R = cfg.ballR;
         const theme = Object.assign({}, PG_THEME, scene.theme);
+        if (scene.cache && scene.makeCanvas) { theme.sprites = scene.cache.digits || (scene.cache.digits = new Map()); theme.makeCanvas = scene.makeCanvas; }
         const dpr = scene.dpr || 1;
         ctx.save();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, view.W, view.H);
 
-        // Layers 1–4, cached per camera pose when the caller supplies a canvas.
+        // Layers 1–4, cached per camera pose when the caller supplies a canvas. While the
+        // camera is moving (aiming in 3D turns it every frame) a cached copy would be drawn
+        // once and thrown away, so the table goes straight to the screen, saving a
+        // whole-canvas copy; the first frame the pose holds, it is cached again.
         const key = JSON.stringify([view.pose, scene.felt, dpr]);
-        if (scene.cache && scene.makeCanvas) {
+        const moving = !!scene.cache && scene.cache.lastKey !== undefined && scene.cache.lastKey !== key;
+        if (scene.cache) scene.cache.lastKey = key;
+        if (scene.cache && scene.makeCanvas && moving && scene.cache.key !== key) {
+            pgDrawTable(ctx, view, cfg, table, scene.felt);
+        } else if (scene.cache && scene.makeCanvas) {
             const c = scene.cache;
             if (c.key !== key) {
                 if (!c.canvas || c.canvas.width !== Math.round(view.W * dpr) || c.canvas.height !== Math.round(view.H * dpr)) {
@@ -4817,7 +4855,7 @@
     function phCardHTML(seat, max) {
         const top = '<div class="ph-card-top"><span class="ph-name" data-ph="name"></span>' +
             (max ? '<span class="ph-rec" data-ph="rec"></span>' : '<span class="ph-tag ph-label" data-ph="tag"></span>') + '</div>';
-        const group = '<div class="ph-group" data-ph="group"></div><div class="ph-open" data-ph="open"><span class="ph-open-l" data-ph="openl">Open table</span><span class="ph-open-balls" data-ph="openb"></span></div>';
+        const group = '<div class="ph-group" data-ph="group" role="img"></div><div class="ph-open" data-ph="open" role="img" aria-label="Open table"><span class="ph-open-l" data-ph="openl">Open table</span><span class="ph-open-balls" data-ph="openb"></span></div>';
         const body = max
             ? '<div class="ph-avatar" data-ph="avatar"></div><div class="ph-card-body">' + top + group + '</div>'
             : top + '<div class="ph-rec" data-ph="rec"></div>' + group;
@@ -5092,6 +5130,12 @@
                 for (let j = 0; j < 7; j++) delete hud.last[k + 'down' + j];
                 c.group.forEach((d, j) => { hud.last[k + 'down' + j] = d.down; });
             });
+            // For a screen reader, and anyone who cannot tell the balls apart by colour at this
+            // size: which are left and which are down, by number.
+            const left = c.group.filter(d => !d.down).map(d => d.id), gone = c.group.filter(d => d.down).map(d => d.id);
+            s(k + 'grpLabel', c.group.length ? (c.group[0].id < 8 ? 'Solids' : 'Stripes') + ': ' + (left.length ? left.join(', ') + ' on the table' : 'all down') + (gone.length ? '; ' + gone.join(', ') + ' potted' : '') : '',
+                v => r.group.setAttribute('aria-label', v));
+            s(k + 'openLabel', c.potted.length ? 'Open table; potted ' + c.potted.join(', ') : 'Open table', v => r.open.setAttribute('aria-label', v));
             s(k + 'openl', c.potted.length ? (c.potted.length > 3 ? '' : 'Potted') : 'Open table', v => { r.openl.textContent = v; phShow(r.openl, !!v); });
             s(k + 'openb', c.potted.join(), () => { r.openb.innerHTML = c.potted.map(id => '<i class="ph-dot" style="background:' + phDotStyle(id) + '"></i>').join(''); });
             c.group.forEach((d, j) => s(k + 'down' + j, d.down, v => r.dots[j] && r.dots[j].classList.toggle('is-down', v)));
@@ -5653,16 +5697,20 @@
     // robust: the top three finished lines are replayed this many times with the
     // tier's own noise, and a line that fouls or loses the frame when missed is
     // marked down (a zero-noise tier needs none: it plays what it verified).
+    // robustSafe: the same for safeties and escapes, where it differs from robust.
+    // sweep: when nothing pots and no safety is legal, turn the cue all the way
+    // round (1°), keep the gaps where the first ball hit is a legal one, and play
+    // the middle of each gap out: the escape a blind roll used to be.
     const PA_TIERS = {
         easy:   { label: 'Easy',   desc: 'Takes simple pots · misses often',     top: 4,  keep: 1, refine: 0, spins: ['stun'], speeds: [1],
                   position: 0, bank: false, kick: false, combo: false, safeBelow: 0,    aim: 1.2, aimAlt: 1.8, power: 0.12 },
         normal: { label: 'Normal', desc: 'Solid potting · little position play', top: 10, keep: 3, refine: 1, spins: ['stun', 'follow', 'draw'], speeds: [1, 1.4],
                   position: 1, bank: true,  kick: false, combo: false, safeBelow: 0.25, aim: 0.5, aimAlt: 0.8, power: 0.06, robust: 2 },
         hard:   { label: 'Hard',   desc: 'Plays position · rarely leaves a shot', top: 20, keep: 4, refine: 2, spins: ['stun', 'follow', 'draw', 'left', 'right'], speeds: [1, 1.4],
-                  position: 1, bank: true,  kick: true,  combo: true,  safeBelow: 0.4,  aim: 0.2, aimAlt: 0.4, power: 0.02, robust: 3 },
+                  position: 1, bank: true,  kick: true,  combo: true,  safeBelow: 0.4,  aim: 0.2, aimAlt: 0.4, power: 0.02, robust: 3, sweep: true },
         pro:    { label: 'Pro',    desc: 'Hardly misses · call every shot',      top: 24, keep: 5, refine: 2,
                   spins: ['stun', 'follow', 'draw', 'left', 'right', 'followLeft', 'followRight', 'drawLeft', 'drawRight'], speeds: [1, 1.4],
-                  position: 2, bank: true,  kick: true,  combo: true,  safeBelow: 0.5,  aim: 0,   aimAlt: 0.15, power: 0.0025, callEvery: true },
+                  position: 2, bank: true,  kick: true,  combo: true,  safeBelow: 0.5,  aim: 0,   aimAlt: 0.15, power: 0.0025, callEvery: true, robustSafe: 3, sweep: true },
     };
     const PA_TIER_NAMES = ['easy', 'normal', 'hard', 'pro'];
     // A zero-noise tier's make probability still allows a hair of error: the
@@ -5847,6 +5895,19 @@
         return paCandidates(world, frame, seat, cue.x, cue.y, tier === 'pro' ? 'hard' : tier, true).map(c => c.rank);
     }
 
+    // The first ball the cue ball touches on this shot, or -1 (none before it stops).
+    function paFirstContact(world, shot) {
+        const w = ppCloneWorld(world);
+        ppStrike(w, shot);
+        for (let i = 0; i < 400; i++) {
+            ppStep(w, 1 / 60);
+            const hit = w.log.find(e => e.type === 'ball' && (e.a === 0 || e.b === 0));
+            if (hit) return hit.a === 0 ? hit.b : hit.a;
+            if (ppSettled(w)) return -1;
+        }
+        return -1;
+    }
+
     // Steps a copy to the cue ball's first contact and returns the angle the
     // first object ball actually left at, or null.
     function paDeparture(world, shot, ballId) {
@@ -5917,8 +5978,9 @@
 
     // opts: { tier, rng, noise (default true), aimDeg / powerFrac (override the
     // tier's execution noise, for the balance check's human models) }.
-    // The job's shot is { angle, speed, tipX, tipY, call }, and job.plan says
-    // what it is ('break' | 'pot' | 'safety' | 'fallback').
+    // The job's shot is { angle, speed, tipX, tipY, call }, job.plan says
+    // what it is ('break' | 'pot' | 'safety' | 'escape' | 'fallback'), and job.kind the
+    // line ('direct' | 'bank' | 'kick' | 'combo' | 'safety').
     function paPlan(world, frame, opts) {
         const o = opts || {}, seat = frame.turn, cfg = world.cfg, R = cfg.ballR;
         const tier = PA_TIERS[o.tier] ? o.tier : 'normal', T = PA_TIERS[tier];
@@ -5934,7 +5996,7 @@
                 s.angle += paGauss(o.rng) * aim;
                 s.speed = Math.max(150, Math.min(cfg.maxSpeed, s.speed * (1 + paGauss(o.rng) * pw)));
             }
-            job.shot = s; job.plan = plan; job.done = true;
+            job.shot = s; job.plan = plan; job.kind = plan === 'break' ? 'break' : lineKind; job.done = true;
         };
 
         // The break: near full power at the head ball, never called.
@@ -5949,9 +6011,12 @@
 
         const cands = paCandidates(world, frame, seat, cue.x, cue.y, tier).slice(0, T.top);
         const call = c => (st.callRequired ? c.pocket : -1);
+        const legal = new Set(paTargets(world, frame, seat).map(b => b.id));
         const stageA = cands.map(c => ({ c }));
         const good = [], variants = [], safeties = [], scored = [], robustQ = [], safeScored = [], safeQ = [];
-        let stage = 'A', bestPot = null, bestSafe = null;
+        let stage = 'A', bestPot = null, bestSafe = null, bestEscape = null, swept = false;
+        const sweep = [], escapes = [];
+        const safeReps = T.robustSafe || T.robust;
 
         // Safety lines: each legal ball, full and half-ball either side, soft; and
         // one-rail kicks at it, for when the direct way is blocked.
@@ -6045,8 +6110,8 @@
                     if (!shot) {
                         // The best three safeties, replayed with the tier's noise: a safety or
                         // an escape that fouls when it is a little off is no safety.
-                        if (T.robust && o.rng && o.noise !== false && safeScored.length) {
-                            safeScored.sort((a, b) => b.score - a.score).slice(0, 3).forEach(e => { e.bad = 0; e.n = 0; for (let i = 0; i < T.robust; i++) safeQ.push(e); });
+                        if (safeReps && o.rng && o.noise !== false && safeScored.length) {
+                            safeScored.sort((a, b) => b.score - a.score).slice(0, 3).forEach(e => { e.bad = 0; e.n = 0; for (let i = 0; i < safeReps; i++) safeQ.push(e); });
                             stage = 'SR';
                         } else stage = 'done';
                         continue;
@@ -6069,7 +6134,37 @@
                     job.tried++;
                     e.n++;
                     if (r.v.foul || (r.v.frameOver && r.v.winner !== seat)) e.bad += r.v.frameOver ? 2 : 1;
+                } else if (stage === 'K') {
+                    // The sweep: the first ball hit, one degree at a time.
+                    const a = sweep.length;
+                    if (a < 360) { sweep.push(legal.has(paFirstContact(world, { angle: a * PA_DEG, speed: 1800, tipX: 0, tipY: 0 }))); continue; }
+                    // The legal gaps, widest first; the middle of each is the escape that
+                    // forgives the most aim error, so that is the one played out.
+                    const gaps = [];
+                    const start = sweep.indexOf(false);
+                    if (start === -1) gaps.push({ mid: 0, n: 360 });
+                    else for (let i = 1, run = 0; i <= 360; i++) {
+                        const at = (start + i) % 360;
+                        if (sweep[at] && i < 360) { run++; continue; }
+                        if (run) gaps.push({ mid: at - 1 - (run - 1) / 2, n: run });
+                        run = 0;
+                    }
+                    gaps.sort((x, y) => y.n - x.n).slice(0, 10).forEach(g => [1400, 2300].forEach(sp =>
+                        escapes.push({ angle: g.mid * PA_DEG, speed: Math.min(cfg.maxSpeed, sp), tipX: 0, tipY: 0, call: -1 })));
+                    stage = 'K2';
+                } else if (stage === 'K2') {
+                    const shot = escapes.shift();
+                    if (!shot) { stage = 'done'; continue; }
+                    const r = paTrial(world, frame, seat, shot);
+                    job.tried++;
+                    if (r.v.foul || (r.v.frameOver && r.v.winner !== seat)) continue;
+                    const score = paSafetyScore(r, seat);
+                    if (!bestEscape || score > bestEscape.score) bestEscape = { shot, score };
                 } else {
+                    // Nothing that pots, no legal safety: hard and pro sweep for an escape
+                    // before they settle for a blind roll.
+                    const settled = (bestPot && bestPot.score > 0) || (bestSafe && bestSafe.score > 0) || good.length;
+                    if (!settled && T.sweep && !swept) { swept = true; stage = 'K'; continue; }
                     // Choose. A likely pot; else a safety that leaves little; else the
                     // best pot anyway; else a legal survivor from stage A; else a roll.
                     const potOk = bestPot && bestPot.score > 0;
@@ -6077,6 +6172,7 @@
                     else if (bestSafe && bestSafe.score > 0) { lineKind = 'safety'; finish(bestSafe.shot, 'safety'); }
                     else if (potOk) { lineKind = bestPot.c.kind; finish(bestPot.shot, 'pot'); }
                     else if (good.length) { lineKind = good[0].c.kind; finish(good[0].shot, 'pot'); }
+                    else if (bestEscape) { lineKind = 'safety'; finish(bestEscape.shot, 'escape'); }
                     else {
                         // Nothing clean at all: roll a legal ball, the nearest, softly.
                         const b = paTargets(world, frame, seat).sort((x, y) => Math.hypot(x.x - cue.x, x.y - cue.y) - Math.hypot(y.x - cue.x, y.y - cue.y))[0];
@@ -17767,14 +17863,21 @@
                 --pool-hover-text: var(--pool-text);
                 --pool-text: rgba(255, 255, 255, 0.92);
                 --pool-muted: rgba(255, 255, 255, 0.66);
-                --pool-faint: rgba(255, 255, 255, 0.42);
+                --pool-faint: rgba(255, 255, 255, 0.56);
                 --pool-primary: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
                 --pool-primary-text: #ffffff;
                 --pool-accent: var(--aurora-4);
                 --pool-accent-rgb: 79, 172, 254;
                 /* The accent as text on the panel (tags, the Max trophy); overlays on the felt keep --pool-accent. */
-                --pool-accent-ink: var(--pool-accent);
-                --pool-hot-ink: var(--pool-hot);
+                /* On the dark panel the aurora accent and the hot red read under 4.5:1 at tag size,
+                   so their text forms are lifted toward white. --pool-accent-lite is the same for
+                   accent text on the dark glass overlays (the sheet's chip). */
+                --pool-accent-lite: color-mix(in srgb, var(--pool-accent) 62%, #ffffff);
+                --pool-accent-ink: var(--pool-accent-lite);
+                --pool-hot-ink: color-mix(in srgb, var(--pool-hot) 58%, #ffffff);
+                --pool-hot-lite: color-mix(in srgb, var(--pool-hot) 62%, #ffffff);
+                /* A hot button's fill: deep enough for white text (the hot red is 3:1). */
+                --pool-hot-fill: #cf3049;
                 --pool-felt-accent: var(--aurora-3);
                 --pool-hot: #ff5d73;
                 --pool-hot-rgb: 255, 93, 115;
@@ -17812,11 +17915,11 @@
                     --pool-hover: rgba(0, 0, 0, 0.08);
                     --pool-text: rgba(0, 0, 0, 0.86);
                     --pool-muted: rgba(0, 0, 0, 0.60);
-                    --pool-faint: rgba(0, 0, 0, 0.40);
+                    --pool-faint: rgba(0, 0, 0, 0.56);
                     --pool-glow: 0 0 20px rgba(var(--pool-accent-rgb), 0.18);
                     /* Aurora blue is 2:1 on the light panel; this deeper blue is over 4.5:1. */
-                    --pool-accent-ink: #1f6fd1;
-                    --pool-hot-ink: #c8243f;
+                    --pool-accent-ink: #1a5cb0;
+                    --pool-hot-ink: #a81d35;
                     --pool-screen: linear-gradient(180deg, #faf9fd 0%, #f3f2fa 100%);
                     --pool-scheme: light;
                 }
@@ -17831,7 +17934,8 @@
                 --pool-hover-text: var(--rt-bg-1);
                 --pool-text: var(--rt-text);
                 --pool-muted: var(--rt-text-dim);
-                --pool-faint: var(--rt-text-faint);
+                /* Cyberpunk's faint tone is decoration-grade; text that means something takes dim. */
+                --pool-faint: var(--rt-text-dim);
                 /* The theme's one allowed inversion: a --rt-text fill with --rt-bg-1
                    type. An accent fill carrying text is never allowed in Cyberpunk. */
                 --pool-primary: var(--rt-text);
@@ -17839,7 +17943,10 @@
                 --pool-accent: var(--rt-accent);
                 --pool-accent-rgb: var(--rt-accent-rgb);
                 --pool-accent-ink: var(--rt-accent);
+                --pool-accent-lite: var(--rt-accent);
                 --pool-hot-ink: var(--pool-hot);
+                --pool-hot-lite: var(--pool-hot);
+                --pool-hot-fill: #c42a45;
                 --pool-felt-accent: var(--rt-accent);
                 --pool-hot: #ff4d6d;
                 --pool-hot-rgb: 255, 77, 109;
@@ -18372,7 +18479,7 @@
             .pool-hud .ph-sheet-dd { font-size: 11px; color: var(--pool-overlay-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .pool-hud .ph-sheet-chip {
                 display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; white-space: nowrap;
-                border: 1px solid rgba(var(--pool-accent-rgb), 0.45); color: var(--pool-accent); font-size: 8px; letter-spacing: 0.12em;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.45); color: var(--pool-accent-lite); font-size: 8px; letter-spacing: 0.12em;
             }
             .pool-hud .ph-sheet-note { font-size: 11px; color: var(--pool-overlay-muted); padding: 6px 12px 0; }
             .pool-hud .ph-sheet-pvp {
@@ -18401,13 +18508,13 @@
             .pool-hud[data-layout="max"] .ph-tourhead-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; }
             .pool-hud[data-layout="max"] .ph-tourhead-f { height: 30px; padding: 0 14px; border-radius: 15px; font-size: 11px; }
             .pool-hud .ph-primary.is-two { height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
-            .pool-hud .ph-primary-sub { font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.85; }
+            .pool-hud .ph-primary-sub { font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; }
             .pool-hud .ph-sheet-links { display: flex; gap: 8px; }
             .pool-hud .ph-sheet-links .ph-btn {
                 flex: 1 1 0; height: 40px; display: flex; align-items: center; justify-content: center; gap: 6px;
                 color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); font-size: 12px;
             }
-            .pool-hud .ph-sheet-links .ph-btn.is-hot { color: var(--pool-hot); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+            .pool-hud .ph-sheet-links .ph-btn.is-hot { color: var(--pool-hot-lite); border-color: rgba(var(--pool-hot-rgb), 0.5); }
 
             /* ── Tournament screens (pool-tour-ui.js) ───────────────────── */
             /* Each screen covers the whole panel, opaque; its body scrolls and its
@@ -18456,11 +18563,11 @@
             .pool-hud .pu-primary:active, .pool-hud .pu-btn:active, .pool-hud .pu-iconbtn:active { transform: translateY(1px); }
             .pool-hud .pu-primary.is-two { height: 56px; flex-direction: column; gap: 2px; }
             .pool-hud .pu-primary-sub {
-                font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; opacity: 0.85;
+                font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none;
                 max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             .pool-hud .pu-primary.is-inline { width: auto; height: 44px; }
-            .pool-hud .pu-primary.is-hot { background: var(--pool-hot); color: #ffffff; }
+            .pool-hud .pu-primary.is-hot { background: var(--pool-hot-fill); color: #ffffff; }
             .pool-hud .pu-btn, .pool-hud .pu-iconbtn {
                 height: 44px; border: 1px solid var(--pool-control-line); border-radius: var(--pool-radius-sm); cursor: pointer;
                 background: var(--pool-control); color: var(--pool-text); font-size: 13px; font-weight: 600;
@@ -18726,7 +18833,7 @@
             .pool-hud .pu-dlg-acts { display: flex; flex-direction: column; gap: 8px; }
             .pool-hud .pu-dlg .pu-btn { color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
             .pool-hud .pu-dlg .pu-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--pool-overlay-text); }
-            .pool-hud .pu-dlg .pu-btn.is-hot { color: var(--pool-hot); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+            .pool-hud .pu-dlg .pu-btn.is-hot { color: var(--pool-hot-lite); border-color: rgba(var(--pool-hot-rgb), 0.5); }
 
             /* Max: the bracket and champion have their own full layouts; the rest
                keep the compact column, centred. */

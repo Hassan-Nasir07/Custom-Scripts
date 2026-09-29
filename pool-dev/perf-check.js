@@ -1,0 +1,73 @@
+// Frame cost and the FPS cap (POOL_V2_PLAN.md, Phase 9), in real Chrome over pool-table.html.
+//
+//   node pool-dev/perf-check.js
+//
+// For the compact panel (and the widget's 316 px column) in 3D and 2D it times poolDraw:
+//   aim     a full repaint every frame (the aim turning, so the camera and the guide move)
+//   moving  a shot rolling, stepped between draws
+//   idle    nothing changed (the HUD's model and diff only)
+// then runs the real loop for two seconds at the 60 and 30 FPS settings and counts draws.
+// Headless Chrome here rasterises the canvas in software, so these are an upper bound on a
+// laptop with GPU canvas. The bar: a 3D repaint under 4 ms (median), and the cap within 10%.
+const { spawn } = require('child_process');
+const fs = require('fs'), os = require('os'), path = require('path');
+const CHROME = 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
+const page = 'file:///' + path.join(__dirname, 'pool-table.html').replace(/\\/g, '/').replace(/ /g, '%20');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const MEASURE = `(async () => {
+    const S = poolS, out = {};
+    const time = (n, fn) => { const t = []; for (let i = 0; i < n; i++) { const t0 = performance.now(); fn(i); t.push(performance.now() - t0); } t.sort((a, b) => a - b); return { median: +t[n >> 1].toFixed(2), p95: +t[Math.floor(n * 0.95)].toFixed(2) }; };
+    for (let i = 0; i < 20; i++) { S.aim += 0.004; S.drawKey = ''; poolDraw(16); }     // warm up the caches and the JIT
+    out.aim = time(150, () => { S.aim += 0.004; S.drawKey = ''; poolDraw(16); });
+    S.phase = 'aim';
+    ppStrike(S.world, { angle: S.aim, speed: S.cfg.maxSpeed * 0.8, tipX: 0, tipY: 0 }); S.phase = 'moving';
+    out.moving = time(150, () => { ppStep(S.world, 1 / 60); poolDraw(16); });
+    S.phase = 'aim'; poolDraw(16); poolDraw(5000);
+    out.idle = time(200, () => poolDraw(16));
+    const real = poolDraw;
+    let draws = 0;
+    window.poolDraw = function (dt) { draws++; return real(dt); };
+    for (const fps of [60, 30]) {
+        userPreferences.gameFps = fps; draws = 0;
+        S.running = true; S.lastMs = 0; S.sinceDraw = 0; S.raf = requestAnimationFrame(poolLoop);
+        await new Promise(r => setTimeout(r, 2000));
+        S.running = false; cancelAnimationFrame(S.raf);
+        out['fps' + fps] = +(draws / 2).toFixed(1);
+    }
+    window.poolDraw = real;
+    return out;
+})()`;
+
+(async () => {
+    const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'pool-chrome-'));
+    const port = 9300 + Math.floor(Math.random() * 400);
+    const proc = spawn(CHROME, ['--headless=new', '--disable-gpu', '--remote-debugging-port=' + port, '--allow-file-access-from-files', '--user-data-dir=' + profile, 'about:blank'], { stdio: 'ignore' });
+    let target;
+    for (let i = 0; i < 60 && !target; i++) { await sleep(200); try { target = (await (await fetch('http://127.0.0.1:' + port + '/json/list')).json()).find(t => t.type === 'page'); } catch (_) {} }
+    if (!target) { console.log('chrome did not start'); proc.kill(); process.exit(1); }
+    const ws = new WebSocket(target.webSocketDebuggerUrl);
+    await new Promise(r => ws.addEventListener('open', r));
+    let id = 0; const pending = {};
+    ws.addEventListener('message', ev => { const m = JSON.parse(ev.data); if (m.id && pending[m.id]) { pending[m.id](m); delete pending[m.id]; } });
+    const send = (method, params) => new Promise(r => { const n = ++id; pending[n] = r; ws.send(JSON.stringify({ id: n, method, params })); });
+    const evaluate = async expr => (await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true })).result?.result?.value;
+    await send('Runtime.enable'); await send('Page.enable');
+    await send('Emulation.setDeviceMetricsOverride', { width: 1400, height: 900, deviceScaleFactor: 1, mobile: false });
+    let pass = 0, fail = 0;
+    const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ✓ ' + name + (detail ? '  ' + detail : '')); } else { fail++; console.log('  ✗ ' + name + (detail ? ' — ' + detail : '')); } };
+    const fmt = t => t.median + ' ms median, ' + t.p95 + ' p95';
+    for (const [label, q] of [['compact 3D', 'scene=mid&camera=3d'], ['316 px column 3D', 'scene=mid&camera=3d&narrow=1'], ['compact 2D', 'scene=mid&camera=2d']]) {
+        await send('Page.navigate', { url: page + '?still=1&' + q });
+        for (let i = 0; i < 60; i++) { await sleep(80); if (await evaluate('window.__ready === true')) break; }
+        const r = await evaluate(MEASURE);
+        console.log('\n── ' + label);
+        ok('a full repaint (aiming) under 4 ms', r.aim.median < 4, fmt(r.aim));
+        ok('a shot rolling under 4 ms', r.moving.median < 4, fmt(r.moving));
+        ok('an unchanged frame costs next to nothing', r.idle.median < 0.5, fmt(r.idle));
+        ok('the 60 and 30 FPS settings are kept', Math.abs(r.fps60 - 60) <= 6 && Math.abs(r.fps30 - 30) <= 3, r.fps60 + ' and ' + r.fps30 + ' draws a second');
+    }
+    console.log('\n' + pass + ' passed, ' + fail + ' failed   (software canvas: an upper bound)');
+    ws.close(); proc.kill();
+    process.exit(fail ? 1 : 0);
+})();

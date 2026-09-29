@@ -216,6 +216,20 @@ head('Table helpers');
     ok('touching a ball is refused', P.prCanPlace(w, T.footX - 2 * R + 1, 0, 'anywhere') === 'overlap');
     ok('into the cushion is refused', P.prCanPlace(w, 0, T.halfWidth - R + 1, 'anywhere') === 'outside');
     ok('NaN is refused', P.prCanPlace(w, NaN, 0, 'anywhere') === 'outside');
+    // Dragging clamps to the zone, so a drag can never reach a refused spot.
+    const k1 = P.prClampPlace(w, T.headX + 120, 40, 'kitchen');
+    ok('kitchen drag stops on the head string, keeping its height', k1[0] === T.headX && k1[1] === 40 && P.prCanPlace(w, k1[0], k1[1], 'kitchen') === null);
+    const k2 = P.prClampPlace(w, -9999, 9999, 'kitchen'), k3 = P.prClampPlace(w, 9999, -9999, 'anywhere');
+    ok('drags off the table stop at the cushions', P.prCanPlace(w, k2[0], k2[1], 'kitchen') === null && P.prCanPlace(w, k3[0], k3[1], 'anywhere') === null &&
+        k2[0] === -(T.halfLength - R) && k3[1] === -(T.halfWidth - R));
+    ok('anywhere is not held to the kitchen', P.prClampPlace(w, 200, 0, 'anywhere')[0] === 200);
+    let clampedOk = true;
+    for (let i = 0; i < 400; i++) {
+        const x = (i * 37.3 % 1600) - 800, y = (i * 91.7 % 900) - 450, zone = i % 2 ? 'kitchen' : 'anywhere';
+        const p = P.prClampPlace(w, x, y, zone), why = P.prCanPlace(w, p[0], p[1], zone);
+        if (why === 'outside' || why === 'kitchen') { clampedOk = false; break; }
+    }
+    ok('a clamped spot is never refused as outside or past the head string (400 drags)', clampedOk);
 
     const cue = w.balls[0];
     Object.assign(cue, { state: 'pocketed', pocket: 3 });

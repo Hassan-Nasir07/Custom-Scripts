@@ -95,7 +95,9 @@ nothing; the caller applies the table side:
 
 - `prSpotBall(world, 8)` when `verdict.respot8` (the 8 dropped on the break)
 - `prPlaceCue(world, x, y)` once a ball-in-hand spot passes `prCanPlace(world, x, y, zone)`,
-  which refuses `'outside'`, `'kitchen'` or `'overlap'`
+  which refuses `'outside'`, `'kitchen'` or `'overlap'`. Run a drag through
+  `prClampPlace(world, x, y, zone)` first: it holds the spot on the felt and, for
+  `'kitchen'`, behind the head string, so only `'overlap'` can come back
 
 The judge works only from the log after the last `strike`: the first ball the cue ball
 touched, cushion contacts (jaws count as cushion), and pots in the order they dropped.

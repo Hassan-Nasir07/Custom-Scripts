@@ -178,6 +178,9 @@ function hexToRgbStr(hex) {
         max: () => toggleMax(),
         call: i => { called = i; },
         ready: () => { handoff = 0; toast = null; fouled = 0; clockLeft = clockTotal; },
+        // Pick the cue ball up again. The clock pauses in ball in hand and
+        // carries on from where it was once the ball is down, so this never buys time back.
+        replace: () => { if (phase === 'aim' && frame.ballInHand && canAct() && !drag) { phase = 'bih'; placed = false; power = 0; } },
         primary: () => newFrame(3 - breaker),
         secondary: () => { mode = mode === 'cpu' ? 'pvp' : 'cpu'; $('mode').value = mode; newFrame(1); },
     };
@@ -367,9 +370,12 @@ function hexToRgbStr(hex) {
             aim += (e.key === 'ArrowLeft' ? 1 : -1) * 0.1 * DEG; e.preventDefault();
         }
     });
+    // The ball follows the pointer but stops at the cushions and, on the
+    // break, at the head string, so it can be dragged along them (as v1 did).
     function place(sx, sy) {
         const p = pcView(pcOrtho(W, H, cfg)).unproject(sx, sy);
-        prPlaceCue(world, p[0], p[1]);
+        const q = prClampPlace(world, p[0], p[1], frame.ballInHand);
+        prPlaceCue(world, q[0], q[1]);
     }
 
     // ── Rig controls ──────────────────────────────────────────────────
@@ -499,6 +505,7 @@ function hexToRgbStr(hex) {
             toast, fouled, handoff,
             bih: phase === 'bih' ? { valid: !bihBad, reason: bihBad, placed, sx: gs && gs[0], sy: gs && gs[1], sr: gs ? cfg.ballR * gs[2] : 0 } : null,
             result,
+            canReplace: !!frame.ballInHand && placed && canAct(),
         });
         phRender(hud, vm);
         $('trophies').textContent = record[1][0];
@@ -513,6 +520,7 @@ function hexToRgbStr(hex) {
     if (Q.has('call')) called = +Q.get('call');
     if (Q.has('spin')) spin = +Q.get('spin');
     if (Q.has('max')) toggleMax();
+    if (Q.has('placed') && phase === 'bih') { placed = true; phase = 'aim'; aimAtNearest(); }
     // Design states for snapshot.js.
     if (sc === 'foul') {
         mode = 'pvp';
@@ -563,13 +571,14 @@ function hexToRgbStr(hex) {
         const outside = layer.filter(el => { const r = el.getBoundingClientRect(); return r.left < vr.left - 1 || r.right > vr.right + 1 || r.top < vr.top - 1 || r.bottom > vr.bottom + 1; });
         ok('every overlay stays inside the table', !outside.length, outside.map(e => e.className).join(', '));
         const hit = (a, b) => { const p = a.getBoundingClientRect(), q = b.getBoundingClientRect(); return p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom; };
-        [['spin', 'hint'], ['cam', 'pill'], ['lean', 'spin'], ['mini', 'lean']].forEach(([a, b]) => {
+        [['spin', 'hint'], ['cam', 'pill'], ['lean', 'spin'], ['mini', 'lean'], ['replace', 'hint'], ['replace', 'gauge'], ['replace', 'spin'], ['replace', 'toast'], ['replace', 'lock']].forEach(([a, b]) => {
             if (hud[a] && hud[b] && visible(hud[a]) && visible(hud[b])) ok(a + ' and ' + b + ' do not overlap', !hit(hud[a], hud[b]));
         });
-        const clipped = Array.from(hud.el.querySelectorAll('.ph-name, .ph-tag, .ph-hint span, .ph-pill span, .ph-cam span, .ph-frames-n, .ph-toast-title, .ph-dialog-title, .ph-btn span'))
+        const clipped = Array.from(hud.el.querySelectorAll('.ph-name, .ph-tag, .ph-hint span, .ph-pill span, .ph-cam span, .ph-frames-n, .ph-toast-title, .ph-dialog-title, .ph-btn span, .ph-replace span'))
             .filter(visible).filter(el => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).display !== 'inline');
         ok('no label is cut off', !clipped.length, clipped.map(e => e.className + ' "' + e.textContent + '"').join(', '));
         const cs = getComputedStyle(hud.el), card = cs.getPropertyValue('--pool-card').trim();
+        if (Q.has('placed')) ok('the Move cue ball button shows once the ball is placed', visible(hud.replace));
         ok('--pool-card resolves', card && !/var\(/.test(card), card);
         const t = phThemeTokens(hud);
         ok('the canvas bridge hands the renderer a hex accent', /^#[0-9a-f]{6}$/.test(t.accent), t.accent);

@@ -294,6 +294,15 @@
                 font-size: 11px; letter-spacing: 0.06em; white-space: nowrap;
             }
 
+            /* Back to ball in hand: sits on the hint, clear of the power gauge and the foul toast. */
+            .pool-hud .ph-replace {
+                right: 10px; bottom: 44px; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+                border-radius: 14px; font: inherit; font-size: 11px; font-weight: 600; white-space: nowrap;
+                cursor: pointer; pointer-events: auto;
+            }
+            .pool-hud .ph-replace:hover { border-color: rgba(var(--pool-accent-rgb), 0.6); color: var(--pool-accent); }
+            .pool-hud .ph-replace:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
+
             .pool-hud .ph-mini { left: 10px; top: 54px; width: 172px; height: 116px; box-sizing: border-box; padding: 8px; border-radius: var(--pool-radius); pointer-events: auto; }
             .pool-hud .ph-mini-table { position: absolute; left: 30px; top: 30px; width: 112px; height: 56px; box-sizing: border-box; border-radius: 4px; background: #1d6e55; border: 4px solid #553220; }
             .pool-hud .ph-mini button {
@@ -414,6 +423,7 @@
             .pool-hud[data-layout="max"] .ph-spin-dot { width: 12px; height: 12px; margin: -6px 0 0 -6px; box-shadow: 0 0 0 3px rgba(210, 53, 43, 0.25); }
             .pool-hud[data-layout="max"] .ph-spin-l { font-size: 10px; }
             .pool-hud[data-layout="max"] .ph-spin-v { font-size: 16px; }
+            .pool-hud[data-layout="max"] .ph-replace { right: 16px; bottom: 58px; height: 32px; padding: 0 13px; border-radius: 16px; font-size: 12px; }
             .pool-hud[data-layout="max"] .ph-hint { right: 16px; bottom: 16px; height: 34px; padding: 0 14px; border-radius: 17px; font-size: 13px; }
             .pool-hud[data-layout="max"] .ph-mini { left: 16px; top: 68px; }
             .pool-hud[data-layout="max"] .ph-handoff { width: 520px; align-self: center; }

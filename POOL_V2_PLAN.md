@@ -4,7 +4,7 @@
 > deviation in the **Decision log** at the bottom. Attach this file as context in later
 > sessions.
 >
-> Status: `IN PROGRESS`, Phases 0–3 done, Phase 4 built (awaiting test) · Last updated: 2026-09-25 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
+> Status: `IN PROGRESS`, Phases 0–3 done, Phase 4 built (awaiting test) · Last updated: 2026-09-29 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
 
 ## Context
 
@@ -392,7 +392,8 @@ harness. Every change goes in the Decision log.
 | Cancel | return to under 3% and release, or `Esc` | same |
 | Spin | tap **SPIN** → popover with the ball face; drag the dot inside the 0.6R ring; Center/Follow/Draw/Left/Right chips | same |
 | Lean | vertical slider, 3D only | – |
-| Ball in hand | camera auto-switches to top-down; drag the cue ball with a hand cursor; red where placement is illegal | same |
+| Ball in hand | camera auto-switches to top-down; press anywhere to pick the cue ball up and drag it with a hand cursor. **It stops at the cushions and, on the break, at the head string** (`prClampPlace`, as v1 did), sliding along them even with the pointer off the canvas, so there is no kitchen warning to read. Only a spot on another ball is refused (red, *Overlaps a ball*). Release to put it down | same |
+| Move cue ball | after placing, a small **Move cue ball** button (above the hint) picks the ball up again, any time before the shot. The shot clock pauses while the ball is in hand and carries on from where it was, so re-placing never buys time back | same |
 | Call pocket | when on the 8, tap a pocket (accent ring) before the shot is allowed | same |
 
 Pointer events replace the separate mouse and touch handlers at
@@ -812,8 +813,9 @@ end, since they belong to that splice.
 - [x] Max layout: cards in the header with avatars (CPU chip), the frame count, trophy, mode, reset, exit; overlays scaled as designed (`2D TOP-DOWN` / `3D AIM`, 72 px spin, `Your shot · Solids`).
 - [x] `pool-theme.css`: `--pool-*` tokens for Glassmorphic dark, Glassmorphic light (`prefers-color-scheme`) and Cyberpunk, and component CSS that reads only `--pool-*`. It drops into the style template (12-space indent, no backticks).
 - [x] Canvas bridge `phThemeTokens(hud)` (the plan's `poolThemeTokens`): the renderer's felt accent, hot colour and font from computed `--pool-*`, normalised to hex, cached until `phThemeChanged(hud)`.
+- [x] Ball in hand (the user's review): the drag is clamped to the felt and, on the break, to the kitchen (`prClampPlace` in `pool-rules.js`), and **Move cue ball** (`vm.replace`, `on.replace`) goes back to placing until the shot. Both driven in Chrome: dragged 300 px past the head string and off the top of the canvas, the ball sat on the string and the top cushion with no warning; after *Move cue ball* the clock held for 2 s in hand, then ran on.
 - [x] Shot clock: `prTimeout` in `pool-rules.js`. Running out is a foul with ball in hand to the opponent, as in today's game; on the break it passes the break across. The clock waits for the hand-off and for ball in hand.
-- [x] `hud-verify.js`, **54 assertions**, in `verify-all.js` as *Pool HUD* (1,961 total):
+- [x] `hud-verify.js`, **57 assertions**, in `verify-all.js` as *Pool HUD* (1,968 total):
   - every design state through `phModel`
   - no design hex or font in pool code
   - `clip-path` only on buttons, no `filter`
@@ -821,10 +823,10 @@ end, since they belong to that splice.
   - Cyberpunk redefines everything light mode sets
   - `--rt-*` only under `.retro-theme`
 - [x] `pool-table.html` became the theme harness. It uses the real `cyber-theme.css` and `cyber-hud.js` with Glassmorphic / Cyberpunk, the palettes and the four shapes; light mode follows the OS. It adds Vs CPU / 2 Players, the shot clock and the Max view.
-- [x] `snapshot.js`: 27 scenes (every design state, light mode, Cyberpunk, both Max views) plus `--check`, an in-browser audit per scene: **292/292**. It checks:
+- [x] `snapshot.js`: 34 scenes (every design state, light mode, Cyberpunk, both Max views, Stay 3D, the placed cue ball) plus `--check`, an in-browser audit per scene: **391/391**. It checks:
   - no filter or clip-path on the viewport's ancestors
   - the 72 / 52 px rows and the 368:412 and 1232:672 viewports
-  - every overlay inside the table, no overlapping controls, no clipped labels
+  - every overlay inside the table, no overlapping controls (*Move cue ball* against the hint, gauge, spin, toast and padlock), no clipped labels
   - tokens resolve, the bridge's colour is the Cyberpunk accent, and the backing store is CSS size × dpr
 - [x] Driven in headless Chrome with real mouse events:
   - camera toggle, spin, lean, and Max open and Esc close (with the canvas moved across)
@@ -895,6 +897,36 @@ end, since they belong to that splice.
       Switching theme mid-frame repaints the canvas with no reload.
 - [ ] **Portal verification** on `globalportal.mtbc.com` (the userscript only runs there).
 
+### Later: Snooker (not scheduled; after v2 ships)
+The user's review of the Phase 3 table: it is good enough to carry snooker rules. What
+carries over and what would be new:
+
+- **Carries over as is:** the physics (sliding, rolling, spin, throw, cushions, the pocket
+  jaws model), the cameras and director, the renderer's table and ball drawing, the event
+  log the judge reads, ball in hand with a clamp, the hot-seat hand-off, the tournament
+  bracket and the theme layer. A real snooker bed is 2:1 like ours (3569 × 1778 mm), so
+  the playfield stays 1000 × 500.
+- **Table config:** balls to scale are much smaller (52.5 mm on 3569 mm is R ≈ 7.4 units,
+  against pool's 14), and snooker pockets are narrower with rounded cushion cuts. Both
+  are `ppCreateWorld` options; the jaws model already takes any pocket geometry.
+- **Markings:** the baulk line (≈ 206.5 units from the baulk cushion), the D (radius
+  ≈ 81.8) and the six colour spots replace the head string and foot spot. `prClampPlace`
+  gains a `'d'` zone: the ball slides along the D's arc and the baulk line.
+- **Rules, as a sibling of `pool-rules.js`:** red then colour while reds remain, colours
+  re-spotted (to the next free spot if theirs is taken), then yellow → black in order;
+  1–7 points; a foul gives the opponent max(4, value of the ball on or hit); free ball
+  after a foul that leaves a snooker; a re-spotted black on a tie. The *miss* rule and
+  re-racks stay out, like WPA's options in Phase 2. Still judged from the log after the
+  last strike.
+- **HUD:** scores and the current break instead of group trackers, the *ball on* in the
+  pill, points remaining and *snookers required*. Nominating a colour replaces the
+  pocket call.
+- **CPU:** safety matters far more than in 8-ball, so the Phase 6 planner needs a
+  snooker evaluation (where the cue ball leaves the opponent), not only pot chance.
+- ❓ **Ball size on the compact panel:** to scale, a ball in compact 2D is about 2.4 px in
+  radius, under 5 px across. Options: slightly oversized balls (as most snooker games do), a portrait 2D
+  view, or snooker only in 3D and Max.
+
 ---
 
 ## Open questions ❓
@@ -944,6 +976,9 @@ end, since they belong to that splice.
 | 2026-09-25 | **Rules choices where WPA offers options (Phase 2).** An illegal break is a plain foul with ball in hand anywhere, not WPA's re-rack-or-accept choice. The 8 on the break is always re-spotted, never re-racked. The 8 may not be hit first on an open table. A call names a pocket, not a ball. There is no three-foul rule | Each WPA option is an extra prompt at the table, and the design has screens for none of them. These are the Miniclip-style defaults the plan already names. Each is one line in `prJudge` if the user wants it the other way |
 | 2026-09-25 | **The judge derives everything from the world and its log; the frame state holds only turn, groups, break flag and ball in hand** | Today's engine keeps per-seat potted lists beside the balls, a second copy of the table. Deriving "on the 8" from the balls on the table means the two can never disagree, and the CPU can judge a cloned world with no extra bookkeeping |
 | 2026-09-25 | **The design's amber palette and Chakra Petch/Sora are dropped. Pool renders in the existing Glassmorphic Aurora and Cyberpunk HUD presets** through `--pool-*` tokens, with a canvas bridge. Table materials and ball colours stay physical and theme-independent | The user's call. It keeps pool consistent with the other panels and honours the user's Cyberpunk colour picks. No new font imports are needed |
+| 2026-09-29 | **Ball in hand is clamped, not warned: the cue ball stops at the cushions and, on the break, at the head string** | The user's review, and v1's behaviour: a drag cannot reach an illegal spot, so the *Behind the head string only* prompt no longer comes up. Overlapping a ball is still refused, because pushing balls aside would be a table change the player did not ask for |
+| 2026-09-29 | **Move cue ball: the shooter can pick the placed cue ball up again until the shot** | The user's review. The clock pauses in hand and resumes rather than resets, so re-placing gives no time back. It waits while the ball is in hand, as it already did for the first placement |
+| 2026-09-29 | **Snooker is recorded as a later mode, not scheduled** | The user's review of the table. Everything but the rules, the markings, the HUD's scores and the CPU's evaluation is shared with 8-ball |
 
 ---
 

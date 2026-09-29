@@ -4,7 +4,8 @@
     // The panel around the table, from the design's Main, InMatch and Max
     // artboards: player cards with group trackers and the shot clock, the
     // frame count, the viewport's overlays (camera toggle, group pill,
-    // toast, lean, power gauge, spin, hint, ball-in-hand chip, pocket
+    // toast, lean, power gauge, spin, hint, ball-in-hand chip, move-cue-ball
+    // button, pocket
     // mini-map, frame-over dialog) and the footer or the seat hand-off.
     //
     // Three layers, so the logic can be tested without a browser:
@@ -43,6 +44,7 @@
     //   toast: prText(…) | null, fouled: seat | 0,
     //   handoff: seat | 0,           "Pass to …" while seats swap
     //   bih: { valid, reason, placed, sx, sy, sr } | null,
+    //   canReplace,                  the shooter placed the cue ball and may pick it up again
     //   result: { win, title, reason, recordLabel, record, delta, note } | null,
     // }
     function phModel(g) {
@@ -136,6 +138,8 @@
             spin: { show: !bih && !over && !toast && !moving, label: spin.label, x: spin.x, y: spin.y },
             hint: { show: !!hint && !over && !toast, text: hint ? hint.text : '', tone: hint ? hint.tone : '' },
             bihNote: note ? { show: true, text: note.text, x: note.x, y: note.y } : { show: false },
+            // Back to placing: only before the shot, and never mid-stroke.
+            replace: { show: !!g.canReplace && g.phase === 'aim' && !g.dragging && !g.handoff && !over },
             mini: { show: aiming && st.callRequired && is3d, called: g.called >= 0 ? g.called : -1 },
             dialog: over && g.result ? Object.assign({ show: true, kicker: 'FRAME OVER · ' + (g.frames ? g.frames[0] + '–' + g.frames[1] : ''),
                 primary: 'NEW FRAME', secondary: g.mode === 'cpu' ? 'Change difficulty' : 'Change mode' }, g.result) : { show: false },
@@ -166,6 +170,7 @@
         max: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"></path></svg>',
         exit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"></path></svg>',
         swap: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13l-3-3M20 16H7l3 3"></path></svg>',
+        hand: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v7.5a6.5 6.5 0 0 1-6.5 6.5h-.6a6 6 0 0 1-4.6-2.2L3.6 15a1.6 1.6 0 0 1 2.4-2l2 2"></path></svg>',
         cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
     };
 
@@ -200,6 +205,7 @@
             '<span class="ph-spin-text"><span class="ph-spin-l ph-label">SPIN</span><span class="ph-spin-v" data-ph="spinv"></span></span></button>' +
             '<div class="ph-hint ph-glass" data-ph="hint"><span data-ph="hintt"></span></div>' +
             '<div class="ph-bihnote ph-label" data-ph="bihnote" hidden></div>' +
+            '<button type="button" class="ph-replace ph-glass" data-ph="replace" hidden>' + PH_ICON.hand + '<span>Move cue ball</span></button>' +
             '<div class="ph-mini ph-glass" data-ph="mini" hidden><div class="ph-mini-table"></div><div style="position:relative;width:156px;height:100px">' + mini + '</div></div>' +
             '<div class="ph-scrim" data-ph="scrim" hidden><div class="ph-dialog" role="dialog" aria-label="Frame over" data-ph="dialog">' +
             '<div class="ph-dialog-head"><span class="ph-dialog-icon" data-ph="dlgi"></span><span style="display:flex;flex-direction:column;gap:2px">' +
@@ -219,7 +225,7 @@
             '<button type="button" class="ph-primary ph-label" data-ph="ready"></button></div>';
     }
 
-    // on = { camera(mode), lean(value), spin(), mode(), reset(), max(), call(i), ready(), primary(), secondary() }
+    // on = { camera(mode), lean(value), spin(), mode(), reset(), max(), call(i), ready(), replace(), primary(), secondary() }
     function phBuild(root, opts) {
         const o = opts || {}, max = o.layout === 'max', on = o.on || {};
         const cards = phCardHTML(1, max) + '<div class="ph-frames"><span class="ph-frames-n" data-ph="frames">0–0</span><span class="ph-frames-l ph-label">FRAMES</span></div>' + phCardHTML(2, max);
@@ -249,7 +255,7 @@
         const ref = n => q('[data-ph="' + n + '"]');
         const hud = { el, layout: max ? 'max' : 'compact', last: {}, theme: null };
         ['view', 'canvas', 'frames', 'trophies', 'cam', 'cam2d', 'cam3d', 'cam2dl', 'cam3dl', 'pill', 'pillt', 'toast', 'toasti', 'toastt', 'toasts',
-            'lean', 'leanv', 'leanf', 'leant', 'leani', 'gauge', 'gaugef', 'lock', 'spin', 'spind', 'spinv', 'hint', 'hintt', 'bihnote',
+            'lean', 'leanv', 'leanf', 'leant', 'leani', 'gauge', 'gaugef', 'lock', 'spin', 'spind', 'spinv', 'hint', 'hintt', 'bihnote', 'replace',
             'mini', 'scrim', 'dialog', 'dlgi', 'dlgk', 'dlgt', 'dlgr', 'dlgrec', 'dlgrl', 'dlgrv', 'dlgd', 'dlgn', 'dlgnt', 'dlgp', 'dlgs',
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
@@ -269,6 +275,7 @@
         hud.reset.addEventListener('click', () => fire('reset'));
         hud.max.addEventListener('click', () => fire('max'));
         hud.ready.addEventListener('click', () => fire('ready'));
+        hud.replace.addEventListener('click', () => fire('replace'));
         hud.dlgp.addEventListener('click', () => fire('primary'));
         hud.dlgs.addEventListener('click', () => fire('secondary'));
         hud.miniButtons.forEach(b => b.addEventListener('click', () => fire('call', +b.getAttribute('data-ph-call'))));
@@ -368,6 +375,8 @@
             s('bih.text', vm.bihNote.text, v => { hud.bihnote.textContent = v; });
             s('bih.pos', vm.bihNote.x.toFixed(1) + ',' + vm.bihNote.y.toFixed(1), () => { hud.bihnote.style.left = vm.bihNote.x + 'px'; hud.bihnote.style.top = vm.bihNote.y + 'px'; });
         }
+
+        s('replace.show', vm.replace.show, v => phShow(hud.replace, v));
 
         s('mini.show', vm.mini.show, v => phShow(hud.mini, v));
         s('mini.called', vm.mini.called, v => hud.miniButtons.forEach((b, i) => b.setAttribute('aria-pressed', i === v ? 'true' : 'false')));

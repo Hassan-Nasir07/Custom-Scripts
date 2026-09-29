@@ -227,6 +227,16 @@
         return null;
     }
 
+    // The nearest spot to (x, y) the zone allows, as [x, y]: on the felt,
+    // and behind the head string for 'kitchen'. Dragging the cue ball
+    // through this makes it slide along those limits instead of crossing
+    // them. Other balls are not pushed aside; an overlap is still refused.
+    function prClampPlace(world, x, y, zone) {
+        const t = world.table, R = world.cfg.ballR;
+        const hx = t.halfLength - R, hy = t.halfWidth - R;
+        return [Math.max(-hx, Math.min(zone === 'kitchen' ? Math.min(hx, t.headX) : hx, x)), Math.max(-hy, Math.min(hy, y))];
+    }
+
     function prPlaceCue(world, x, y) {
         let cue = world.balls.find(b => b.id === 0);
         if (!cue) { cue = ppMakeBall(0, x, y); world.balls.unshift(cue); }

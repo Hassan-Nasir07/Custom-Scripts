@@ -81,6 +81,12 @@ const vm = o => P.phModel(game(o));
     ok('break, bad spot: "Behind the head string only"', bk.bihNote.text === 'Behind the head string only');
     const bp = vm({ phase: 'bih', frame: { ballInHand: 'anywhere' }, bih: { valid: true, placed: true } });
     ok('placed: "Placed · aim when ready"', bp.hint.text === 'Placed · aim when ready');
+    const rp = { frame: { ballInHand: 'anywhere' }, canReplace: true };
+    ok('placed, aiming: "Move cue ball" shows beside the aim controls', vm(rp).replace.show && vm(rp).gauge.show && vm(rp).hint.text === 'Press and drag for power');
+    ok('"Move cue ball" hides mid-stroke, in the hand-off, while placing and once balls run',
+        !vm(Object.assign({ dragging: true, power: 40 }, rp)).replace.show && !vm(Object.assign({ handoff: 2 }, rp)).replace.show &&
+        !vm(Object.assign({ phase: 'bih' }, rp)).replace.show && !vm(Object.assign({ phase: 'moving' }, rp)).replace.show);
+    ok('no "Move cue ball" without ball in hand', !vm({}).replace.show);
 
     const f = vm({ mode: 'pvp', camera: '2d', fouled: 1, handoff: 2, frame: { turn: 2, ballInHand: 'anywhere' }, phase: 'bih',
         toast: { kind: 'foul', title: "Foul · Hit opponent's ball first", sub: 'Ball in hand to Bilal' } });

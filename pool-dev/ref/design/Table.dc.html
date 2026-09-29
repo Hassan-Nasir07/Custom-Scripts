@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pool table renderer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&amp;family=Sora:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#07090A}
+</style>
+</helmet>
+<div role="img" aria-label="{{label}}" style="position: relative; isolation: isolate; width: {{w}}px; height: {{h}}px; overflow: hidden; background: {{bg}}; font-family: 'Sora', system-ui, sans-serif; color: #ECE8DF">
+<svg width="{{w}}" height="{{h}}" viewBox="0 0 {{w}} {{h}}" style="position: absolute; left: 0; top: 0; display: block">
+<defs>
+<radialGradient id="pt-felt" cx="50%" cy="46%" r="62%">
+<stop offset="0" stop-color="#2E8F70"></stop>
+<stop offset="0.6" stop-color="#1D6E55"></stop>
+<stop offset="1" stop-color="#114534"></stop>
+</radialGradient>
+<linearGradient id="pt-wood" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#7A4B2C"></stop>
+<stop offset="0.5" stop-color="#553220"></stop>
+<stop offset="1" stop-color="#3A2116"></stop>
+</linearGradient>
+<clipPath id="pt-pclip"><path d="{{pocketPath}}"></path></clipPath>
+<clipPath id="pt-pclip2"><path d="{{pocketFeltPath}}"></path></clipPath>
+<filter id="pt-blur" x="-20%" y="-20%" width="140%" height="140%">
+<feGaussianBlur stdDeviation="9"></feGaussianBlur>
+</filter>
+</defs>
+<path d="{{tableShadow}}" fill="#000000" fill-opacity="0.55" filter="url(#pt-blur)"></path>
+<path d="{{apronPath}}" fill="#26160E"></path>
+<path d="{{feltPath}}" fill="url(#pt-felt)"></path>
+<path d="{{railInnerPath}}" fill="#24150D"></path>
+<path d="{{jawPath}}" fill="#0F4234"></path>
+<path d="{{noseFacePath}}" fill="#0E3B2F"></path>
+<path d="{{cushionPath}}" fill="#185F4B"></path>
+<path d="{{railPath}}" fill="url(#pt-wood)" fill-rule="evenodd"></path>
+<path d="{{lipPath}}" fill="none" stroke="#F3EEE2" stroke-opacity="0.12" stroke-width="1"></path>
+<path d="{{diamondPath}}" fill="#E9DDBF"></path>
+<path d="{{spotPath}}" fill="#F3EEE2" fill-opacity="0.35"></path>
+<path d="{{pocketRimPath}}" fill="#1A1410"></path>
+<g clip-path="url(#pt-pclip)">
+<g clip-path="url(#pt-pclip2)">
+<path d="{{pocketHullPath}}" fill="{{hullFill}}"></path>
+<path d="{{wall.p0}}" fill="{{wall.c0}}"></path>
+<path d="{{wall.p1}}" fill="{{wall.c1}}"></path>
+<path d="{{wall.p2}}" fill="{{wall.c2}}"></path>
+<path d="{{wall.p3}}" fill="{{wall.c3}}"></path>
+<path d="{{wall.p4}}" fill="{{wall.c4}}"></path>
+<path d="{{wall.p5}}" fill="{{wall.c5}}"></path>
+<path d="{{wall.p6}}" fill="{{wall.c6}}"></path>
+<path d="{{wall.p7}}" fill="{{wall.c7}}"></path>
+<path d="{{wall.p8}}" fill="{{wall.c8}}"></path>
+<path d="{{pocketMidPath}}" fill="#1E140E"></path>
+<path d="{{pocketDeepPath}}" fill="#020303"></path>
+</g>
+</g>
+<path d="{{kitchenPath}}" fill="#F0B44C" fill-opacity="0.12"></path>
+<path d="{{headPath}}" fill="none" stroke="#F0B44C" stroke-opacity="0.8" stroke-width="1.5" stroke-dasharray="6 5"></path>
+<path d="{{shadowPath}}" fill="#000000" fill-opacity="0.38"></path>
+<path d="{{aimPath}}" fill="none" stroke="#F4F1E8" stroke-opacity="0.85" stroke-width="1.5" stroke-dasharray="5 4" stroke-linecap="round"></path>
+<path d="{{deflectPath}}" fill="none" stroke="#F4F1E8" stroke-opacity="0.4" stroke-width="1.2" stroke-dasharray="2 4" stroke-linecap="round"></path>
+<path d="{{objPath}}" fill="none" stroke="#F0B44C" stroke-width="2" stroke-linecap="round"></path>
+</svg>
+<div style="position: absolute; left: 0; top: 0; z-index: 0; width: {{w}}px; height: {{h}}px">
+<sc-for list="{{balls}}" as="b" hint-placeholder-count="11">
+<div style="position: absolute; left: {{b.l}}px; top: {{b.t}}px; width: {{b.d}}px; height: {{b.d}}px; z-index: {{b.z}}; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.35)">
+<div style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: {{b.base}}; transform: rotate({{b.rot}}deg); display: flex; align-items: center; justify-content: center">
+<div style="display: {{b.numDisplay}}; width: {{b.nd}}px; height: {{b.nd}}px; border-radius: 50%; background: #F6F2E7; color: #15191B; font-family: 'Chakra Petch', sans-serif; font-weight: 700; font-size: {{b.fs}}px; line-height: 1; align-items: center; justify-content: center">{{b.n}}</div>
+</div>
+<div style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; border-radius: 50%; background: radial-gradient(circle at 33% 27%, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.22) 14%, rgba(255, 255, 255, 0) 34%), radial-gradient(circle at 50% 42%, rgba(0, 0, 0, 0) 48%, rgba(0, 0, 0, 0.55) 100%)"></div>
+</div>
+</sc-for>
+</div>
+<svg width="{{w}}" height="{{h}}" viewBox="0 0 {{w}} {{h}}" style="position: absolute; left: 0; top: 0; display: block; pointer-events: none">
+<circle cx="{{ghost.x}}" cy="{{ghost.y}}" r="{{ghost.r}}" fill="#F4F1E8" fill-opacity="0.08" stroke="#F4F1E8" stroke-opacity="0.9" stroke-width="1.25" stroke-dasharray="3 2.5"></circle>
+<path d="{{cueButt}}" fill="#3B1F14" stroke="#000000" stroke-opacity="0.35" stroke-width="0.6"></path>
+<path d="{{cueWrap}}" fill="#1B1C1D" stroke="#000000" stroke-opacity="0.35" stroke-width="0.6"></path>
+<path d="{{cueJoint}}" fill="#C9A15A"></path>
+<path d="{{cueShaft}}" fill="#DDB77F" stroke="#000000" stroke-opacity="0.3" stroke-width="0.6"></path>
+<path d="{{cueFerrule}}" fill="#F2ECDF"></path>
+<path d="{{cueChalk}}" fill="#3E73B8"></path>
+<path d="{{ringPath}}" fill="none" stroke="#F0B44C" stroke-opacity="0.9" stroke-width="1.75" stroke-dasharray="4 3"></path>
+<path d="{{ringSelPath}}" fill="#F0B44C" fill-opacity="0.22" stroke="#F0B44C" stroke-width="3"></path>
+<circle cx="{{bihG.x}}" cy="{{bihG.y}}" r="{{bihG.r}}" fill="{{bihG.fill}}" fill-opacity="{{bihG.fo}}" stroke="{{bihG.stroke}}" stroke-width="2" stroke-dasharray="{{bihG.dash}}"></circle>
+<circle cx="{{bihG.x}}" cy="{{bihG.y}}" r="{{bihG.r2}}" fill="none" stroke="{{bihG.stroke}}" stroke-opacity="0.35" stroke-width="1"></circle>
+<g transform="{{hand.t}}" opacity="{{hand.o}}" fill="#15191B" stroke="#F3EEE2" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+<path d="M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.83L7 15"></path>
+</g>
+</svg>
+<div style="position: absolute; left: 0; top: 0; width: {{w}}px; height: {{h}}px; pointer-events: none">
+<sc-for list="{{marks}}" as="m" hint-placeholder-count="0">
+<button type="button" onClick="{{m.pick}}" aria-label="{{m.aria}}" aria-pressed="{{m.pressed}}" style="position: absolute; left: {{m.l}}px; top: {{m.t}}px; min-width: 44px; height: 44px; padding: 0; border: 0; background: transparent; cursor: pointer; pointer-events: auto; display: flex; align-items: center; justify-content: center">
+</button>
+</sc-for>
+<sc-if value="{{showMini}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; left: 10px; top: 54px; width: 172px; height: 116px; box-sizing: border-box; padding: 8px; border-radius: 14px; background: rgba(8, 10, 11, 0.66); border: 1px solid rgba(255, 255, 255, 0.10); backdrop-filter: blur(8px); pointer-events: auto">
+<div style="position: relative; width: 156px; height: 100px">
+<div style="position: absolute; left: 22px; top: 22px; width: 112px; height: 56px; box-sizing: border-box; border-radius: 4px; background: #1D6E55; border: 4px solid #553220"></div>
+<sc-for list="{{mini}}" as="q" hint-placeholder-count="6">
+<button type="button" onClick="{{q.pick}}" aria-label="{{q.aria}}" aria-pressed="{{q.pressed}}" style="position: absolute; left: {{q.l}}px; top: {{q.t}}px; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center">
+<span style="width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 2px solid {{q.ring}}; background: {{q.fill}}; display: flex; align-items: center; justify-content: center">
+<span style="display: {{q.sel}}; width: 8px; height: 8px; border-radius: 50%; background: #F0B44C"></span>
+</span>
+</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{bihNote.show}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; left: {{bihNote.l}}px; top: {{bihNote.t}}px; transform: translateX(-50%); height: 24px; padding: 0 10px; border-radius: 12px; background: rgba(8, 10, 11, 0.8); border: 1px solid rgba(236, 106, 61, 0.7); color: #F6A585; font-family: 'Chakra Petch', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; display: flex; align-items: center; white-space: nowrap">{{bihNote.text}}</div>
+</sc-if>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"camera":{"editor":"enum","options":["3d","2d"],"default":"3d"},"aim":{"editor":"range","min":-180,"max":180,"step":0.1,"unit":"°","default":-6.8},"power":{"editor":"range","min":0,"max":100,"step":1,"default":62},"striking":{"editor":"boolean","default":false},"lean":{"editor":"range","min":0,"max":100,"step":1,"default":35},"layout":{"editor":"enum","options":["mid","rack","eight","late"],"default":"mid"},"showAim":{"editor":"boolean","default":true},"bih":{"editor":"boolean","default":false},"kitchen":{"editor":"boolean","default":false},"cueX":{"editor":"float","default":null},"cueY":{"editor":"float","default":null},"pockets":{"editor":"boolean","default":false},"called":{"editor":"int","default":-1},"onCall":{"editor":null},"width":{"editor":"int","default":368},"height":{"editor":"int","default":300},"$preview":{"width":368,"height":300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const W = parseFloat(this.props.width ?? 368) || 368;
+    const H = parseFloat(this.props.height ?? 300) || 300;
+    const mode = this.props.camera === '2d' ? '2d' : '3d';
+    const aimDeg = Number(this.props.aim ?? -6.8) || 0;
+    const power = Math.max(0, Math.min(100, Number(this.props.power ?? 62) || 0));
+    const striking = this.props.striking === true || this.props.striking === 'true';
+    const lean = Math.max(0, Math.min(100, Number(this.props.lean ?? 35) || 0));
+    const flag = (v, dflt) => v === undefined || v === null || v === '' ? dflt : (v === true || v === 'true');
+    const layout = ['rack', 'eight', 'late'].indexOf(this.props.layout) >= 0 ? this.props.layout : 'mid';
+    const showAim = flag(this.props.showAim, true);
+    const bih = flag(this.props.bih, false);
+    const kitchen = flag(this.props.kitchen, false);
+    const callOn = flag(this.props.pockets, false);
+    const called = this.props.called === undefined || this.props.called === null ? -1 : Number(this.props.called);
+
+    // World units: playfield 1000 x 500, origin at centre, z up.
+    const R = 14, HL = 500, HW = 250, CU = 12, RL = 36, TZ = 16, NEAR = 4;
+    const OX = HL + CU + RL, OY = HW + CU + RL;
+    const IV = '#F3EEE2';
+    const COL = { 1: '#E9B825', 2: '#2457C5', 3: '#D2352B', 4: '#6A3FA0', 5: '#EE7A2E', 6: '#1F8A4C', 7: '#8C2A20', 8: '#141516' };
+    const B = (n, x, y) => ({ n: n, c: COL[n > 8 ? n - 8 : n], x: x, y: y, s: n > 8 });
+    let balls, cue;
+    if (layout === 'rack') {
+      const order = [[1], [9, 2], [10, 8, 3], [11, 4, 12, 5], [6, 13, 14, 7, 15]];
+      balls = [];
+      order.forEach((row, k) => row.forEach((n, i) => balls.push(B(n, 250 + k * 24.4, (i - k / 2) * 28.4))));
+      cue = [-330, 40];
+    } else if (layout === 'eight') {
+      balls = [B(8, 300, -100), B(9, -300, -90), B(12, -380, 180), B(15, -230, -200)];
+      cue = [-60, 40];
+    } else if (layout === 'late') {
+      balls = [B(11, 370, 40), B(12, -380, 180), B(15, -230, -200)];
+      cue = [60, 80];
+    } else {
+      balls = [B(1, 230, -120), B(3, 140, 20), B(4, 330, 150), B(6, -60, -160), B(7, 420, -60), B(8, 60, 190),
+        B(9, -300, -90), B(11, 370, 40), B(12, -380, 180), B(15, -230, -200)];
+      cue = [-160, 70];
+    }
+    if (this.props.cueX !== undefined && this.props.cueX !== null && this.props.cueX !== '') cue = [Number(this.props.cueX), Number(this.props.cueY)];
+    const a = aimDeg * Math.PI / 180;
+    const d = [Math.cos(a), Math.sin(a)];
+
+    const sub = (p, q) => [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+    const dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+    const nrm = (p) => { const l = Math.hypot(p[0], p[1], p[2]) || 1; return [p[0] / l, p[1] / l, p[2] / l]; };
+    const fx = (v) => Math.round(v * 10) / 10;
+
+    // Camera: 3D = chase camera behind the cue ball, 2D = orthographic top-down.
+    let toCam, toScr, camPos = null;
+    if (mode === '3d') {
+      const F = 1.1 * H;
+      // Lean: 0 = eye just above and behind the cue ball, 100 = high overhead chase view.
+      const lt = lean / 100;
+      const phi = (19.5 + 28.5 * lt) * Math.PI / 180;
+      const dist = 110 + 310 * lt;
+      const pitch = phi - Math.atan(0.34 / 1.1);
+      camPos = [cue[0] - d[0] * dist * Math.cos(phi), cue[1] - d[1] * dist * Math.cos(phi), R + dist * Math.sin(phi)];
+      const f = [d[0] * Math.cos(pitch), d[1] * Math.cos(pitch), -Math.sin(pitch)];
+      const r = nrm([f[1], -f[0], 0]);
+      const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
+      toCam = (p) => { const q = sub(p, camPos); return [dot(q, r), dot(q, u), dot(q, f)]; };
+      toScr = (c) => [W / 2 + F * c[0] / c[2], H / 2 - F * c[1] / c[2], F / c[2]];
+    } else {
+      const s = Math.min((W - 16) / (2 * OX), (H - 16) / (2 * OY));
+      toCam = (p) => [p[0], -p[1], 1000 - p[2]];
+      toScr = (c) => [W / 2 + s * c[0], H / 2 - s * c[1], s];
+    }
+
+    const clip = (pts) => {
+      const out = [];
+      for (let i = 0; i < pts.length; i++) {
+        const A = pts[i], B = pts[(i + 1) % pts.length];
+        const ain = A[2] >= NEAR, bin = B[2] >= NEAR;
+        if (ain) out.push(A);
+        if (ain !== bin) {
+          const t = (NEAR - A[2]) / (B[2] - A[2]);
+          out.push([A[0] + t * (B[0] - A[0]), A[1] + t * (B[1] - A[1]), NEAR]);
+        }
+      }
+      return out;
+    };
+    const pathOf = (world) => {
+      const c = clip(world.map(toCam));
+      if (c.length < 3) return '';
+      return c.map((p, i) => { const q = toScr(p); return (i ? 'L' : 'M') + fx(q[0]) + ' ' + fx(q[1]); }).join('') + 'Z';
+    };
+    const seg = (p, q) => {
+      let A = toCam(p), B = toCam(q);
+      if (A[2] < NEAR && B[2] < NEAR) return '';
+      if (A[2] < NEAR) { const t = (NEAR - A[2]) / (B[2] - A[2]); A = [A[0] + t * (B[0] - A[0]), A[1] + t * (B[1] - A[1]), NEAR]; }
+      if (B[2] < NEAR) { const t = (NEAR - B[2]) / (A[2] - B[2]); B = [B[0] + t * (A[0] - B[0]), B[1] + t * (A[1] - B[1]), NEAR]; }
+      const sa = toScr(A), sb = toScr(B);
+      return 'M' + fx(sa[0]) + ' ' + fx(sa[1]) + 'L' + fx(sb[0]) + ' ' + fx(sb[1]);
+    };
+    const rect = (hx, hy, z) => [[-hx, -hy, z], [hx, -hy, z], [hx, hy, z], [-hx, hy, z]];
+    const circ = (cx, cy, rad, z, k) => {
+      const o = [];
+      for (let i = 0; i < k; i++) { const t = i / k * Math.PI * 2; o.push([cx + rad * Math.cos(t), cy + rad * Math.sin(t), z]); }
+      return o;
+    };
+
+    // Table geometry
+    const tableShadow = mode === '3d'
+      ? pathOf(rect(OX + 30, OY + 30, -90))
+      : pathOf(rect(OX + 4, OY + 4, -1).map((p) => [p[0], p[1] + 12, p[2]]));
+    let apronPath = '';
+    if (camPos) {
+      const lo = -46;
+      if (camPos[0] > OX) apronPath += pathOf([[OX, -OY, TZ], [OX, OY, TZ], [OX, OY, lo], [OX, -OY, lo]]);
+      if (camPos[0] < -OX) apronPath += pathOf([[-OX, -OY, TZ], [-OX, OY, TZ], [-OX, OY, lo], [-OX, -OY, lo]]);
+      if (camPos[1] > OY) apronPath += pathOf([[-OX, OY, TZ], [OX, OY, TZ], [OX, OY, lo], [-OX, OY, lo]]);
+      if (camPos[1] < -OY) apronPath += pathOf([[-OX, -OY, TZ], [OX, -OY, TZ], [OX, -OY, lo], [-OX, -OY, lo]]);
+    }
+    const feltPath = pathOf(rect(HL + CU, HW + CU, 0));
+    // Cushions: six segments with angled jaws, gaps at the pockets.
+    const NZ = 10, CB = 22, CN = 36, SB = 24, SN = 30;
+    const cushSegs = [];
+    [-1, 1].forEach((sy) => {
+      [[-HL + CB, -SB, -HL + CN, -SN], [SB, HL - CB, SN, HL - CN]].forEach((g) => {
+        cushSegs.push([[g[2], sy * HW, NZ], [g[3], sy * HW, NZ], [g[1], sy * (HW + CU), TZ], [g[0], sy * (HW + CU), TZ]]);
+      });
+    });
+    [-1, 1].forEach((sx) => {
+      cushSegs.push([[sx * HL, -HW + CN, NZ], [sx * HL, HW - CN, NZ], [sx * (HL + CU), HW - CB, TZ], [sx * (HL + CU), -HW + CB, TZ]]);
+    });
+    let cushionPath = '', noseFacePath = '';
+    cushSegs.forEach((q) => {
+      cushionPath += pathOf(q);
+      noseFacePath += pathOf([q[0], q[1], [q[1][0], q[1][1], 0], [q[0][0], q[0][1], 0]]);
+    });
+    const railPath = pathOf(rect(OX, OY, TZ)) + pathOf(rect(HL + CU, HW + CU, TZ));
+    const lipPath = pathOf(rect(HL + CU, HW + CU, TZ));
+    let diamondPath = '';
+    [-375, -250, -125, 125, 250, 375].forEach((x) => {
+      diamondPath += pathOf(circ(x, -(HW + CU + RL / 2), 3.6, TZ + 0.1, 8));
+      diamondPath += pathOf(circ(x, HW + CU + RL / 2, 3.6, TZ + 0.1, 8));
+    });
+    [-125, 0, 125].forEach((y) => {
+      diamondPath += pathOf(circ(-(HL + CU + RL / 2), y, 3.6, TZ + 0.1, 8));
+      diamondPath += pathOf(circ(HL + CU + RL / 2, y, 3.6, TZ + 0.1, 8));
+    });
+    const spotPath = pathOf(circ(250, 0, 3, 0.1, 10)) + pathOf(circ(-250, 0, 3, 0.1, 10));
+    const pockets = [
+      [-(HL + 4), -(HW + 4), 27], [HL + 4, -(HW + 4), 27], [-(HL + 4), HW + 4, 27], [HL + 4, HW + 4, 27],
+      [0, -(HW + 16), 24], [0, HW + 16, 24]
+    ];
+    // Pockets: leather cover on the rail, then a real hole. In 3D the hole is a cylinder
+    // dropping from rail height to below the slate; only the far inner wall is visible,
+    // shaded by depth band and by how much of the lamp it faces, seen through the opening.
+    let pocketRimPath = '', pocketPath = '', pocketLipPath = '', pocketFeltPath = '', pocketHullPath = '', pocketMidPath = '', pocketDeepPath = '';
+    const IX = HL + CU, IY = HW + CU;
+    const wallP = ['', '', '', '', '', '', '', '', ''];
+    const bandZ = [[TZ + 0.3, 0], [0, -22], [-22, -64]];
+    const bandRGB = [[86, 60, 41], [48, 33, 23], [21, 15, 11]];
+    const lit = [0.55, 0.8, 1.08];
+    const wallC = [];
+    bandRGB.forEach((c) => lit.forEach((k) => wallC.push('rgb(' + c.map((v) => Math.min(255, Math.round(v * k))).join(', ') + ')')));
+    const scr = (world) => clip(world.map(toCam)).map(toScr);
+    const hull = (pts) => {
+      const P = pts.map((q) => [q[0], q[1]]).sort((u, v) => u[0] - v[0] || u[1] - v[1]);
+      if (P.length < 3) return P;
+      const cr = (o, u, v) => (u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0]);
+      const lo = [], up = [];
+      P.forEach((q) => { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); });
+      for (let i = P.length - 1; i >= 0; i--) { const q = P[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+      return lo.slice(0, -1).concat(up.slice(0, -1));
+    };
+    const NF = 30;
+    pockets.forEach((p) => {
+      const [cx, cy, pr] = p;
+      const rim = circ(cx, cy, pr + 7, TZ + 0.2, 36).map((q) => {
+        if (Math.abs(q[0]) < IX && Math.abs(q[1]) < IY) {
+          const dx = IX - Math.abs(q[0]), dy = IY - Math.abs(q[1]);
+          return dx < dy ? [Math.sign(q[0]) * IX, q[1], q[2]] : [q[0], Math.sign(q[1]) * IY, q[2]];
+        }
+        return q;
+      });
+      pocketRimPath += pathOf(rim);
+      pocketPath += pathOf(circ(cx, cy, pr, TZ + 0.3, 36));
+      pocketLipPath += pathOf(circ(cx, cy, pr + 2, TZ + 0.35, 36));
+      // Aperture = rail cut (above) intersected with the felt cut; the ring texture lives on the floor.
+      pocketFeltPath += pathOf(circ(cx, cy, pr, 0, 36));
+      pocketMidPath += pathOf(circ(cx, cy, pr * 0.86, -64, 36));
+      pocketDeepPath += pathOf(circ(cx, cy, pr * 0.66, -64, 36));
+      if (mode === '2d') {
+        pocketHullPath += pathOf(circ(cx, cy, pr, TZ + 0.3, 36));
+        return;
+      }
+      const hp = hull(scr(circ(cx, cy, pr, TZ + 0.3, 36)).concat(scr(circ(cx, cy, pr, 0, 36))));
+      if (hp.length >= 3) pocketHullPath += hp.map((q, i) => (i ? 'L' : 'M') + fx(q[0]) + ' ' + fx(q[1])).join('') + 'Z';
+      const cl = Math.hypot(cx, cy) || 1;
+      for (let k = 0; k < NF; k++) {
+        const a0 = k / NF * Math.PI * 2, a1 = (k + 1) / NF * Math.PI * 2, am = (a0 + a1) / 2;
+        const nx = -Math.cos(am), ny = -Math.sin(am);
+        const px = cx + pr * Math.cos(am), py = cy + pr * Math.sin(am);
+        if ((camPos[0] - px) * nx + (camPos[1] - py) * ny <= 0) continue;
+        const face = Math.max(0, nx * (-cx / cl) + ny * (-cy / cl));
+        const bi = face > 0.66 ? 2 : face > 0.25 ? 1 : 0;
+        const x0 = cx + pr * Math.cos(a0), y0 = cy + pr * Math.sin(a0), x1 = cx + pr * Math.cos(a1), y1 = cy + pr * Math.sin(a1);
+        bandZ.forEach((bz, band) => { wallP[band * 3 + bi] += pathOf([[x0, y0, bz[0]], [x1, y1, bz[0]], [x1, y1, bz[1]], [x0, y0, bz[1]]]); });
+      }
+    });
+    const wall = {};
+    wallP.forEach((d, i) => { wall['p' + i] = d; wall['c' + i] = wallC[i]; });
+    let railInnerPath = '', jawPath = '';
+    if (camPos) {
+      if (camPos[0] < IX) railInnerPath += pathOf([[IX, -IY, TZ], [IX, IY, TZ], [IX, IY, 0], [IX, -IY, 0]]);
+      if (camPos[0] > -IX) railInnerPath += pathOf([[-IX, -IY, TZ], [-IX, IY, TZ], [-IX, IY, 0], [-IX, -IY, 0]]);
+      if (camPos[1] < IY) railInnerPath += pathOf([[-IX, IY, TZ], [IX, IY, TZ], [IX, IY, 0], [-IX, IY, 0]]);
+      if (camPos[1] > -IY) railInnerPath += pathOf([[-IX, -IY, TZ], [IX, -IY, TZ], [IX, -IY, 0], [-IX, -IY, 0]]);
+      cushSegs.forEach((q) => {
+        jawPath += pathOf([q[0], q[3], [q[3][0], q[3][1], 0], [q[0][0], q[0][1], 0]]);
+        jawPath += pathOf([q[1], q[2], [q[2][0], q[2][1], 0], [q[1][0], q[1][1], 0]]);
+      });
+    }
+
+    const kitchenPath = kitchen ? pathOf([[-HL, -HW, 0.2], [-250, -HW, 0.2], [-250, HW, 0.2], [-HL, HW, 0.2]]) : '';
+    const headPath = kitchen ? seg([-250, -HW, 0.3], [-250, HW, 0.3]) : '';
+    let bihValid = true;
+    if (bih) {
+      if (Math.abs(cue[0]) > HL - R || Math.abs(cue[1]) > HW - R) bihValid = false;
+      if (kitchen && cue[0] > -250) bihValid = false;
+      balls.forEach((b) => { if (Math.hypot(b.x - cue[0], b.y - cue[1]) < 2 * R) bihValid = false; });
+    }
+
+    // Balls
+    const all = bih ? balls.slice() : balls.concat([{ n: 0, c: IV, x: cue[0], y: cue[1], cue: true }]);
+    let shadowPath = '';
+    const list = [];
+    all.forEach((b) => {
+      shadowPath += pathOf(circ(b.x + 4, b.y + 5, R * 1.08, 0.3, 20));
+      const c = toCam([b.x, b.y, R]);
+      if (c[2] < NEAR + R) return;
+      const sp = toScr(c);
+      const rad = R * sp[2];
+      if (rad < 0.8) return;
+      const dd = rad * 2;
+      const base = b.cue
+        ? 'radial-gradient(circle at 50% 50%, #F8F4EB 0%, #E6DFCF 100%)'
+        : b.s
+          ? 'linear-gradient(180deg, ' + IV + ' 0%, ' + IV + ' 27%, ' + b.c + ' 27%, ' + b.c + ' 73%, ' + IV + ' 73%, ' + IV + ' 100%)'
+          : b.c;
+      list.push({
+        zc: c[2], n: b.cue ? '' : String(b.n),
+        l: fx(sp[0] - rad), t: fx(sp[1] - rad), d: fx(dd), base: base,
+        rot: (b.n * 53) % 50 - 25,
+        numDisplay: (!b.cue && dd >= 15) ? 'flex' : 'none',
+        nd: fx(dd * 0.46), fs: fx(Math.max(dd * 0.27, 6))
+      });
+    });
+    list.sort((p, q) => q.zc - p.zc);
+    list.forEach((b, i) => { b.z = i + 1; });
+
+    // Aim: ray from the cue ball, first ball contact or cushion.
+    let tHit = Infinity, hit = null;
+    balls.forEach((b) => {
+      const mx = cue[0] - b.x, my = cue[1] - b.y;
+      const bb = mx * d[0] + my * d[1];
+      const cc = mx * mx + my * my - 4 * R * R;
+      const disc = bb * bb - cc;
+      if (disc <= 0) return;
+      const t = -bb - Math.sqrt(disc);
+      if (t > 0 && t < tHit) { tHit = t; hit = b; }
+    });
+    const lim = (pos, dir, max) => dir > 1e-9 ? (max - pos) / dir : dir < -1e-9 ? (-max - pos) / dir : Infinity;
+    const tx0 = lim(cue[0], d[0], HL - R), ty0 = lim(cue[1], d[1], HW - R);
+    const tRail = Math.min(tx0, ty0);
+    const Z = 0.6;
+    let gx, gy, objPath = '', deflectPath = '';
+    if (hit && tHit < tRail) {
+      gx = cue[0] + d[0] * tHit; gy = cue[1] + d[1] * tHit;
+      let nx = hit.x - gx, ny = hit.y - gy;
+      const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+      objPath = seg([hit.x + nx * R, hit.y + ny * R, Z], [hit.x + nx * (R + 150), hit.y + ny * (R + 150), Z]);
+      const dn = d[0] * nx + d[1] * ny;
+      let tx = d[0] - dn * nx, ty = d[1] - dn * ny;
+      const tl = Math.hypot(tx, ty);
+      if (tl > 0.05) { tx /= tl; ty /= tl; deflectPath = seg([gx + tx * R, gy + ty * R, Z], [gx + tx * (R + 90), gy + ty * (R + 90), Z]); }
+    } else {
+      gx = cue[0] + d[0] * tRail; gy = cue[1] + d[1] * tRail;
+      const rd = tx0 <= ty0 ? [-d[0], d[1]] : [d[0], -d[1]];
+      deflectPath = seg([gx + rd[0] * R, gy + rd[1] * R, Z], [gx + rd[0] * (R + 120), gy + rd[1] * (R + 120), Z]);
+    }
+    const aimOn = showAim && !bih;
+    const aimPath = seg([cue[0] + d[0] * R * 1.3, cue[1] + d[1] * R * 1.3, Z], [gx - d[0] * R, gy - d[1] * R, Z]);
+    const gc = toCam([gx, gy, R]);
+    let ghost = { x: 0, y: 0, r: 0 };
+    if (gc[2] > NEAR + R) { const gs = toScr(gc); ghost = { x: fx(gs[0]), y: fx(gs[1]), r: fx(R * gs[2]) }; }
+
+    // Cue stick, pulled back by power; snaps forward while striking.
+    const gap = striking ? 1 : 8 + power * 1.1;
+    const L = 600;
+    const stickPt = (u, side) => {
+      const along = R + gap + u;
+      const w = 3.3 + (8 - 3.3) * (u / L);
+      const z = R + 1.5 + 60 * (u / L);
+      return [cue[0] - d[0] * along - d[1] * w * side, cue[1] - d[1] * along + d[0] * w * side, z];
+    };
+    const stick = (u0, u1) => pathOf([stickPt(u0, 1), stickPt(u1, 1), stickPt(u1, -1), stickPt(u0, -1)]);
+
+    // Ball in hand ghost + hand cursor
+    let bihG = { x: 0, y: 0, r: 0, r2: 0, fill: IV, fo: 0, stroke: IV, dash: '' };
+    let hand = { t: 'translate(-99 -99)', o: 0 };
+    let bihNote = { show: false, l: 0, t: 0, text: '' };
+    if (bih) {
+      const gc2 = toCam([cue[0], cue[1], R]);
+      if (gc2[2] > NEAR + R) {
+        const gs2 = toScr(gc2), gr = R * gs2[2];
+        bihG = { x: fx(gs2[0]), y: fx(gs2[1]), r: fx(gr), r2: fx(gr + 5), fill: bihValid ? IV : '#EC6A3D', fo: bihValid ? 0.6 : 0.4, stroke: bihValid ? '#F0B44C' : '#EC6A3D', dash: bihValid ? '3 2' : '' };
+        hand = { t: 'translate(' + fx(gs2[0] + gr * 0.2) + ' ' + fx(gs2[1] + gr * 0.1) + ') scale(0.95)', o: 1 };
+        if (!bihValid) bihNote = { show: true, l: fx(gs2[0]), t: fx(gs2[1] + gr + 26), text: kitchen ? 'Behind the head string only' : 'Overlaps a ball' };
+      }
+    }
+
+    // Called pocket: rings for pockets in view, edge chips for pockets out of view
+    let ringPath = '', ringSelPath = '';
+    const marks = [], mini = [];
+    if (callOn) {
+      const names = ['TOP LEFT', 'TOP RIGHT', 'BOTTOM LEFT', 'BOTTOM RIGHT', 'TOP SIDE', 'BOTTOM SIDE'];
+      const onCall = this.props.onCall;
+      pockets.forEach((p, i) => {
+        const ring = pathOf(circ(p[0], p[1], p[2] + 12, TZ + 0.5, 32));
+        const c = toCam([p[0], p[1], TZ]);
+        let sx = 0, sy = 0, inView = false;
+        if (c[2] > NEAR) { const q = toScr(c); sx = q[0]; sy = q[1]; inView = sx > 10 && sx < W - 10 && sy > 10 && sy < H - 10; }
+        const sel = i === called;
+        const pick = () => { if (typeof onCall === 'function') onCall(i); };
+        if (inView) {
+          if (sel) ringSelPath += ring; else ringPath += ring;
+          marks.push({ l: fx(sx - 22), t: fx(sy - 22), chip: 'none', label: '', rot: 0, border: 'transparent', aria: 'Call ' + names[i].toLowerCase() + ' pocket', pressed: sel ? 'true' : 'false', pick: pick });
+        }
+        mini.push({ l: [0, 112, 0, 112, 56, 56][i], t: [0, 0, 56, 56, 0, 56][i], sel: sel ? 'flex' : 'none', ring: sel ? '#F0B44C' : 'rgba(240, 180, 76, 0.55)', fill: sel ? 'rgba(240, 180, 76, 0.25)' : 'rgba(8, 10, 11, 0.6)', aria: 'Call ' + names[i].toLowerCase() + ' pocket', pressed: sel ? 'true' : 'false', pick: pick });
+      });
+    }
+
+    return {
+      kitchenPath, headPath, bihG, hand, bihNote, ringPath, ringSelPath, marks, mini, showMini: callOn && mode === '3d',
+      w: W, h: H,
+      label: mode === '3d' ? 'Pool table, 3D aim camera' : 'Pool table, top-down view',
+      bg: mode === '3d'
+        ? 'radial-gradient(ellipse 80% 70% at 50% 28%, #25383A 0%, #111819 55%, #07090A 100%)'
+        : 'radial-gradient(ellipse 75% 75% at 50% 50%, #1C2628 0%, #0B0E0F 80%)',
+      tableShadow, apronPath, feltPath, cushionPath, railPath, lipPath, diamondPath, spotPath,
+      pocketRimPath, pocketPath, pocketLipPath, pocketFeltPath, pocketHullPath, pocketMidPath, pocketDeepPath, noseFacePath, shadowPath,
+      wall, railInnerPath, jawPath, hullFill: mode === '2d' ? '#3A281C' : '#040303',
+      aimPath: aimOn ? aimPath : '', deflectPath: aimOn ? deflectPath : '', objPath: aimOn ? objPath : '',
+      balls: list, ghost: aimOn ? ghost : { x: 0, y: 0, r: 0 },
+      cueChalk: aimOn ? stick(0, 3) : '', cueFerrule: aimOn ? stick(3, 16) : '', cueShaft: aimOn ? stick(16, 330) : '',
+      cueJoint: aimOn ? stick(330, 338) : '', cueWrap: aimOn ? stick(338, 470) : '', cueButt: aimOn ? stick(470, L) : ''
+    };
+  }
+}
+</script>
+</body>
+</html>

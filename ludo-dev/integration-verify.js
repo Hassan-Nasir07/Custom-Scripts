@@ -75,8 +75,11 @@ head('Shared Max modal (Pool migration)');
 ok('toggleGameMaxModal exists', has('function toggleGameMaxModal(cfg)'));
 ok('Pool now calls it',
    /function togglePoolMaximize\(\)\s*\{[\s\S]{0,320}?toggleGameMaxModal\(\{/.test(src));
-ok('Pool keeps its original 2x buffer',
-   /canvasId: 'pool-canvas'[\s\S]{0,220}?bufferW: POOL_W[\s\S]{0,90}?bufferH: POOL_CANVAS_H/.test(src));
+// Pool v2 brings its own Max layout (the design's 1280x800 view) instead of a
+// scaled canvas; the helper's build branch hands it an empty panel.
+ok('Pool brings its own Max layout through cfg.build',
+   /canvasId: 'pool-root'[\s\S]{0,220}?build: poolBuildMax[\s\S]{0,90}?unbuild: poolUnbuildMax/.test(src) &&
+   has('if (!openState && cfg.build) {'));
 ok('Ludo passes its own buffer',
    /canvasId: 'ludo-canvas'[\s\S]{0,220}?bufferW: LUDO_CANVAS_W/.test(src));
 ok('old per-Pool modal state fully removed',
@@ -126,8 +129,14 @@ ok('ludoRender sets an unrotated scale transform',
 head('Difficulty control and dice audit');
 ok('ludoDifficulty default in userPreferences', has("ludoDifficulty: 'adaptive'"));
 ok('difficulty select in the settings modal', has('data-pref="ludoDifficulty"'));
+// Counted inside Ludo's own select: Pool's CPU select offers the same values.
+const ludoDiffSelect = (/<select class="settings-select" data-pref="ludoDifficulty">[\s\S]*?<\/select>/.exec(src) || [''])[0];
 ok('all four choices offered',
-   (src.match(/<option value="(adaptive|easy|normal|hard)"/g) || []).length === 4);
+   (ludoDiffSelect.match(/<option value="(adaptive|easy|normal|hard)"/g) || []).length === 4);
+const poolDiffSelect = (/<select class="settings-select" data-pref="poolDifficulty">[\s\S]*?<\/select>/.exec(src) || [''])[0];
+ok('Pool CPU: adaptive and the four tiers, and it is a string pref too',
+   (poolDiffSelect.match(/<option value="(adaptive|easy|normal|hard|pro)"/g) || []).length === 5 &&
+   src.match(/numericPrefs = \[[^\]]*\]/)[0].indexOf('poolDifficulty') === -1);
 // It is a string pref, so it must NOT be in the list that parseInts selects —
 // 'hard' through parseInt is NaN, which would silently fall back to adaptive.
 ok('difficulty is not parsed as a number',

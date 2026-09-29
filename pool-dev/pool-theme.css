@@ -1,0 +1,1040 @@
+            /* ═══════════════════════════════════════════════════════════════
+               8-BALL POOL — HUD THEME (v2)
+               ═══════════════════════════════════════════════════════════════
+               Layout, components and states follow the design canvas; colour,
+               type and shape come from the widget's own presets. Every rule
+               below the token blocks reads only --pool-* properties, and the
+               token blocks are the only place those are mapped:
+                 1  Glassmorphic Aurora, dark (the default)
+                 2  Glassmorphic Aurora, light (prefers-color-scheme)
+                 3  Cyberpunk HUD (user-picked colours, so no light variant)
+               Overlays sit on the felt, not on the panel, so they stay dark
+               glass in light mode too. The table and balls are physical and
+               drawn on the canvas from their own materials.
+               Nothing here sets clip-path or filter on .ph-view or anything
+               around it: the canvas and its popovers live inside.
+
+               Scope is ".retro-theme .pool-hud", not ".attendance-summary …",
+               because the Max view lives in a body-level modal: its root carries
+               copies of the widget's retro-theme and shape classes, so the
+               Cyberpunk tokens (declared on .retro-theme) resolve there too.
+               The Cyberpunk block comes after the light block and redefines
+               everything it sets, so light mode never leaks into Cyberpunk. */
+
+            .pool-hud {
+                --pool-card: rgba(255, 255, 255, 0.08);
+                --pool-card-line: rgba(255, 255, 255, 0.16);
+                --pool-control: rgba(255, 255, 255, 0.08);
+                --pool-control-line: rgba(255, 255, 255, 0.14);
+                --pool-hover: rgba(255, 255, 255, 0.16);
+                --pool-hover-text: var(--pool-text);
+                --pool-text: rgba(255, 255, 255, 0.92);
+                --pool-muted: rgba(255, 255, 255, 0.66);
+                --pool-faint: rgba(255, 255, 255, 0.56);
+                --pool-primary: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
+                --pool-primary-text: #ffffff;
+                --pool-accent: var(--aurora-4);
+                --pool-accent-rgb: 79, 172, 254;
+                /* The accent as text on the panel (tags, the Max trophy); overlays on the felt keep --pool-accent. */
+                /* On the dark panel the aurora accent and the hot red read under 4.5:1 at tag size,
+                   so their text forms are lifted toward white. --pool-accent-lite is the same for
+                   accent text on the dark glass overlays (the sheet's chip). */
+                --pool-accent-lite: color-mix(in srgb, var(--pool-accent) 62%, #ffffff);
+                --pool-accent-ink: var(--pool-accent-lite);
+                --pool-hot-ink: color-mix(in srgb, var(--pool-hot) 58%, #ffffff);
+                --pool-hot-lite: color-mix(in srgb, var(--pool-hot) 62%, #ffffff);
+                /* A hot button's fill: deep enough for white text (the hot red is 3:1). */
+                --pool-hot-fill: #cf3049;
+                --pool-felt-accent: var(--aurora-3);
+                --pool-hot: #ff5d73;
+                --pool-hot-rgb: 255, 93, 115;
+                --pool-hot-edge: none;
+                --pool-glow: 0 0 24px rgba(var(--pool-accent-rgb), 0.16);
+                --pool-overlay: rgba(8, 10, 11, 0.66);
+                --pool-overlay-strong: rgba(8, 10, 11, 0.82);
+                --pool-overlay-line: rgba(255, 255, 255, 0.10);
+                --pool-overlay-text: rgba(255, 255, 255, 0.92);
+                --pool-overlay-muted: rgba(255, 255, 255, 0.62);
+                --pool-overlay-blur: blur(8px);
+                --pool-track: rgba(255, 255, 255, 0.14);
+                --pool-display: 'Inter', system-ui, sans-serif;
+                --pool-display-weight: 700;
+                --pool-body: 'Inter', system-ui, sans-serif;
+                --pool-num: 'Inter', system-ui, sans-serif;
+                --pool-canvas-font: 'Inter', system-ui, sans-serif;
+                --pool-label-case: uppercase;
+                --pool-radius: 14px;
+                --pool-radius-sm: 12px;
+                --pool-backdrop-3d: radial-gradient(ellipse 80% 70% at 50% 28%, #251f33 0%, #101315 55%, #06080a 100%);
+                --pool-backdrop-2d: radial-gradient(ellipse 75% 75% at 50% 50%, #1d1a26 0%, #0b0d0f 80%);
+                --pool-backdrop-grid: none;
+                /* The tournament screens: opaque, over the whole panel. */
+                --pool-screen: linear-gradient(180deg, #16151f 0%, #0b0c11 100%);
+                --pool-scheme: dark;
+            }
+
+            @media (prefers-color-scheme: light) {
+                .pool-hud {
+                    --pool-card: rgba(0, 0, 0, 0.04);
+                    --pool-card-line: rgba(0, 0, 0, 0.10);
+                    --pool-control: rgba(0, 0, 0, 0.04);
+                    --pool-control-line: rgba(0, 0, 0, 0.10);
+                    --pool-hover: rgba(0, 0, 0, 0.08);
+                    --pool-text: rgba(0, 0, 0, 0.86);
+                    --pool-muted: rgba(0, 0, 0, 0.60);
+                    --pool-faint: rgba(0, 0, 0, 0.56);
+                    --pool-glow: 0 0 20px rgba(var(--pool-accent-rgb), 0.18);
+                    /* Aurora blue is 2:1 on the light panel; this deeper blue is over 4.5:1. */
+                    --pool-accent-ink: #1a5cb0;
+                    --pool-hot-ink: #a81d35;
+                    --pool-screen: linear-gradient(180deg, #faf9fd 0%, #f3f2fa 100%);
+                    --pool-scheme: light;
+                }
+            }
+
+            .retro-theme .pool-hud {
+                --pool-card: var(--rt-panel-strong);
+                --pool-card-line: var(--rt-border);
+                --pool-control: var(--rt-panel-strong);
+                --pool-control-line: var(--rt-border);
+                --pool-hover: var(--rt-text);
+                --pool-hover-text: var(--rt-bg-1);
+                --pool-text: var(--rt-text);
+                --pool-muted: var(--rt-text-dim);
+                /* Cyberpunk's faint tone is decoration-grade; text that means something takes dim. */
+                --pool-faint: var(--rt-text-dim);
+                /* The theme's one allowed inversion: a --rt-text fill with --rt-bg-1
+                   type. An accent fill carrying text is never allowed in Cyberpunk. */
+                --pool-primary: var(--rt-text);
+                --pool-primary-text: var(--rt-bg-1);
+                --pool-accent: var(--rt-accent);
+                --pool-accent-rgb: var(--rt-accent-rgb);
+                --pool-accent-ink: var(--rt-accent);
+                --pool-accent-lite: var(--rt-accent);
+                --pool-hot-ink: var(--pool-hot);
+                --pool-hot-lite: var(--pool-hot);
+                --pool-hot-fill: #c42a45;
+                --pool-felt-accent: var(--rt-accent);
+                --pool-hot: #ff4d6d;
+                --pool-hot-rgb: 255, 77, 109;
+                /* User colours can land on any hue, so hot never relies on hue alone. */
+                --pool-hot-edge: var(--rt-hazard);
+                --pool-glow: var(--rt-glow-soft);
+                --pool-overlay: var(--rt-panel-strong);
+                --pool-overlay-strong: var(--rt-panel-strong);
+                --pool-overlay-line: var(--rt-border);
+                --pool-overlay-text: var(--rt-text);
+                --pool-overlay-muted: var(--rt-text-dim);
+                --pool-overlay-blur: none;
+                --pool-track: rgba(var(--rt-border-rgb), 0.25);
+                --pool-display: 'Orbitron', sans-serif;
+                --pool-display-weight: 700;
+                --pool-body: 'Share Tech Mono', monospace;
+                --pool-num: 'Share Tech Mono', monospace;
+                --pool-canvas-font: 'Share Tech Mono', monospace;
+                --pool-radius: var(--rt-radius);
+                --pool-radius-sm: var(--rt-radius-sm);
+                --pool-backdrop-3d: radial-gradient(ellipse 80% 70% at 50% 28%, var(--rt-bg-2) 0%, var(--rt-bg-1) 100%);
+                --pool-backdrop-2d: radial-gradient(ellipse 75% 75% at 50% 50%, var(--rt-bg-2) 0%, var(--rt-bg-1) 100%);
+                --pool-backdrop-grid:
+                    linear-gradient(var(--rt-grid) 1px, transparent 1px) 0 0 / 24px 24px,
+                    linear-gradient(90deg, var(--rt-grid) 1px, transparent 1px) 0 0 / 24px 24px;
+                --pool-screen: linear-gradient(135deg, var(--rt-bg-1), var(--rt-bg-2));
+                --pool-scheme: dark;
+            }
+
+            /* ── Components ─────────────────────────────────────────────── */
+            /* The design is 368 wide, but the widget's side panel is 350 on screens up
+               to 1400 px (316 for the HUD) and full width below 1200. So the compact HUD
+               is fluid: the viewport keeps 368:412, the overlays that run down it are
+               anchored to its height (they land on the design's pixels at 368), and
+               below 360 px wide the camera toggle drops its "AUTO" suffix. It stops
+               growing at 420 px so a stacked layout does not get a table taller than
+               the screen. */
+            .pool-hud {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                color: var(--pool-text);
+                font-family: var(--pool-body);
+                container: pool-hud / inline-size;
+            }
+            .pool-hud[data-layout="compact"] { max-width: 420px; margin: 0 auto; }
+            .pool-hud button { font: inherit; color: inherit; }
+            .pool-hud .ph-label {
+                font-family: var(--pool-display);
+                font-weight: var(--pool-display-weight);
+                text-transform: var(--pool-label-case);
+                letter-spacing: 0.12em;
+            }
+            .pool-hud .ph-num { font-family: var(--pool-num); font-variant-numeric: tabular-nums; }
+
+            /* Player cards and the frame count */
+            .pool-hud .ph-cards {
+                height: 72px;
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) 52px minmax(0, 1fr);
+                gap: 8px;
+            }
+            .pool-hud .ph-card {
+                position: relative;
+                overflow: hidden;
+                box-sizing: border-box;
+                padding: 10px 12px;
+                border-radius: var(--pool-radius);
+                background: var(--pool-card);
+                border: 1px solid var(--pool-card-line);
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                min-width: 0;
+                transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            }
+            .pool-hud .ph-card[data-seat="2"] { align-items: flex-end; }
+            .pool-hud .ph-card.is-active { border-color: var(--pool-accent); box-shadow: var(--pool-glow); }
+            .pool-hud .ph-card.is-hot { border-color: var(--pool-hot); box-shadow: 0 0 24px rgba(var(--pool-hot-rgb), 0.18); }
+            .pool-hud .ph-card-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; }
+            .pool-hud .ph-card[data-seat="2"] .ph-card-top { flex-direction: row-reverse; }
+            .pool-hud .ph-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+            .pool-hud .ph-tag { font-size: 9px; color: var(--pool-accent-ink); white-space: nowrap; flex-shrink: 0; text-transform: none; letter-spacing: 0.06em; }
+            .pool-hud .ph-tag.is-hot { color: var(--pool-hot-ink); }
+            .pool-hud .ph-tag.is-pulse { animation: ph-pulse 1s ease-in-out infinite; }
+            @keyframes ph-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+            .pool-hud .ph-rec { font-size: 11px; color: var(--pool-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+            .pool-hud .ph-group { display: flex; gap: 4px; }
+            .pool-hud .ph-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; transition: opacity 0.25s ease; }
+            .pool-hud .ph-dot.is-down { opacity: 0.2; }
+            .pool-hud .ph-open { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; font-weight: 500; color: var(--pool-muted); white-space: nowrap; }
+            .pool-hud .ph-card[data-seat="2"] .ph-open { flex-direction: row-reverse; }
+            .pool-hud .ph-open-balls { display: flex; gap: 3px; }
+            .pool-hud .ph-open-balls:empty { display: none; }
+            .pool-hud .ph-clock {
+                position: absolute; bottom: 0; left: 0; height: 3px; width: 0;
+                background: var(--pool-accent);
+                box-shadow: 0 0 8px var(--pool-accent);
+            }
+            .pool-hud .ph-card[data-seat="2"] .ph-clock { left: auto; right: 0; }
+            .pool-hud .ph-card.is-hot .ph-clock { background: var(--pool-hot); box-shadow: 0 0 8px var(--pool-hot); }
+            .pool-hud .ph-frames { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+            .pool-hud .ph-frames-n { font-family: var(--pool-num); font-weight: 700; white-space: nowrap; font-size: 22px; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+            .pool-hud .ph-frames-l { font-size: 9px; color: var(--pool-muted); letter-spacing: 0.14em; }
+
+            /* The table viewport */
+            .pool-hud .ph-view {
+                position: relative;
+                width: 100%;
+                aspect-ratio: 368 / 412;
+                border-radius: var(--pool-radius);
+                overflow: hidden;
+                border: 1px solid var(--pool-card-line);
+                box-sizing: border-box;
+                flex-shrink: 0;
+                background: var(--pool-backdrop-grid), var(--pool-backdrop-3d);
+                touch-action: none;
+                user-select: none;
+            }
+            .pool-hud .ph-view.is-2d { background: var(--pool-backdrop-grid), var(--pool-backdrop-2d); }
+            .pool-hud .ph-canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
+            .pool-hud .ph-canvas.is-dragging { cursor: grabbing; }
+            .pool-hud .ph-canvas.is-placing { cursor: grab; }
+            .pool-hud .ph-layer { position: absolute; inset: 0; pointer-events: none; }
+            .pool-hud .ph-layer > * { position: absolute; }
+            .pool-hud .ph-glass {
+                background: var(--pool-overlay);
+                border: 1px solid var(--pool-overlay-line);
+                backdrop-filter: var(--pool-overlay-blur);
+                -webkit-backdrop-filter: var(--pool-overlay-blur);
+                color: var(--pool-overlay-text);
+            }
+            .pool-hud [hidden] { display: none !important; }
+
+            .pool-hud .ph-cam { left: 10px; top: 10px; display: flex; gap: 2px; padding: 3px; border-radius: 11px; pointer-events: auto; }
+            .pool-hud .ph-cam button {
+                display: flex; align-items: center; gap: 5px; height: 30px; padding: 0 10px;
+                border: 0; border-radius: 8px; background: transparent; color: var(--pool-overlay-muted);
+                font-size: 12px; cursor: pointer;
+            }
+            .pool-hud .ph-cam button[aria-pressed="true"] { background: var(--pool-primary); color: var(--pool-primary-text); }
+            .pool-hud .ph-pill { right: 10px; top: 10px; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 14px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+            .pool-hud .ph-pill-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pool-accent); box-shadow: 0 0 8px var(--pool-accent); }
+
+            .pool-hud .ph-toast {
+                left: 10px; right: 10px; top: 10px; box-sizing: border-box; min-height: 60px; padding: 10px 14px;
+                display: flex; align-items: center; gap: 12px; border-radius: var(--pool-radius);
+                background: var(--pool-overlay-strong); border-color: rgba(var(--pool-accent-rgb), 0.6);
+                box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+            }
+            .pool-hud .ph-toast.is-foul { border-color: rgba(var(--pool-hot-rgb), 0.7); background: var(--pool-hot-edge) left top / 4px 100% no-repeat, var(--pool-overlay-strong); }
+            .pool-hud .ph-toast-icon { width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.16); color: var(--pool-accent); }
+            .pool-hud .ph-toast.is-foul .ph-toast-icon { background: rgba(var(--pool-hot-rgb), 0.16); color: var(--pool-hot); }
+            .pool-hud .ph-toast-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+            .pool-hud .ph-toast-title { font-size: 13px; font-weight: 600; color: var(--pool-accent); }
+            .pool-hud .ph-toast.is-foul .ph-toast-title { color: var(--pool-hot); }
+            .pool-hud .ph-toast-sub { font-size: 12px; }
+
+            .pool-hud .ph-lean {
+                left: 10px; top: 60px; width: 40px; height: min(288px, calc(100% - 124px)); box-sizing: border-box; padding: 10px 0;
+                display: flex; flex-direction: column; align-items: center; gap: 6px; border-radius: 20px; pointer-events: auto;
+            }
+            .pool-hud .ph-lean-l { font-size: 9px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-lean-v { font-size: 12px; font-weight: 600; }
+            .pool-hud .ph-lean-chev { color: var(--pool-overlay-muted); }
+            .pool-hud .ph-rng { position: relative; width: 28px; flex-grow: 1; }
+            .pool-hud .ph-rng-track { position: absolute; left: 12px; top: 0; width: 4px; height: 100%; border-radius: 2px; background: var(--pool-track); }
+            .pool-hud .ph-rng-fill { position: absolute; left: 12px; bottom: 0; width: 4px; border-radius: 2px; background: var(--pool-accent); }
+            .pool-hud .ph-rng-thumb { position: absolute; left: 5px; width: 18px; height: 18px; margin-bottom: -9px; border-radius: 50%; background: var(--pool-overlay-text); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); }
+            .pool-hud .ph-rng:focus-within .ph-rng-thumb { box-shadow: 0 0 0 4px rgba(var(--pool-accent-rgb), 0.35), 0 2px 6px rgba(0, 0, 0, 0.5); }
+            .pool-hud .ph-rng input {
+                position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0;
+                cursor: ns-resize; writing-mode: vertical-lr; direction: rtl;
+            }
+
+            /* Anchored above Move cue ball and the hint: at 412 tall this is the design's 190–330. */
+            .pool-hud .ph-gauge {
+                right: 12px; bottom: 82px; width: 8px; height: min(140px, calc(100% - 232px)); border-radius: 4px; overflow: hidden;
+                background: var(--pool-overlay); border: 1px solid var(--pool-overlay-line); opacity: 0.45;
+                transition: opacity 0.15s ease;
+            }
+            .pool-hud .ph-gauge.is-live { opacity: 1; }
+            .pool-hud .ph-gauge.is-locked { opacity: 0.3; }
+            .pool-hud .ph-gauge-fill { position: absolute; left: 0; bottom: 0; width: 100%; height: 0; background: var(--pool-accent); box-shadow: 0 0 10px var(--pool-accent); }
+            .pool-hud .ph-gauge.is-hot .ph-gauge-fill { background: var(--pool-hot); box-shadow: 0 0 10px var(--pool-hot); }
+            .pool-hud .ph-lock { right: 6px; bottom: calc(86px + min(140px, calc(100% - 232px))); width: 20px; height: 18px; display: flex; align-items: center; justify-content: center; color: var(--pool-overlay-muted); }
+
+            .pool-hud .ph-spin {
+                left: 10px; bottom: 10px; display: flex; align-items: center; gap: 8px; height: 44px;
+                padding: 0 12px 0 5px; border-radius: 22px; cursor: pointer; pointer-events: auto; text-align: left;
+            }
+            .pool-hud .ph-spin-ball {
+                position: relative; width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+                background: radial-gradient(circle at 35% 30%, #ffffff 0%, #ede7da 45%, #bdb6a6 100%);
+                box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+            }
+            .pool-hud .ph-spin-ball::before, .pool-hud .ph-spin-ball::after { content: ''; position: absolute; left: 50%; top: 50%; background: rgba(20, 25, 27, 0.18); }
+            .pool-hud .ph-spin-ball::before { width: 1px; height: 65%; transform: translate(-50%, -50%); }
+            .pool-hud .ph-spin-ball::after { width: 65%; height: 1px; transform: translate(-50%, -50%); }
+            .pool-hud .ph-spin-dot { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #d2352b; box-shadow: 0 0 0 2px rgba(210, 53, 43, 0.25); transition: left 0.15s ease, top 0.15s ease; }
+            .pool-hud .ph-spin-text { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+            .pool-hud .ph-spin-l { font-size: 9px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-spin-v { font-size: 12px; font-weight: 600; white-space: nowrap; }
+            .pool-hud .ph-spin.is-open { border-color: rgba(var(--pool-accent-rgb), 0.6); }
+            /* The dot can be dragged on the small ball itself. */
+            .pool-hud .ph-spin-ball { cursor: grab; touch-action: none; }
+            .pool-hud .ph-spin-ball:active { cursor: grabbing; }
+
+            /* The spin picker: a big ball face above the control, the miscue ring
+               (0.6 R) drawn on it, and the presets beside it. */
+            .pool-hud .ph-spinpop {
+                left: 10px; bottom: 62px; z-index: 3; box-sizing: border-box; padding: 10px;
+                display: flex; flex-direction: column; gap: 8px; border-radius: var(--pool-radius);
+                background: var(--pool-overlay-strong); pointer-events: auto;
+                box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+            }
+            .pool-hud .ph-spinpop-read { font-size: 11px; font-weight: 600; color: var(--pool-overlay-text); white-space: nowrap; }
+            .pool-hud .ph-spinpop-body { display: flex; gap: 10px; align-items: center; }
+            .pool-hud .ph-spinpop-ball {
+                position: relative; width: 112px; height: 112px; border-radius: 50%; flex-shrink: 0;
+                background: radial-gradient(circle at 35% 30%, #ffffff 0%, #ede7da 45%, #bdb6a6 100%);
+                box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 6px 14px rgba(0, 0, 0, 0.35);
+                cursor: crosshair; touch-action: none; outline: none;
+            }
+            .pool-hud .ph-spinpop-ball::before, .pool-hud .ph-spinpop-ball::after { content: ''; position: absolute; left: 50%; top: 50%; background: rgba(20, 25, 27, 0.18); }
+            .pool-hud .ph-spinpop-ball::before { width: 1px; height: 80%; transform: translate(-50%, -50%); }
+            .pool-hud .ph-spinpop-ball::after { width: 80%; height: 1px; transform: translate(-50%, -50%); }
+            .pool-hud .ph-spinpop-ball:focus-visible { box-shadow: 0 0 0 3px rgba(var(--pool-accent-rgb), 0.55), 0 6px 14px rgba(0, 0, 0, 0.35); }
+            .pool-hud .ph-spinpop-ring {
+                position: absolute; left: 20%; top: 20%; width: 60%; height: 60%; box-sizing: border-box;
+                border-radius: 50%; border: 1px dashed rgba(20, 25, 27, 0.35); pointer-events: none;
+            }
+            .pool-hud .ph-spinpop-ball .ph-spin-dot { width: 14px; height: 14px; margin: -7px 0 0 -7px; box-shadow: 0 0 0 3px rgba(210, 53, 43, 0.25); transition: none; pointer-events: none; }
+            .pool-hud .ph-spinpop-chips { display: flex; flex-direction: column; gap: 4px; }
+            .pool-hud .ph-spinpop-chips .ph-btn { height: 20px; padding: 0 10px; font-size: 10px; color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
+            .pool-hud .ph-spinpop-chips .ph-btn[aria-pressed="true"] { border-color: var(--pool-accent); color: var(--pool-accent); }
+            .pool-hud .ph-spinpop-chips .ph-btn:hover { background: var(--pool-hover); color: var(--pool-hover-text); }
+
+            .pool-hud .ph-hint {
+                right: 10px; bottom: 10px; display: flex; align-items: center; height: 28px; padding: 0 10px;
+                border-radius: 14px; font-size: 12px; font-weight: 600; white-space: nowrap;
+                font-family: var(--pool-body);
+            }
+            .pool-hud .ph-hint.is-power { color: var(--pool-accent); }
+            .pool-hud .ph-hint.is-call { border-color: rgba(var(--pool-accent-rgb), 0.6); color: var(--pool-accent); }
+            .pool-hud .ph-hint.is-hot { border-color: rgba(var(--pool-hot-rgb), 0.6); color: var(--pool-hot); background: var(--pool-hot-edge) left top / 3px 100% no-repeat, var(--pool-overlay); }
+
+            .pool-hud .ph-bihnote {
+                transform: translateX(-50%); height: 24px; padding: 0 10px; border-radius: 12px; display: flex; align-items: center;
+                background: var(--pool-overlay-strong); border: 1px solid rgba(var(--pool-hot-rgb), 0.7); color: var(--pool-hot);
+                font-size: 11px; letter-spacing: 0.06em; white-space: nowrap;
+            }
+
+            /* Back to ball in hand: sits on the hint, clear of the power gauge and the foul toast. */
+            .pool-hud .ph-replace {
+                right: 10px; bottom: 44px; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+                border-radius: 14px; font: inherit; font-size: 11px; font-weight: 600; white-space: nowrap;
+                cursor: pointer; pointer-events: auto;
+            }
+            .pool-hud .ph-replace:hover { border-color: rgba(var(--pool-accent-rgb), 0.6); color: var(--pool-accent); }
+            .pool-hud .ph-replace:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
+
+            /* The call card (3D): the hint's corner, holding the hint's line and the pocket map,
+               so calling adds nothing else to the table. Bottom right is the near rail in the
+               chase camera, clear of the shot. Six 24 px targets on a 52 x 26 table. */
+            .pool-hud .ph-mini {
+                right: 10px; bottom: 10px; min-width: 88px; width: max-content; box-sizing: border-box; padding: 5px 6px 6px; border-radius: var(--pool-radius-sm);
+                display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: auto;
+            }
+            .pool-hud .ph-mini-cap { max-width: 100%; font-size: 11px; font-weight: 600; line-height: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-mini.is-call { border-color: rgba(var(--pool-accent-rgb), 0.6); }
+            .pool-hud .ph-mini.is-call .ph-mini-cap, .pool-hud .ph-mini.is-power .ph-mini-cap { color: var(--pool-accent); }
+            .pool-hud .ph-mini.is-hot { border-color: rgba(var(--pool-hot-rgb), 0.6); background: var(--pool-hot-edge) left top / 3px 100% no-repeat, var(--pool-overlay); }
+            .pool-hud .ph-mini.is-hot .ph-mini-cap { color: var(--pool-hot); }
+            .pool-hud .ph-mini-pad { position: relative; width: 76px; height: 50px; }
+            .pool-hud .ph-mini-table { position: absolute; left: 12px; top: 12px; width: 52px; height: 26px; box-sizing: border-box; border-radius: 3px; background: #1d6e55; border: 3px solid #553220; }
+            .pool-hud .ph-mini button {
+                position: absolute; width: 24px; height: 24px; padding: 0; border: 0; background: transparent;
+                display: flex; align-items: center; justify-content: center; cursor: pointer;
+            }
+            .pool-hud .ph-mini button span {
+                width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                border: 2px solid rgba(var(--pool-accent-rgb), 0.55); background: var(--pool-overlay);
+            }
+            .pool-hud .ph-mini button[aria-pressed="true"] span { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.25); }
+            .pool-hud .ph-mini button:hover span { border-color: var(--pool-accent); }
+            /* While the card holds the corner: the gauge and its padlock step up over it, and
+               Move cue ball goes bottom left, over the spin control (the lean slider is hidden). */
+            .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-gauge { bottom: 98px; height: min(140px, calc(100% - 248px)); }
+            .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-lock { bottom: calc(102px + min(140px, calc(100% - 248px))); }
+            .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-replace { right: auto; left: 10px; bottom: 62px; }
+            .pool-hud .ph-mini button[aria-pressed="true"] span::after { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--pool-accent); }
+
+            /* Frame-over dialog */
+            .pool-hud .ph-scrim { inset: 0; background: rgba(7, 9, 10, 0.62); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; pointer-events: auto; }
+            .pool-hud .ph-dialog {
+                width: min(320px, calc(100% - 32px)); box-sizing: border-box; padding: 20px; border-radius: var(--pool-radius);
+                background: var(--pool-overlay-strong); border: 1px solid rgba(var(--pool-accent-rgb), 0.45);
+                box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55); display: flex; flex-direction: column; gap: 14px; color: var(--pool-overlay-text);
+            }
+            .pool-hud .ph-dialog.is-loss { border-color: rgba(var(--pool-hot-rgb), 0.5); background: var(--pool-hot-edge) left top / 4px 100% no-repeat, var(--pool-overlay-strong); }
+            .pool-hud .ph-dialog-head { display: flex; align-items: center; gap: 12px; }
+            .pool-hud .ph-dialog-icon { width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.14); color: var(--pool-accent); }
+            .pool-hud .ph-dialog.is-loss .ph-dialog-icon { background: rgba(var(--pool-hot-rgb), 0.16); color: var(--pool-hot); }
+            .pool-hud .ph-dialog-kicker { font-size: 10px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-dialog-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 24px; line-height: 1.1; }
+            .pool-hud .ph-dialog-reason { font-size: 13px; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-dialog-rec { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: var(--pool-radius-sm); background: rgba(255, 255, 255, 0.06); }
+            .pool-hud .ph-dialog-rec-l { font-size: 9px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-dialog-rec-v { font-size: 18px; font-weight: 600; }
+            .pool-hud .ph-dialog-delta { font-size: 12px; letter-spacing: 0.08em; color: var(--pool-accent); }
+            .pool-hud .ph-dialog.is-loss .ph-dialog-delta { color: var(--pool-hot); }
+            .pool-hud .ph-dialog-note { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-dialog-actions { display: flex; flex-direction: column; gap: 8px; }
+
+            /* Buttons: the primary fill, and the footer's control tiles */
+            .pool-hud .ph-primary {
+                height: 48px; border: 0; border-radius: var(--pool-radius-sm); cursor: pointer;
+                background: var(--pool-primary); color: var(--pool-primary-text);
+                font-size: 15px; letter-spacing: 0.08em; transition: filter 0.15s ease, transform 0.1s ease;
+            }
+            .pool-hud .ph-primary:hover { filter: brightness(1.07); }
+            .pool-hud .ph-primary:active, .pool-hud .ph-btn:active { transform: translateY(1px); }
+            .pool-hud .ph-btn {
+                border: 1px solid var(--pool-control-line); border-radius: var(--pool-radius-sm); cursor: pointer;
+                background: var(--pool-control); color: var(--pool-text); font-size: 11px; font-weight: 600;
+                transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+            }
+            .pool-hud .ph-btn:hover { background: var(--pool-hover); color: var(--pool-hover-text); }
+            .pool-hud .ph-dialog .ph-btn { height: 44px; font-size: 13px; color: var(--pool-overlay-text); }
+            .pool-hud button:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
+
+            .pool-hud .ph-foot { height: 52px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+            .pool-hud .ph-foot .ph-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0; }
+            .pool-hud .ph-handoff {
+                height: 52px; box-sizing: border-box; padding: 4px 4px 4px 10px; display: flex; align-items: center; gap: 10px;
+                border-radius: var(--pool-radius-sm); background: var(--pool-card); border: 1px solid var(--pool-accent);
+            }
+            .pool-hud .ph-handoff-icon { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.14); color: var(--pool-accent); }
+            .pool-hud .ph-handoff-text { display: flex; flex-direction: column; gap: 1px; flex-grow: 1; min-width: 0; }
+            .pool-hud .ph-handoff-to { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-handoff-from { font-size: 11px; color: var(--pool-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-handoff .ph-primary { height: 44px; padding: 0 14px; font-size: 13px; letter-spacing: 0.06em; white-space: nowrap; }
+
+            /* Cyberpunk shape: buttons get the .snake-btn corner cut; panels keep
+               only the radius (never clip-path on the viewport or its parents). */
+            .retro-theme .pool-hud .ph-btn,
+            .retro-theme .pool-hud .ph-primary {
+                clip-path: polygon(7px 0, 100% 0, 100% 100%, 0 100%, 0 7px);
+            }
+            .retro-theme .pool-hud .ph-btn { border-color: var(--rt-border-strong); text-shadow: var(--rt-glow-soft); }
+            .retro-theme .pool-hud .ph-btn:hover { text-shadow: none; }
+            .retro-theme .pool-hud .ph-view { border-color: var(--rt-border); }
+            /* Orbitron runs wide: a card tag in it squeezes the name to a few letters. */
+            .retro-theme .pool-hud .ph-tag { font-family: var(--pool-num); letter-spacing: 0.08em; font-size: 10px; }
+
+            /* ── Max layout (Max.dc.html) ───────────────────────────────── */
+            .pool-hud[data-layout="max"] { gap: 16px; height: 100%; }
+            .pool-hud[data-layout="max"] .ph-top {
+                height: 64px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 24px;
+            }
+            .pool-hud[data-layout="max"] .ph-title { display: flex; align-items: center; gap: 12px; font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 24px; }
+            .pool-hud[data-layout="max"] .ph-cards { height: 64px; display: flex; align-items: stretch; gap: 12px; }
+            .pool-hud[data-layout="max"] .ph-card { width: 220px; flex-direction: row; align-items: center; gap: 12px; padding: 10px 14px; }
+            .pool-hud[data-layout="max"] .ph-card[data-seat="2"] { flex-direction: row-reverse; }
+            .pool-hud[data-layout="max"] .ph-avatar {
+                width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+                background: var(--pool-control); color: var(--pool-muted); font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 14px;
+            }
+            .pool-hud[data-layout="max"] .ph-card.is-active .ph-avatar { background: var(--pool-primary); color: var(--pool-primary-text); }
+            .pool-hud[data-layout="max"] .ph-card-body { display: flex; flex-direction: column; gap: 5px; flex-grow: 1; min-width: 0; }
+            .pool-hud[data-layout="max"] .ph-card[data-seat="2"] .ph-card-body { align-items: flex-end; }
+            .pool-hud[data-layout="max"] .ph-card-top { align-items: baseline; }
+            .pool-hud[data-layout="max"] .ph-name { font-size: 14px; }
+            .pool-hud[data-layout="max"] .ph-dot { width: 14px; height: 14px; }
+            .pool-hud[data-layout="max"] .ph-frames { width: 96px; }
+            .pool-hud[data-layout="max"] .ph-frames-n { font-size: 30px; line-height: 1; }
+            .pool-hud[data-layout="max"] .ph-frames-l { font-size: 10px; }
+            .pool-hud[data-layout="max"] .ph-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+            .pool-hud[data-layout="max"] .ph-actions .ph-btn { height: 44px; min-width: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; font-size: 12px; }
+            .pool-hud[data-layout="max"] .ph-actions .ph-btn.is-icon { padding: 0; width: 44px; }
+            .pool-hud[data-layout="max"] .ph-trophy {
+                display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 18px;
+                background: var(--pool-card); border: 1px solid rgba(var(--pool-accent-rgb), 0.28); color: var(--pool-accent-ink); font-size: 16px; font-weight: 700;
+            }
+            .pool-hud[data-layout="max"] .ph-view { aspect-ratio: 1232 / 672; border-radius: 18px; flex: 1 1 auto; }
+            .pool-hud[data-layout="max"] .ph-cam { left: 16px; top: 16px; gap: 3px; padding: 4px; border-radius: 13px; }
+            .pool-hud[data-layout="max"] .ph-cam button { height: 36px; padding: 0 14px; font-size: 13px; gap: 7px; border-radius: 9px; }
+            .pool-hud[data-layout="max"] .ph-pill { right: 16px; top: 16px; height: 34px; padding: 0 14px; border-radius: 17px; font-size: 12px; gap: 8px; }
+            .pool-hud[data-layout="max"] .ph-toast { left: 16px; right: auto; top: 16px; width: 420px; }
+            .pool-hud[data-layout="max"] .ph-lean { left: 16px; top: 150px; width: 48px; height: 360px; border-radius: 24px; }
+            .pool-hud[data-layout="max"] .ph-lean-l { font-size: 10px; }
+            .pool-hud[data-layout="max"] .ph-lean-v { font-size: 13px; }
+            .pool-hud[data-layout="max"] .ph-gauge { right: 20px; top: 226px; bottom: auto; width: 10px; height: 220px; border-radius: 5px; }
+            .pool-hud[data-layout="max"] .ph-lock { right: 15px; top: 202px; bottom: auto; }
+            .pool-hud[data-layout="max"] .ph-spin { left: 16px; bottom: 16px; height: 72px; padding: 0 18px 0 6px; gap: 12px; border-radius: 36px; }
+            .pool-hud[data-layout="max"] .ph-spin-ball { width: 60px; height: 60px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 6px 14px rgba(0, 0, 0, 0.35); }
+            .pool-hud[data-layout="max"] .ph-spin-dot { width: 12px; height: 12px; margin: -6px 0 0 -6px; box-shadow: 0 0 0 3px rgba(210, 53, 43, 0.25); }
+            .pool-hud[data-layout="max"] .ph-spin-l { font-size: 10px; }
+            .pool-hud[data-layout="max"] .ph-spin-v { font-size: 16px; }
+            .pool-hud[data-layout="max"] .ph-spinpop { left: 16px; bottom: 100px; padding: 14px; gap: 10px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-read { font-size: 13px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-ball { width: 160px; height: 160px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-ball .ph-spin-dot { width: 18px; height: 18px; margin: -9px 0 0 -9px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-chips { gap: 6px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-chips .ph-btn { height: 26px; padding: 0 14px; font-size: 12px; }
+            .pool-hud[data-layout="max"] .ph-replace { right: 16px; bottom: 58px; height: 32px; padding: 0 13px; border-radius: 16px; font-size: 12px; }
+            .pool-hud[data-layout="max"] .ph-hint { right: 16px; bottom: 16px; height: 34px; padding: 0 14px; border-radius: 17px; font-size: 13px; }
+            .pool-hud[data-layout="max"] .ph-mini { right: 16px; bottom: 16px; transform: scale(1.3); transform-origin: right bottom; }
+            .pool-hud[data-layout="max"] .ph-view.is-calling .ph-replace { right: auto; left: 16px; bottom: 100px; }
+            .pool-hud[data-layout="max"] .ph-handoff { width: 520px; align-self: center; }
+
+            /* ── The Max view's surface ─────────────────────────────────── */
+            /* toggleGameMaxModal builds the overlay and panel (cfg.build); pool
+               empties the panel and draws its own 1280 x 800 frame, scaled to fit
+               the window by poolFitMax(). The frame is body-level, so it carries
+               copies of the widget's theme classes for Cyberpunk to resolve. */
+            .pool-modal-panel.pool-max-panel {
+                position: relative;
+                width: auto;
+                padding: 0;
+                overflow: visible;
+                background: none;
+                border: 0;
+                border-radius: 0;
+                box-shadow: none;
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+            }
+            .pool-max-frame {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 1280px;
+                height: 800px;
+                box-sizing: border-box;
+                padding: 24px;
+                border-radius: 20px;
+                transform-origin: 0 0;
+                overflow: hidden;
+                background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(118, 75, 162, 0.30) 0%, rgba(12, 13, 20, 0.98) 72%), #0b0c12;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+            }
+            @media (prefers-color-scheme: light) {
+                .pool-max-frame {
+                    background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(118, 75, 162, 0.14) 0%, rgba(247, 246, 253, 0.98) 72%), #f5f4fb;
+                    border-color: rgba(0, 0, 0, 0.08);
+                    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.25);
+                }
+            }
+            .pool-max-frame.retro-theme {
+                border-radius: var(--rt-radius);
+                background: var(--rt-brackets), linear-gradient(135deg, var(--rt-bg-1), var(--rt-bg-2));
+                border-color: var(--rt-border);
+                box-shadow: var(--rt-glow-soft);
+            }
+
+            /* ── The widget's narrow column (316 px on screens up to 1400) ── */
+            @container pool-hud (max-width: 359px) {
+                /* More room for a name beside its tag: a slimmer frames column, tighter padding. */
+                .pool-hud .ph-cards { grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr); gap: 6px; }
+                .pool-hud .ph-card { padding: 10px 9px; }
+                .pool-hud .ph-card-top { gap: 4px; }
+                /* The hand-off strip: the READY button gives the "Pass to" text its room. */
+                .pool-hud .ph-handoff { gap: 8px; padding-left: 8px; }
+                .pool-hud .ph-handoff-icon { width: 28px; height: 28px; }
+                .pool-hud .ph-handoff .ph-primary { padding: 0 10px; font-size: 11px; letter-spacing: 0.03em; }
+                .pool-hud .ph-cam-more { display: none; }
+                .pool-hud .ph-cam button { padding: 0 8px; }
+                .pool-hud .ph-pill { padding: 0 9px; }
+            }
+            /* phRender marks a card is-tight when its name would be cut off beside the tag. */
+            .pool-hud .ph-tag-short { display: none; }
+            .pool-hud .ph-card.is-tight .ph-tag-long { display: none; }
+            .pool-hud .ph-card.is-tight .ph-tag-short { display: inline; }
+            .pool-hud .ph-spin-side-s { display: none; }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .ph-spin-side { display: none; }
+                .pool-hud .ph-spin-side-s { display: inline; }
+            }
+            .pool-hud .ph-ready-short { display: none; }
+            .pool-hud .ph-handoff.is-tight .ph-ready-long { display: none; }
+            .pool-hud .ph-handoff.is-tight .ph-ready-short { display: inline; }
+
+            /* ── The Game mode sheet (InMatch.dc.html, ModeSheet) ─────────── */
+            /* A bottom sheet over the whole panel: the modes, then the CPU's
+               difficulty (Adaptive carries a chip with the tier it plays now), or
+               the 2 Players explainer. */
+            .pool-hud { position: relative; }
+            .pool-hud .ph-sheet-scrim {
+                position: absolute; inset: 0; z-index: 8; border-radius: var(--pool-radius);
+                background: rgba(7, 9, 10, 0.6); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+            }
+            .pool-hud .ph-sheet {
+                position: absolute; left: 0; right: 0; bottom: 0; z-index: 9; box-sizing: border-box; padding: 16px;
+                display: flex; flex-direction: column; gap: 12px; border-radius: 20px;
+                background: var(--pool-overlay-strong); border-top: 1px solid var(--pool-overlay-line);
+                box-shadow: 0 -18px 40px rgba(0, 0, 0, 0.5); color: var(--pool-overlay-text);
+            }
+            .pool-hud .ph-sheet-head { height: 44px; display: flex; align-items: center; justify-content: space-between; }
+            .pool-hud .ph-sheet-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 18px; }
+            .pool-hud .ph-sheet-head .ph-btn { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
+            .pool-hud .ph-sheet-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+            .pool-hud .ph-sheet-mode {
+                height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 0;
+                border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-overlay-line); background: transparent;
+                color: var(--pool-overlay-text); font-size: 12px; font-weight: 600; cursor: pointer;
+            }
+            .pool-hud .ph-sheet-mode[aria-checked="true"] { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.12); }
+            .pool-hud .ph-sheet-mode:hover { background: rgba(var(--pool-accent-rgb), 0.08); }
+            .pool-hud .ph-sheet-l { font-size: 10px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); margin-bottom: 8px; }
+            .pool-hud .ph-sheet-diffs { display: flex; flex-direction: column; gap: 4px; }
+            .pool-hud .ph-sheet-diff {
+                height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 12px; box-sizing: border-box;
+                border-radius: var(--pool-radius-sm); border: 1px solid transparent; background: transparent;
+                color: var(--pool-overlay-text); text-align: left; cursor: pointer;
+            }
+            .pool-hud .ph-sheet-diff:hover { background: rgba(var(--pool-accent-rgb), 0.06); }
+            .pool-hud .ph-sheet-diff[aria-checked="true"] { border-color: rgba(var(--pool-accent-rgb), 0.45); background: rgba(var(--pool-accent-rgb), 0.08); }
+            .pool-hud .ph-sheet-radio {
+                width: 18px; height: 18px; flex-shrink: 0; box-sizing: border-box; border-radius: 50%;
+                border: 2px solid var(--pool-overlay-muted); display: flex; align-items: center; justify-content: center;
+            }
+            .pool-hud .ph-sheet-radio span { width: 8px; height: 8px; border-radius: 50%; background: var(--pool-accent); opacity: 0; }
+            .pool-hud .ph-sheet-diff[aria-checked="true"] .ph-sheet-radio { border-color: var(--pool-accent); }
+            .pool-hud .ph-sheet-diff[aria-checked="true"] .ph-sheet-radio span { opacity: 1; }
+            .pool-hud .ph-sheet-dt { display: flex; flex-direction: column; gap: 1px; flex-grow: 1; min-width: 0; }
+            .pool-hud .ph-sheet-dn { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+            .pool-hud .ph-sheet-dd { font-size: 11px; color: var(--pool-overlay-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-sheet-chip {
+                display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; white-space: nowrap;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.45); color: var(--pool-accent-lite); font-size: 8px; letter-spacing: 0.12em;
+            }
+            .pool-hud .ph-sheet-note { font-size: 11px; color: var(--pool-overlay-muted); padding: 6px 12px 0; }
+            .pool-hud .ph-sheet-pvp {
+                padding: 14px; border-radius: var(--pool-radius); border: 1px solid var(--pool-overlay-line);
+                display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--pool-overlay-text);
+            }
+            .pool-hud .ph-sheet-pvp .ph-primary { height: 48px; font-size: 14px; }
+            .pool-hud[data-layout="max"] .ph-sheet { left: 50%; right: auto; width: 520px; transform: translateX(-50%); bottom: 24px; }
+            .pool-hud[data-layout="max"] .ph-sheet-scrim { border-radius: 20px; }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .ph-sheet { padding: 12px; gap: 10px; }
+                .pool-hud .ph-sheet-diff { gap: 10px; padding: 0 10px; }
+            }
+
+            /* ── Tournament: the in-match header, footer and the sheet's tab ─ */
+            .pool-hud .ph-sheet-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .pool-hud .ph-tourhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; }
+            .pool-hud .ph-tourhead-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+            .pool-hud .ph-tourhead-k { font-size: 10px; letter-spacing: 0.14em; color: var(--pool-accent-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-tourhead-n { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-tourhead-f {
+                display: flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 12px; flex-shrink: 0; white-space: nowrap;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.35); color: var(--pool-accent-ink); font-size: 10px;
+            }
+            .pool-hud[data-layout="max"] .ph-tourhead { justify-content: flex-start; gap: 14px; }
+            .pool-hud[data-layout="max"] .ph-tourhead-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; }
+            .pool-hud[data-layout="max"] .ph-tourhead-f { height: 30px; padding: 0 14px; border-radius: 15px; font-size: 11px; }
+            .pool-hud .ph-primary.is-two { height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+            .pool-hud .ph-primary-sub { font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+            .pool-hud .ph-sheet-links { display: flex; gap: 8px; }
+            .pool-hud .ph-sheet-links .ph-btn {
+                flex: 1 1 0; height: 40px; display: flex; align-items: center; justify-content: center; gap: 6px;
+                color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); font-size: 12px;
+            }
+            .pool-hud .ph-sheet-links .ph-btn.is-hot { color: var(--pool-hot-lite); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+
+            /* ── Tournament screens (pool-tour-ui.js) ───────────────────── */
+            /* Each screen covers the whole panel, opaque; its body scrolls and its
+               primary button stays pinned at the bottom. Dialogs sit on the table
+               in the frame-over dialog's dark glass. */
+            .pool-hud .pu-screen {
+                position: absolute; inset: 0; z-index: 12; overflow: hidden; border-radius: var(--pool-radius);
+                background: var(--pool-screen); color: var(--pool-text); color-scheme: var(--pool-scheme);
+                border: 1px solid var(--pool-card-line); box-sizing: border-box;
+            }
+            .pool-hud .pu-screen-in { position: relative; height: 100%; box-sizing: border-box; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+            .pool-hud .pu-head { display: flex; align-items: center; gap: 10px; min-height: 44px; flex-shrink: 0; }
+            .pool-hud .pu-head-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex-grow: 1; }
+            .pool-hud .pu-kicker {
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); text-transform: var(--pool-label-case);
+                font-size: 10px; letter-spacing: 0.14em; color: var(--pool-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .pool-hud .pu-kicker.is-accent { color: var(--pool-accent-ink); }
+            .pool-hud .pu-kicker.is-wide { letter-spacing: 0.2em; }
+            .pool-hud .pu-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 18px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-title.is-big { font-size: 26px; }
+            .pool-hud .pu-title:empty { display: none; }
+            .pool-hud .pu-pill {
+                display: flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 12px; flex-shrink: 0; white-space: nowrap;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.35); color: var(--pool-accent-ink);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.12em;
+            }
+            .pool-hud .pu-body {
+                flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 14px;
+                margin: 0 -6px; padding: 2px 6px; scrollbar-width: thin; scrollbar-color: var(--pool-faint) transparent; overscroll-behavior: contain;
+            }
+            .pool-hud .pu-body.is-center { justify-content: center; align-items: stretch; text-align: center; gap: 20px; }
+            .pool-hud .pu-note { font-size: 11px; color: var(--pool-muted); }
+            .pool-hud .pu-note.is-center { text-align: center; }
+            .pool-hud .pu-strong { font-size: 13px; font-weight: 600; }
+            .pool-hud .pu-group { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+
+            .pool-hud .pu-primary {
+                flex-shrink: 0; width: 100%; height: 48px; border: 0; border-radius: var(--pool-radius-sm); cursor: pointer;
+                display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; box-sizing: border-box;
+                background: var(--pool-primary); color: var(--pool-primary-text);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); text-transform: var(--pool-label-case);
+                font-size: 14px; letter-spacing: 0.08em; transition: filter 0.15s ease, transform 0.1s ease;
+            }
+            .pool-hud .pu-primary:hover { filter: brightness(1.07); }
+            .pool-hud .pu-primary:active, .pool-hud .pu-btn:active, .pool-hud .pu-iconbtn:active { transform: translateY(1px); }
+            .pool-hud .pu-primary.is-two { height: 56px; flex-direction: column; gap: 2px; }
+            .pool-hud .pu-primary-sub {
+                font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none;
+                max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .pool-hud .pu-primary.is-inline { width: auto; height: 44px; }
+            .pool-hud .pu-primary.is-hot { background: var(--pool-hot-fill); color: #ffffff; }
+            .pool-hud .pu-btn, .pool-hud .pu-iconbtn {
+                height: 44px; border: 1px solid var(--pool-control-line); border-radius: var(--pool-radius-sm); cursor: pointer;
+                background: var(--pool-control); color: var(--pool-text); font-size: 13px; font-weight: 600;
+                display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; box-sizing: border-box;
+                transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+            }
+            .pool-hud .pu-iconbtn { width: 44px; padding: 0; flex-shrink: 0; }
+            .pool-hud .pu-btn:hover, .pool-hud .pu-iconbtn:hover { background: var(--pool-hover); color: var(--pool-hover-text); }
+            .pool-hud .pu-btn.is-hot { color: var(--pool-hot-ink); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+            .pool-hud .pu-screen button:focus-visible, .pool-hud .pu-scrim button:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
+            .pool-hud .pu-screen button:disabled { opacity: 0.35; cursor: default; }
+
+            /* Setup */
+            .pool-hud .pu-field { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+            .pool-hud .pu-seg-l { font-size: 11px; font-weight: 600; color: var(--pool-muted); }
+            .pool-hud .pu-input {
+                width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; border-radius: var(--pool-radius-sm);
+                border: 1px solid var(--pool-control-line); background: var(--pool-control); color: var(--pool-text);
+                font: inherit; font-size: 13px; outline: none;
+            }
+            .pool-hud .pu-input::placeholder { color: var(--pool-faint); }
+            .pool-hud .pu-input:focus { border-color: var(--pool-accent); box-shadow: 0 0 0 3px rgba(var(--pool-accent-rgb), 0.2); }
+            .pool-hud .pu-input.is-you { padding-right: 64px; }
+            .pool-hud .pu-count { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+            .pool-hud .pu-count-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            .pool-hud .pu-stepper { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+            .pool-hud .pu-stepper button {
+                width: 36px; height: 36px; padding: 0; display: flex; align-items: center; justify-content: center; cursor: pointer;
+                border: 1px solid var(--pool-control-line); border-radius: var(--pool-radius-sm); background: var(--pool-control); color: var(--pool-text);
+            }
+            .pool-hud .pu-stepper button:hover:not(:disabled) { background: var(--pool-hover); color: var(--pool-hover-text); }
+            .pool-hud .pu-count-n { width: 32px; text-align: center; font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 700; }
+            .pool-hud .pu-players {
+                display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
+            }
+            .pool-hud .pu-player { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 8px; }
+            .pool-hud .pu-seedl { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--pool-faint); }
+            .pool-hud .pu-player-in { position: relative; }
+            .pool-hud .pu-you {
+                position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 4px;
+                height: 20px; padding: 0 7px; border-radius: 10px; border: 1px solid rgba(var(--pool-accent-rgb), 0.4); color: var(--pool-accent-ink);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.12em; pointer-events: none;
+            }
+            .pool-hud .pu-races { display: grid; gap: 8px; }
+            .pool-hud .pu-race { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--pool-muted); }
+            .pool-hud .pu-race select {
+                height: 36px; padding: 0 8px; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-control-line);
+                background: var(--pool-control); color: var(--pool-text); font: inherit; font-size: 13px; cursor: pointer;
+            }
+            .pool-hud .pu-race select:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
+            .pool-hud .pu-seg-row { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+            .pool-hud .pu-seg { display: grid; gap: 2px; padding: 3px; border-radius: 11px; background: var(--pool-control); border: 1px solid var(--pool-control-line); }
+            .pool-hud .pu-seg button {
+                height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--pool-muted);
+                font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+            }
+            .pool-hud .pu-seg button:hover { color: var(--pool-text); }
+            .pool-hud .pu-seg button[aria-checked="true"] { background: var(--pool-primary); color: var(--pool-primary-text); }
+            .pool-hud .pu-switch { width: 44px; height: 26px; padding: 0; border: 0; background: transparent; cursor: pointer; flex-shrink: 0; }
+            .pool-hud .pu-switch > span {
+                position: relative; display: block; width: 44px; height: 26px; box-sizing: border-box; border-radius: 13px;
+                background: var(--pool-track); border: 1px solid var(--pool-control-line); transition: background 0.15s ease;
+            }
+            .pool-hud .pu-switch > span > span {
+                position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%;
+                background: var(--pool-text); transition: transform 0.15s ease;
+            }
+            .pool-hud .pu-switch[aria-checked="true"] > span { background: var(--pool-accent); border-color: var(--pool-accent); }
+            .pool-hud .pu-switch[aria-checked="true"] > span > span { transform: translateX(18px); background: #ffffff; }
+
+            /* Bracket: round tabs and match cards */
+            .pool-hud .pu-tabs { display: grid; gap: 2px; padding: 3px; border-radius: 11px; background: var(--pool-control); border: 1px solid var(--pool-control-line); flex-shrink: 0; }
+            .pool-hud .pu-tabs button {
+                height: 32px; min-width: 0; padding: 0 4px; border: 1px solid transparent; border-radius: 8px; background: transparent;
+                color: var(--pool-muted); font-size: 11px; font-weight: 600; cursor: pointer;
+                display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; overflow: hidden;
+            }
+            .pool-hud .pu-tabs button svg { color: var(--pool-accent-ink); flex-shrink: 0; }
+            .pool-hud .pu-tabs button[aria-selected="true"] { background: var(--pool-card); border-color: rgba(var(--pool-accent-rgb), 0.5); color: var(--pool-text); }
+            .pool-hud .pu-match {
+                display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-card); border: 1px solid var(--pool-card-line); flex-shrink: 0;
+            }
+            .pool-hud .pu-match.is-live { border-color: var(--pool-accent); box-shadow: var(--pool-glow); }
+            .pool-hud .pu-match.is-next { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .pu-match-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+            .pool-hud .pu-mrow { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 13px; }
+            .pool-hud .pu-mseed { font-family: var(--pool-num); font-size: 11px; color: var(--pool-faint); }
+            .pool-hud .pu-mname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-mscore { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; }
+            .pool-hud .pu-mrow.is-win .pu-mname { font-weight: 600; }
+            .pool-hud .pu-mrow.is-lose { color: var(--pool-muted); }
+            .pool-hud .pu-mrow.is-tbd { color: var(--pool-faint); font-style: italic; }
+            .pool-hud .pu-chip {
+                display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; box-sizing: border-box;
+                border: 1px solid var(--pool-control-line); color: var(--pool-muted); background: var(--pool-screen);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 8px; letter-spacing: 0.12em; font-style: normal;
+            }
+            .pool-hud .pu-chip.is-live { border-color: var(--pool-accent); color: var(--pool-accent-ink); }
+            .pool-hud .pu-chip.is-next { border-color: rgba(var(--pool-accent-rgb), 0.5); color: var(--pool-accent-ink); }
+            .pool-hud .pu-chip.is-bye { color: var(--pool-faint); }
+
+            /* The tree (the design's geometry, laid out by puTree) */
+            .pool-hud .pu-mini { overflow: hidden; flex-shrink: 0; }
+            .pool-hud .pu-tree { position: relative; flex-shrink: 0; }
+            .pool-hud .pu-tree > svg { position: absolute; left: 0; top: 0; overflow: visible; }
+            .pool-hud .pu-tr-line { fill: none; stroke: var(--pool-card-line); }
+            .pool-hud .pu-tr-hi { fill: none; stroke: var(--pool-accent); }
+            .pool-hud .pu-tr-head {
+                position: absolute; top: 0; height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.14em; color: var(--pool-muted);
+            }
+            .pool-hud .pu-tr-card {
+                position: absolute; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; padding: 0 8px;
+                border-radius: 8px; border: 1px solid var(--pool-card-line); background: var(--pool-screen);
+            }
+            .pool-hud .pu-tr-card::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--pool-card); pointer-events: none; }
+            .pool-hud .pu-tr-card.is-path { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .pu-tr-card.is-live { border-color: var(--pool-accent); box-shadow: var(--pool-glow); }
+            .pool-hud .pu-tr-card.is-next { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .pu-tr-card .pu-chip { position: absolute; right: 6px; top: -8px; }
+            .pool-hud .pu-tr-row { position: relative; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 6px; font-size: 12px; min-height: 0; flex: 1 1 0; }
+            .pool-hud .pu-tr-seed { font-family: var(--pool-num); font-size: 10px; color: var(--pool-faint); }
+            .pool-hud .pu-tr-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-tr-score { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; }
+            .pool-hud .pu-tr-row.is-win .pu-tr-name { font-weight: 600; }
+            .pool-hud .pu-tr-row.is-lose { color: var(--pool-muted); }
+            .pool-hud .pu-tr-row.is-tbd { color: var(--pool-faint); font-style: italic; }
+            .pool-hud .pu-tree.is-mini .pu-tr-card { padding: 0 5px; border-radius: 6px; }
+            .pool-hud .pu-tree.is-mini .pu-tr-row { grid-template-columns: minmax(0, 1fr) auto; gap: 4px; font-size: 9.5px; }
+            .pool-hud .pu-tr-champ {
+                position: absolute; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+                padding: 0 8px; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-card-line); background: var(--pool-card); color: var(--pool-muted);
+            }
+            .pool-hud .pu-tr-champ.is-won { border-color: var(--pool-accent); color: var(--pool-accent-ink); box-shadow: var(--pool-glow); }
+            .pool-hud .pu-tr-champ-l { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.14em; }
+            .pool-hud .pu-tr-champ-n { max-width: 100%; font-size: 13px; font-weight: 600; color: var(--pool-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-tree.is-mini .pu-tr-champ { gap: 2px; padding: 0 4px; border-radius: 6px; }
+            .pool-hud .pu-tree.is-mini .pu-tr-champ svg { width: 12px; height: 12px; }
+            .pool-hud .pu-tree.is-mini .pu-tr-champ-n { font-size: 9.5px; }
+
+            /* Match intro */
+            .pool-hud .pu-round { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+            .pool-hud .pu-round-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 22px; letter-spacing: 0.06em; }
+            .pool-hud .pu-round-r { font-size: 12px; color: var(--pool-muted); }
+            .pool-hud .pu-vs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; }
+            .pool-hud .pu-vs-side { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+            .pool-hud .pu-vs-name { max-width: 100%; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-vs-x { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 13px; letter-spacing: 0.14em; color: var(--pool-faint); }
+            .pool-hud .pu-avatar {
+                width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+                background: var(--pool-control); border: 1px solid var(--pool-control-line); color: var(--pool-muted);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px;
+            }
+            .pool-hud .pu-avatar.is-lead { background: var(--pool-primary); color: var(--pool-primary-text); border-color: transparent; }
+            .pool-hud .pu-avatar.is-small { width: 28px; height: 28px; font-size: 12px; }
+            .pool-hud .pu-breaks {
+                display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-card); border: 1px solid var(--pool-card-line); font-size: 12px; text-align: left;
+            }
+            .pool-hud .pu-breaks svg { flex-shrink: 0; }
+            .pool-hud .pu-foot { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+
+            /* Match result */
+            .pool-hud .pu-won {
+                display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: var(--pool-radius);
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.45); background: rgba(var(--pool-accent-rgb), 0.08); flex-shrink: 0;
+            }
+            .pool-hud .pu-won-top { display: flex; align-items: center; gap: 12px; }
+            .pool-hud .pu-won-top .pu-avatar { width: 44px; height: 44px; font-size: 17px; }
+            .pool-hud .pu-won-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex-grow: 1; }
+            .pool-hud .pu-won-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-won-s { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 28px; font-weight: 700; flex-shrink: 0; }
+            .pool-hud .pu-frames { display: grid; gap: 6px; }
+            .pool-hud .pu-frame {
+                display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 8px 10px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-control); border: 1px solid var(--pool-control-line); font-size: 12px;
+            }
+            .pool-hud .pu-frame > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-frame.is-win { border-color: rgba(var(--pool-accent-rgb), 0.45); }
+            .pool-hud .pu-out {
+                display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-card); border: 1px solid var(--pool-card-line); flex-shrink: 0;
+            }
+            .pool-hud .pu-out-t { flex-grow: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-out .pu-note { flex-shrink: 0; }
+
+            /* Champion: a quiet rise, the run, the final bracket */
+            .pool-hud .pu-champ-x { position: absolute; right: 12px; top: 12px; z-index: 1; }
+            .pool-hud .pu-hero { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 44px 4px; text-align: center; flex-shrink: 0; animation: pu-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+            .pool-hud .pu-hero-cup { display: flex; padding: 10px; border-radius: 50%; color: var(--pool-accent-ink); background: radial-gradient(circle, rgba(var(--pool-accent-rgb), 0.2) 0%, rgba(var(--pool-accent-rgb), 0) 70%); }
+            .pool-hud .pu-hero .pu-note { text-wrap: balance; }
+            .pool-hud .pu-hero-n { max-width: 100%; font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 28px; line-height: 1.15; overflow-wrap: anywhere; }
+            @keyframes pu-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+            @media (prefers-reduced-motion: reduce) { .pool-hud .pu-hero { animation: none; } }
+            .pool-hud .pu-runs { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+            .pool-hud .pu-run {
+                display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px;
+                border-radius: var(--pool-radius-sm); background: var(--pool-card); border: 1px solid var(--pool-card-line);
+            }
+            .pool-hud .pu-run.is-final { border-color: rgba(var(--pool-accent-rgb), 0.45); }
+            .pool-hud .pu-run-t { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-run-t.is-muted { color: var(--pool-muted); }
+            .pool-hud .pu-run-s { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; }
+            .pool-hud .pu-champ-acts { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+
+            /* Trophy cabinet */
+            .pool-hud .pu-cab { display: flex; flex-direction: column; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-card-line); overflow: hidden; flex-shrink: 0; }
+            .pool-hud .pu-cab-row {
+                display: grid; grid-template-columns: minmax(0, 1fr) 34px 34px 34px 46px; align-items: center; gap: 2px;
+                min-height: 40px; padding: 0 12px; border-top: 1px solid var(--pool-card-line); font-size: 13px;
+            }
+            .pool-hud .pu-cab-row.is-head {
+                min-height: 32px; border-top: 0; background: var(--pool-control); color: var(--pool-muted);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.12em;
+            }
+            .pool-hud .pu-cab-row.is-head > span:not(:first-child) { text-align: center; }
+            .pool-hud .pu-cab-row .is-accent { color: var(--pool-accent-ink); }
+            .pool-hud .pu-cab-name { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-crown { width: 16px; flex-shrink: 0; display: flex; color: var(--pool-accent-ink); }
+            .pool-hud .pu-cab-c { text-align: center; font-family: var(--pool-num); font-variant-numeric: tabular-nums; }
+            .pool-hud .pu-cab-c.is-zero { color: var(--pool-faint); }
+            .pool-hud .pu-cab-t { text-align: center; font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; color: var(--pool-accent-ink); }
+            .pool-hud .pu-empty { padding: 18px 14px; font-size: 12px; color: var(--pool-muted); text-align: center; border-top: 1px solid var(--pool-card-line); }
+            .pool-hud .pu-recents { display: flex; flex-direction: column; gap: 6px; }
+            .pool-hud .pu-recent {
+                display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px;
+                border-radius: var(--pool-radius-sm); background: var(--pool-card); border: 1px solid var(--pool-card-line);
+            }
+            .pool-hud .pu-recent-s {
+                width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+                background: var(--pool-control); font-family: var(--pool-num); font-weight: 700; font-size: 12px;
+            }
+            .pool-hud .pu-recent-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+            .pool-hud .pu-recent-t > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-recent-c { display: flex; align-items: center; gap: 5px; max-width: 120px; font-size: 12px; font-weight: 600; color: var(--pool-accent-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-recent-c svg { flex-shrink: 0; }
+
+            /* Resume, abandon and pause: on the table, like the frame-over dialog */
+            .pool-hud .pu-scrim {
+                position: absolute; inset: 0; z-index: 13; border-radius: var(--pool-radius); display: flex; align-items: center; justify-content: center;
+                background: rgba(7, 9, 10, 0.62); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+            }
+            .pool-hud .pu-dlg {
+                width: min(320px, calc(100% - 32px)); box-sizing: border-box; padding: 20px; border-radius: var(--pool-radius);
+                background: var(--pool-overlay-strong); border: 1px solid rgba(var(--pool-accent-rgb), 0.45); color: var(--pool-overlay-text);
+                box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55); display: flex; flex-direction: column; gap: 14px;
+            }
+            .pool-hud .pu-dlg.is-hot { border-color: rgba(var(--pool-hot-rgb), 0.5); background: var(--pool-hot-edge) left top / 4px 100% no-repeat, var(--pool-overlay-strong); }
+            .pool-hud .pu-dlg-icon { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.14); color: var(--pool-accent); }
+            .pool-hud .pu-dlg.is-hot .pu-dlg-icon { background: rgba(var(--pool-hot-rgb), 0.16); color: var(--pool-hot); }
+            .pool-hud .pu-dlg-t { display: flex; flex-direction: column; gap: 4px; }
+            .pool-hud .pu-dlg-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; line-height: 1.2; overflow-wrap: anywhere; }
+            .pool-hud .pu-dlg .pu-kicker, .pool-hud .pu-dlg .pu-note { color: var(--pool-overlay-muted); }
+            .pool-hud .pu-dlg .pu-note { font-size: 12px; }
+            .pool-hud .pu-dlg-score {
+                display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px 12px;
+                border-radius: var(--pool-radius-sm); background: rgba(255, 255, 255, 0.06); font-size: 13px; font-weight: 600;
+            }
+            .pool-hud .pu-dlg-score > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-dlg-score > span:last-child { text-align: right; }
+            .pool-hud .pu-dlg-n { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 700; }
+            .pool-hud .pu-dlg-acts { display: flex; flex-direction: column; gap: 8px; }
+            .pool-hud .pu-dlg .pu-btn { color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
+            .pool-hud .pu-dlg .pu-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--pool-overlay-text); }
+            .pool-hud .pu-dlg .pu-btn.is-hot { color: var(--pool-hot-lite); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+
+            /* Max: the bracket and champion have their own full layouts; the rest
+               keep the compact column, centred. */
+            .pool-hud[data-layout="max"] .pu-screen { border-radius: 18px; border: 0; }
+            .pool-hud[data-layout="max"] .pu-screen-in:not(.is-max) { width: 456px; margin: 0 auto; padding: 24px 8px; }
+            .pool-hud[data-layout="max"] .pu-screen-in.is-max { padding: 0; gap: 16px; }
+            .pool-hud .pu-maxhead { height: 64px; display: flex; align-items: center; gap: 28px; flex-shrink: 0; padding: 0 20px; }
+            .pool-hud .pu-maxhead .pu-head-t { flex-grow: 0; min-width: 240px; }
+            .pool-hud .pu-legend { display: flex; align-items: center; gap: 18px; font-size: 12px; color: var(--pool-muted); flex-grow: 1; min-width: 0; overflow: hidden; }
+            .pool-hud .pu-legend > span { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+            .pool-hud .pu-legend-line { display: inline-block; width: 20px; height: 2px; border-radius: 1px; background: var(--pool-accent); }
+            .pool-hud .pu-maxacts { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+            .pool-hud .pu-maxacts .pu-primary { max-width: 440px; }
+            .pool-hud .pu-maxtree { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+            .pool-hud[data-layout="max"] .pu-screen-in.is-max.is-champ { padding: 32px 40px; }
+            .pool-hud .pu-champ-grid { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 40px; align-items: center; height: 100%; }
+            .pool-hud .pu-champ-l { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+            .pool-hud .pu-champ-r { display: flex; align-items: center; justify-content: center; min-width: 0; }
+            .pool-hud .pu-mini.is-big { overflow: visible; }
+            .pool-hud[data-layout="max"] .pu-hero-n { font-size: 40px; }
+            .pool-hud[data-layout="max"] .pu-dlg { width: 380px; }
+
+            /* Cyberpunk: the corner cut on buttons, the glow on text, as the HUD */
+            .retro-theme .pool-hud .pu-primary, .retro-theme .pool-hud .pu-btn, .retro-theme .pool-hud .pu-iconbtn,
+            .retro-theme .pool-hud .pu-stepper button {
+                clip-path: polygon(7px 0, 100% 0, 100% 100%, 0 100%, 0 7px);
+            }
+            .retro-theme .pool-hud .pu-btn, .retro-theme .pool-hud .pu-iconbtn { border-color: var(--rt-border-strong); text-shadow: var(--rt-glow-soft); }
+            .retro-theme .pool-hud .pu-screen { border-color: var(--rt-border); }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .pu-screen-in { padding: 12px; gap: 10px; }
+                .pool-hud .pu-title { font-size: 16px; }
+                .pool-hud .pu-run { grid-template-columns: 76px minmax(0, 1fr) auto; gap: 8px; padding: 8px 10px; }
+                .pool-hud .pu-cab-row { grid-template-columns: minmax(0, 1fr) 28px 28px 28px 40px; padding: 0 10px; }
+                .pool-hud .pu-tabs button { font-size: 10px; }
+                .pool-hud .ph-sheet-mode { font-size: 11px; }
+            }

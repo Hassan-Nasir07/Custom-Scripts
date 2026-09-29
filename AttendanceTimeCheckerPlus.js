@@ -9,7 +9,7 @@
     //          3) recompute token (see sync.yml), rotate BUILD_TOKEN_CURRENT/PREVIOUS
     const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
     // Seed UNCHANGED on purpose: rotating it without BUILD_TOKEN_CURRENT breaks every sync.
-    const BUILD_LABEL = 'v8';
+    const BUILD_LABEL = 'v9';
 
     // Ordinal of a 'v<N>' label; null if malformed (callers then assume behind).
     function _buildOrdinal(label) {
@@ -246,6 +246,7 @@
         lightning:    { icon: '⚡', name: 'Lightning Reflexes', desc: 'Average under 220ms in RefleX' },
         brickBuster:  { icon: '🧨', name: 'Brick Buster',      desc: 'Reach level 30 in Breakout' },
         poolShark:    { icon: '🎱', name: 'Pool Shark',        desc: 'Win 100 pool games against the CPU' },
+        calledIt:     { icon: '📣', name: 'Called It',         desc: 'Beat the Pro pool CPU, every shot called' },
         ludoChamp:    { icon: '🎲', name: 'Ludo Champion',     desc: 'Win 100 Ludo games against the CPU' },
         ludoFlawless: { icon: '🛡️', name: 'Flawless',          desc: 'Win a Ludo game without losing a single token' },
         ludoHunter:   { icon: '🐺', name: 'Token Hunter',      desc: 'Capture 5 opponent tokens in one Ludo match' },
@@ -275,6 +276,14 @@
         gameModeHidden: true, // true = Game Mode ON (panels visible); false = Game Mode OFF (panels hidden, widget shrinks)
         shiftDuration: '8h', // '4h' = short leave, '8h' = standard, '9h' = overtime
         poolTableColor: 'green', // 'green', 'red', 'blue', 'lightgrey'
+        poolCamera: '3d',        // pool's aim camera: '3d' (behind the cue ball) or '2d' (top-down)
+        poolLean: 35,            // 0–100: the 3D camera's lean, low and close to high and far
+        // While the balls run: 'overhead' eases up to the broadcast view; '3d' stands up
+        // and stays in 3D, the whole table in view (POOL_V2_PLAN.md, gap decision 9).
+        poolShotCam: 'overhead',
+        // 'adaptive' | 'easy' | 'normal' | 'hard' | 'pro'. Adaptive follows your record against
+        // the CPU but never climbs to pro, which makes you call every shot too. Locked per frame.
+        poolDifficulty: 'adaptive',
         gameFps: 60, // 30 or 60 — half or full vsync
         // Ludo rule toggles — flat, not nested: .toggle-switch writes
         // userPreferences[data-pref] directly. ludoRules() reads them live (mid-match).
@@ -334,9 +343,6 @@
     let flappyLastFrameMs = 0;
     let flappyLastLogicMs = 0;
     let flappyAccumulator = 0;
-    let poolLastFrameMs = 0;
-    let poolLastLogicMs = 0;
-    let poolAccumulator = 0;
     let tetrisLastFrameMs = 0;
 
     function loadPreferences() {
@@ -756,6 +762,14 @@
         const poolModes = loadPoolWinsByMode();
         put('pool:cpu', poolModes.cpu);
         put('pool:pvp', poolModes.pvp);
+        // Per-tier CPU wins, read inline (the pool block may not have run). 'pool:cpu' stays the
+        // all-time total: old clients read it, and it is the only home for pre-split wins.
+        let poolTiers = {};
+        try { poolTiers = JSON.parse(localStorage.getItem('poolWinsByTier') || '{}') || {}; } catch (_) {}
+        put('pool:easy',   poolTiers.easy);
+        put('pool:normal', poolTiers.normal);
+        put('pool:hard',   poolTiers.hard);
+        put('pool:pro',    poolTiers.pro);
 
         // Ludo is CPU-only by construction (ludoSaveWins runs under 'if (vsCPU)'). 'ludo:cpu' is
         // the flat all-time total: old clients read it, and it is the only home for pre-split wins.
@@ -1153,6 +1167,16 @@
         });
         if (poolChanged) localStorage.setItem('poolWinsByMode', JSON.stringify(pool));
 
+        // Pool per-tier wins, only-raise, as Ludo's.
+        let poolTiers = {};
+        try { poolTiers = JSON.parse(localStorage.getItem('poolWinsByTier') || '{}') || {}; } catch (_) {}
+        let poolTiersChanged = false;
+        ['easy', 'normal', 'hard', 'pro'].forEach(t => {
+            const v = parseInt(gmb['pool:' + t], 10) || 0;
+            if (v > (parseInt(poolTiers[t], 10) || 0)) { poolTiers[t] = v; poolTiersChanged = true; }
+        });
+        if (poolTiersChanged) localStorage.setItem('poolWinsByTier', JSON.stringify(poolTiers));
+
         // Ludo per-tier wins, only-raise. The all-time total restores separately and may exceed the
         // tier sum by however many wins predate the split.
         let ludoTiers = {};
@@ -1397,8 +1421,12 @@
         aim:      { icon: '💥', label: 'Aim',      unit: 'pts' },
         reflex:   { icon: '⚡', label: 'RefleX',   unit: 'ms', lowerIsBetter: true,
                     modes: { screen: 'Screen', target: 'Target' } },
+        // Pool ranks CPU wins by tier as Ludo does, filed under the tier locked when the frame
+        // started. 'cpu' is the all-time total (older wins predate the split); 'pvp' is hot-seat.
+        // Tournaments have no board: their brackets are farmable.
         pool:     { icon: '🎱', label: 'Pool',     unit: 'wins',
-                    modes: { cpu: 'vs CPU', pvp: 'Hot-seat' } },
+                    modes: { pro: '🎯 Pro', hard: '🔥 Hard', normal: '⚔️ Normal', easy: '🌱 Easy',
+                             cpu: '📚 All-time', pvp: '👥 Hot-seat' } },
         // Ludo ranks by CPU tier, not game mode (hot-seat wins are never recorded: ludoSaveWins runs
         // only under 'if (vsCPU)'). 'cpu' is the pre-split total — real wins whose difficulty was never
         // recorded, so they rank on their own board rather than an unmeasured tier.
@@ -1495,7 +1523,9 @@
         try {
             if (game === 'snake')  return snakeMode;
             if (game === 'reflex') return reflexMode;
-            if (game === 'pool')   return poolMode === 'pvp' ? 'pvp' : 'cpu';
+            // Pool's CPU board is the tier locked for this frame; a tournament has none, so All-time.
+            if (game === 'pool')   return poolMode === 'pvp' ? 'pvp'
+                : poolMode === 'cpu' && LB_BOARDS.pool.modes[poolCpuTier] ? poolCpuTier : 'cpu';
             // Ludo splits by CPU tier; ludoCpuTier locks at match start and decides where a win is filed,
             // so the board shown is always the one being played for.
             if (game === 'ludo')   return LB_BOARDS.ludo.modes[ludoCpuTier] ? ludoCpuTier : 'normal';
@@ -1542,8 +1572,8 @@
             '</div>' +
             gameLbTabsHtml(game, mode) +
             '<div class="game-lb-body">' + lbBoardRowsHtml(game, mode) + '</div>' +
-            // Only Ludo has a board whose numbers predate the split, so only Ludo says so.
-            (game === 'ludo' && mode === 'cpu'
+            // Ludo's and Pool's all-time boards hold numbers that predate the split, so they say so.
+            ((game === 'ludo' || game === 'pool') && mode === 'cpu'
                 ? '<div class="game-lb-foot">every CPU win — older wins predate the difficulty split</div>'
                 : '');
     }
@@ -1585,8 +1615,8 @@
                 // The tier's own wins — the board this button opens and where the next win lands.
                 updateGameScoreBtn('ludo', null, ludoTierWins(gameLbMode('ludo')));
             } else if (game === 'pool') {
-                const byMode = loadPoolWinsByMode();
-                updateGameScoreBtn('pool', null, poolMode === 'pvp' ? byMode.pvp : byMode.cpu);
+                // The tier being played, 2 Players, or All-time in a tournament (pool-game.js).
+                poolRefreshScoreBtn();
             }
         } catch (_) {}
     }
@@ -1746,101 +1776,8 @@
         document.getElementById('atc-update-dismiss-btn').addEventListener('click', () => banner.remove());
     }
 
-    let poolCanvas, poolCtx;
-    let poolAnimFrame = null;
-    let poolGameRunning = false;
-    let poolGameOver = false;
-    let poolMaximized = false;
-    let poolMode = 'cpu'; // 'cpu' | 'pvp'
-    let poolTurn = 1; // 1 or 2
-    let poolBalls = [];
-    let poolPockets = [];
-    let poolGamesWon = 0;
-    let poolRecord = { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
-    let poolBgTime = 0; // animated background time counter
-
     let prayerCount = 0;
 
-    let poolAiming = false;
-    let poolDragging = false;
-    let poolCueAngle = 0;
-    let poolCuePower = 0;
-    let poolCueSpinX = 0; // -1 to 1
-    let poolCueSpinY = 0; // -1 to 1
-    let poolMouseX = 0;
-    let poolMouseY = 0;
-
-    // Aim-lock state: angle locks on mouse-down; power controlled by pull-back
-    let poolAimLocked = false;  // true while mouse button held
-    let poolLockedAngle = 0;    // the aim angle frozen at mouse-down
-
-    let poolBallInHand = false;
-    let poolPlacingBall = false;
-
-    // Turn result tracking
-    let poolFirstPocket = false; // has a group been assigned?
-    let poolPlayer1Group = null; // 'solids' | 'stripes' | null
-    let poolPlayer2Group = null;
-    let poolPlayer1Pocketed = [];
-    let poolPlayer2Pocketed = [];
-    let poolFoulMessage = '';
-    let poolWinner = 0;
-    let poolShotFired = false;
-    let poolFirstBallHit = -1; // id of first ball struck by cue ball
-    let poolCushionAfterHit = false;
-    let poolPocketedThisShot = [];
-    let poolAIDelay = 0; // frames to wait before AI shoots
-    let poolAIPendingShot = null; // { angle, power, spinX, spinY } — pre-computed CPU shot shown during delay
-    let poolIsBreakShot = false; // true from game-start until first shot — restricts cue placement to kitchen
-
-    // Shot clock
-    const POOL_SHOT_CLOCK = 30; // seconds per turn
-    let poolShotTimer = POOL_SHOT_CLOCK;
-    let poolShotTimerFrame = 0; // frame counter for 1-second ticks
-
-    const POOL_W = 368;
-    const POOL_H = 184; // 2:1 table ratio
-    const POOL_CANVAS_H = 368; // Match other games for consistent canvas height
-    const POOL_TABLE_OFFSET_Y = (POOL_CANVAS_H - POOL_H) / 2; // 92 — centers table vertically
-    const POOL_BALL_R = 6;
-    const POOL_POCKET_R = 11;
-    const POOL_FRICTION = 0.985;
-    const POOL_RESTITUTION = 0.92;
-    const POOL_MIN_VEL = 0.08;
-    const POOL_CUE_MAX_POWER = 24;
-    const POOL_SUB_STEPS = 8; // 24/8 = 3px per step — well under ball radius, prevents collision normal errors at high power
-    const POOL_CUSHION_X1 = 16;
-    const POOL_CUSHION_Y1 = 16;
-    const POOL_CUSHION_X2 = POOL_W - 16;
-    const POOL_CUSHION_Y2 = POOL_H - 16;
-    const POOL_BAULK_X = Math.round(POOL_W * 0.25); // head string — kitchen boundary for break shot
-
-    const POOL_TABLE_COLORS = {
-        green:     { felt: '#2d8a4e', cushion: '#1a5c32', border: '#5c3a1e', pocket: '#111' },
-        red:       { felt: '#8b3a3a', cushion: '#5c1a1a', border: '#5c3a1e', pocket: '#111' },
-        blue:      { felt: '#2a5a8a', cushion: '#1a3a5c', border: '#5c3a1e', pocket: '#111' },
-        lightgrey: { felt: '#9aa5b0', cushion: '#6e7a85', border: '#5c3a1e', pocket: '#222' }
-    };
-
-    // Ball definitions: id, color, stripe, number
-    const POOL_BALL_DEFS = [
-        { id: 0,  color: '#f5f5f5', stripe: false, num: 0  }, // cue ball
-        { id: 1,  color: '#f0c830', stripe: false, num: 1  }, // solid yellow
-        { id: 2,  color: '#1a5ab8', stripe: false, num: 2  }, // solid blue
-        { id: 3,  color: '#d42a2a', stripe: false, num: 3  }, // solid red
-        { id: 4,  color: '#4a2080', stripe: false, num: 4  }, // solid purple
-        { id: 5,  color: '#e86820', stripe: false, num: 5  }, // solid orange
-        { id: 6,  color: '#1a7a3a', stripe: false, num: 6  }, // solid green
-        { id: 7,  color: '#8b1a1a', stripe: false, num: 7  }, // solid maroon
-        { id: 8,  color: '#111111', stripe: false, num: 8  }, // 8-ball
-        { id: 9,  color: '#f0c830', stripe: true,  num: 9  }, // stripe yellow
-        { id: 10, color: '#1a5ab8', stripe: true,  num: 10 }, // stripe blue
-        { id: 11, color: '#d42a2a', stripe: true,  num: 11 }, // stripe red
-        { id: 12, color: '#4a2080', stripe: true,  num: 12 }, // stripe purple
-        { id: 13, color: '#e86820', stripe: true,  num: 13 }, // stripe orange
-        { id: 14, color: '#1a7a3a', stripe: true,  num: 14 }, // stripe green
-        { id: 15, color: '#8b1a1a', stripe: true,  num: 15 }  // stripe maroon
-    ];
     let breakoutCanvas, breakoutCtx;
     let breakoutAnimFrame = null;
     let breakoutGameRunning = false;
@@ -2492,2156 +2429,4989 @@
     }
 
 
-    function poolGetPockets() {
-        const x1 = POOL_CUSHION_X1, y1 = POOL_CUSHION_Y1;
-        const x2 = POOL_CUSHION_X2, y2 = POOL_CUSHION_Y2;
-        const mx = (x1 + x2) / 2;
-        const cornerInset = 1; // Move corner pockets inward by set pixels
-        const centerInset = 1;  // Move center pockets outwards by set pixels
-        return [
-            { x: x1 + cornerInset, y: y1 + cornerInset },       // top-left
-            { x: mx, y: y1 - 2 - centerInset },                 // top-mid
-            { x: x2 - cornerInset, y: y1 + cornerInset },       // top-right
-            { x: x1 + cornerInset, y: y2 - cornerInset },       // bottom-left
-            { x: mx, y: y2 + 2 + centerInset },                 // bottom-mid
-            { x: x2 - cornerInset, y: y2 - cornerInset }        // bottom-right
-        ];
-    }
+    // ═══ POOL ENGINE — generated from pool-dev/, do not edit here ═══
+    // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — PHYSICS (v2)
+    // ═══════════════════════════════════════════════════════════════════
+    // A pure, deterministic ball model. Nothing here touches the DOM, the
+    // canvas or Math.random, so the CPU can clone a world and run the real
+    // physics on it, and the tests can replay a shot exactly.
+    //
+    // World frame: x right, y up, z up (right-handed), in table units. The
+    // playfield is 1000 × 500 with the origin at its centre and R = 14, the
+    // design canvas's numbers. The renderer flips y for the screen.
+    //
+    // Each ball is in one of four motion states, and each state has a closed
+    // form, so a ball is advanced exactly rather than integrated:
+    //   sliding   the contact point slips; cloth friction slows v and drives
+    //             ω toward natural roll along a fixed slip direction
+    //   rolling   no slip; constant rolling-resistance deceleration
+    //   spinning  v = 0, only ω_z (English) left, decaying
+    //   stationary
+    // Collisions are found by time of impact inside each sub-step and
+    // resolved one at a time, so nothing tunnels and nothing overlaps.
 
-    function poolRackBalls() {
-        const balls = [];
-        const r = POOL_BALL_R;
-        const cx = POOL_W * 0.72;
-        const cy = POOL_H / 2;
-        const spacing = r * 2.1;
+    const PP_DEFAULTS = {
+        // Geometry, table units
+        halfLength: 500,          // playfield half-length to the cushion noses
+        halfWidth: 250,
+        ballR: 14,
+        railWidth: 48,            // cushion + rail, for the off-table fail-safe
+        // Pockets and cushion ends, straight from the final design (Table.dc.html). A jaw
+        // runs from a cushion's nose end to its rail end and on to the hole's edge.
+        cushionWidth: 12,         // nose line to rail line
+        cornerNose: 36,           // nose end, from the corner along each cushion (mouth 36·√2)
+        cornerRailEnd: 22,        // rail end, from the corner, on the rail line
+        sideNose: 30,             // nose end, either side of the side pocket's centre (mouth 60)
+        sideRailEnd: 24,
+        cornerPocketOffset: 4,    // hole centre (±(HL+4), ±(HW+4))
+        cornerPocketR: 27,        // a ball drops once its centre is inside the hole
+        sidePocketOffset: 16,     // hole centre (0, ±(HW+16))
+        sidePocketR: 24,
+        // Cloth and collisions
+        gravity: 3862,            // 9.81 m/s² in table units (1 u = 2.54 mm)
+        muSlide: 0.2,             // ball–cloth sliding friction
+        muRoll: 0.016,            // rolling resistance, tuned for feel (real cloth ~0.01)
+        muSpin: 0.044,            // ω_z decay
+        ballE: 0.95,              // ball–ball restitution
+        muBall: 0.05,             // ball–ball friction: throw
+        cushionE: 0.8,            // ball–cushion restitution
+        muCushion: 0.3,           // effective: includes the cloth friction under the ball during the impact
+        noseRise: 0.27,           // cushion contact height above the ball centre, in R
+        squirt: 0.035,            // cue-ball deflection, radians per unit of side offset
+        maxTip: 0.6,              // miscue radius, in R
+        maxSpeed: 3200,           // break speed, u/s (≈ 8 m/s)
+        // Integration
+        subSteps: 4,
+        maxEventsPerSubStep: 256,
+    };
 
-        // Official 8-ball rack layout:
-        // Row 0: 1 ball (apex — random solid or stripe)
-        // Row 1: 2 balls (one solid, one stripe)
-        // Row 2: 3 balls (center = 8-ball, corners = mixed)
-        // Row 3: 4 balls (corners: one solid one stripe, rest random)
-        // Row 4: 5 balls (corners: one solid one stripe, rest random)
+    const PP_EPS_V = 1e-3;        // below this a speed is zero, u/s
+    const PP_EPS_W = 1e-3;        // below this an angular speed is zero, rad/s
+    const PP_EPS_T = 1e-9;        // time-of-impact tolerance, s
+    const PP_CONTACT = 1e-3;      // contact tolerance, table units
 
-        let solids = [1, 2, 3, 4, 5, 6, 7];
-        let stripes = [9, 10, 11, 12, 13, 14, 15];
+    // ── Table geometry ────────────────────────────────────────────────
+    // Cushion noses, jaws and pockets, derived from cfg. Every collider is
+    // either a one-sided segment (normal points onto the playable side) or a
+    // point (a nose or jaw tip). Jaws run from each nose point, at the jaw
+    // angle, until they meet the pocket's capture circle, which closes the
+    // throat: a ball in the throat either drops or comes back out.
+    function ppBuildTable(cfg) {
+        const HL = cfg.halfLength, HW = cfg.halfWidth;
+        const segments = [], points = [], pockets = [];
 
-        for (let i = solids.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [solids[i], solids[j]] = [solids[j], solids[i]];
-        }
-        for (let i = stripes.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [stripes[i], stripes[j]] = [stripes[j], stripes[i]];
-        }
+        const addSeg = (ax, ay, bx, by, nx, ny, kind) => {
+            const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
+            segments.push({ ax, ay, bx, by, tx: dx / len, ty: dy / len, len, nx, ny, kind });
+        };
+        const addPoint = (x, y, kind) => points.push({ x, y, kind });
 
-        // Build rack positions (triangle pointing left toward cue ball)
-        const rackPositions = [];
-        for (let row = 0; row < 5; row++) {
-            for (let col = 0; col <= row; col++) {
-                const bx = cx + row * spacing * Math.cos(Math.PI / 6);
-                const by = cy + (col - row / 2) * spacing;
-                rackPositions.push({ row, col, x: bx, y: by });
-            }
-        }
+        // First intersection of a ray with a circle, or null.
+        const rayCircle = (px, py, dx, dy, cx, cy, r) => {
+            const ox = px - cx, oy = py - cy;
+            const b = ox * dx + oy * dy, c = ox * ox + oy * oy - r * r;
+            const disc = b * b - c;
+            if (disc < 0) return null;
+            const t = -b - Math.sqrt(disc);
+            return t > 0 ? { x: px + dx * t, y: py + dy * t } : null;
+        };
 
-        // Assign ball IDs to rack positions with official rules:
-        const rackIds = new Array(15).fill(0);
-        // Position 0 (apex): random
-        // Position 4 (row 2, center): 8-ball
-        // Corners of row 4 (positions 10 and 14): one solid, one stripe
-        rackIds[4] = 8; // 8-ball in center of row 2
+        // A jaw leaves nose point (px,py) toward its rail end (rx,ry) and runs
+        // on until it meets the hole, which closes the throat.
+        const addJaw = (px, py, rx, ry, pocket, otherX, otherY) => {
+            const l = Math.hypot(rx - px, ry - py), dx = (rx - px) / l, dy = (ry - py) / l;
+            const end = rayCircle(px, py, dx, dy, pocket.x, pocket.y, pocket.r);
+            if (!end) throw new Error('pool table: a jaw misses its pocket; check the pocket settings');
+            // Playable side of the jaw faces the opposite nose point.
+            let nx = -dy, ny = dx;
+            if ((otherX - px) * nx + (otherY - py) * ny < 0) { nx = -nx; ny = -ny; }
+            addSeg(px, py, end.x, end.y, nx, ny, 'jaw');
+            addPoint(end.x, end.y, 'jawEnd');
+            pocket.jaws.push([px, py, end.x, end.y]);
+        };
 
-        if (Math.random() < 0.5) {
-            rackIds[10] = solids.pop();
-            rackIds[14] = stripes.pop();
-        } else {
-            rackIds[10] = stripes.pop();
-            rackIds[14] = solids.pop();
-        }
+        const c = cfg.cornerNose, s = cfg.sideNose;
+        const cr = cfg.cornerRailEnd, sr = cfg.sideRailEnd, CU = cfg.cushionWidth;
 
-        let remaining = [...solids, ...stripes];
-        for (let i = remaining.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
-        }
+        // Pockets, in the order the old engine used: TL, top-side, TR, BL, bottom-side, BR.
+        // y is up, so "top" is +HW.
+        const corner = (sx, sy) => {
+            const k = cfg.cornerPocketOffset;
+            return { kind: 'corner', x: sx * (HL + k), y: sy * (HW + k), r: cfg.cornerPocketR, sx, sy, jaws: [] };
+        };
+        const side = sy => ({ kind: 'side', x: 0, y: sy * (HW + cfg.sidePocketOffset), r: cfg.sidePocketR, sx: 0, sy, jaws: [] });
+        pockets.push(corner(-1, 1), side(1), corner(1, 1), corner(-1, -1), side(-1), corner(1, -1));
 
-        let ri = 0;
-        for (let i = 0; i < 15; i++) {
-            if (rackIds[i] === 0) {
-                rackIds[i] = remaining[ri++];
-            }
-        }
-
-        const cueDef = POOL_BALL_DEFS[0];
-        balls.push({
-            id: 0, x: POOL_W * 0.25, y: POOL_H / 2,
-            vx: 0, vy: 0, r: POOL_BALL_R,
-            color: cueDef.color, stripe: false, num: 0, pocketed: false,
-            rotation: 0, spinX: 0, spinY: 0
+        // Long cushions (top and bottom), two runs each, split by the side pocket.
+        [1, -1].forEach(sy => {
+            const y = sy * HW, ny = -sy;
+            addSeg(-HL + c, y, -s, y, 0, ny, 'cushion');
+            addSeg(s, y, HL - c, y, 0, ny, 'cushion');
+        });
+        // Short cushions (left and right).
+        [-1, 1].forEach(sx => {
+            const x = sx * HL;
+            addSeg(x, -HW + c, x, HW - c, -sx, 0, 'cushion');
         });
 
-        for (let i = 0; i < 15; i++) {
-            const def = POOL_BALL_DEFS[rackIds[i]];
-            balls.push({
-                id: def.id, x: rackPositions[i].x, y: rackPositions[i].y,
-                vx: 0, vy: 0, r: POOL_BALL_R,
-                color: def.color, stripe: def.stripe, num: def.num, pocketed: false,
-                rotation: 0, spinX: 0, spinY: 0
-            });
-        }
+        // Nose points and jaws.
+        pockets.forEach(p => {
+            if (p.kind === 'corner') {
+                const ax = p.sx * (HL - c), ay = p.sy * HW;          // on the long cushion
+                const bx = p.sx * HL, by = p.sy * (HW - c);          // on the short cushion
+                addPoint(ax, ay, 'nose'); addPoint(bx, by, 'nose');
+                addJaw(ax, ay, p.sx * (HL - cr), p.sy * (HW + CU), p, bx, by);
+                addJaw(bx, by, p.sx * (HL + CU), p.sy * (HW - cr), p, ax, ay);
+                p.mouth = [ax, ay, bx, by];
+            } else {
+                const y = p.sy * HW, yr = p.sy * (HW + CU);
+                addPoint(-s, y, 'nose'); addPoint(s, y, 'nose');
+                addJaw(-s, y, -sr, yr, p, s, y);
+                addJaw(s, y, sr, yr, p, -s, y);
+                p.mouth = [-s, y, s, y];
+            }
+        });
 
-        return balls;
+        return {
+            halfLength: HL, halfWidth: HW, R: cfg.ballR, segments, points, pockets,
+            headX: -HL / 2, footX: HL / 2,             // head string and foot spot
+            limitX: HL + cfg.railWidth, limitY: HW + cfg.railWidth,
+        };
     }
 
-    function poolAllStopped() {
-        for (const b of poolBalls) {
-            if (b.pocketed) continue;
-            if (Math.abs(b.vx) > POOL_MIN_VEL || Math.abs(b.vy) > POOL_MIN_VEL) return false;
+    // ── World ─────────────────────────────────────────────────────────
+    function ppCreateWorld(overrides) {
+        const cfg = Object.assign({}, PP_DEFAULTS, overrides);
+        return { cfg, table: ppBuildTable(cfg), balls: [], t: 0, log: [], escapes: 0 };
+    }
+
+    function ppMakeBall(id, x, y) {
+        return { id, x, y, vx: 0, vy: 0, wx: 0, wy: 0, wz: 0, q: [1, 0, 0, 0], state: 'stationary', pocket: -1 };
+    }
+
+    // Deep copy of the moving parts. cfg and the table are shared: they never change mid-shot.
+    function ppCloneWorld(w) {
+        return {
+            cfg: w.cfg, table: w.table, t: w.t, log: [], escapes: w.escapes,
+            balls: w.balls.map(b => Object.assign({}, b, { q: b.q.slice() })),
+        };
+    }
+
+    // mulberry32. The physics never draws from it; racks and the CPU do, so a seed replays a frame.
+    function ppRandom(seed) {
+        let a = seed >>> 0;
+        return function () {
+            a = (a + 0x6D2B79F5) >>> 0;
+            let t = a;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+
+    // Standard 8-ball rack: apex on the foot spot, the 8 in the middle of the
+    // third row, one solid and one stripe in the back corners. `rng` shuffles
+    // the rest and jitters each ball by a hair so no two breaks are identical.
+    function ppRack(w, rng) {
+        const R = w.cfg.ballR, t = w.table;
+        const gap = 0.02;                               // a hair between balls, so contacts are unambiguous
+        const d = 2 * R + gap;
+        const shuffle = a => {
+            for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+            return a;
+        };
+        const solids = shuffle([1, 2, 3, 4, 5, 6, 7]);
+        const stripes = shuffle([9, 10, 11, 12, 13, 14, 15]);
+        const ids = new Array(15).fill(0);
+        ids[4] = 8;
+        if (rng() < 0.5) { ids[10] = solids.pop(); ids[14] = stripes.pop(); }
+        else { ids[10] = stripes.pop(); ids[14] = solids.pop(); }
+        const rest = shuffle(solids.concat(stripes));
+        for (let i = 0; i < 15; i++) if (!ids[i]) ids[i] = rest.pop();
+
+        w.balls = [ppMakeBall(0, t.headX, 0)];
+        let i = 0;
+        for (let row = 0; row < 5; row++) {
+            for (let col = 0; col <= row; col++) {
+                // ±0.004 u each way: under a quarter of the gap, so jitter never closes it.
+                const jx = (rng() - 0.5) * 0.008, jy = (rng() - 0.5) * 0.008;
+                w.balls.push(ppMakeBall(ids[i++], t.footX + row * d * Math.sqrt(3) / 2 + jx, (col - row / 2) * d + jy));
+            }
+        }
+        w.t = 0; w.log = []; w.escapes = 0;
+        return w;
+    }
+
+    // ── Small vector helpers (3D where spin needs it) ─────────────────
+    const ppCross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const ppDot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+    function ppMoving(b) { return b.state !== 'stationary' && b.state !== 'pocketed' && (b.vx !== 0 || b.vy !== 0); }
+
+    // Contact-point slip against the cloth: u = v + ω × (−R ẑ).
+    function ppSlip(b, R) { return [b.vx - R * b.wy, b.vy + R * b.wx]; }
+
+    // Re-derives the motion state from v and ω. Called after every impulse.
+    function ppClassify(b, R) {
+        if (b.state === 'pocketed') return;
+        if (Math.hypot(b.vx, b.vy) < PP_EPS_V) { b.vx = 0; b.vy = 0; }
+        const u = ppSlip(b, R);
+        if (Math.hypot(u[0], u[1]) > PP_EPS_V) { b.state = 'sliding'; return; }
+        if (b.vx !== 0 || b.vy !== 0) {
+            b.wx = -b.vy / R; b.wy = b.vx / R;                   // snap exactly onto natural roll
+            b.state = 'rolling';
+            return;
+        }
+        b.wx = 0; b.wy = 0;
+        b.state = Math.abs(b.wz) > PP_EPS_W ? 'spinning' : 'stationary';
+        if (b.state === 'stationary') b.wz = 0;
+    }
+
+    // Render-only: turns the orientation quaternion by ω over dt.
+    function ppTurn(b, wx, wy, wz, dt) {
+        const ang = Math.hypot(wx, wy, wz) * dt;
+        if (ang < 1e-12) return;
+        const s = Math.sin(ang / 2) / (ang / dt), c = Math.cos(ang / 2);
+        const r = [c, wx * s, wy * s, wz * s], q = b.q;
+        b.q = [
+            r[0] * q[0] - r[1] * q[1] - r[2] * q[2] - r[3] * q[3],
+            r[0] * q[1] + r[1] * q[0] + r[2] * q[3] - r[3] * q[2],
+            r[0] * q[2] - r[1] * q[3] + r[2] * q[0] + r[3] * q[1],
+            r[0] * q[3] + r[1] * q[2] - r[2] * q[1] + r[3] * q[0],
+        ];
+        const n = Math.hypot(b.q[0], b.q[1], b.q[2], b.q[3]);
+        b.q = b.q.map(x => x / n);
+    }
+
+    // ω_z decays on its own in every state.
+    function ppSpinDecay(b, cfg, dt) {
+        if (!b.wz) return;
+        const k = 5 * cfg.muSpin * cfg.gravity / (2 * cfg.ballR) * dt;
+        b.wz = Math.abs(b.wz) <= k ? 0 : b.wz - Math.sign(b.wz) * k;
+    }
+
+    // Exact motion of one ball over dt, through any state changes on the way.
+    function ppAdvanceBall(b, cfg, dt) {
+        const R = cfg.ballR, g = cfg.gravity;
+        let rem = dt, guard = 0;
+        while (rem > 0 && guard++ < 8) {
+            if (b.state === 'pocketed' || b.state === 'stationary') return;
+            if (b.state === 'spinning') {
+                ppTurn(b, 0, 0, b.wz, rem);
+                ppSpinDecay(b, cfg, rem);
+                if (!b.wz) b.state = 'stationary';
+                return;
+            }
+            if (b.state === 'rolling') {
+                const sp = Math.hypot(b.vx, b.vy), a = cfg.muRoll * g;
+                if (sp === 0) { ppClassify(b, R); continue; }       // no direction to roll in
+                const ux = b.vx / sp, uy = b.vy / sp;
+                const tStop = sp / a, h = Math.min(rem, tStop);
+                const sp2 = h === tStop ? 0 : sp - a * h;
+                const dist = sp * h - 0.5 * a * h * h;
+                const wz0 = b.wz;
+                b.x += ux * dist; b.y += uy * dist;
+                ppTurn(b, -(uy * (sp + sp2) / 2) / R, (ux * (sp + sp2) / 2) / R, wz0, h);
+                ppSpinDecay(b, cfg, h);
+                b.vx = ux * sp2; b.vy = uy * sp2;
+                b.wx = -b.vy / R; b.wy = b.vx / R;
+                rem -= h;
+                if (h === tStop) { b.vx = 0; b.vy = 0; ppClassify(b, R); }
+                continue;
+            }
+            // sliding
+            const u = ppSlip(b, R), us = Math.hypot(u[0], u[1]);
+            if (us === 0) { ppClassify(b, R); if (b.state === 'sliding') b.state = 'rolling'; continue; }
+            const ux = u[0] / us, uy = u[1] / us;
+            const a = cfg.muSlide * g, k = 5 * a / (2 * R);
+            const tRoll = 2 * us / (7 * a), h = Math.min(rem, tRoll);
+            const wx0 = b.wx, wy0 = b.wy;
+            b.x += b.vx * h - 0.5 * a * ux * h * h;
+            b.y += b.vy * h - 0.5 * a * uy * h * h;
+            b.vx -= a * ux * h; b.vy -= a * uy * h;
+            b.wx -= k * uy * h; b.wy += k * ux * h;
+            ppTurn(b, (wx0 + b.wx) / 2, (wy0 + b.wy) / 2, b.wz, h);
+            ppSpinDecay(b, cfg, h);
+            rem -= h;
+            if (h === tRoll) {
+                // Slip is gone: land exactly on natural roll, or at rest. The
+                // speed is settled first and the spin derived from it, so a
+                // crawl that rounds to zero cannot leave spin behind that
+                // reads as fresh slip (which once left a ball 'rolling' at v = 0).
+                if (Math.hypot(b.vx, b.vy) < PP_EPS_V) { b.vx = 0; b.vy = 0; }
+                b.wx = -b.vy / R; b.wy = b.vx / R;
+                if (b.vx || b.vy) b.state = 'rolling';
+                else if (Math.abs(b.wz) > PP_EPS_W) b.state = 'spinning';
+                else { b.state = 'stationary'; b.wz = 0; }
+            }
+        }
+    }
+
+    // ── Time of impact (linear motion over the remaining sub-step) ─────
+    // Deceleration over a 4 ms sub-step moves a ball by < 0.01 u, so a straight
+    // line is exact enough to find the event; the ball is then advanced exactly.
+    function ppToiCircle(px, py, vx, vy, cx, cy, r) {
+        const ox = px - cx, oy = py - cy;
+        const a = vx * vx + vy * vy;
+        if (a < 1e-12) return Infinity;
+        const b = 2 * (ox * vx + oy * vy);
+        if (b >= 0) return Infinity;                     // not approaching
+        const c = ox * ox + oy * oy - r * r;
+        if (c <= 0) return 0;                            // already touching and closing
+        const disc = b * b - 4 * a * c;
+        if (disc < 0) return Infinity;
+        return (-b - Math.sqrt(disc)) / (2 * a);
+    }
+
+    function ppToiSegment(b, s, R) {
+        const vn = b.vx * s.nx + b.vy * s.ny;
+        if (vn >= 0) return Infinity;
+        const d0 = (b.x - s.ax) * s.nx + (b.y - s.ay) * s.ny - R;
+        if (d0 < -R) return Infinity;                    // behind the segment
+        const t = d0 <= 0 ? 0 : -d0 / vn;
+        const along = (b.x + b.vx * t - s.ax) * s.tx + (b.y + b.vy * t - s.ay) * s.ty;
+        return along >= 0 && along <= s.len ? t : Infinity;
+    }
+
+    // ── Collision response ────────────────────────────────────────────
+    // Unit mass throughout; I = (2/5) R².
+    function ppResolveBalls(A, B, cfg) {
+        const R = cfg.ballR, I = 0.4 * R * R;
+        let nx = B.x - A.x, ny = B.y - A.y;
+        const dist = Math.hypot(nx, ny) || 1;
+        nx /= dist; ny /= dist;
+        const vrel = (A.vx - B.vx) * nx + (A.vy - B.vy) * ny;
+        if (vrel <= 0) return false;
+        const jn = (1 + cfg.ballE) / 2 * vrel;
+        A.vx -= jn * nx; A.vy -= jn * ny;
+        B.vx += jn * nx; B.vy += jn * ny;
+
+        // Throw: friction at the contact point, capped at the impulse that stops the slip.
+        const n = [nx, ny, 0];
+        const rA = [R * nx, R * ny, 0], rB = [-R * nx, -R * ny, 0];
+        const cA = ppCross([A.wx, A.wy, A.wz], rA), cB = ppCross([B.wx, B.wy, B.wz], rB);
+        const u = [A.vx + cA[0] - B.vx - cB[0], A.vy + cA[1] - B.vy - cB[1], cA[2] - cB[2]];
+        const un = ppDot(u, n);
+        const ut = [u[0] - un * nx, u[1] - un * ny, u[2]];
+        const uts = Math.hypot(ut[0], ut[1], ut[2]);
+        if (uts > 1e-9) {
+            const f = Math.min(cfg.muBall * jn, uts / 7);
+            const F = [-f * ut[0] / uts, -f * ut[1] / uts, -f * ut[2] / uts];   // on A; B gets −F
+            A.vx += F[0]; A.vy += F[1];
+            B.vx -= F[0]; B.vy -= F[1];
+            const tA = ppCross(rA, F), tB = ppCross(rB, [-F[0], -F[1], -F[2]]);
+            A.wx += tA[0] / I; A.wy += tA[1] / I; A.wz += tA[2] / I;
+            B.wx += tB[0] / I; B.wy += tB[1] / I; B.wz += tB[2] / I;
+        }
+        ppClassify(A, R); ppClassify(B, R);
+        return true;
+    }
+
+    // ── Touching clusters (the break) ──────────────────────────────────
+    // Resolving contacts one pair at a time is right for two balls, and for a
+    // line of balls (it gives Newton's cradle), but wrong for a tight rack:
+    // there the apex compresses into both balls behind it at once, each of
+    // those pushes on two more, and the impulse fans out through the whole
+    // triangle. Pairwise, it runs down the two edges instead and only the back
+    // corners move. So when a ball hits a group of touching balls, the contact
+    // itself is simulated: stiff springs over the ~0.1 ms of compression, with
+    // damping chosen to give the ball–ball restitution. Only the velocity
+    // change is kept; positions snap back, so at table scale the impact is
+    // still instantaneous. Spin and throw are left to the pairwise path.
+    const PP_CLUSTER_GAP = 0.5;       // balls closer than this count as touching, table units
+    const PP_CONTACT_TIME = 1e-4;     // duration of one ball–ball contact, s
+    const PP_CLUSTER_MAX_T = 5e-3;    // give up on the micro-sim after this, s
+
+    function ppCluster(w, A, B) {
+        const R2 = 2 * w.cfg.ballR + PP_CLUSTER_GAP;
+        const live = w.balls.filter(b => b.state !== 'pocketed');
+        const members = [A, B], seen = new Set([A, B]);
+        for (let i = 0; i < members.length; i++) {
+            const m = members[i];
+            for (const b of live) {
+                if (seen.has(b)) continue;
+                if ((b.x - m.x) ** 2 + (b.y - m.y) ** 2 <= R2 * R2) { seen.add(b); members.push(b); }
+            }
+        }
+        return members;
+    }
+
+    function ppResolveCluster(w, members) {
+        const cfg = w.cfg, R = cfg.ballR, n = members.length;
+        const meff = 0.5;                                              // two unit masses
+        const k = Math.PI * Math.PI * meff / (PP_CONTACT_TIME * PP_CONTACT_TIME);
+        const L = Math.log(cfg.ballE);
+        const zeta = -L / Math.sqrt(Math.PI * Math.PI + L * L);
+        const c = 2 * zeta * Math.sqrt(k * meff);
+        const dt = PP_CONTACT_TIME / 30;                               // 30 steps per contact
+        const x = members.map(b => b.x), y = members.map(b => b.y);
+        const vx = members.map(b => b.vx), vy = members.map(b => b.vy);
+        const ke = () => vx.reduce((a, v, i) => a + v * v + vy[i] * vy[i], 0);
+        const ke0 = ke();
+        const touched = new Set(), order = [];
+        let quiet = 0, t = 0, contacted = false;
+        const fx = new Float64Array(n), fy = new Float64Array(n);
+        while (t < PP_CLUSTER_MAX_T) {
+            fx.fill(0); fy.fill(0);
+            let any = false;
+            for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+                const dx = x[j] - x[i], dy = y[j] - y[i];
+                const d2 = dx * dx + dy * dy;
+                if (d2 >= 4 * R * R) continue;
+                const d = Math.sqrt(d2) || 1e-9, nx = dx / d, ny = dy / d;
+                const sep = (vx[j] - vx[i]) * nx + (vy[j] - vy[i]) * ny;   // + when separating
+                const f = Math.max(0, k * (2 * R - d) - c * sep);
+                fx[i] -= f * nx; fy[i] -= f * ny; fx[j] += f * nx; fy[j] += f * ny;
+                any = true;
+                const key = i * n + j;
+                if (!touched.has(key)) { touched.add(key); order.push([members[i].id, members[j].id]); }
+            }
+            for (let i = 0; i < n; i++) {
+                vx[i] += fx[i] * dt; vy[i] += fy[i] * dt;
+                x[i] += vx[i] * dt; y[i] += vy[i] * dt;
+            }
+            t += dt;
+            if (any) { contacted = true; quiet = 0; } else if (contacted && ++quiet > 20) break;
+        }
+        // Semi-implicit Euler with damping dissipates, but guard the invariant
+        // anyway: an impact never adds kinetic energy.
+        const ke1 = ke();
+        const s = ke1 > ke0 && ke1 > 0 ? Math.sqrt(ke0 / ke1) : 1;
+        members.forEach((b, i) => {
+            b.vx = vx[i] * s; b.vy = vy[i] * s;
+            ppClassify(b, R);
+        });
+        order.forEach(([a, b]) => w.log.push({ type: 'ball', t: w.t, a, b }));
+    }
+
+    // Cushion or jaw (segment face, or a nose/jaw tip). n points from the
+    // cushion into the ball. The cushion nose meets the ball above its
+    // centre, so the contact sits noseRise·R up and friction there couples
+    // English and follow/draw into the rebound.
+    function ppResolveCushion(b, nx, ny, cfg) {
+        const R = cfg.ballR, I = 0.4 * R * R;
+        const vn = b.vx * nx + b.vy * ny;
+        if (vn >= 0) return false;
+        const jn = -(1 + cfg.cushionE) * vn;
+        b.vx += jn * nx; b.vy += jn * ny;
+
+        const s = cfg.noseRise, c = Math.sqrt(1 - s * s);
+        const r = [-nx * c * R, -ny * c * R, s * R];
+        const N = [-r[0] / R, -r[1] / R, -r[2] / R];
+        const cw = ppCross([b.wx, b.wy, b.wz], r);
+        const u = [b.vx + cw[0], b.vy + cw[1], cw[2]];
+        const uN = ppDot(u, N);
+        const ut = [u[0] - uN * N[0], u[1] - uN * N[1], u[2] - uN * N[2]];
+        const uts = Math.hypot(ut[0], ut[1], ut[2]);
+        if (uts > 1e-9) {
+            const t = [ut[0] / uts, ut[1] / uts, ut[2] / uts];
+            const rt = ppDot(r, t);
+            const K = 1 + (R * R - rt * rt) / I;            // inverse effective mass along t
+            const f = Math.min(cfg.muCushion * jn, uts / K);
+            const F = [-f * t[0], -f * t[1], -f * t[2]];
+            b.vx += F[0]; b.vy += F[1];                      // the vertical part is absorbed by the table
+            const tq = ppCross(r, F);
+            b.wx += tq[0] / I; b.wy += tq[1] / I; b.wz += tq[2] / I;
+        }
+        ppClassify(b, R);
+        return true;
+    }
+
+    // ── Cue strike ────────────────────────────────────────────────────
+    // shot = { angle (rad, world frame), speed (u/s), tipX, tipY }. tipX is
+    // side offset (+ = right of centre from the shooter's view), tipY is
+    // height (+ = above centre, 0.4 = natural roll), both in R, clamped to
+    // the miscue circle. Right English is ω_z > 0 and squirts the ball left.
+    function ppStrike(w, shot) {
+        const cfg = w.cfg, R = cfg.ballR;
+        const cue = w.balls.find(b => b.id === 0);
+        let a = shot.tipX || 0, bt = shot.tipY || 0;
+        const m = Math.hypot(a, bt);
+        if (m > cfg.maxTip) { a *= cfg.maxTip / m; bt *= cfg.maxTip / m; }
+        const v0 = Math.max(0, Math.min(cfg.maxSpeed, shot.speed));
+        const th = shot.angle + cfg.squirt * a;                 // squirt: away from the English
+        const dx = Math.cos(shot.angle), dy = Math.sin(shot.angle);
+        const k = 5 * v0 / (2 * R);
+        cue.vx = Math.cos(th) * v0; cue.vy = Math.sin(th) * v0;
+        cue.wx = -dy * k * bt; cue.wy = dx * k * bt; cue.wz = k * a;
+        ppClassify(cue, R);
+        w.log.push({ type: 'strike', t: w.t, ball: 0, angle: shot.angle, speed: v0, tipX: a, tipY: bt });
+        return cue;
+    }
+
+    // ── Stepping ──────────────────────────────────────────────────────
+    function ppPocket(w, b, pi) {
+        b.state = 'pocketed'; b.pocket = pi;
+        b.vx = b.vy = b.wx = b.wy = b.wz = 0;
+        w.log.push({ type: 'pocket', t: w.t, ball: b.id, pocket: pi });
+    }
+
+    // Anything inside a capture circle drops; anything that somehow left the
+    // table is dropped into the nearest pocket and counted, so a geometry
+    // bug is loud in the tests instead of a ball vanishing off-screen.
+    function ppCheckPockets(w) {
+        const t = w.table;
+        for (const b of w.balls) {
+            if (b.state === 'pocketed') continue;
+            let hit = -1;
+            for (let i = 0; i < t.pockets.length; i++) {
+                const p = t.pockets[i];
+                if ((b.x - p.x) ** 2 + (b.y - p.y) ** 2 < p.r * p.r) { hit = i; break; }
+            }
+            if (hit === -1 && (Math.abs(b.x) > t.limitX || Math.abs(b.y) > t.limitY)) {
+                let best = Infinity;
+                t.pockets.forEach((p, i) => { const d = Math.hypot(b.x - p.x, b.y - p.y); if (d < best) { best = d; hit = i; } });
+                w.escapes++;
+            }
+            if (hit !== -1) ppPocket(w, b, hit);
+        }
+    }
+
+    // Earliest event in [0, horizon] among moving balls, or null.
+    function ppNextEvent(w, horizon) {
+        const R = w.cfg.ballR, t = w.table, balls = w.balls;
+        let best = { t: horizon, kind: null };
+        for (let i = 0; i < balls.length; i++) {
+            const A = balls[i];
+            if (A.state === 'pocketed') continue;
+            const aMoves = ppMoving(A);
+            // Rails, tips and pockets all lie on or beyond the cushion lines: skip
+            // them for a ball that cannot get that far within the horizon.
+            const reach = R + Math.hypot(A.vx, A.vy) * horizon + 1;
+            const nearRail = Math.abs(A.x) > t.halfLength - reach || Math.abs(A.y) > t.halfWidth - reach;
+            if (aMoves && nearRail) {
+                for (const s of t.segments) {
+                    const tt = ppToiSegment(A, s, R);
+                    if (tt < best.t) best = { t: tt, kind: 'cushion', a: A, nx: s.nx, ny: s.ny, seg: s };
+                }
+                for (const p of t.points) {
+                    const tt = ppToiCircle(A.x, A.y, A.vx, A.vy, p.x, p.y, R);
+                    if (tt < best.t) best = { t: tt, kind: 'point', a: A, p };
+                }
+                for (let k = 0; k < t.pockets.length; k++) {
+                    const p = t.pockets[k];
+                    const tt = ppToiCircle(A.x, A.y, A.vx, A.vy, p.x, p.y, p.r);
+                    if (tt < best.t) best = { t: tt, kind: 'pocket', a: A, pocket: k };
+                }
+            }
+            for (let j = i + 1; j < balls.length; j++) {
+                const B = balls[j];
+                if (B.state === 'pocketed' || (!aMoves && !ppMoving(B))) continue;
+                const tt = ppToiCircle(A.x, A.y, A.vx - B.vx, A.vy - B.vy, B.x, B.y, 2 * R);
+                if (tt < best.t) best = { t: tt, kind: 'ball', a: A, b: B };
+            }
+        }
+        return best.kind ? best : null;
+    }
+
+    function ppAdvanceAll(w, dt) {
+        if (dt <= 0) return;
+        for (const b of w.balls) ppAdvanceBall(b, w.cfg, dt);
+        w.t += dt;
+    }
+
+    function ppSubStep(w, h) {
+        const cfg = w.cfg, R = cfg.ballR;
+        let t = 0, events = 0;
+        while (t < h - PP_EPS_T) {
+            const ev = ppNextEvent(w, h - t);
+            if (!ev || events >= cfg.maxEventsPerSubStep) { ppAdvanceAll(w, h - t); break; }
+            ppAdvanceAll(w, ev.t);
+            t += ev.t;
+            events++;
+            const A = ev.a;
+            if (A.state === 'pocketed') continue;
+            // The linear TOI slightly overshoots a decelerating ball, so a contact
+            // counts within PP_CONTACT of touching; beyond that the balls never met.
+            if (ev.kind === 'ball') {
+                const B = ev.b;
+                if (B.state === 'pocketed') continue;
+                if (Math.hypot(B.x - A.x, B.y - A.y) <= 2 * R + PP_CONTACT) {
+                    const group = ppCluster(w, A, B);
+                    if (group.length > 2) ppResolveCluster(w, group);
+                    else if (ppResolveBalls(A, B, cfg)) w.log.push({ type: 'ball', t: w.t, a: A.id, b: B.id });
+                }
+            } else if (ev.kind === 'cushion') {
+                const s = ev.seg;
+                const d = (A.x - s.ax) * s.nx + (A.y - s.ay) * s.ny;
+                if (d <= R + PP_CONTACT && ppResolveCushion(A, s.nx, s.ny, cfg)) {
+                    w.log.push({ type: 'cushion', t: w.t, ball: A.id, kind: s.kind });
+                }
+            } else if (ev.kind === 'point') {
+                const p = ev.p;
+                const dx = A.x - p.x, dy = A.y - p.y, d = Math.hypot(dx, dy);
+                if (d <= R + PP_CONTACT && d > 0 && ppResolveCushion(A, dx / d, dy / d, cfg)) {
+                    w.log.push({ type: 'cushion', t: w.t, ball: A.id, kind: p.kind });
+                }
+            } else if (ev.kind === 'pocket') {
+                // Resolved here rather than by the distance test: at the exact
+                // boundary a float can land a hair outside and stall the loop.
+                const p = w.table.pockets[ev.pocket];
+                if (Math.hypot(A.x - p.x, A.y - p.y) <= p.r + PP_CONTACT) ppPocket(w, A, ev.pocket);
+            }
+            ppCheckPockets(w);
+        }
+        ppSeparate(w);
+        ppCheckPockets(w);
+    }
+
+    // The time of impact assumes straight lines over the sub-step. When a front
+    // ball decelerates harder than the ball behind it (or an over-spun ball
+    // speeds up into a rail), contact comes up to ~0.015 u early and the pair
+    // ends the sub-step slightly interpenetrating. This puts them back to
+    // touching, positions only, and resolves the contact if they are still
+    // closing, so nothing ever overlaps at a frame boundary.
+    // Pushing one pair apart can press a ball in a packed group into a third,
+    // so the pass repeats until nothing overlaps (a few rounds at most).
+    // Only balls that moved this sub-step (or were pushed by this pass) can
+    // be overlapping anything, so resting balls are skipped entirely.
+    function ppSeparate(w) {
+        const cfg = w.cfg, R = cfg.ballR, D = 2 * R, t = w.table;
+        const live = w.balls.filter(b => b.state !== 'pocketed');
+        const active = live.map(ppMoving);
+        if (!active.some(Boolean)) return;
+        for (let pass = 0; pass < 8; pass++) {
+            let moved = false;
+            for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
+                if (!active[i] && !active[j]) continue;
+                const A = live[i], B = live[j];
+                const dx = B.x - A.x, dy = B.y - A.y;
+                if (dx >= D || dx <= -D || dy >= D || dy <= -D) continue;
+                const d = Math.hypot(dx, dy);
+                if (d >= D - 1e-9 || d === 0) continue;
+                const nx = dx / d, ny = dy / d, push = (D - d) / 2;
+                A.x -= nx * push; A.y -= ny * push; B.x += nx * push; B.y += ny * push;
+                active[i] = active[j] = true;
+                moved = true;
+                if (ppResolveBalls(A, B, cfg)) w.log.push({ type: 'ball', t: w.t, a: A.id, b: B.id });
+            }
+            for (let i = 0; i < live.length; i++) {
+                if (!active[i]) continue;
+                const b = live[i];
+                // Cushions only matter within a ball's reach of the rails.
+                if (Math.abs(b.x) < t.halfLength - R && Math.abs(b.y) < t.halfWidth - R) continue;
+                for (const s of t.segments) {
+                    const along = (b.x - s.ax) * s.tx + (b.y - s.ay) * s.ty;
+                    if (along < 0 || along > s.len) continue;
+                    const d = (b.x - s.ax) * s.nx + (b.y - s.ay) * s.ny;
+                    if (d >= R - 1e-9 || d < -R) continue;
+                    b.x += s.nx * (R - d); b.y += s.ny * (R - d);
+                    moved = true;
+                    if (ppResolveCushion(b, s.nx, s.ny, cfg)) w.log.push({ type: 'cushion', t: w.t, ball: b.id, kind: s.kind });
+                }
+                for (const p of t.points) {
+                    const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy);
+                    if (d >= R - 1e-9 || d === 0) continue;
+                    b.x = p.x + dx / d * R; b.y = p.y + dy / d * R;
+                    moved = true;
+                    if (ppResolveCushion(b, dx / d, dy / d, cfg)) w.log.push({ type: 'cushion', t: w.t, ball: b.id, kind: p.kind });
+                }
+            }
+            if (!moved) break;
+        }
+    }
+
+    // One logic frame. The game calls this at 60 Hz with dt = 1/60.
+    function ppStep(w, dt) {
+        const n = w.cfg.subSteps, h = dt / n;
+        for (let i = 0; i < n; i++) ppSubStep(w, h);
+    }
+
+    function ppSettled(w) {
+        return w.balls.every(b => b.state === 'pocketed' || (b.vx === 0 && b.vy === 0));
+    }
+
+    // Runs a shot to rest (or maxT seconds). Returns simulated seconds.
+    function ppSimulate(w, maxT) {
+        const cap = maxT || 60, t0 = w.t;
+        while (!ppSettled(w) && w.t - t0 < cap) ppStep(w, 1 / 60);
+        for (const b of w.balls) if (b.state === 'spinning') { b.wz = 0; b.state = 'stationary'; }
+        return w.t - t0;
+    }
+
+    // Kinetic energy, translational + rotational, unit mass.
+    function ppEnergy(w) {
+        const I = 0.4 * w.cfg.ballR * w.cfg.ballR;
+        let e = 0;
+        for (const b of w.balls) {
+            if (b.state === 'pocketed') continue;
+            e += 0.5 * (b.vx * b.vx + b.vy * b.vy) + 0.5 * I * (b.wx * b.wx + b.wy * b.wy + b.wz * b.wz);
+        }
+        return e;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — RULES (v2)
+    // ═══════════════════════════════════════════════════════════════════
+    // WPA 8-ball with the Miniclip-style choices in POOL_V2_PLAN.md:
+    //   - the break is played from the kitchen and never called; it is legal
+    //     if a ball drops or at least four object balls reach a rail, and an
+    //     illegal break is a foul
+    //   - the table stays open after the break, whatever dropped; the 8 on
+    //     the break is re-spotted and the breaker plays on
+    //   - on an open table any solid or stripe may be hit first (not the 8);
+    //     the first counted pot decides the groups
+    //   - the 8 is always called; call-every-shot is an option (the pro tier
+    //     forces it), and then only a ball in the called pocket counts
+    //   - after any foul the opponent has ball in hand anywhere
+    //
+    // Pure: the judge reads a settled physics world and its event log and
+    // returns a verdict plus the next frame state. It never mutates either;
+    // the caller re-spots the 8 and places the cue ball with the helpers at
+    // the bottom. Seats are 1 and 2, as in the rest of the widget.
+
+    const PR_FOUL_TEXT = {
+        scratch: 'Scratch',
+        noContact: 'No ball hit',
+        wrongBall: "Hit opponent's ball first",
+        eightFirst: 'Hit the 8 first',
+        notEight: 'Must hit the 8 first',
+        noRail: 'No rail after contact',
+        illegalBreak: 'Illegal break',
+        timeout: 'Out of time',
+    };
+
+    const prGroupOf = id => (id >= 1 && id <= 7 ? 'solids' : id >= 9 && id <= 15 ? 'stripes' : null);
+    const prOtherGroup = g => (g === 'solids' ? 'stripes' : 'solids');
+
+    // opts: { breaker: 1|2, callEvery: bool }
+    function prNewFrame(opts) {
+        const o = opts || {};
+        const breaker = o.breaker === 2 ? 2 : 1;
+        return {
+            v: 1, breaker, turn: breaker, isBreak: true,
+            groups: { 1: null, 2: null }, callEvery: !!o.callEvery,
+            ballInHand: 'kitchen', shots: 0, over: false, winner: 0,
+        };
+    }
+
+    // What happened on the last shot, from the physics log: the first ball
+    // the cue ball touched, whether any ball reached a cushion after that,
+    // how many object balls reached a cushion at all (the break count), and
+    // the pots in the order they dropped. Jaws count as cushion: they are
+    // the cushion rubber cut back at the pocket.
+    function prSummarize(log) {
+        let start = 0;
+        for (let i = log.length - 1; i >= 0; i--) if (log[i].type === 'strike') { start = i + 1; break; }
+        let first = -1, railAfterFirst = false;
+        const railed = new Set(), pots = [];
+        for (let i = start; i < log.length; i++) {
+            const e = log[i];
+            if (e.type === 'ball') {
+                if (first === -1 && (e.a === 0 || e.b === 0)) first = e.a === 0 ? e.b : e.a;
+            } else if (e.type === 'cushion') {
+                if (e.ball !== 0) railed.add(e.ball);
+                if (first !== -1) railAfterFirst = true;
+            } else if (e.type === 'pocket') {
+                pots.push({ ball: e.ball, pocket: e.pocket });
+            }
+        }
+        return { first, railAfterFirst, objectRails: railed.size, pots, scratch: pots.some(p => p.ball === 0) };
+    }
+
+    // A seat's position in the frame, for the HUD and the CPU. `onTable` is
+    // the list of object-ball ids still in play.
+    function prStatusFrom(state, seat, onTable) {
+        const group = state.groups[seat];
+        const left = group ? onTable.filter(id => prGroupOf(id) === group).length : 7;
+        const onThe8 = !!group && left === 0;
+        return { group, open: !group, left, onThe8, callRequired: !state.isBreak && (state.callEvery || onThe8) };
+    }
+
+    function prStatus(state, world, seat) {
+        const on = world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed').map(b => b.id);
+        return prStatusFrom(state, seat || state.turn, on);
+    }
+
+    // Judges the shot that just settled. `call` is the called pocket index
+    // (0–5, the table's pocket order), or -1/undefined when nothing was
+    // called. Returns the verdict; verdict.next is the state to play on.
+    function prJudge(state, world, call) {
+        const s = prSummarize(world.log);
+        const me = state.turn, them = 3 - me;
+        const potted = new Set(s.pots.map(p => p.ball));
+        // Everything that was on the table when the shot started.
+        const before = world.balls
+            .filter(b => b.id !== 0 && (b.state !== 'pocketed' || potted.has(b.id)))
+            .map(b => b.id);
+        const st = prStatusFrom(state, me, before);
+        const group = st.group;
+        const called = st.callRequired && Number.isInteger(call) && call >= 0 ? call : -1;
+
+        let foul = null;
+        if (s.scratch) foul = 'scratch';
+        else if (s.first === -1) foul = state.isBreak ? 'illegalBreak' : 'noContact';
+        else if (!state.isBreak) {
+            if (st.onThe8) { if (s.first !== 8) foul = 'notEight'; }
+            else if (s.first === 8) foul = 'eightFirst';
+            else if (group && prGroupOf(s.first) !== group) foul = 'wrongBall';
+        }
+        const objectPots = s.pots.filter(p => p.ball !== 0);
+        if (!foul) {
+            if (state.isBreak) { if (!objectPots.length && s.objectRails < 4) foul = 'illegalBreak'; }
+            else if (!objectPots.length && !s.railAfterFirst) foul = 'noRail';
+        }
+
+        const v = {
+            shooter: me, foul, reason: foul, frameOver: false, winner: 0,
+            continues: false, nextTurn: them, ballInHand: foul ? 'anywhere' : null,
+            respot8: false, assigned: null, counted: [], notice: null,
+            callRequired: st.callRequired, call: called, onThe8: st.onThe8,
+            wasBreak: state.isBreak, legalBreak: state.isBreak ? foul !== 'illegalBreak' : null,
+            summary: s,
+        };
+
+        // The 8 decides the frame, except on the break, where it comes back.
+        if (potted.has(8) && !state.isBreak) {
+            const eight = s.pots.find(p => p.ball === 8);
+            let reason;
+            if (!st.onThe8) reason = 'eightEarly';
+            else if (foul) reason = foul === 'scratch' ? 'eightScratch' : 'eightFoul';
+            else if (eight.pocket !== called) reason = 'eightWrongPocket';
+            else reason = 'eightPotted';
+            v.reason = reason;
+            v.frameOver = true;
+            v.winner = reason === 'eightPotted' ? me : them;
+            v.nextTurn = 0;
+            v.ballInHand = null;
+            v.next = Object.assign({}, state, {
+                groups: Object.assign({}, state.groups), isBreak: false, shots: state.shots + 1,
+                ballInHand: null, over: true, winner: v.winner,
+            });
+            return v;
+        }
+
+        const groups = Object.assign({}, state.groups);
+        if (state.isBreak) {
+            v.respot8 = potted.has(8);
+            v.continues = !foul && objectPots.length > 0;
+        } else {
+            const mine = objectPots.filter(p => p.ball !== 8 && (!group || prGroupOf(p.ball) === group));
+            // A foul counts nothing: the balls stay down but earn no turn.
+            const counted = foul ? [] : st.callRequired ? mine.filter(p => p.pocket === called) : mine;
+            v.counted = counted.map(p => p.ball);
+            v.continues = counted.length > 0;
+            if (!foul && mine.length && !counted.length) v.notice = 'wrongPocket';
+            if (v.continues && !group) {
+                const g = prGroupOf(counted[0].ball);
+                groups[me] = g; groups[them] = prOtherGroup(g);
+                v.assigned = g;
+            }
+        }
+        if (v.respot8 && !foul) v.notice = 'respot8';
+        v.nextTurn = v.continues ? me : them;
+        v.next = Object.assign({}, state, {
+            groups, turn: v.nextTurn, isBreak: false, shots: state.shots + 1,
+            ballInHand: v.ballInHand,
+        });
+        return v;
+    }
+
+    // The shot clock ran out before a shot was played. As in today's game it
+    // is a foul: the opponent has ball in hand anywhere. On the break there
+    // is nothing to foul, so the break simply passes across (kitchen).
+    function prTimeout(state) {
+        const me = state.turn, them = 3 - me;
+        const brk = state.isBreak;
+        return {
+            shooter: me, foul: 'timeout', reason: 'timeout', frameOver: false, winner: 0,
+            continues: false, nextTurn: them, ballInHand: brk ? 'kitchen' : 'anywhere',
+            respot8: false, assigned: null, counted: [], notice: null,
+            callRequired: false, call: -1, onThe8: false, wasBreak: brk, legalBreak: null,
+            summary: null,
+            next: Object.assign({}, state, { groups: Object.assign({}, state.groups), turn: them, ballInHand: brk ? 'kitchen' : 'anywhere' }),
+        };
+    }
+
+    // Seat-aware copy for the toast and the frame result. names = { 1, 2 };
+    // the name 'You' gets second-person grammar ("You win").
+    function prText(v, names) {
+        const n = seat => names[seat];
+        const you = seat => n(seat) === 'You';
+        if (v.frameOver) {
+            const who = n(v.shooter);
+            const sub = v.reason === 'eightPotted' ? 'Potted the 8 in the called pocket.'
+                : v.reason === 'eightEarly' ? who + ' potted the 8 early.'
+                : v.reason === 'eightScratch' ? who + ' scratched on the 8.'
+                : v.reason === 'eightFoul' ? who + ' potted the 8 on a foul (' + PR_FOUL_TEXT[v.foul].toLowerCase() + ').'
+                : who + ' potted the 8 in the wrong pocket.';
+            return { kind: 'frame', title: you(v.winner) ? 'You win' : n(v.winner) + ' wins', sub };
+        }
+        if (v.foul === 'timeout' && v.wasBreak) {
+            return { kind: 'foul', title: PR_FOUL_TEXT.timeout, sub: (you(v.nextTurn) ? 'Your break' : n(v.nextTurn) + ' breaks') };
+        }
+        if (v.foul) {
+            return {
+                kind: 'foul', title: 'Foul · ' + PR_FOUL_TEXT[v.foul],
+                sub: 'Ball in hand to ' + (you(v.nextTurn) ? 'you' : n(v.nextTurn)),
+            };
+        }
+        const shoots = seat => (you(seat) ? 'Your shot' : n(seat) + ' to shoot');
+        if (v.notice === 'respot8') return { kind: 'notice', title: 'The 8 is re-spotted', sub: shoots(v.nextTurn) };
+        if (v.notice === 'wrongPocket') return { kind: 'notice', title: 'Not in the called pocket', sub: shoots(v.nextTurn) };
+        if (v.assigned) {
+            return { kind: 'notice', title: (you(v.shooter) ? "You're" : n(v.shooter) + ' is') + ' on ' + v.assigned, sub: shoots(v.nextTurn) };
+        }
+        return null;
+    }
+
+    // ── Table helpers (these do mutate the world) ─────────────────────
+    // Why a cue-ball spot is refused, or null if it is fine: 'outside',
+    // 'kitchen' (behind the head string only) or 'overlap'.
+    function prCanPlace(world, x, y, zone) {
+        const t = world.table, R = world.cfg.ballR;
+        if (!(Math.abs(x) <= t.halfLength - R && Math.abs(y) <= t.halfWidth - R)) return 'outside';
+        if (zone === 'kitchen' && x > t.headX) return 'kitchen';
+        for (const b of world.balls) {
+            if (b.id === 0 || b.state === 'pocketed') continue;
+            if ((b.x - x) ** 2 + (b.y - y) ** 2 < 4 * R * R) return 'overlap';
+        }
+        return null;
+    }
+
+    // The nearest spot to (x, y) the zone allows, as [x, y]: on the felt,
+    // and behind the head string for 'kitchen'. Dragging the cue ball
+    // through this makes it slide along those limits instead of crossing
+    // them. Other balls are not pushed aside; an overlap is still refused.
+    function prClampPlace(world, x, y, zone) {
+        const t = world.table, R = world.cfg.ballR;
+        const hx = t.halfLength - R, hy = t.halfWidth - R;
+        return [Math.max(-hx, Math.min(zone === 'kitchen' ? Math.min(hx, t.headX) : hx, x)), Math.max(-hy, Math.min(hy, y))];
+    }
+
+    function prPlaceCue(world, x, y) {
+        let cue = world.balls.find(b => b.id === 0);
+        if (!cue) { cue = ppMakeBall(0, x, y); world.balls.unshift(cue); }
+        Object.assign(cue, { x, y, vx: 0, vy: 0, wx: 0, wy: 0, wz: 0, state: 'stationary', pocket: -1 });
+        return cue;
+    }
+
+    // Spots a ball on the long string: on the foot spot, or as close behind
+    // it (toward the foot rail) as room allows, else in front of it.
+    function prSpotBall(world, id) {
+        const t = world.table, R = world.cfg.ballR, b = world.balls.find(o => o.id === id);
+        const free = x => world.balls.every(o => o === b || o.state === 'pocketed' || (o.x - x) ** 2 + o.y ** 2 >= (2 * R + 0.02) ** 2);
+        let x = null;
+        for (let cx = t.footX; cx <= t.halfLength - R && x === null; cx += 0.5) if (free(cx)) x = cx;
+        for (let cx = t.footX; cx >= -t.halfLength + R && x === null; cx -= 0.5) if (free(cx)) x = cx;
+        Object.assign(b, { x: x === null ? t.footX : x, y: 0, vx: 0, vy: 0, wx: 0, wy: 0, wz: 0, state: 'stationary', pocket: -1 });
+        return b;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — TOURNAMENT MODEL (v2)
+    // ═══════════════════════════════════════════════════════════════════
+    // A single-elimination bracket for 3–16 people on one computer, humans
+    // only (POOL_V2_PLAN.md, Tournament). Pure: plain objects in, plain
+    // objects out, so it is tested in Node and saved as JSON.
+    //
+    //   size   S = the next power of two ≥ N (min 4); byes = S − N go to the
+    //          top seeds, so no first-round match is bye against bye
+    //   seeds  the standard order: seed s meets 2n+1−s, every other pair
+    //          flipped (1v8, 4v5, 3v6, 2v7), as the design's brackets draw it
+    //   play   a round is finished before the next starts, left to right;
+    //          winners feed forward by index (match j → j >> 1, side j & 1)
+    //   breaks the lower seed (the higher number) breaks first, then they
+    //          alternate
+    // A tournament: { v, id, seed, name, created, settings, slots, size,
+    // rounds, matches: [{ id, round, index, a, b, raceTo, frames, winner,
+    // status }], snapshot }. Slots are indices into `slots`; a is the upper
+    // line of a match, b the lower.
+
+    const PT_VERSION = 1;
+    const PT_MIN = 3, PT_MAX = 16;
+    const PT_NAMES = { 4: 'Club Cup', 8: 'City Open', 16: 'Masters' };
+    // Race-to by round, as setup defaults them: the semi and final longer.
+    const PT_RACE_DEFAULT = { 4: [2, 3], 8: [1, 2, 3], 16: [1, 1, 2, 3] };
+
+    const ptSizeFor = n => (n <= 4 ? 4 : n <= 8 ? 8 : 16);
+    const ptRoundsFor = size => Math.round(Math.log2(size));
+
+    // "Final", "Semi-final", "Quarter-final", "Round of 16", from the end.
+    function ptRoundName(rounds, r) {
+        const fromEnd = rounds - 1 - r;
+        return fromEnd === 0 ? 'Final' : fromEnd === 1 ? 'Semi-final' : fromEnd === 2 ? 'Quarter-final' : 'Round of ' + Math.pow(2, fromEnd + 1);
+    }
+    // Setup's short column names: the rounds before the semi share one race.
+    function ptRaceColumns(size) {
+        const rounds = ptRoundsFor(size);
+        return rounds === 2 ? [{ label: 'Semi', rounds: [0] }, { label: 'Final', rounds: [1] }]
+            : [{ label: rounds === 3 ? 'Quarter' : 'Round 1', rounds: Array.from({ length: rounds - 2 }, (_, i) => i) },
+               { label: 'Semi', rounds: [rounds - 2] }, { label: 'Final', rounds: [rounds - 1] }];
+    }
+
+    // Bracket positions by seed: order(2) = [1, 2]; order(2n) pairs each seed s
+    // of order(n) with 2n+1−s, flipping every other pair.
+    function ptSeedOrder(size) {
+        let order = [1, 2];
+        while (order.length < size) {
+            const n2 = order.length * 2 + 1, next = [];
+            order.forEach((s, i) => { if (i % 2 === 0) next.push(s, n2 - s); else next.push(n2 - s, s); });
+            order = next;
+        }
+        return order;
+    }
+
+    // A reproducible shuffle (Fisher–Yates on mulberry32), so a seed replays the draw.
+    function ptShuffle(list, seed) {
+        const rng = ppRandom(seed >>> 0), a = list.slice();
+        for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; }
+        return a;
+    }
+
+    // opts: { names: [...], you: 0 (the slot that is the account owner, or -1),
+    //         settings: { race: [per round], clock: 30|45|0, guide: 'full'|'short'|'off',
+    //         call: '8'|'every', shuffle }, name, seed, created (ms) }
+    function ptCreate(opts) {
+        const o = opts || {};
+        const names = (o.names || []).map(n => String(n || '').trim().slice(0, 16)).slice(0, PT_MAX);
+        if (names.length < PT_MIN) throw new Error('a tournament needs at least ' + PT_MIN + ' players');
+        const size = ptSizeFor(names.length), rounds = ptRoundsFor(size);
+        const seed = (o.seed === undefined ? Date.now() : o.seed) >>> 0;
+        const set = Object.assign({ clock: 30, guide: 'full', call: '8', shuffle: false }, o.settings);
+        const race = (set.race && set.race.length === rounds ? set.race : PT_RACE_DEFAULT[size]).map(x => Math.max(1, Math.min(5, x | 0)));
+        set.race = race;
+        // Seeding: entry order, or the shuffled order. Seed k is slot k − 1.
+        const entries = names.map((name, i) => ({ name: name || 'Player ' + (i + 1), you: i === (o.you === undefined ? 0 : o.you) }));
+        const seeded = set.shuffle ? ptShuffle(entries, seed) : entries;
+        const slots = seeded.map((e, i) => ({ name: e.name, seed: i + 1, you: e.you }));
+        const t = {
+            v: PT_VERSION, id: 't' + seed.toString(36), seed, name: String(o.name || '').trim().slice(0, 24) || PT_NAMES[size],
+            created: o.created || Date.now(), settings: set, slots, size, rounds, matches: [], snapshot: null,
+        };
+        const order = ptSeedOrder(size);
+        for (let r = 0, count = size / 2; r < rounds; r++, count /= 2) {
+            for (let j = 0; j < count; j++) {
+                t.matches.push({ id: 'r' + r + 'm' + j, round: r, index: j, a: null, b: null, raceTo: race[r], frames: [], winner: null, status: 'pending' });
+            }
+        }
+        // Round one: the better seed on the upper line; a seed past N is a bye.
+        for (let j = 0; j < size / 2; j++) {
+            const s1 = order[2 * j], s2 = order[2 * j + 1];
+            const hi = Math.min(s1, s2), lo = Math.max(s1, s2);
+            const m = ptMatch(t, 0, j);
+            m.a = hi <= slots.length ? hi - 1 : null;
+            m.b = lo <= slots.length ? lo - 1 : null;
+            if (m.b === null) { m.status = 'bye'; m.winner = m.a; ptAdvance(t, m); }
+        }
+        return t;
+    }
+
+    const ptMatch = (t, round, index) => t.matches.find(m => m.round === round && m.index === index);
+    const ptById = (t, id) => t.matches.find(m => m.id === id);
+
+    // The winner goes up a round: match j feeds j >> 1, upper line if j is even.
+    function ptAdvance(t, m) {
+        if (m.round === t.rounds - 1) return;
+        const next = ptMatch(t, m.round + 1, m.index >> 1);
+        if (m.index % 2 === 0) next.a = m.winner; else next.b = m.winner;
+    }
+
+    // Matches in the order they are played: round by round, left to right, byes left out.
+    const ptPlayable = t => t.matches.filter(m => m.status !== 'bye').sort((x, y) => x.round - y.round || x.index - y.index);
+    // The next match to play: both players known, not finished. null once there is a champion.
+    function ptNext(t) {
+        return ptPlayable(t).find(m => m.status !== 'done' && m.a !== null && m.b !== null) || null;
+    }
+    // "Match 3 of 5".
+    function ptMatchNumber(t, m) {
+        const list = ptPlayable(t);
+        return { n: list.indexOf(m) + 1, of: list.length };
+    }
+    // Frames won in a match, per line.
+    function ptScore(m) {
+        return [m.frames.filter(w => w === m.a).length, m.frames.filter(w => w === m.b).length];
+    }
+    // Who breaks frame k (0-based) of a match: the lower seed first, then alternating.
+    function ptBreaker(t, m, k) {
+        const aSeed = t.slots[m.a].seed, bSeed = t.slots[m.b].seed;
+        const lower = aSeed > bSeed ? m.a : m.b, upper = lower === m.a ? m.b : m.a;
+        return k % 2 === 0 ? lower : upper;
+    }
+
+    // A frame is over: returns { t, matchOver, winner }. Pure: t is copied.
+    function ptRecordFrame(t0, matchId, winnerSlot) {
+        const t = JSON.parse(JSON.stringify(t0));
+        const m = ptById(t, matchId);
+        if (!m || m.status === 'done' || m.status === 'bye' || (winnerSlot !== m.a && winnerSlot !== m.b)) return { t: t0, matchOver: false, winner: null };
+        m.frames.push(winnerSlot);
+        m.status = 'live';
+        const [sa, sb] = ptScore(m);
+        let matchOver = false;
+        if (sa >= m.raceTo || sb >= m.raceTo) {
+            m.winner = sa > sb ? m.a : m.b;
+            m.status = 'done';
+            matchOver = true;
+            ptAdvance(t, m);
+        }
+        t.snapshot = null;
+        return { t, matchOver, winner: matchOver ? m.winner : null };
+    }
+
+    // The champion's slot, or null.
+    function ptChampion(t) {
+        const f = ptMatch(t, t.rounds - 1, 0);
+        return f && f.status === 'done' ? f.winner : null;
+    }
+    // Where a player went out, or null if they are still in (or won).
+    function ptOut(t, slot) {
+        const lost = t.matches.find(m => m.status === 'done' && (m.a === slot || m.b === slot) && m.winner !== slot);
+        return lost ? lost.round : null;
+    }
+    // A player's run, round by round: bye, a win, or the loss that ended it.
+    function ptRun(t, slot) {
+        const out = [];
+        for (let r = 0; r < t.rounds; r++) {
+            const m = t.matches.find(x => x.round === r && (x.a === slot || x.b === slot));
+            if (!m) break;
+            const name = ptRoundName(t.rounds, r);
+            if (m.status === 'bye') { out.push({ round: r, name, kind: 'bye', text: 'Bye as top seed', score: '' }); continue; }
+            if (m.status !== 'done') { out.push({ round: r, name, kind: 'pending', text: '', score: '' }); break; }
+            const [sa, sb] = ptScore(m), mine = m.a === slot ? sa : sb, theirs = m.a === slot ? sb : sa;
+            const opp = t.slots[m.a === slot ? m.b : m.a].name;
+            if (m.winner === slot) out.push({ round: r, name, kind: 'won', text: 'beat ' + opp, score: mine + '–' + theirs });
+            else { out.push({ round: r, name, kind: 'lost', text: 'lost to ' + opp, score: mine + '–' + theirs }); break; }
+        }
+        return out;
+    }
+    // Frames won and lost across the whole tournament.
+    function ptFrames(t, slot) {
+        let won = 0, lost = 0;
+        t.matches.forEach(m => { if (m.a === slot || m.b === slot) m.frames.forEach(w => { if (w === slot) won++; else lost++; }); });
+        return { won, lost };
+    }
+
+    // A saved tournament, or null when it is not one this version can resume.
+    // Checked field by field, because a half-loaded bracket is worse than none.
+    function ptValidate(x) {
+        try {
+            if (!x || typeof x !== 'object' || x.v !== PT_VERSION) return null;
+            if (!Array.isArray(x.slots) || x.slots.length < PT_MIN || x.slots.length > PT_MAX) return null;
+            if ([4, 8, 16].indexOf(x.size) === -1 || x.rounds !== ptRoundsFor(x.size) || x.slots.length > x.size) return null;
+            if (!Array.isArray(x.matches) || x.matches.length !== x.size - 1) return null;
+            const ok = s => s === null || (Number.isInteger(s) && s >= 0 && s < x.slots.length);
+            for (const m of x.matches) {
+                if (!ok(m.a) || !ok(m.b) || !ok(m.winner) || !Array.isArray(m.frames) || !m.frames.every(ok)) return null;
+                if (['pending', 'live', 'done', 'bye'].indexOf(m.status) === -1 || !(m.raceTo >= 1 && m.raceTo <= 5)) return null;
+            }
+            if (!x.slots.every(s => s && typeof s.name === 'string' && Number.isInteger(s.seed))) return null;
+            return x;
+        } catch (_) { return null; }
+    }
+
+    // ── Trophy cabinet (local only) ───────────────────────────────────
+    // { v, titles: { key: { name, 4, 8, 16 } }, recent: [{ name, date, players, size, champ }] }.
+    // A player is their name trimmed and lowercased, so Ayesha and ayesha are one person.
+    const PT_RECENT = 20;
+    const ptKey = name => String(name || '').trim().toLowerCase();
+    function ptCabinetEmpty() { return { v: 1, titles: {}, recent: [] }; }
+    function ptCabinetAdd(cab0, t) {
+        const cab = cab0 && cab0.v === 1 && cab0.titles && Array.isArray(cab0.recent) ? JSON.parse(JSON.stringify(cab0)) : ptCabinetEmpty();
+        const c = ptChampion(t);
+        if (c === null || cab.recent.some(r => r.id === t.id)) return cab;
+        const name = t.slots[c].name, k = ptKey(name);
+        const row = cab.titles[k] || (cab.titles[k] = { name, 4: 0, 8: 0, 16: 0 });
+        row.name = name;
+        row[t.size]++;
+        cab.recent.unshift({ id: t.id, name: t.name, date: Date.now(), players: t.slots.length, size: t.size, champ: name });
+        cab.recent = cab.recent.slice(0, PT_RECENT);
+        return cab;
+    }
+    // Title table rows, most titles first.
+    function ptCabinetRows(cab) {
+        return Object.keys((cab && cab.titles) || {}).map(k => {
+            const r = cab.titles[k];
+            return { name: r.name, 4: r[4] || 0, 8: r[8] || 0, 16: r[16] || 0, total: (r[4] || 0) + (r[8] || 0) + (r[16] || 0) };
+        }).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — CAMERA (v2)
+    // ═══════════════════════════════════════════════════════════════════
+    // Poses, projection and unprojection for the two cameras in the design
+    // (Table.dc.html), plus the director that moves between them.
+    //
+    //   chase      perspective, behind the cue ball along the aim. Lean 0–100
+    //              maps to pitch 19.5°→48° and distance 110→420, focal 1.1·H,
+    //              with the cue ball held 0.34·H below the centre
+    //   broadcast  perspective, high over the table, framed like the 2D view;
+    //              the camera eases here while balls run
+    //   survey     perspective, the whole table from the shooter's side at a
+    //              58° pitch; the shot camera's Stay 3D setting stands up
+    //              here while balls run instead of going overhead
+    //   ortho      the 2D top-down view, fitted with an 8 px margin
+    //
+    // World frame is the physics frame: x right, y up, z up (right-handed).
+    // The design's frame is left-handed (y down), which mirrors its 3D view
+    // left to right; this one is not mirrored, so what is on your right in
+    // 3D is on your right on the real table. Screen space is CSS pixels,
+    // y down. Pure: no DOM.
+
+    const PC_NEAR = 4;                 // near plane, table units in front of the eye
+    const PC_MARGIN = 8;               // 2D fit margin, px
+
+    const pcSub = (p, q) => [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+    const pcDot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+    const pcCross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const pcNorm = p => { const l = Math.hypot(p[0], p[1], p[2]) || 1; return [p[0] / l, p[1] / l, p[2] / l]; };
+    const pcLerp = (a, b, t) => a + (b - a) * t;
+    const pcLerp3 = (a, b, t) => [pcLerp(a[0], b[0], t), pcLerp(a[1], b[1], t), pcLerp(a[2], b[2], t)];
+
+    // Outer size of the table, rails included, from the physics config.
+    function pcTableExtent(cfg) {
+        return { OX: cfg.halfLength + cfg.railWidth, OY: cfg.halfWidth + cfg.railWidth };
+    }
+
+    // A perspective pose is an eye, a point it looks at, an up hint and a
+    // focal length; poses of that kind blend by lerping all four.
+    function pcChase(cue, aim, lean, W, H, cfg) {
+        const R = cfg ? cfg.ballR : 14;
+        const lt = Math.max(0, Math.min(100, lean)) / 100;
+        const phi = (19.5 + 28.5 * lt) * Math.PI / 180;
+        const dist = 110 + 310 * lt;
+        const F = 1.1 * H;
+        const pitch = phi - Math.atan(0.34 / 1.1);
+        const d = [Math.cos(aim), Math.sin(aim)];
+        const eye = [cue[0] - d[0] * dist * Math.cos(phi), cue[1] - d[1] * dist * Math.cos(phi), R + dist * Math.sin(phi)];
+        const f = [d[0] * Math.cos(pitch), d[1] * Math.cos(pitch), -Math.sin(pitch)];
+        const k = eye[2] / Math.sin(pitch);       // where the centre ray meets the felt
+        return { kind: 'persp', eye, target: [eye[0] + f[0] * k, eye[1] + f[1] * k, 0], up: [0, 0, 1], F, W, H };
+    }
+
+    // Straight down on the table centre, screen-up = +y, framed like the 2D
+    // view. The long focal length keeps it close to orthographic, so the
+    // cut to and from 2D barely moves anything.
+    function pcBroadcast(W, H, cfg) {
+        const { OX, OY } = pcTableExtent(cfg);
+        const F = 4 * H, top = cfg.ballR + 2;     // fit the rail top
+        const h = top + F * Math.max(OX / (W / 2 - PC_MARGIN), OY / (H / 2 - PC_MARGIN));
+        return { kind: 'persp', eye: [0, 0, h], target: [0, 0, 0], up: [0, 1, 0], F, W, H };
+    }
+
+    // The player standing up after the shot: still in 3D and still facing
+    // the way the shot went, but high and pulled back so the whole table is
+    // in frame. The distance is fitted to the viewport, and the framing is
+    // centred on the table's projected bounds (the near rail looks bigger).
+    const PC_SURVEY_PITCH = 58 * Math.PI / 180;
+    // px kept clear around the table; the top also clears the camera
+    // toggle and the group pill that sit over the viewport
+    const PC_SURVEY_MARGIN = { side: 14, top: 52, bottom: 14 };
+    const PC_APRON_Z = -46;            // the apron's bottom edge, as the renderer draws it
+
+    function pcSurvey(aim, W, H, cfg) {
+        const { OX, OY } = pcTableExtent(cfg);
+        const top = cfg.ballR + 2, F = 1.1 * H, m = PC_SURVEY_MARGIN;
+        const cx = W / 2, cy = (m.top + H - m.bottom) / 2;     // the middle of the clear box
+        const corners = [];
+        [top, PC_APRON_Z].forEach(z => [[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(([a, b]) => corners.push([a * OX, b * OY, z])));
+        const back = [-Math.cos(aim) * Math.cos(PC_SURVEY_PITCH), -Math.sin(aim) * Math.cos(PC_SURVEY_PITCH), Math.sin(PC_SURVEY_PITCH)];
+        const at = (T, d) => ({ kind: 'persp', eye: [T[0] + back[0] * d, T[1] + back[1] * d, back[2] * d], target: T, up: [0, 0, 1], F, W, H });
+        const bounds = pose => {
+            const v = pcView(pose);
+            let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+            for (const c of corners) {
+                const p = pcProject(v, c);
+                if (!p) return null;
+                x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
+            }
+            return { v, x0, x1, y0, y1 };
+        };
+        const fits = b => b && b.x1 - b.x0 <= W - 2 * m.side && b.y1 - b.y0 <= H - m.top - m.bottom;
+        let T = [0, 0, 0], d = 1000;
+        for (let pass = 0; pass < 3; pass++) {
+            let lo = 150, hi = 8000;
+            for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (fits(bounds(at(T, mid)))) hi = mid; else lo = mid; }
+            d = hi;
+            // Slide the camera over the felt until the bounds sit in the middle
+            // of the clear box: move by what lies under their centre minus
+            // what lies under the box's.
+            const b = bounds(at(T, d));
+            const p = b.v.unproject((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 0), q = b.v.unproject(cx, cy, 0);
+            if (p && q) T = [T[0] + p[0] - q[0], T[1] + p[1] - q[1], 0];
+        }
+        return at(T, d);
+    }
+
+    function pcOrtho(W, H, cfg) {
+        const { OX, OY } = pcTableExtent(cfg);
+        return { kind: 'ortho', s: Math.min((W - 2 * PC_MARGIN) / (2 * OX), (H - 2 * PC_MARGIN) / (2 * OY)), W, H };
+    }
+
+    // Where the eye sits around the point it looks at, for poses that are
+    // upright (up = +z): heading, elevation and distance.
+    function pcOrbit(pose) {
+        const o = pcSub(pose.eye, pose.target), d = Math.hypot(o[0], o[1], o[2]);
+        return { az: Math.atan2(o[1], o[0]), el: Math.asin(o[2] / d), d };
+    }
+    const pcUpright = p => p.up[0] === 0 && p.up[1] === 0 && p.up[2] === 1;
+
+    // Perspective poses blend; anything involving ortho cuts at the midpoint.
+    // Two upright poses (chase and survey) orbit: the eye swings round the
+    // look point the short way, rising and backing off as it goes, rather
+    // than cutting a straight line across the table when the aim has turned.
+    function pcBlend(a, b, t) {
+        if (t <= 0) return a;
+        if (t >= 1) return b;
+        if (a.kind !== 'persp' || b.kind !== 'persp') return t < 0.5 ? a : b;
+        if (pcUpright(a) && pcUpright(b)) {
+            const A = pcOrbit(a), B = pcOrbit(b);
+            let da = B.az - A.az;
+            da -= 2 * Math.PI * Math.round(da / (2 * Math.PI));
+            const T = pcLerp3(a.target, b.target, t), az = A.az + da * t, el = pcLerp(A.el, B.el, t);
+            const d = Math.exp(pcLerp(Math.log(A.d), Math.log(B.d), t));
+            const eye = [T[0] + Math.cos(az) * Math.cos(el) * d, T[1] + Math.sin(az) * Math.cos(el) * d, T[2] + Math.sin(el) * d];
+            return { kind: 'persp', eye, target: T, up: [0, 0, 1], F: pcLerp(a.F, b.F, t), W: b.W, H: b.H };
+        }
+        return {
+            kind: 'persp', eye: pcLerp3(a.eye, b.eye, t), target: pcLerp3(a.target, b.target, t),
+            up: pcNorm(pcLerp3(a.up, b.up, t)), F: pcLerp(a.F, b.F, t), W: b.W, H: b.H,
+        };
+    }
+
+    // Smoothstep: eases in and out.
+    const pcEase = t => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+
+    // A view is a pose made usable: toCam (world → camera, z = depth),
+    // toScr (camera → [sx, sy, px-per-unit]), project, unproject.
+    function pcView(pose) {
+        const W = pose.W, H = pose.H;
+        if (pose.kind === 'ortho') {
+            const s = pose.s;
+            return {
+                pose, W, H, ortho: true, eye: null,
+                right: [1, 0, 0], upv: [0, 1, 0], fwd: [0, 0, -1],
+                toCam: p => [p[0], p[1], 1000 - p[2]],
+                toScr: c => [W / 2 + s * c[0], H / 2 - s * c[1], s],
+                // The point on the plane z = h under a screen pixel.
+                unproject: (sx, sy) => [(sx - W / 2) / s, (H / 2 - sy) / s],
+                // Unit vector from a world point toward the viewer.
+                toViewer: () => [0, 0, 1],
+            };
+        }
+        const eye = pose.eye, F = pose.F;
+        const f = pcNorm(pcSub(pose.target, eye));
+        let r = pcCross(f, pose.up);
+        if (Math.hypot(r[0], r[1], r[2]) < 1e-9) r = pcCross(f, [0, 1, 0]);
+        r = pcNorm(r);
+        const u = pcCross(r, f);
+        const toCam = p => { const q = pcSub(p, eye); return [pcDot(q, r), pcDot(q, u), pcDot(q, f)]; };
+        return {
+            pose, W, H, ortho: false, eye, right: r, upv: u, fwd: f,
+            toCam,
+            toScr: c => [W / 2 + F * c[0] / c[2], H / 2 - F * c[1] / c[2], F / c[2]],
+            unproject: (sx, sy, h) => {
+                const a = (sx - W / 2) / F, b = (H / 2 - sy) / F;
+                const dir = [r[0] * a + u[0] * b + f[0], r[1] * a + u[1] * b + f[1], r[2] * a + u[2] * b + f[2]];
+                if (Math.abs(dir[2]) < 1e-12) return null;
+                const t = ((h || 0) - eye[2]) / dir[2];
+                return t > 0 ? [eye[0] + dir[0] * t, eye[1] + dir[1] * t] : null;
+            },
+            toViewer: p => pcNorm(pcSub(eye, p)),
+        };
+    }
+
+    // World point → [sx, sy, px-per-unit, depth], or null behind the near plane.
+    function pcProject(view, p) {
+        const c = view.toCam(p);
+        if (c[2] < PC_NEAR) return null;
+        const s = view.toScr(c);
+        return [s[0], s[1], s[2], c[2]];
+    }
+
+    // World polygon → screen polygon [[sx, sy], …], clipped at the near
+    // plane. Fewer than 3 points means nothing to draw.
+    function pcPoly(view, pts) {
+        const cam = pts.map(view.toCam), out = [];
+        for (let i = 0; i < cam.length; i++) {
+            const A = cam[i], B = cam[(i + 1) % cam.length];
+            const ain = A[2] >= PC_NEAR, bin = B[2] >= PC_NEAR;
+            if (ain) out.push(A);
+            if (ain !== bin) {
+                const t = (PC_NEAR - A[2]) / (B[2] - A[2]);
+                out.push([A[0] + t * (B[0] - A[0]), A[1] + t * (B[1] - A[1]), PC_NEAR]);
+            }
+        }
+        return out.map(c => { const s = view.toScr(c); return [s[0], s[1]]; });
+    }
+
+    // World segment → [[sx, sy], [sx, sy]] clipped at the near plane, or null.
+    function pcSeg(view, p, q) {
+        let A = view.toCam(p), B = view.toCam(q);
+        if (A[2] < PC_NEAR && B[2] < PC_NEAR) return null;
+        const cut = (X, Y) => { const t = (PC_NEAR - X[2]) / (Y[2] - X[2]); return [X[0] + t * (Y[0] - X[0]), X[1] + t * (Y[1] - X[1]), PC_NEAR]; };
+        if (A[2] < PC_NEAR) A = cut(A, B);
+        if (B[2] < PC_NEAR) B = cut(B, A);
+        const a = view.toScr(A), b = view.toScr(B);
+        return [[a[0], a[1]], [b[0], b[1]]];
+    }
+
+    // ── Director ──────────────────────────────────────────────────────
+    // Chooses the pose for each frame and eases between them:
+    //   aim     chase behind the cue ball (or 2D if the player picked it)
+    //   moving  balls are running: ease out to broadcast, or, with the
+    //           shot camera set to stay in 3D, stand up into the survey
+    //   rest    back to the chase pose once everything stops; from the
+    //           survey, after a beat to take in the table
+    //   bih     ball in hand always cuts to 2D
+    // input = { camera: '3d'|'2d', shotCam: 'overhead'|'3d', phase: 'aim'|'moving'|'bih', cue, aim, lean }
+    const PC_TWEEN_MS = { moving: 650, aim: 500, survey: 900, back: 750 };
+    const PC_SURVEY_DWELL_MS = 450;
+
+    function pcDirector(W, H, cfg) {
+        return { W, H, cfg, key: null, from: null, t: 1, ms: 1, pose: null, survey: null };
+    }
+
+    function pcTarget(dir, input) {
+        const two = input.camera === '2d' || input.phase === 'bih';
+        if (two) return { key: 'ortho', pose: pcOrtho(dir.W, dir.H, dir.cfg) };
+        if (input.phase === 'moving') {
+            if (input.shotCam !== '3d') return { key: 'broadcast', pose: pcBroadcast(dir.W, dir.H, dir.cfg) };
+            // Stay in 3D: face the way the shot was played, fixed for the whole shot.
+            if (dir.key !== 'survey') dir.survey = pcSurvey(input.aim, dir.W, dir.H, dir.cfg);
+            return { key: 'survey', pose: dir.survey };
+        }
+        return { key: 'chase', pose: pcChase(input.cue, input.aim, input.lean, dir.W, dir.H, dir.cfg) };
+    }
+
+    // Advances by dtMs and returns this frame's pose. A chase target is live
+    // (it follows aim and lean), so the blend is always toward where the
+    // camera should be now, not where it was when the move started.
+    function pcDirect(dir, input, dtMs) {
+        const tg = pcTarget(dir, input);
+        if (dir.key !== tg.key) {
+            const cut = !dir.pose || tg.key === 'ortho' || dir.key === 'ortho';
+            const fromSurvey = dir.key === 'survey';
+            // How far the stand-up got: a soft shot that stops early barely
+            // rose, so it gets a shorter beat before the camera comes back.
+            const risen = fromSurvey ? pcEase(dir.t) : 0;
+            dir.from = dir.pose;
+            dir.key = tg.key;
+            dir.ms = tg.key === 'broadcast' ? PC_TWEEN_MS.moving : tg.key === 'survey' ? PC_TWEEN_MS.survey
+                : fromSurvey ? PC_TWEEN_MS.back : PC_TWEEN_MS.aim;
+            // A negative t is the beat: the pose stays put until t passes 0.
+            dir.t = cut ? 1 : fromSurvey && tg.key === 'chase' ? -PC_SURVEY_DWELL_MS * risen / dir.ms : 0;
+        } else {
+            dir.t = Math.min(1, dir.t + (dtMs || 0) / dir.ms);
+        }
+        dir.pose = dir.t >= 1 ? tg.pose : pcBlend(dir.from, tg.pose, pcEase(dir.t));
+        return dir.pose;
+    }
+
+    function pcResize(dir, W, H) {
+        dir.W = W; dir.H = H; dir.key = null; dir.pose = null;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — RENDERER (v2)
+    // ═══════════════════════════════════════════════════════════════════
+    // Canvas2D port of the design's Table.dc.html, painted in the layer order
+    // of the plan's Rendering spec:
+    //   1  table shadow, apron, felt
+    //   2  rail inner face, jaw faces, nose faces
+    //   3  cushion tops, rail wood, lip, diamonds, spots
+    //   4  pocket rims, then the pocket shafts
+    //   5  kitchen tint, head string
+    //   6  ball shadows, guides
+    //   7  balls, far to near
+    //   8  ghost ball, cue, called-pocket rings, ball-in-hand ghost and hand
+    // Layers 1–4 depend only on the camera, so they can be cached.
+    //
+    // Everything is a filled or stroked polygon; nothing uses ctx.clip().
+    // The pocket shafts and the ball markings are clipped as polygons
+    // (Sutherland–Hodgman against a convex outline), which is exact, and
+    // keeps the renderer usable on the headless rasterizer in the tests.
+    //
+    // Table materials and ball colours are physical and theme-independent.
+    // Anything drawn in a theme colour (the object-ball path, rings, the
+    // kitchen, ball in hand) comes in through scene.theme.
+
+    const PG_RAIL_Z = 16;              // rail top
+    const PG_NOSE_Z = 10;              // cushion nose height
+    const PG_POCKET_FLOOR = -64;
+
+    const PG_FELTS = {
+        green:     { felt: ['#2E8F70', '#1D6E55', '#114534'], cushion: '#185F4B', jaw: '#0F4234', nose: '#0E3B2F' },
+        red:       { felt: ['#9C3E3B', '#7A2C2B', '#491719'], cushion: '#6B2626', jaw: '#4E1A1B', nose: '#451617' },
+        blue:      { felt: ['#3272AB', '#245B8D', '#143659'], cushion: '#1F4F7D', jaw: '#163C5F', nose: '#133453' },
+        lightgrey: { felt: ['#A3AEB8', '#86929D', '#59636D'], cushion: '#707C87', jaw: '#56606A', nose: '#4C565F' },
+    };
+    const PG_BALL_COLOURS = { 1: '#E9B825', 2: '#2457C5', 3: '#D2352B', 4: '#6A3FA0', 5: '#EE7A2E', 6: '#1F8A4C', 7: '#8C2A20', 8: '#141516' };
+    const PG_IVORY = '#F3EEE2';
+    const PG_GUIDE = '#F4F1E8';
+    const PG_THEME = { accent: '#f093fb', hot: '#ff5d73', font: 'Inter, system-ui, sans-serif' };
+    const PG_HAND = 'M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.83L7 15';
+    const PG_STRIPE = 0.46;            // stripe caps start 0.46 R from the centre (the design's 27–73% band)
+    const PG_NUMBER = 0.888;           // number disc: cos of its angular radius (0.46 of the diameter across)
+
+    // ── Polygon helpers ───────────────────────────────────────────────
+    function pgCirc(cx, cy, r, z, k) {
+        const o = [];
+        for (let i = 0; i < k; i++) { const t = i / k * Math.PI * 2; o.push([cx + r * Math.cos(t), cy + r * Math.sin(t), z]); }
+        return o;
+    }
+    const pgRect = (hx, hy, z) => [[-hx, -hy, z], [hx, -hy, z], [hx, hy, z], [-hx, hy, z]];
+
+    function pgTrace(ctx, poly) {
+        if (!poly || poly.length < 3) return;
+        ctx.moveTo(poly[0][0], poly[0][1]);
+        for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i][0], poly[i][1]);
+        ctx.closePath();
+    }
+    function pgFill(ctx, polys, style, alpha) {
+        ctx.beginPath();
+        polys.forEach(p => pgTrace(ctx, p));
+        ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+        ctx.fillStyle = style;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+    }
+    function pgBounds(polys) {
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        polys.forEach(p => p.forEach(q => { x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); }));
+        return { x: x0, y: y0, w: Math.max(1e-6, x1 - x0), h: Math.max(1e-6, y1 - y0) };
+    }
+
+    // Sutherland–Hodgman: `subject` clipped to the convex polygon `clip`.
+    function pgClipConvex(subject, clip) {
+        if (!subject || subject.length < 3 || !clip || clip.length < 3) return [];
+        let area = 0;
+        for (let i = 0; i < clip.length; i++) { const a = clip[i], b = clip[(i + 1) % clip.length]; area += a[0] * b[1] - b[0] * a[1]; }
+        const sg = area >= 0 ? 1 : -1;
+        let out = subject;
+        for (let i = 0; i < clip.length && out.length; i++) {
+            const A = clip[i], B = clip[(i + 1) % clip.length];
+            const side = p => sg * ((B[0] - A[0]) * (p[1] - A[1]) - (B[1] - A[1]) * (p[0] - A[0]));
+            const cut = (S, E) => {
+                const s = side(S), e = side(E), t = s / (s - e);
+                return [S[0] + t * (E[0] - S[0]), S[1] + t * (E[1] - S[1])];
+            };
+            const input = out; out = [];
+            for (let j = 0; j < input.length; j++) {
+                const S = input[(j + input.length - 1) % input.length], E = input[j];
+                const ein = side(E) >= 0, sin = side(S) >= 0;
+                if (ein) { if (!sin) out.push(cut(S, E)); out.push(E); }
+                else if (sin) out.push(cut(S, E));
+            }
+        }
+        return out;
+    }
+
+    function pgHull(pts) {
+        const P = pts.map(q => [q[0], q[1]]).sort((u, v) => u[0] - v[0] || u[1] - v[1]);
+        if (P.length < 3) return P;
+        const cr = (o, u, v) => (u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0]);
+        const lo = [], up = [];
+        P.forEach(q => { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); });
+        for (let i = P.length - 1; i >= 0; i--) { const q = P[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+        return lo.slice(0, -1).concat(up.slice(0, -1));
+    }
+
+    function pgRgb(hex, k) {
+        const n = parseInt(hex.slice(1), 16);
+        const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v => Math.min(255, Math.round(v * k)));
+        return 'rgb(' + c.join(', ') + ')';
+    }
+    function pgRgba(hex, a) {
+        const n = parseInt(hex.slice(1), 16);
+        return 'rgba(' + ((n >> 16) & 255) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ', ' + a + ')';
+    }
+
+    // ── Layers 1–4: the table ─────────────────────────────────────────
+    // The cushion quads, from the physics config so they match the colliders:
+    // [nose start, nose end, rail end, rail start], nose at z = 10, rail at 16.
+    function pgCushions(cfg) {
+        const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth;
+        const CB = cfg.cornerRailEnd, CN = cfg.cornerNose, SB = cfg.sideRailEnd, SN = cfg.sideNose;
+        const N = PG_NOSE_Z, T = PG_RAIL_Z, q = [];
+        [-1, 1].forEach(sy => {
+            [[-HL + CB, -SB, -HL + CN, -SN], [SB, HL - CB, SN, HL - CN]].forEach(g => {
+                q.push([[g[2], sy * HW, N], [g[3], sy * HW, N], [g[1], sy * (HW + CU), T], [g[0], sy * (HW + CU), T]]);
+            });
+        });
+        [-1, 1].forEach(sx => {
+            q.push([[sx * HL, -HW + CN, N], [sx * HL, HW - CN, N], [sx * (HL + CU), HW - CB, T], [sx * (HL + CU), -HW + CB, T]]);
+        });
+        return q;
+    }
+
+    function pgDrawTable(ctx, view, cfg, table, feltName) {
+        const P = pts => pcPoly(view, pts);
+        const mat = PG_FELTS[feltName] || PG_FELTS.green;
+        const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth, RL = cfg.railWidth - cfg.cushionWidth;
+        const TZ = PG_RAIL_Z, OX = HL + CU + RL, OY = HW + CU + RL, IX = HL + CU, IY = HW + CU;
+        const eye = view.eye;
+
+        // 1. Shadow, apron, felt.
+        const shadow = view.ortho ? P(pgRect(OX + 4, OY + 4, -1).map(p => [p[0], p[1] - 12, p[2]])) : P(pgRect(OX + 30, OY + 30, -90));
+        ctx.save();
+        if ('filter' in ctx) ctx.filter = 'blur(9px)';
+        pgFill(ctx, [shadow], '#000000', 0.55);
+        ctx.restore();
+        if (eye) {
+            const lo = -46, ap = [];
+            if (eye[0] > OX) ap.push(P([[OX, -OY, TZ], [OX, OY, TZ], [OX, OY, lo], [OX, -OY, lo]]));
+            if (eye[0] < -OX) ap.push(P([[-OX, -OY, TZ], [-OX, OY, TZ], [-OX, OY, lo], [-OX, -OY, lo]]));
+            if (eye[1] > OY) ap.push(P([[-OX, OY, TZ], [OX, OY, TZ], [OX, OY, lo], [-OX, OY, lo]]));
+            if (eye[1] < -OY) ap.push(P([[-OX, -OY, TZ], [OX, -OY, TZ], [OX, -OY, lo], [-OX, -OY, lo]]));
+            pgFill(ctx, ap, '#26160E');
+        }
+        const felt = P(pgRect(IX, IY, 0));
+        if (felt.length >= 3) {
+            // The design's radial at (50%, 46%), r 62% of the felt's bounding box.
+            const b = pgBounds([felt]);
+            ctx.save();
+            ctx.beginPath(); pgTrace(ctx, felt);
+            ctx.translate(b.x + b.w / 2, b.y + b.h * 0.46);
+            ctx.scale(1, b.h / b.w);
+            const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 0.62 * b.w);
+            g.addColorStop(0, mat.felt[0]); g.addColorStop(0.6, mat.felt[1]); g.addColorStop(1, mat.felt[2]);
+            ctx.fillStyle = g;
+            ctx.fill();
+            ctx.restore();
+        }
+
+        // 2. Rail inner faces, jaw faces, nose faces.
+        const cush = pgCushions(cfg);
+        if (eye) {
+            const ri = [];
+            if (eye[0] < IX) ri.push(P([[IX, -IY, TZ], [IX, IY, TZ], [IX, IY, 0], [IX, -IY, 0]]));
+            if (eye[0] > -IX) ri.push(P([[-IX, -IY, TZ], [-IX, IY, TZ], [-IX, IY, 0], [-IX, -IY, 0]]));
+            if (eye[1] < IY) ri.push(P([[-IX, IY, TZ], [IX, IY, TZ], [IX, IY, 0], [-IX, IY, 0]]));
+            if (eye[1] > -IY) ri.push(P([[-IX, -IY, TZ], [IX, -IY, TZ], [IX, -IY, 0], [-IX, -IY, 0]]));
+            pgFill(ctx, ri, '#24150D');
+            const jaws = [];
+            cush.forEach(q => {
+                jaws.push(P([q[0], q[3], [q[3][0], q[3][1], 0], [q[0][0], q[0][1], 0]]));
+                jaws.push(P([q[1], q[2], [q[2][0], q[2][1], 0], [q[1][0], q[1][1], 0]]));
+            });
+            pgFill(ctx, jaws, mat.jaw);
+        }
+        pgFill(ctx, cush.map(q => P([q[0], q[1], [q[1][0], q[1][1], 0], [q[0][0], q[0][1], 0]])), mat.nose);
+
+        // 3. Cushion tops, rail wood, lip, diamonds, spots.
+        pgFill(ctx, cush.map(P), mat.cushion);
+        const rails = [
+            P([[-OX, OY, TZ], [OX, OY, TZ], [IX, IY, TZ], [-IX, IY, TZ]]),
+            P([[OX, OY, TZ], [OX, -OY, TZ], [IX, -IY, TZ], [IX, IY, TZ]]),
+            P([[OX, -OY, TZ], [-OX, -OY, TZ], [-IX, -IY, TZ], [IX, -IY, TZ]]),
+            P([[-OX, -OY, TZ], [-OX, OY, TZ], [-IX, IY, TZ], [-IX, -IY, TZ]]),
+        ];
+        const rb = pgBounds(rails.filter(p => p.length >= 3));
+        if (isFinite(rb.x)) {
+            const wood = ctx.createLinearGradient(rb.x, rb.y, rb.x + rb.w, rb.y + rb.h);
+            wood.addColorStop(0, '#7A4B2C'); wood.addColorStop(0.5, '#553220'); wood.addColorStop(1, '#3A2116');
+            pgFill(ctx, rails, wood);
+        }
+        ctx.beginPath(); pgTrace(ctx, P(pgRect(IX, IY, TZ)));
+        ctx.strokeStyle = 'rgba(243, 238, 226, 0.12)'; ctx.lineWidth = 1; ctx.stroke();
+        const dia = [];
+        [-375, -250, -125, 125, 250, 375].forEach(x => {
+            dia.push(P(pgCirc(x, -(IY + RL / 2), 3.6, TZ + 0.1, 8)), P(pgCirc(x, IY + RL / 2, 3.6, TZ + 0.1, 8)));
+        });
+        [-125, 0, 125].forEach(y => {
+            dia.push(P(pgCirc(-(IX + RL / 2), y, 3.6, TZ + 0.1, 8)), P(pgCirc(IX + RL / 2, y, 3.6, TZ + 0.1, 8)));
+        });
+        pgFill(ctx, dia, '#E9DDBF');
+        pgFill(ctx, [P(pgCirc(table.footX, 0, 3, 0.1, 10)), P(pgCirc(table.headX, 0, 3, 0.1, 10))], PG_IVORY, 0.35);
+
+        // 4. Pockets: a leather rim clamped to the rail's inner edge, then the
+        // shaft seen through the opening (rail cut ∩ felt cut).
+        const rims = table.pockets.map(p => P(pgCirc(p.x, p.y, p.r + 7, TZ + 0.2, 36).map(q => {
+            if (Math.abs(q[0]) < IX && Math.abs(q[1]) < IY) {
+                const dx = IX - Math.abs(q[0]), dy = IY - Math.abs(q[1]);
+                return dx < dy ? [Math.sign(q[0]) * IX, q[1], q[2]] : [q[0], Math.sign(q[1]) * IY, q[2]];
+            }
+            return q;
+        })));
+        pgFill(ctx, rims, '#1A1410');
+        const bandZ = [[TZ + 0.3, 0], [0, -22], [-22, PG_POCKET_FLOOR]];
+        const bandRGB = ['#563C29', '#302117', '#150F0B'];
+        const lit = [0.55, 0.8, 1.08];
+        const NF = 30;
+        table.pockets.forEach(p => {
+            const top = P(pgCirc(p.x, p.y, p.r, TZ + 0.3, 36));
+            const aperture = view.ortho ? top : pgClipConvex(top, pgHull(P(pgCirc(p.x, p.y, p.r, 0, 36))));
+            if (aperture.length < 3) return;
+            pgFill(ctx, [aperture], view.ortho ? '#3A281C' : '#040303');
+            if (eye) {
+                const walls = [[], [], [], [], [], [], [], [], []];
+                const cl = Math.hypot(p.x, p.y) || 1;
+                for (let k = 0; k < NF; k++) {
+                    const a0 = k / NF * Math.PI * 2, a1 = (k + 1) / NF * Math.PI * 2, am = (a0 + a1) / 2;
+                    const nx = -Math.cos(am), ny = -Math.sin(am);
+                    const px = p.x + p.r * Math.cos(am), py = p.y + p.r * Math.sin(am);
+                    if ((eye[0] - px) * nx + (eye[1] - py) * ny <= 0) continue;    // only the far wall faces us
+                    const face = Math.max(0, nx * (-p.x / cl) + ny * (-p.y / cl)); // how much it faces the lamp
+                    const bi = face > 0.66 ? 2 : face > 0.25 ? 1 : 0;
+                    const x0 = p.x + p.r * Math.cos(a0), y0 = p.y + p.r * Math.sin(a0);
+                    const x1 = p.x + p.r * Math.cos(a1), y1 = p.y + p.r * Math.sin(a1);
+                    bandZ.forEach((bz, band) => {
+                        walls[band * 3 + bi].push(pgClipConvex(P([[x0, y0, bz[0]], [x1, y1, bz[0]], [x1, y1, bz[1]], [x0, y0, bz[1]]]), aperture));
+                    });
+                }
+                walls.forEach((w, i) => { if (w.length) pgFill(ctx, w, pgRgb(bandRGB[Math.floor(i / 3)], lit[i % 3])); });
+            }
+            pgFill(ctx, [pgClipConvex(P(pgCirc(p.x, p.y, p.r * 0.86, PG_POCKET_FLOOR, 36)), aperture)], '#1E140E');
+            pgFill(ctx, [pgClipConvex(P(pgCirc(p.x, p.y, p.r * 0.66, PG_POCKET_FLOOR, 36)), aperture)], '#020303');
+        });
+    }
+
+    // ── Balls ─────────────────────────────────────────────────────────
+    // Body frame: x = the number's pole, z = the stripe axis (the digits'
+    // up), y = z × x. Each ball has a fixed "print" orientation so a fresh
+    // rack shows its numbers from above, each turned a little differently,
+    // as in the design; the physics quaternion rolls it from there.
+    const pgPrintCache = {};
+    function pgPrint(id) {
+        if (pgPrintCache[id]) return pgPrintCache[id];
+        const rot = ((id * 53) % 50 - 25) * Math.PI / 180, tilt = ((id * 37) % 24 - 12) * Math.PI / 180;
+        const A0 = [-Math.sin(rot), Math.cos(rot), 0];                     // stripe axis, on the felt plane
+        const Nn = [Math.cos(rot) * Math.sin(tilt), Math.sin(rot) * Math.sin(tilt), Math.cos(tilt)];
+        const Y = pcNorm(pcCross(A0, Nn)), A = pcCross(Nn, Y);
+        return (pgPrintCache[id] = [Nn, Y, A]);                            // columns: body x, y, z in the world
+    }
+
+    function pgQuatApply(q, v) {
+        const [w, x, y, z] = q;
+        const tx = 2 * (y * v[2] - z * v[1]), ty = 2 * (z * v[0] - x * v[2]), tz = 2 * (x * v[1] - y * v[0]);
+        return [v[0] + w * tx + (y * tz - z * ty), v[1] + w * ty + (z * tx - x * tz), v[2] + w * tz + (x * ty - y * tx)];
+    }
+
+    // The visible part of a spherical cap (axis `a` in view coordinates,
+    // boundary at a·p = h) as a screen polygon, or null when it is behind.
+    function pgCap(a, h, cx, cy, rad) {
+        const rho = Math.sqrt(Math.max(0, 1 - h * h));
+        let e1 = Math.abs(a[2]) < 0.9 ? pcCross(a, [0, 0, 1]) : pcCross(a, [1, 0, 0]);
+        e1 = pcNorm(e1);
+        const e2 = pcCross(a, e1), K = 40, rim = [];
+        for (let i = 0; i < K; i++) {
+            const t = i / K * Math.PI * 2, c = Math.cos(t) * rho, s = Math.sin(t) * rho;
+            rim.push([h * a[0] + c * e1[0] + s * e2[0], h * a[1] + c * e1[1] + s * e2[1], h * a[2] + c * e1[2] + s * e2[2]]);
+        }
+        const vis = rim.map(p => p[2] >= 0);
+        const scr = p => [cx + p[0] * rad, cy - p[1] * rad];
+        if (vis.every(Boolean)) return rim.map(scr);
+        if (!vis.some(Boolean)) return null;
+        // Start where the rim comes into view, walk the visible arc, then close
+        // along the silhouette on the cap's side.
+        let s0 = 0;
+        while (!(vis[s0] && !vis[(s0 + K - 1) % K])) s0++;
+        const onSil = (P, Q) => {
+            const t = P[2] / (P[2] - Q[2]);
+            const x = P[0] + t * (Q[0] - P[0]), y = P[1] + t * (Q[1] - P[1]), l = Math.hypot(x, y) || 1;
+            return [x / l, y / l, 0];
+        };
+        const pts = [onSil(rim[(s0 + K - 1) % K], rim[s0])];
+        let i = s0;
+        while (vis[i % K]) { pts.push(rim[i % K]); i++; }
+        pts.push(onSil(rim[(i - 1) % K], rim[i % K]));
+        const th0 = Math.atan2(pts[pts.length - 1][1], pts[pts.length - 1][0]), th1 = Math.atan2(pts[0][1], pts[0][0]);
+        let ccw = th1 - th0; while (ccw < 0) ccw += Math.PI * 2;
+        const mid = d => { const t = th0 + d / 2; return Math.cos(t) * a[0] + Math.sin(t) * a[1]; };
+        const span = mid(ccw) >= mid(ccw - Math.PI * 2) ? ccw : ccw - Math.PI * 2;
+        const n = Math.max(2, Math.ceil(Math.abs(span) / 0.15));
+        for (let k = 1; k < n; k++) { const t = th0 + span * k / n; pts.push([Math.cos(t), Math.sin(t), 0]); }
+        return pts.map(scr);
+    }
+
+    // A ball's number as a small image, drawn once per id, size and font: text is the
+    // dearest thing on the canvas (the font string is parsed and the glyphs shaped on every
+    // call), and up to fifteen of them change every frame. Rendered at 2× so the
+    // foreshortening transform does not blur it. Null when there is no canvas to draw into.
+    function pgDigit(sprites, make, id, fs, font) {
+        if (!sprites || !make) return null;
+        const px = Math.round(fs * 2) / 2, key = id + '|' + px + '|' + font;
+        let s = sprites.get(key);
+        if (!s) {
+            const w = Math.ceil(px * 1.5) * 2, h = Math.ceil(px * 1.3) * 2;
+            const c = make(w, h), g = c.getContext && c.getContext('2d');
+            if (!g) return null;
+            g.scale(2, 2);
+            g.fillStyle = '#15191B';
+            g.font = '700 ' + px.toFixed(1) + 'px ' + font;
+            g.textAlign = 'center'; g.textBaseline = 'middle';
+            g.fillText(String(id), w / 4, h / 4);
+            s = { c, w: w / 2, h: h / 2, px };
+            if (sprites.size > 400) sprites.clear();
+            sprites.set(key, s);
+        }
+        return s;
+    }
+
+    // One ball at screen centre (cx, cy), radius rad. `v` is the view basis
+    // at the ball: right, up and toward the viewer, all world vectors.
+    function pgDrawBall(ctx, b, cx, cy, rad, v, theme, alpha) {
+        const dd = rad * 2, id = b.id;
+        const local = w => [pcDot(w, v.r), pcDot(w, v.u), pcDot(w, v.t)];
+        ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+        const disc = () => { ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.closePath(); };
+        if (id === 0) {
+            disc();
+            const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+            g.addColorStop(0, '#F8F4EB'); g.addColorStop(1, '#E6DFCF');
+            ctx.fillStyle = g; ctx.fill();
+        } else {
+            const colour = PG_BALL_COLOURS[id > 8 ? id - 8 : id];
+            disc(); ctx.fillStyle = colour; ctx.fill();
+            const M = pgPrint(id), q = b.q || [1, 0, 0, 0];
+            const N = local(pgQuatApply(q, M[0])), Y = local(pgQuatApply(q, M[1])), A = local(pgQuatApply(q, M[2]));
+            const ivory = [];
+            if (id > 8) {
+                ivory.push(pgCap(A, PG_STRIPE, cx, cy, rad), pgCap([-A[0], -A[1], -A[2]], PG_STRIPE, cx, cy, rad));
+            }
+            [N, [-N[0], -N[1], -N[2]]].forEach(n => ivory.push(pgCap(n, PG_NUMBER, cx, cy, rad)));
+            ctx.beginPath(); ivory.forEach(p => pgTrace(ctx, p));
+            ctx.fillStyle = PG_IVORY; ctx.fill();
+            // Digits on the disc that faces us, foreshortened with it; hidden
+            // on small balls and faded as the disc turns away (as designed).
+            if (dd >= 15) {
+                [[N, 1], [[-N[0], -N[1], -N[2]], -1]].forEach(([n, sgn]) => {
+                    const facing = n[2];
+                    if (facing < 0.3) return;
+                    const fs = Math.max(dd * 0.27, 6);
+                    ctx.save();
+                    ctx.globalAlpha = (alpha === undefined ? 1 : alpha) * Math.min(1, (facing - 0.3) / 0.25);
+                    // Text x along body y (mirrored on the far pole so it reads the right way), text down = −z.
+                    ctx.transform(sgn * Y[0], -sgn * Y[1], -A[0], A[1], cx + n[0] * rad, cy - n[1] * rad);
+                    const spr = pgDigit(theme.sprites, theme.makeCanvas, id, fs, theme.font);
+                    if (spr) {
+                        const k = fs / spr.px;
+                        ctx.drawImage(spr.c, -spr.w * k / 2, -spr.h * k / 2 + fs * 0.04, spr.w * k, spr.h * k);
+                    } else {
+                        ctx.fillStyle = '#15191B';
+                        ctx.font = '700 ' + fs.toFixed(1) + 'px ' + theme.font;
+                        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.fillText(String(id), 0, fs * 0.04);
+                    }
+                    ctx.restore();
+                });
+            }
+        }
+        // Lamp highlight and rim shade, fixed to the view (the design's two gradients).
+        disc();
+        const hx = cx - 0.34 * rad, hy = cy - 0.46 * rad, hl = 0.991 * dd;
+        const hg = ctx.createRadialGradient(hx, hy, 0, hx, hy, hl);
+        hg.addColorStop(0, 'rgba(255, 255, 255, 0.9)'); hg.addColorStop(0.14, 'rgba(255, 255, 255, 0.22)'); hg.addColorStop(0.34, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = hg; ctx.fill();
+        const sy = cy - 0.16 * rad, sl = 0.766 * dd;
+        const sg = ctx.createRadialGradient(cx, sy, 0, cx, sy, sl);
+        sg.addColorStop(0.48, 'rgba(0, 0, 0, 0)'); sg.addColorStop(1, 'rgba(0, 0, 0, 0.55)');
+        ctx.fillStyle = sg; ctx.fill();
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)'; ctx.lineWidth = 0.5; ctx.stroke();
+        ctx.globalAlpha = 1;
+    }
+
+    function pgViewBasis(view, p) {
+        const t = view.toViewer(p);
+        let r = view.right;
+        r = pcNorm([r[0] - pcDot(r, t) * t[0], r[1] - pcDot(r, t) * t[1], r[2] - pcDot(r, t) * t[2]]);
+        return { r, u: pcCross(t, r), t };
+    }
+
+    // ── Guides ────────────────────────────────────────────────────────
+    // The shot's opening, on the real physics: the cue ball's path to its
+    // first contact (squirt included), the object ball's line off it
+    // (throw included), and where the cue ball goes next, so a draw shot
+    // visibly bends back. Straight up to contact, since nothing curves a
+    // ball before it touches anything without masse.
+    function pgGuide(world, shot) {
+        const w = ppCloneWorld(world);
+        w.log = [];
+        const cue0 = w.balls.find(b => b.id === 0);
+        const start = [cue0.x, cue0.y];
+        ppStrike(w, shot);
+        const first = () => w.log.find(e => (e.type === 'ball' && (e.a === 0 || e.b === 0)) || (e.type === 'cushion' && e.ball === 0) || (e.type === 'pocket' && e.ball === 0));
+        let ev = null, snap = null;
+        for (let i = 0; i < 360 && !ev; i++) {
+            snap = ppCloneWorld(w); snap.log = w.log.slice();
+            ppStep(w, 1 / 60);
+            ev = first();
+            if (!ev && ppSettled(w)) break;
+        }
+        const out = { start, contact: null, hit: -1, cushion: false, pocketed: false, obj: null, after: [] };
+        const cueOf = W => W.balls.find(b => b.id === 0);
+        if (!ev) { const c = cueOf(w); out.contact = [c.x, c.y]; return out; }
+        // Re-run the frame that held the contact in fine steps, to place it within ~1.5 u.
+        const fine = snap;
+        let fev = null;
+        for (let i = 0; i < 32 && !fev; i++) {
+            ppStep(fine, 1 / 1920);
+            fev = fine.log.find(e => (e.type === 'ball' && (e.a === 0 || e.b === 0)) || (e.type === 'cushion' && e.ball === 0) || (e.type === 'pocket' && e.ball === 0));
+        }
+        const W2 = fev ? fine : w, e2 = fev || ev, c = cueOf(W2);
+        out.contact = [c.x, c.y];
+        if (e2.type === 'pocket') { out.pocketed = true; return out; }
+        if (e2.type === 'cushion') out.cushion = true;
+        else {
+            out.hit = e2.a === 0 ? e2.b : e2.a;
+            const ob = W2.balls.find(b => b.id === out.hit);
+            const sp = Math.hypot(ob.vx, ob.vy);
+            if (sp > 1e-6) out.obj = { x: ob.x, y: ob.y, dx: ob.vx / sp, dy: ob.vy / sp };
+        }
+        // Follow the cue ball on after contact, alone: the guide shows where
+        // its spin takes it, not the collisions after that (and a rack
+        // scattering would cost ten times as much to simulate).
+        W2.balls = [c];
+        let len = 0, px = c.x, py = c.y;
+        out.after.push([px, py]);
+        for (let i = 0; i < 240 && len < 160; i++) {
+            ppStep(W2, 1 / 120);
+            const b = cueOf(W2);
+            if (b.state === 'pocketed') break;
+            len += Math.hypot(b.x - px, b.y - py); px = b.x; py = b.y;
+            out.after.push([px, py]);
+            if (b.vx === 0 && b.vy === 0) break;
+        }
+        return out;
+    }
+
+    // Cuts a polyline to a length.
+    function pgTrim(pts, maxLen) {
+        const out = [pts[0]];
+        let len = 0;
+        for (let i = 1; i < pts.length; i++) {
+            const a = pts[i - 1], b = pts[i], d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+            if (len + d >= maxLen) { const t = (maxLen - len) / d; out.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]); break; }
+            len += d; out.push(b);
+        }
+        return out;
+    }
+
+    function pgStrokeLine(ctx, view, pts, z, style, width, dash, underlay) {
+        const segs = [];
+        for (let i = 1; i < pts.length; i++) {
+            const s = pcSeg(view, [pts[i - 1][0], pts[i - 1][1], z], [pts[i][0], pts[i][1], z]);
+            if (s) segs.push(s);
+        }
+        if (!segs.length) return;
+        const path = () => {
+            ctx.beginPath();
+            segs.forEach((s, i) => { if (i === 0 || s[0][0] !== segs[i - 1][1][0]) ctx.moveTo(s[0][0], s[0][1]); ctx.lineTo(s[1][0], s[1][1]); });
+        };
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        if (underlay) {
+            path(); ctx.setLineDash(dash || []); ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)'; ctx.lineWidth = width + 2; ctx.stroke();
+        }
+        path(); ctx.setLineDash(dash || []); ctx.strokeStyle = style; ctx.lineWidth = width; ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // ── The frame ─────────────────────────────────────────────────────
+    // scene = {
+    //   view, world, felt, theme, cache,            cache = {} kept by the caller, or null
+    //   makeCanvas(w, h),                            offscreen canvas for the table layer
+    //   dpr,                                         backing-store scale of ctx
+    //   aim: { angle, power, gap } | null,           null hides the cue and the guides
+    //   guide: pgGuide(…) | null, guideMode: 'full' | 'short' | 'off', illegal,
+    //   bih: { x, y, valid, reason } | null, kitchen,
+    //   call: { called } | null, drops: [{ ball, pocket, t }],
+    // }
+    function pgRender(ctx, scene) {
+        const view = scene.view, w = scene.world, cfg = w.cfg, table = w.table, R = cfg.ballR;
+        const theme = Object.assign({}, PG_THEME, scene.theme);
+        if (scene.cache && scene.makeCanvas) { theme.sprites = scene.cache.digits || (scene.cache.digits = new Map()); theme.makeCanvas = scene.makeCanvas; }
+        const dpr = scene.dpr || 1;
+        ctx.save();
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, view.W, view.H);
+
+        // Layers 1–4, cached per camera pose when the caller supplies a canvas. While the
+        // camera is moving (aiming in 3D turns it every frame) a cached copy would be drawn
+        // once and thrown away, so the table goes straight to the screen, saving a
+        // whole-canvas copy; the first frame the pose holds, it is cached again.
+        const key = JSON.stringify([view.pose, scene.felt, dpr]);
+        const moving = !!scene.cache && scene.cache.lastKey !== undefined && scene.cache.lastKey !== key;
+        if (scene.cache) scene.cache.lastKey = key;
+        if (scene.cache && scene.makeCanvas && moving && scene.cache.key !== key) {
+            pgDrawTable(ctx, view, cfg, table, scene.felt);
+        } else if (scene.cache && scene.makeCanvas) {
+            const c = scene.cache;
+            if (c.key !== key) {
+                if (!c.canvas || c.canvas.width !== Math.round(view.W * dpr) || c.canvas.height !== Math.round(view.H * dpr)) {
+                    c.canvas = scene.makeCanvas(Math.round(view.W * dpr), Math.round(view.H * dpr));
+                }
+                const tc = c.canvas.getContext('2d');
+                tc.setTransform(1, 0, 0, 1, 0, 0);
+                tc.clearRect(0, 0, c.canvas.width, c.canvas.height);
+                tc.setTransform(dpr, 0, 0, dpr, 0, 0);
+                pgDrawTable(tc, view, cfg, table, scene.felt);
+                c.key = key;
+            }
+            ctx.drawImage(c.canvas, 0, 0, view.W, view.H);
+        } else {
+            pgDrawTable(ctx, view, cfg, table, scene.felt);
+        }
+
+        // 5. Kitchen.
+        if (scene.kitchen) {
+            pgFill(ctx, [pcPoly(view, [[-cfg.halfLength, -cfg.halfWidth, 0.2], [table.headX, -cfg.halfWidth, 0.2], [table.headX, cfg.halfWidth, 0.2], [-cfg.halfLength, cfg.halfWidth, 0.2]])], theme.accent, 0.12);
+            pgStrokeLine(ctx, view, [[table.headX, -cfg.halfWidth], [table.headX, cfg.halfWidth]], 0.3, pgRgba(theme.accent, 0.8), 1.5, [6, 5], true);
+        }
+
+        // Pocket drops: sinking into the hole, under everything still in play.
+        (scene.drops || []).forEach(d => {
+            const p = table.pockets[d.pocket], t = Math.max(0, Math.min(1, d.t));
+            if (!p) return;
+            const x = d.ball.x + (p.x - d.ball.x) * t, y = d.ball.y + (p.y - d.ball.y) * t;
+            const s = pcProject(view, [x, y, R - 2.2 * R * t]);
+            if (s) pgDrawBall(ctx, d.ball, s[0], s[1], R * s[2] * (1 - 0.35 * t), pgViewBasis(view, [x, y, R]), theme, 1 - t);
+        });
+
+        // 6. Shadows, then guides.
+        const live = w.balls.filter(b => b.state !== 'pocketed' && !(scene.bih && b.id === 0));
+        pgFill(ctx, live.map(b => pcPoly(view, pgCirc(b.x + 4, b.y - 5, R * 1.08, 0.3, 20))), '#000000', 0.38);
+        const g = scene.aim && scene.guide && scene.guideMode !== 'off' ? scene.guide : null;
+        const Z = 0.6;
+        if (g && g.contact) {
+            const short = scene.guideMode === 'short';
+            const dx = g.contact[0] - g.start[0], dy = g.contact[1] - g.start[1], dl = Math.hypot(dx, dy) || 1;
+            const ux = dx / dl, uy = dy / dl;
+            if (dl > 2.3 * R) {
+                pgStrokeLine(ctx, view, [[g.start[0] + ux * R * 1.3, g.start[1] + uy * R * 1.3], [g.contact[0] - ux * R, g.contact[1] - uy * R]], Z, pgRgba(PG_GUIDE, 0.85), 1.5, [5, 4]);
+            }
+            if (g.obj) {
+                const L = short ? 60 : 150;
+                pgStrokeLine(ctx, view, [[g.obj.x + g.obj.dx * R, g.obj.y + g.obj.dy * R], [g.obj.x + g.obj.dx * (R + L), g.obj.y + g.obj.dy * (R + L)]], Z, theme.accent, 2, null, true);
+            }
+            if (g.after.length > 1) {
+                const path = pgTrim(g.after, (short ? 40 : g.cushion ? 120 : 90) + R);
+                // Start the line at the ghost ball's edge.
+                let k = 0, acc = 0;
+                while (k < path.length - 1 && acc < R) { acc += Math.hypot(path[k + 1][0] - path[k][0], path[k + 1][1] - path[k][1]); k++; }
+                const tail = path.slice(k);
+                if (tail.length > 1) pgStrokeLine(ctx, view, tail, Z, pgRgba(PG_GUIDE, 0.4), 1.2, [2, 4]);
+            }
+        }
+
+        // 7. Balls, far to near.
+        const drawn = live.map(b => {
+            const c = view.toCam([b.x, b.y, R]);
+            return { b, c };
+        }).filter(o => o.c[2] >= PC_NEAR + R).sort((p, q) => q.c[2] - p.c[2]);
+        drawn.forEach(({ b, c }) => {
+            const s = view.toScr(c), rad = R * s[2];
+            if (rad < 0.8) return;
+            pgDrawBall(ctx, b, s[0], s[1], rad, pgViewBasis(view, [b.x, b.y, R]), theme);
+        });
+
+        // 8. Ghost ball, cue, called-pocket rings, ball in hand.
+        if (g && g.contact && !g.pocketed) {
+            const s = pcProject(view, [g.contact[0], g.contact[1], R]);
+            if (s && s[3] > PC_NEAR + R) {
+                const gr = R * s[2];
+                ctx.beginPath(); ctx.arc(s[0], s[1], gr, 0, Math.PI * 2);
+                ctx.fillStyle = pgRgba(PG_GUIDE, 0.08); ctx.fill();
+                ctx.setLineDash([3, 2.5]);
+                ctx.strokeStyle = scene.illegal ? theme.hot : pgRgba(PG_GUIDE, 0.9); ctx.lineWidth = 1.25; ctx.stroke();
+                ctx.setLineDash([]);
+                if (scene.illegal) {
+                    // The prohibition sign: this ball may not be hit first.
+                    ctx.beginPath();
+                    ctx.moveTo(s[0] - gr * 0.62, s[1] + gr * 0.62); ctx.lineTo(s[0] + gr * 0.62, s[1] - gr * 0.62);
+                    ctx.strokeStyle = theme.hot; ctx.lineWidth = 2; ctx.stroke();
+                }
+            }
+        }
+        const cue = w.balls.find(b => b.id === 0);
+        if (scene.aim && cue && cue.state !== 'pocketed' && !scene.bih) {
+            const a = scene.aim, d = [Math.cos(a.angle), Math.sin(a.angle)];
+            const gap = a.gap !== undefined ? a.gap : 8 + (a.power || 0) * 1.1;
+            const L = 600;
+            const pt = (u, side) => {
+                const along = R + gap + u, wd = 3.3 + (8 - 3.3) * (u / L), z = R + 1.5 + 60 * (u / L);
+                return [cue.x - d[0] * along - d[1] * wd * side, cue.y - d[1] * along + d[0] * wd * side, z];
+            };
+            const stick = (u0, u1) => pcPoly(view, [pt(u0, 1), pt(u1, 1), pt(u1, -1), pt(u0, -1)]);
+            const part = (u0, u1, fill, edge) => {
+                const poly = stick(u0, u1);
+                if (poly.length < 3) return;
+                ctx.beginPath(); pgTrace(ctx, poly);
+                ctx.fillStyle = fill; ctx.fill();
+                if (edge) { ctx.strokeStyle = 'rgba(0, 0, 0, ' + edge + ')'; ctx.lineWidth = 0.6; ctx.stroke(); }
+            };
+            part(470, L, '#3B1F14', 0.35);
+            part(338, 470, '#1B1C1D', 0.35);
+            part(330, 338, '#C9A15A');
+            part(16, 330, '#DDB77F', 0.3);
+            part(3, 16, '#F2ECDF');
+            part(0, 3, '#3E73B8');
+        }
+        if (scene.call) {
+            table.pockets.forEach((p, i) => {
+                const ring = pcPoly(view, pgCirc(p.x, p.y, p.r + 12, PG_RAIL_Z + 0.5, 32));
+                if (ring.length < 3) return;
+                ctx.beginPath(); pgTrace(ctx, ring);
+                if (i === scene.call.called) {
+                    ctx.fillStyle = pgRgba(theme.accent, 0.22); ctx.fill();
+                    ctx.strokeStyle = theme.accent; ctx.lineWidth = 3; ctx.stroke();
+                } else {
+                    ctx.setLineDash([4, 3]); ctx.strokeStyle = pgRgba(theme.accent, 0.9); ctx.lineWidth = 1.75; ctx.stroke(); ctx.setLineDash([]);
+                }
+            });
+        }
+        if (scene.bih) {
+            const s = pcProject(view, [scene.bih.x, scene.bih.y, R]);
+            if (s && s[3] > PC_NEAR + R) {
+                const gr = R * s[2], ok = scene.bih.valid !== false;
+                ctx.beginPath(); ctx.arc(s[0], s[1], gr, 0, Math.PI * 2);
+                ctx.fillStyle = ok ? pgRgba(PG_IVORY, 0.6) : pgRgba(theme.hot, 0.4); ctx.fill();
+                ctx.setLineDash(ok ? [3, 2] : []);
+                ctx.strokeStyle = ok ? theme.accent : theme.hot; ctx.lineWidth = 2; ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.beginPath(); ctx.arc(s[0], s[1], gr + 5, 0, Math.PI * 2);
+                ctx.strokeStyle = pgRgba(ok ? theme.accent : theme.hot, 0.35); ctx.lineWidth = 1; ctx.stroke();
+                if (typeof Path2D === 'function') {
+                    ctx.save();
+                    ctx.translate(s[0] + gr * 0.2, s[1] + gr * 0.1); ctx.scale(0.95, 0.95);
+                    const hand = new Path2D(PG_HAND);
+                    ctx.fillStyle = '#15191B'; ctx.fill(hand);
+                    ctx.strokeStyle = PG_IVORY; ctx.lineWidth = 1.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke(hand);
+                    ctx.restore();
+                }
+            }
+        }
+        ctx.restore();
+    }
+
+    // Screen positions of the six pockets for hit-testing a call, with
+    // whether each is on screen (the rest are called from the mini-map).
+    function pgPocketMarks(view, table) {
+        return table.pockets.map((p, i) => {
+            const s = pcProject(view, [p.x, p.y, PG_RAIL_Z]);
+            const inView = !!s && s[0] > 10 && s[0] < view.W - 10 && s[1] > 10 && s[1] < view.H - 10;
+            return { i, x: s ? s[0] : 0, y: s ? s[1] : 0, r: s ? (p.r + 12) * s[2] : 0, inView };
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — HUD (v2)
+    // ═══════════════════════════════════════════════════════════════════
+    // The panel around the table, from the design's Main, InMatch and Max
+    // artboards: player cards with group trackers and the shot clock, the
+    // frame count, the viewport's overlays (camera toggle, group pill,
+    // toast, lean, power gauge, spin, hint, ball-in-hand chip, move-cue-ball
+    // button, pocket
+    // mini-map, frame-over dialog) and the footer or the seat hand-off.
+    //
+    // Three layers, so the logic can be tested without a browser:
+    //   phModel(game)      pure: game snapshot → view model (every string,
+    //                      flag and number the HUD shows)
+    //   phBuild(root, …)   DOM: builds the HUD once, compact or Max
+    //   phRender(hud, vm)  DOM: applies a view model, touching only what
+    //                      changed
+    // Colours come only from pool-theme.css (--pool-*). The canvas cannot
+    // read CSS, so phThemeTokens() is the bridge the renderer takes its
+    // theme colours from.
+
+    const PH_POCKETS = ['Top left', 'Top side', 'Top right', 'Bottom left', 'Bottom side', 'Bottom right'];
+    const PH_SPINS = [
+        { label: 'Center', x: 0, y: 0 },
+        { label: 'Follow', x: 0, y: 0.45 },
+        { label: 'Draw', x: 0, y: -0.55 },
+        { label: 'Left', x: -0.45, y: 0 },
+        { label: 'Right', x: 0.45, y: 0 },
+    ];
+    // The cue tip can strike anywhere inside the miscue ring, 0.6 R from the
+    // centre (PP_DEFAULTS.maxTip); the presets are quick picks inside it.
+    const PH_TIP_MAX = 0.6;
+    const PH_TIP_DEAD = 0.05;        // closer to the centre than this reads as Center
+    function phClampTip(x, y) {
+        x = Number(x) || 0; y = Number(y) || 0;
+        const m = Math.hypot(x, y);
+        return m > PH_TIP_MAX ? { x: x * PH_TIP_MAX / m, y: y * PH_TIP_MAX / m } : { x, y };
+    }
+    // "Follow · Right" for the button; the popover's readout adds how much.
+    function phSpinLabel(t) {
+        const v = t.y > PH_TIP_DEAD ? 'Follow' : t.y < -PH_TIP_DEAD ? 'Draw' : '';
+        const h = t.x > PH_TIP_DEAD ? 'Right' : t.x < -PH_TIP_DEAD ? 'Left' : '';
+        return [v, h].filter(Boolean).join(' · ') || 'Center';
+    }
+    function phSpinReadout(t) {
+        const pct = a => Math.round(Math.abs(a) / PH_TIP_MAX * 100) + '%';
+        const parts = [];
+        if (Math.abs(t.y) > PH_TIP_DEAD) parts.push((t.y > 0 ? 'Follow ' : 'Draw ') + pct(t.y));
+        if (Math.abs(t.x) > PH_TIP_DEAD) parts.push((t.x > 0 ? 'Right ' : 'Left ') + pct(t.x));
+        return parts.join(' · ') || 'Center ball';
+    }
+    // The Game mode sheet's difficulty list (InMatch.dc.html, ModeSheet), in order.
+    const PH_DIFFS = [
+        { key: 'adaptive', name: 'Adaptive', desc: 'Matches your form, frame by frame' },
+        { key: 'easy', name: 'Easy', desc: 'Takes simple pots · misses often' },
+        { key: 'normal', name: 'Normal', desc: 'Solid potting · little position play' },
+        { key: 'hard', name: 'Hard', desc: 'Plays position · rarely leaves a shot' },
+        { key: 'pro', name: 'Pro', desc: 'Hardly misses · call every shot' },
+    ];
+    const PH_CLOCK_HOT = 5;          // seconds left when the clock goes hot
+    const PH_POWER_HOT = 85;         // % at which the gauge goes hot
+    const PH_BIH_NOTE = { overlap: 'Overlaps a ball', kitchen: 'Behind the head string only', outside: 'Keep it on the felt' };
+
+    const phWins = (name) => (name === 'You' ? 'You win' : name + ' wins');
+
+    // The Max avatar: YOU for you, the first letter of two words (Player 1 → P1,
+    // Ayesha Khan → AK), or the first two letters of one (Bilal → BI).
+    function phInitials(name, seat) {
+        const n = String(name || '').trim();
+        if (n === 'You') return 'YOU';
+        const words = n.split(/\s+/).map(w => w.replace(/[^A-Za-z0-9]/g, '')).filter(Boolean);
+        const s = words.length > 1 ? words[0][0] + words[1][0] : (words[0] || '').slice(0, 2);
+        return s.toUpperCase() || 'P' + seat;
+    }
+
+    // ── View model ────────────────────────────────────────────────────
+    // game = {
+    //   layout: 'compact' | 'max', mode: 'cpu' | 'pvp' | 'tour',
+    //   names: { 1, 2 }, records: { 1, 2 }, frames: [a, b], trophies,
+    //   frame,                       the rules state (pool-rules.js)
+    //   world,                       the physics world, for the trackers
+    //   phase: 'aim' | 'strike' | 'moving' | 'bih' | 'over',
+    //   camera: '3d' | '2d', lean, power, dragging, called,
+    //   tip: { x, y },               the cue tip in R (follow is +y, right is +x); or
+    //   spin (index into PH_SPINS),  a preset, when there is no tip
+    //   spinOpen,                    the big spin picker is open
+    //   clock: { left, total } | null,
+    //   toast: prText(…) | null, fouled: seat | 0,
+    //   handoff: seat | 0,           "Pass to …" while seats swap
+    //   bih: { valid, reason, placed, sx, sy, sr } | null,
+    //   canReplace,                  the shooter placed the cue ball and may pick it up again
+    //   cpuTurn,                     the CPU is at the table: its own hint, no human controls
+    //   sheet: { open, mode, note }, the Game mode sheet: which tab, and a line under the list
+    //   difficulty,                  the picked CPU difficulty ('adaptive' or a tier)
+    //   pots: { 1: [ids], 2: [ids] } the object balls each seat has potted this frame, shown
+    //                                on its card while the table is open
+    //   tour: { kicker, title, frame } | null   a tournament match: the header strip, and
+    //                                the footer becomes Bracket / Pause / Max
+    //   tourSheet: { saved, name }   the sheet's Tournament tab: resume, or set one up
+    //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
+    //   secondaryLabel,              the frame-over dialog's second button, when the default does not apply
+    //   result: { win, title, reason, recordLabel, record, delta, note } | null,
+    // }
+    function phModel(g) {
+        const st = prStatusFrom(g.frame, g.frame.turn, g.world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed').map(b => b.id));
+        const over = g.phase === 'over';
+        const bih = g.phase === 'bih';
+        const moving = g.phase === 'moving';
+        const toast = g.toast || null;
+        const aiming = g.phase === 'aim' || g.phase === 'strike';
+        const callNeeded = aiming && st.callRequired && !(g.called >= 0);
+        const max = g.layout === 'max';
+        const sheetOpen = !!(g.sheet && g.sheet.open);
+        const sheetMode = (g.sheet && g.sheet.mode) || (g.mode === 'pvp' ? 'pvp' : 'cpu');
+        const onTable = new Set(g.world.balls.filter(b => b.state !== 'pocketed').map(b => b.id));
+        // The big spin picker: only while you are the one aiming.
+        const pickerOpen = !!g.spinOpen && aiming && !g.cpuTurn && !g.handoff && !toast && !g.dragging && !sheetOpen;
+
+        const cards = [1, 2].map(seat => {
+            const active = !over && g.frame.turn === seat;
+            const clockLeft = g.clock && active ? g.clock.left : null;
+            const hot = clockLeft !== null && clockLeft <= PH_CLOCK_HOT;
+            let tag = '';
+            if (!over) {
+                if (g.fouled === seat) tag = 'FOUL';
+                else if (active && bih) tag = g.frame.ballInHand === 'kitchen' ? 'TO BREAK' : 'BALL IN HAND';
+                else if (active && clockLeft !== null) tag = Math.ceil(clockLeft) + 's';
+                else if (active) tag = 'TO SHOOT';
+            }
+            const group = g.frame.groups[seat];
+            const ids = group === 'solids' ? [1, 2, 3, 4, 5, 6, 7] : group === 'stripes' ? [9, 10, 11, 12, 13, 14, 15] : [];
+            return {
+                seat, name: g.names[seat], rec: g.records[seat] || '',
+                active, hot, tag, tagHot: g.fouled === seat || hot, tagPulse: hot,
+                // The short form, for when the name would not fit beside the long one.
+                tagShort: { 'BALL IN HAND': 'IN HAND', 'TO BREAK': 'BREAK', 'TO SHOOT': 'SHOOT' }[tag] || '',
+                clock: clockLeft !== null && g.clock.total > 0 ? Math.max(0, Math.min(100, clockLeft / g.clock.total * 100)) : 0,
+                open: !group, group: ids.map(id => ({ id, down: !onTable.has(id) })),
+                // On an open table the card shows what this player has potted, so the break's
+                // balls are known before the groups are. Beyond three the balls carry it alone.
+                potted: !group && g.pots ? (g.pots[seat] || []).filter(id => !onTable.has(id)) : [],
+                initials: phInitials(g.names[seat], seat),
+                cpu: g.mode === 'cpu' && seat === 2,
+            };
+        });
+
+        // The pill names what the shooter is on: state only. What to do about it (call a
+        // pocket) is the hint's, or in 3D the call card's, so it is never said twice.
+        const shooterGroup = g.frame.groups[g.frame.turn];
+        let pill;
+        if (bih) pill = g.frame.ballInHand === 'kitchen' ? 'Break · kitchen only' : 'Ball in hand';
+        else if (g.frame.isBreak) pill = 'Break';
+        else if (st.onThe8) pill = 'On the 8';
+        else pill = shooterGroup ? shooterGroup[0].toUpperCase() + shooterGroup.slice(1) : 'Open table';
+        if (max && !bih && !g.frame.isBreak) {
+            const who = g.names[g.frame.turn];
+            pill = (who === 'You' ? 'Your shot' : who + "'s shot") + ' · ' + pill;
+        }
+
+        let hint = null;
+        if (bih) {
+            if (g.bih && g.bih.placed) hint = { text: 'Placed · aim when ready', tone: '' };
+            else if (g.bih && g.bih.valid === false) hint = { text: 'Release on open felt', tone: 'hot' };
+            else hint = { text: g.frame.ballInHand === 'kitchen' ? 'Place behind the head string' : 'Drag the cue ball to place it', tone: '' };
+        } else if (aiming && g.cpuTurn) {
+            hint = { text: (g.names[g.frame.turn] || 'CPU') + ' is lining up', tone: '' };
+        } else if (aiming) {
+            const pw = Math.round(g.power || 0);
+            if (g.dragging) hint = { text: 'Release to shoot · ' + pw + '%', tone: pw >= PH_POWER_HOT ? 'hot' : 'power' };
+            else if (callNeeded) hint = { text: 'Tap a pocket to call it', tone: 'call' };
+            else if (st.callRequired && g.called >= 0) hint = { text: PH_POCKETS[g.called] + ' called · drag to shoot', tone: '' };
+            else hint = { text: 'Press and drag for power', tone: '' };
+        }
+
+        // The call card (3D): the pocket map and the hint in one, bottom right. The pocket
+        // lit on the map names the call, so the caption only says what comes next. The spin
+        // picker covers the corner it would share with Move cue ball, so it steps aside then.
+        const card = aiming && st.callRequired && g.camera === '3d' && !g.cpuTurn && !g.handoff && !toast && !pickerOpen && !sheetOpen;
+        const pwr = Math.round(g.power || 0);
+        const cardCap = g.dragging ? { text: 'Release · ' + pwr + '%', tone: pwr >= PH_POWER_HOT ? 'hot' : 'power' }
+            : callNeeded ? { text: 'Tap a pocket', tone: 'call' } : { text: 'Drag to shoot', tone: '' };
+
+        // The tip: anywhere in the miscue ring (g.tip), or a preset by index (g.spin).
+        const spin = g.tip ? phClampTip(g.tip.x, g.tip.y)
+            : PH_SPINS[((g.spin || 0) % PH_SPINS.length + PH_SPINS.length) % PH_SPINS.length];
+        const lean = Math.max(0, Math.min(100, Math.round(g.lean || 0)));
+        const is3d = g.camera === '3d' && !bih;
+        const note = bih && g.bih && g.bih.valid === false && g.bih.sx !== undefined
+            ? { text: PH_BIH_NOTE[g.bih.reason] || PH_BIH_NOTE.overlap, x: g.bih.sx, y: g.bih.sy + (g.bih.sr || 5) + 26 } : null;
+
+        return {
+            layout: max ? 'max' : 'compact',
+            cards,
+            frames: (g.frames ? g.frames[0] : 0) + '–' + (g.frames ? g.frames[1] : 0),
+            trophies: g.trophies || 0,
+            cam: {
+                show: !toast, is3d,
+                label2d: max ? '2D TOP-DOWN' : bih ? '2D · AUTO' : '2D',
+                label3d: max ? '3D AIM' : '3D',
+            },
+            pill: { show: !toast && !over, text: pill },
+            toast: toast ? { show: true, foul: toast.kind === 'foul', title: toast.title, sub: toast.sub } : { show: false },
+            lean: {
+                show: is3d && !over && !(aiming && st.callRequired) && !moving && !sheetOpen,
+                value: lean,
+                // The pitch the camera actually looks down at, as the design labels it.
+                label: Math.round(19.5 + 28.5 * lean / 100 - Math.atan(0.34 / 1.1) * 180 / Math.PI) + '°',
+            },
+            gauge: {
+                show: aiming,
+                power: Math.max(0, Math.min(100, g.power || 0)),
+                live: !!g.dragging || (!!g.cpuTurn && (g.power || 0) > 0), hot: (g.power || 0) >= PH_POWER_HOT, locked: callNeeded,
+            },
+            spin: {
+                show: !bih && !over && !toast && !moving && !sheetOpen, label: phSpinLabel(spin), readout: phSpinReadout(spin), x: spin.x, y: spin.y,
+                open: pickerOpen,
+                preset: PH_SPINS.findIndex(p => Math.abs(p.x - spin.x) < 1e-6 && Math.abs(p.y - spin.y) < 1e-6),
+            },
+            hint: { show: !!hint && !over && !toast && !sheetOpen && !card, text: hint ? hint.text : '', tone: hint ? hint.tone : '' },
+            bihNote: note ? { show: true, text: note.text, x: note.x, y: note.y } : { show: false },
+            // Back to placing: only before the shot, and never mid-stroke.
+            replace: { show: !!g.canReplace && g.phase === 'aim' && !g.dragging && !g.handoff && !over },
+            mini: { show: card, called: g.called >= 0 ? g.called : -1, caption: cardCap.text, tone: cardCap.tone },
+            dialog: over && g.result ? Object.assign({ show: true, kicker: 'FRAME OVER · ' + (g.frames ? g.frames[0] + '–' + g.frames[1] : ''),
+                primary: g.mode === 'tour' ? 'NEXT FRAME' : 'NEW FRAME',
+                secondary: g.secondaryLabel || (g.mode === 'cpu' ? 'Change difficulty' : g.mode === 'tour' ? 'Bracket' : 'Change mode') }, g.result) : { show: false },
+            foot: { show: !g.handoff, tour: g.mode === 'tour', modeLabel: g.mode === 'cpu' ? 'Vs CPU' : g.mode === 'tour' ? 'Tournament' : '2 Players' },
+            tour: g.tour ? { show: true, kicker: g.tour.kicker, title: g.tour.title, frame: g.tour.frame } : { show: false },
+            handoff: g.handoff ? {
+                show: true, to: 'Pass to ' + g.names[g.handoff],
+                from: g.names[3 - g.handoff] + ', swap seats',
+                ready: (g.names[g.handoff] || '').toUpperCase() + "'S READY",
+            } : { show: false },
+            cursor: bih ? 'placing' : g.dragging ? 'dragging' : '',
+            sheet: sheetOpen ? {
+                show: true, mode: sheetMode,
+                diffs: PH_DIFFS.map(d => ({ key: d.key, name: d.name, desc: d.desc, checked: (g.difficulty || 'adaptive') === d.key })),
+                chip: 'NOW ' + String(g.adaptiveTier || 'normal').toUpperCase(),
+                note: (g.sheet && g.sheet.note) || '',
+                tour: g.tourSheet && g.tourSheet.saved ? { saved: true, cta: 'RESUME ' + String(g.tourSheet.name || 'TOURNAMENT').toUpperCase(), sub: g.tourSheet.where || '' }
+                    : { saved: false, cta: 'SET UP TOURNAMENT', sub: '' },
+            } : { show: false },
+        };
+    }
+
+    // ── DOM ───────────────────────────────────────────────────────────
+    const PH_ICON = {
+        d2: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M4 12h16M12 4v16"></path></svg>',
+        d3: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg>',
+        warn: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 16.5h-19L12 3z"></path><path d="M12 10v4M12 17.2v.1"></path></svg>',
+        info: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8v.1"></path></svg>',
+        up: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"></path></svg>',
+        down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>',
+        lock: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>',
+        trophy: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
+        cross: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9 9l6 6M15 9l-6 6"></path></svg>',
+        chip: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"></path></svg>',
+        people: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"></circle><path d="M3.5 19c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8"></path><circle cx="17" cy="9" r="2.6"></circle><path d="M16 14.3c2.4.1 4 1.6 4.5 4.2"></path></svg>',
+        reset: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path></svg>',
+        max: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"></path></svg>',
+        exit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"></path></svg>',
+        swap: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13l-3-3M20 16H7l3 3"></path></svg>',
+        hand: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v7.5a6.5 6.5 0 0 1-6.5 6.5h-.6a6 6 0 0 1-4.6-2.2L3.6 15a1.6 1.6 0 0 1 2.4-2l2 2"></path></svg>',
+        bracket: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h5v5H3M3 14h5v5H3M8 7.5h4v9H8M12 12h4M16 9h5v6h-5z"></path></svg>',
+        pause: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5v14M15 5v14"></path></svg>',
+        close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
+        cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
+    };
+
+    function phCardHTML(seat, max) {
+        const top = '<div class="ph-card-top"><span class="ph-name" data-ph="name"></span>' +
+            (max ? '<span class="ph-rec" data-ph="rec"></span>' : '<span class="ph-tag ph-label" data-ph="tag"></span>') + '</div>';
+        const group = '<div class="ph-group" data-ph="group" role="img"></div><div class="ph-open" data-ph="open" role="img" aria-label="Open table"><span class="ph-open-l" data-ph="openl">Open table</span><span class="ph-open-balls" data-ph="openb"></span></div>';
+        const body = max
+            ? '<div class="ph-avatar" data-ph="avatar"></div><div class="ph-card-body">' + top + group + '</div>'
+            : top + '<div class="ph-rec" data-ph="rec"></div>' + group;
+        return '<div class="ph-card" data-seat="' + seat + '">' + body + '<div class="ph-clock" data-ph="clock"></div></div>';
+    }
+
+    function phViewHTML(max) {
+        const mini = [[0, 0], [26, 0], [52, 0], [0, 26], [26, 26], [52, 26]]
+            .map((p, i) => '<button type="button" data-ph-call="' + i + '" style="left:' + p[0] + 'px;top:' + p[1] + 'px" aria-label="Call ' + PH_POCKETS[i].toLowerCase() + ' pocket" aria-pressed="false"><span></span></button>')
+            .join('');
+        return '<div class="ph-view" data-ph="view"><canvas class="ph-canvas" data-ph="canvas"></canvas><div class="ph-layer">' +
+            '<div class="ph-cam ph-glass" data-ph="cam"><button type="button" class="ph-label" data-ph="cam2d" aria-pressed="false">' + PH_ICON.d2 + '<span data-ph="cam2dl">2D</span></button>' +
+            '<button type="button" class="ph-label" data-ph="cam3d" aria-pressed="true">' + PH_ICON.d3 + '<span data-ph="cam3dl">3D</span></button></div>' +
+            '<div class="ph-pill ph-glass" data-ph="pill"><span class="ph-pill-dot"></span><span data-ph="pillt"></span></div>' +
+            '<div class="ph-toast ph-glass" role="status" data-ph="toast" hidden><span class="ph-toast-icon" data-ph="toasti"></span>' +
+            '<span class="ph-toast-text"><span class="ph-toast-title" data-ph="toastt"></span><span class="ph-toast-sub" data-ph="toasts"></span></span></div>' +
+            '<div class="ph-lean ph-glass" data-ph="lean"><label class="ph-lean-l ph-label" for="ph-lean-' + (max ? 'm' : 'c') + '">LEAN</label>' +
+            '<span class="ph-lean-v ph-num" data-ph="leanv"></span><span class="ph-lean-chev">' + PH_ICON.up + '</span>' +
+            '<div class="ph-rng"><div class="ph-rng-track"></div><div class="ph-rng-fill" data-ph="leanf"></div><div class="ph-rng-thumb" data-ph="leant"></div>' +
+            '<input id="ph-lean-' + (max ? 'm' : 'c') + '" type="range" min="0" max="100" step="1" data-ph="leani"></div>' +
+            '<span class="ph-lean-chev">' + PH_ICON.down + '</span></div>' +
+            '<div class="ph-gauge" data-ph="gauge" aria-hidden="true"><div class="ph-gauge-fill" data-ph="gaugef"></div></div>' +
+            '<div class="ph-lock" data-ph="lock" hidden>' + PH_ICON.lock + '</div>' +
+            '<button type="button" class="ph-spin ph-glass" data-ph="spin" aria-haspopup="dialog" aria-expanded="false"><span class="ph-spin-ball" data-ph="spinball"><span class="ph-spin-dot" data-ph="spind"></span></span>' +
+            '<span class="ph-spin-text"><span class="ph-spin-l ph-label">SPIN</span><span class="ph-spin-v" data-ph="spinv"></span></span></button>' +
+            // The big picker: drag the dot anywhere inside the miscue ring, or take a preset.
+            '<div class="ph-spinpop ph-glass" data-ph="spinpop" role="dialog" aria-label="Cue ball spin" hidden>' +
+            '<div class="ph-spinpop-read ph-num" data-ph="spinr"></div>' +
+            '<div class="ph-spinpop-body"><div class="ph-spinpop-ball" data-ph="spinbig" tabindex="0" role="group" aria-label="Where the cue strikes the ball. Press or drag to set it; arrow keys move it, Enter confirms">' +
+            '<span class="ph-spinpop-ring"></span><span class="ph-spin-dot" data-ph="spinbigd"></span></div>' +
+            '<div class="ph-spinpop-chips">' + PH_SPINS.map((p, i) => '<button type="button" class="ph-btn" data-ph-tip="' + i + '" aria-pressed="false">' + p.label + '</button>').join('') + '</div></div>' +
+            '</div>' +
+            '<div class="ph-hint ph-glass" data-ph="hint"><span data-ph="hintt"></span></div>' +
+            '<div class="ph-bihnote ph-label" data-ph="bihnote" hidden></div>' +
+            '<button type="button" class="ph-replace ph-glass" data-ph="replace" hidden>' + PH_ICON.hand + '<span>Move cue ball</span></button>' +
+            '<div class="ph-mini ph-glass" data-ph="mini" hidden><span class="ph-mini-cap" data-ph="minicap"></span>' +
+            '<div class="ph-mini-pad"><div class="ph-mini-table"></div>' + mini + '</div></div>' +
+            '<div class="ph-scrim" data-ph="scrim" hidden><div class="ph-dialog" role="dialog" aria-label="Frame over" data-ph="dialog">' +
+            '<div class="ph-dialog-head"><span class="ph-dialog-icon" data-ph="dlgi"></span><span style="display:flex;flex-direction:column;gap:2px">' +
+            '<span class="ph-dialog-kicker ph-label" data-ph="dlgk"></span><span class="ph-dialog-title" data-ph="dlgt"></span></span></div>' +
+            '<div class="ph-dialog-reason" data-ph="dlgr"></div>' +
+            '<div class="ph-dialog-rec" data-ph="dlgrec"><span style="display:flex;flex-direction:column;gap:2px"><span class="ph-dialog-rec-l ph-label" data-ph="dlgrl"></span>' +
+            '<span class="ph-dialog-rec-v ph-num" data-ph="dlgrv"></span></span><span class="ph-dialog-delta ph-label" data-ph="dlgd"></span></div>' +
+            '<div class="ph-dialog-note" data-ph="dlgn">' + PH_ICON.chip + '<span data-ph="dlgnt"></span></div>' +
+            '<div class="ph-dialog-actions"><button type="button" class="ph-primary ph-label" data-ph="dlgp"></button><button type="button" class="ph-btn" data-ph="dlgs"></button></div>' +
+            '</div></div>' +
+            '</div></div>';
+    }
+
+    // The Game mode sheet (InMatch.dc.html's ModeSheet): Vs CPU with the difficulty
+    // list, or 2 Players with its explainer. Tournament joins it in Phase 7.
+    function phSheetHTML() {
+        const diffs = PH_DIFFS.map(d => '<button type="button" role="radio" class="ph-sheet-diff" data-ph-diff="' + d.key + '" aria-checked="false">' +
+            '<span class="ph-sheet-radio"><span></span></span><span class="ph-sheet-dt"><span class="ph-sheet-dn"><span>' + d.name + '</span>' +
+            // The NOW chip rides on the name line, so the description keeps the full width.
+            (d.key === 'adaptive' ? '<span class="ph-sheet-chip ph-label" data-ph="sheetchip"></span>' : '') +
+            '</span><span class="ph-sheet-dd">' + d.desc + '</span></span></button>').join('');
+        return '<div class="ph-sheet-scrim" data-ph="sheetscrim" hidden></div>' +
+            '<div class="ph-sheet" role="dialog" aria-label="Game mode" data-ph="sheet" hidden>' +
+            '<div class="ph-sheet-head"><span class="ph-sheet-title">Game mode</span><button type="button" class="ph-btn is-icon" data-ph="sheetx" aria-label="Close">' + PH_ICON.close + '</button></div>' +
+            '<div class="ph-sheet-modes" role="radiogroup" aria-label="Mode">' +
+            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="cpu" aria-checked="false">' + PH_ICON.chip + '<span>Vs CPU</span></button>' +
+            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="pvp" aria-checked="false">' + PH_ICON.people + '<span>2 Players</span></button>' +
+            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="tour" aria-checked="false">' + PH_ICON.bracket + '<span>Tournament</span></button></div>' +
+            '<div class="ph-sheet-cpu" data-ph="sheetcpu"><div class="ph-sheet-l ph-label">CPU DIFFICULTY</div>' +
+            '<div class="ph-sheet-diffs" role="radiogroup" aria-label="CPU difficulty">' + diffs + '</div>' +
+            '<div class="ph-sheet-note" data-ph="sheetnote" hidden></div></div>' +
+            '<div class="ph-sheet-pvp" data-ph="sheettour" hidden><span>Knockout bracket for 3 to 16 people taking turns on this computer. Humans only, no CPU players.</span>' +
+            '<button type="button" class="ph-primary ph-label is-two" data-ph="sheettourgo"><span data-ph="sheettourcta">SET UP TOURNAMENT</span><span class="ph-primary-sub" data-ph="sheettoursub"></span></button>' +
+            '<div class="ph-sheet-links"><button type="button" class="ph-btn" data-ph="sheetcab">' + PH_ICON.cup + '<span>Trophy cabinet</span></button>' +
+            '<button type="button" class="ph-btn is-hot" data-ph="sheetabandon" hidden><span>Abandon</span></button></div></div>' +
+            '<div class="ph-sheet-pvp" data-ph="sheetpvp" hidden><span>Hot-seat on this computer. Hand the panel over after each turn; the game tells you whose shot it is.</span>' +
+            '<button type="button" class="ph-primary ph-label" data-ph="sheetstart">START 2-PLAYER FRAME</button></div>' +
+            '</div>';
+    }
+
+    // A tournament match: "CITY OPEN" over "Semi-final · race to 2", and a FRAME n pill.
+    function phTourHeadHTML() {
+        return '<div class="ph-tourhead" data-ph="tourhead" hidden><span class="ph-tourhead-t"><span class="ph-tourhead-k ph-label" data-ph="tourk"></span>' +
+            '<span class="ph-tourhead-n" data-ph="tourn"></span></span><span class="ph-tourhead-f ph-label" data-ph="tourf"></span></div>';
+    }
+
+    function phHandoffHTML() {
+        return '<div class="ph-handoff" data-ph="handoff" hidden><span class="ph-handoff-icon">' + PH_ICON.swap + '</span>' +
+            '<span class="ph-handoff-text"><span class="ph-handoff-to" data-ph="hot"></span><span class="ph-handoff-from" data-ph="hof"></span></span>' +
+            '<button type="button" class="ph-primary ph-label" data-ph="ready"></button></div>';
+    }
+
+    // on = { camera(mode), lean(value), tip({x, y}), tipStep({x, y}), spinToggle(), spinClose(),
+    //        mode(), reset(), max(), call(i), ready(), replace(), primary(), secondary() }
+    function phBuild(root, opts) {
+        const o = opts || {}, max = o.layout === 'max', on = o.on || {};
+        const cards = phCardHTML(1, max) + '<div class="ph-frames"><span class="ph-frames-n" data-ph="frames">0–0</span><span class="ph-frames-l ph-label">FRAMES</span></div>' + phCardHTML(2, max);
+        let html;
+        if (max) {
+            html = '<div class="ph-top"><div class="ph-title" data-ph="title">' + (o.title || '8-Ball Pool') + '</div>' + phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' +
+                '<div class="ph-actions"><span class="ph-trophy" data-ph="trophy">' + PH_ICON.cup + '<span class="ph-num" data-ph="trophies">0</span></span>' +
+                '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
+                '<button type="button" class="ph-btn is-icon" data-ph="reset" aria-label="Reset rack" title="Reset rack">' + PH_ICON.reset + '</button>' +
+                '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
+                '<button type="button" class="ph-btn is-icon" data-ph="pause" aria-label="Pause" title="Pause" hidden>' + PH_ICON.pause + '</button>' +
+                '<button type="button" class="ph-btn is-icon" data-ph="max" aria-label="Exit full view" title="Exit full view">' + PH_ICON.exit + '</button></div></div>' +
+                phViewHTML(true) + phHandoffHTML() + phSheetHTML();
+        } else {
+            html = phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' + phViewHTML(false) +
+                '<div class="ph-foot" data-ph="foot">' +
+                '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
+                '<button type="button" class="ph-btn" data-ph="reset">' + PH_ICON.reset + '<span>Reset</span></button>' +
+                '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
+                '<button type="button" class="ph-btn" data-ph="pause" hidden>' + PH_ICON.pause + '<span>Pause</span></button>' +
+                '<button type="button" class="ph-btn" data-ph="max">' + PH_ICON.max + '<span>Max</span></button></div>' +
+                phHandoffHTML() + phSheetHTML();
+        }
+        const el = document.createElement('div');
+        el.className = 'pool-hud';
+        el.setAttribute('data-layout', max ? 'max' : 'compact');
+        el.innerHTML = html;
+        root.appendChild(el);
+
+        const q = (sel, scope) => (scope || el).querySelector(sel);
+        const ref = n => q('[data-ph="' + n + '"]');
+        const hud = { el, layout: max ? 'max' : 'compact', last: {}, theme: null };
+        ['view', 'canvas', 'frames', 'trophies', 'cam', 'cam2d', 'cam3d', 'cam2dl', 'cam3dl', 'pill', 'pillt', 'toast', 'toasti', 'toastt', 'toasts',
+            'lean', 'leanv', 'leanf', 'leant', 'leani', 'gauge', 'gaugef', 'lock', 'spin', 'spind', 'spinv', 'spinball', 'spinpop', 'spinr', 'spinbig', 'spinbigd',
+            'hint', 'hintt', 'bihnote', 'replace',
+            'mini', 'minicap', 'scrim', 'dialog', 'dlgi', 'dlgk', 'dlgt', 'dlgr', 'dlgrec', 'dlgrl', 'dlgrv', 'dlgd', 'dlgn', 'dlgnt', 'dlgp', 'dlgs',
+            'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
+            'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart',
+            'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy'].forEach(n => { hud[n] = ref(n); });
+        if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
+        hud.cards = [1, 2].map(seat => {
+            const c = q('.ph-card[data-seat="' + seat + '"]');
+            const r = n => q('[data-ph="' + n + '"]', c);
+            return { el: c, name: r('name'), tag: r('tag'), rec: r('rec'), group: r('group'), open: r('open'), openl: r('openl'), openb: r('openb'), clock: r('clock'), avatar: r('avatar'), dots: [] };
+        });
+        hud.miniButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-call]'));
+
+        const fire = (name, arg) => { if (typeof on[name] === 'function') on[name](arg); };
+        hud.cam2d.addEventListener('click', () => fire('camera', '2d'));
+        hud.cam3d.addEventListener('click', () => fire('camera', '3d'));
+        hud.leani.addEventListener('input', e => fire('lean', +e.target.value));
+        // Spin. Dragging the dot on the small ball moves the tip there; a click on
+        // the control (no drag) opens the big picker, where a press puts the dot
+        // under the pointer at once. Both map the pointer onto the ball face (its
+        // radius is R) and clamp it to the miscue ring.
+        const tipAt = (el, e) => {
+            const b = el.getBoundingClientRect(), r = b.width / 2 || 1;
+            return phClampTip((e.clientX - b.left - r) / r, -(e.clientY - b.top - r) / r);
+        };
+        let spinDrag = null, spinDragged = false;
+        const spinDown = (el, immediate) => e => {
+            if (e.button) return;
+            spinDrag = { el, x: e.clientX, y: e.clientY, moved: immediate };
+            try { el.setPointerCapture(e.pointerId); } catch (_) {}
+            if (immediate) fire('tip', tipAt(el, e));
+            e.preventDefault();
+        };
+        const spinMove = e => {
+            if (!spinDrag || e.currentTarget !== spinDrag.el) return;
+            if (!spinDrag.moved && Math.hypot(e.clientX - spinDrag.x, e.clientY - spinDrag.y) < 3) return;
+            spinDrag.moved = true;
+            fire('tip', tipAt(spinDrag.el, e));
+        };
+        const spinUp = e => {
+            if (!spinDrag || e.currentTarget !== spinDrag.el) return;
+            // A drag on the small ball is not also a click that opens the picker.
+            spinDragged = spinDrag.moved && spinDrag.el === hud.spinball;
+            // Letting go on the big ball is the choice: it confirms and closes.
+            const big = spinDrag.el === hud.spinbig && e.type === 'pointerup';
+            spinDrag = null;
+            if (big) fire('spinClose');
+        };
+        [[hud.spinball, false], [hud.spinbig, true]].forEach(([el, now]) => {
+            el.addEventListener('pointerdown', spinDown(el, now));
+            el.addEventListener('pointermove', spinMove);
+            el.addEventListener('pointerup', spinUp);
+            el.addEventListener('pointercancel', spinUp);
+        });
+        hud.spin.addEventListener('click', () => { if (spinDragged) { spinDragged = false; return; } fire('spinToggle'); });
+        hud.spinbig.addEventListener('keydown', e => {
+            // Arrows nudge the tip; Enter (or Space) confirms, Esc closes: both keep the tip.
+            if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') { fire('spinClose'); hud.spin.focus(); e.preventDefault(); e.stopPropagation(); return; }
+            const d = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
+            if (!d) return;
+            e.preventDefault(); e.stopPropagation();
+            fire('tipStep', { x: d[0] * 0.05, y: d[1] * 0.05 });
+        });
+        hud.tipButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-tip]'));
+        hud.tipButtons.forEach(b => b.addEventListener('click', () => {
+            const p = PH_SPINS[+b.getAttribute('data-ph-tip')];
+            fire('tip', { x: p.x, y: p.y });
+            fire('spinClose');
+        }));
+        hud.mode.addEventListener('click', () => fire('mode'));
+        hud.reset.addEventListener('click', () => fire('reset'));
+        hud.max.addEventListener('click', () => fire('max'));
+        hud.ready.addEventListener('click', () => fire('ready'));
+        hud.replace.addEventListener('click', () => fire('replace'));
+        hud.dlgp.addEventListener('click', () => fire('primary'));
+        hud.dlgs.addEventListener('click', () => fire('secondary'));
+        hud.miniButtons.forEach(b => b.addEventListener('click', () => fire('call', +b.getAttribute('data-ph-call'))));
+        // The Game mode sheet.
+        hud.modeButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-mode]'));
+        hud.diffButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-diff]'));
+        hud.modeButtons.forEach(b => b.addEventListener('click', () => fire('sheetTab', b.getAttribute('data-ph-mode'))));
+        hud.diffButtons.forEach(b => b.addEventListener('click', () => fire('difficulty', b.getAttribute('data-ph-diff'))));
+        hud.sheetx.addEventListener('click', () => fire('sheetClose'));
+        hud.sheetscrim.addEventListener('click', () => fire('sheetClose'));
+        hud.sheetstart.addEventListener('click', () => fire('startPvp'));
+        hud.sheettourgo.addEventListener('click', () => fire('tourGo'));
+        hud.sheetcab.addEventListener('click', () => fire('tourCabinet'));
+        hud.sheetabandon.addEventListener('click', () => fire('tourAbandon'));
+        hud.bracket.addEventListener('click', () => fire('tourBracket'));
+        hud.pause.addEventListener('click', () => fire('tourPause'));
+        hud.sheet.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('sheetClose'); hud.mode.focus(); e.preventDefault(); e.stopPropagation(); } });
+        return hud;
+    }
+
+    // Writes a value only when it changed, so a 60 Hz render costs nothing
+    // when nothing moved.
+    function phSet(hud, key, value, apply) {
+        if (hud.last[key] === value) return;
+        hud.last[key] = value;
+        apply(value);
+    }
+    const phShow = (el, on) => { if (el) el.hidden = !on; };
+
+    function phDotStyle(id) {
+        const c = PG_BALL_COLOURS[id > 8 ? id - 8 : id];
+        const hi = 'radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0) 48%)';
+        return id > 8
+            ? hi + ', linear-gradient(180deg, ' + PG_IVORY + ' 0%, ' + PG_IVORY + ' 28%, ' + c + ' 28%, ' + c + ' 72%, ' + PG_IVORY + ' 72%, ' + PG_IVORY + ' 100%)'
+            : hi + ', ' + c;
+    }
+
+    function phRender(hud, vm) {
+        const s = (k, v, f) => phSet(hud, k, v, f);
+        vm.cards.forEach((c, i) => {
+            const r = hud.cards[i], k = 'c' + i + '.';
+            s(k + 'name', c.name, v => { r.name.textContent = v; });
+            s(k + 'rec', c.rec, v => { r.rec.textContent = v; });
+            if (r.tag) {
+                s(k + 'tag', c.tag + '|' + c.tagShort, () => {
+                    r.tag.textContent = '';
+                    if (!c.tagShort) { r.tag.textContent = c.tag; return; }
+                    const long = document.createElement('span'), short = document.createElement('span');
+                    long.className = 'ph-tag-long'; long.textContent = c.tag;
+                    short.className = 'ph-tag-short'; short.textContent = c.tagShort;
+                    r.tag.append(long, short);
+                });
+                s(k + 'tagHot', c.tagHot, v => r.tag.classList.toggle('is-hot', v));
+                s(k + 'tagPulse', c.tagPulse, v => r.tag.classList.toggle('is-pulse', v));
+                // When the name would be cut off beside the tag, the tag goes short
+                // (TO SHOOT → SHOOT). Measured only when the name, tag or width changes.
+                s(k + 'fit', c.name + '|' + c.tag + '|' + hud.el.clientWidth, () => {
+                    r.el.classList.remove('is-tight');
+                    if (c.tagShort && r.name.scrollWidth > r.name.clientWidth + 1) r.el.classList.add('is-tight');
+                });
+            }
+            if (r.avatar) s(k + 'avatar', c.cpu ? '' : c.initials, v => { r.avatar.innerHTML = c.cpu ? PH_ICON.chip : ''; if (!c.cpu) r.avatar.textContent = v; });
+            s(k + 'active', c.active, v => r.el.classList.toggle('is-active', v));
+            s(k + 'hot', c.hot, v => r.el.classList.toggle('is-hot', v));
+            s(k + 'clock', c.clock, v => { r.clock.style.width = v + '%'; });
+            s(k + 'open', c.open, v => { phShow(r.open, v); phShow(r.group, !v); });
+            const ids = c.group.map(d => d.id).join();
+            // A new group (a new frame, or the open table decided) rebuilds the dots. Each is
+            // drawn potted or not at once, and the per-dot cache starts over: the old frame's
+            // values would otherwise match and skip the update, leaving a potted ball lit.
+            s(k + 'ids', ids, () => {
+                r.group.innerHTML = c.group.map(d => '<i class="ph-dot' + (d.down ? ' is-down' : '') + '" style="background:' + phDotStyle(d.id) + '"></i>').join('');
+                r.dots = Array.prototype.slice.call(r.group.children);
+                for (let j = 0; j < 7; j++) delete hud.last[k + 'down' + j];
+                c.group.forEach((d, j) => { hud.last[k + 'down' + j] = d.down; });
+            });
+            // For a screen reader, and anyone who cannot tell the balls apart by colour at this
+            // size: which are left and which are down, by number.
+            const left = c.group.filter(d => !d.down).map(d => d.id), gone = c.group.filter(d => d.down).map(d => d.id);
+            s(k + 'grpLabel', c.group.length ? (c.group[0].id < 8 ? 'Solids' : 'Stripes') + ': ' + (left.length ? left.join(', ') + ' on the table' : 'all down') + (gone.length ? '; ' + gone.join(', ') + ' potted' : '') : '',
+                v => r.group.setAttribute('aria-label', v));
+            s(k + 'openLabel', c.potted.length ? 'Open table; potted ' + c.potted.join(', ') : 'Open table', v => r.open.setAttribute('aria-label', v));
+            s(k + 'openl', c.potted.length ? (c.potted.length > 3 ? '' : 'Potted') : 'Open table', v => { r.openl.textContent = v; phShow(r.openl, !!v); });
+            s(k + 'openb', c.potted.join(), () => { r.openb.innerHTML = c.potted.map(id => '<i class="ph-dot" style="background:' + phDotStyle(id) + '"></i>').join(''); });
+            c.group.forEach((d, j) => s(k + 'down' + j, d.down, v => r.dots[j] && r.dots[j].classList.toggle('is-down', v)));
+        });
+        s('frames', vm.frames, v => { hud.frames.textContent = v; });
+        if (hud.trophies) s('trophies', vm.trophies, v => { hud.trophies.textContent = v; });
+
+        s('cam.show', vm.cam.show, v => phShow(hud.cam, v));
+        s('cam.is3d', vm.cam.is3d, v => {
+            hud.cam3d.setAttribute('aria-pressed', v ? 'true' : 'false');
+            hud.cam2d.setAttribute('aria-pressed', v ? 'false' : 'true');
+            hud.view.classList.toggle('is-2d', !v);
+        });
+        // "2D · AUTO": the suffix is its own span, so a narrow panel can drop it.
+        s('cam.l2', vm.cam.label2d, v => {
+            const i = v.indexOf(' · ');
+            hud.cam2dl.textContent = i === -1 ? v : v.slice(0, i);
+            if (i !== -1) { const more = document.createElement('span'); more.className = 'ph-cam-more'; more.textContent = v.slice(i); hud.cam2dl.appendChild(more); }
+        });
+        s('cam.l3', vm.cam.label3d, v => { hud.cam3dl.textContent = v; });
+        s('pill.show', vm.pill.show, v => phShow(hud.pill, v));
+        s('pill.text', vm.pill.text, v => { hud.pillt.textContent = v; });
+
+        s('toast.show', vm.toast.show, v => phShow(hud.toast, v));
+        if (vm.toast.show) {
+            s('toast.foul', vm.toast.foul, v => { hud.toast.classList.toggle('is-foul', v); hud.toasti.innerHTML = v ? PH_ICON.warn : PH_ICON.info; });
+            s('toast.title', vm.toast.title, v => { hud.toastt.textContent = v; });
+            s('toast.sub', vm.toast.sub || '', v => { hud.toasts.textContent = v; });
+        }
+
+        s('lean.show', vm.lean.show, v => phShow(hud.lean, v));
+        s('lean.value', vm.lean.value, v => {
+            if (+hud.leani.value !== v) hud.leani.value = v;
+            hud.leanf.style.height = v + '%';
+            hud.leant.style.bottom = v + '%';
+        });
+        s('lean.label', vm.lean.label, v => { hud.leanv.textContent = v; hud.leani.setAttribute('aria-valuetext', v + ' camera pitch'); });
+
+        s('gauge.show', vm.gauge.show, v => phShow(hud.gauge, v));
+        s('gauge.power', vm.gauge.power, v => { hud.gaugef.style.height = v + '%'; });
+        s('gauge.live', vm.gauge.live, v => hud.gauge.classList.toggle('is-live', v));
+        s('gauge.hot', vm.gauge.hot, v => hud.gauge.classList.toggle('is-hot', v));
+        s('gauge.locked', vm.gauge.locked, v => { hud.gauge.classList.toggle('is-locked', v); phShow(hud.lock, v); });
+
+        s('spin.show', vm.spin.show, v => phShow(hud.spin, v));
+        s('spin.label', vm.spin.label, v => {
+            // "Follow · Right"; the narrow column shows "Follow R" (the dot shows the rest).
+            const i = v.indexOf(' · ');
+            hud.spinv.textContent = i === -1 ? v : v.slice(0, i);
+            if (i !== -1) {
+                const side = v.slice(i + 3), long = document.createElement('span'), short = document.createElement('span');
+                long.className = 'ph-spin-side'; long.textContent = ' · ' + side;
+                short.className = 'ph-spin-side-s'; short.textContent = ' ' + side[0];
+                hud.spinv.append(long, short);
+            }
+            hud.spin.setAttribute('aria-label', 'Cue ball spin: ' + vm.spin.readout + '. Drag the dot, or open the spin picker');
+        });
+        // The dot sits where the tip strikes, on a face whose radius is R: follow is above centre.
+        s('spin.pos', vm.spin.x.toFixed(4) + ',' + vm.spin.y.toFixed(4), () => {
+            [hud.spind, hud.spinbigd].forEach(d => { d.style.left = (50 + vm.spin.x * 50) + '%'; d.style.top = (50 - vm.spin.y * 50) + '%'; });
+        });
+        s('spin.open', vm.spin.open, v => { phShow(hud.spinpop, v); hud.spin.setAttribute('aria-expanded', v ? 'true' : 'false'); hud.spin.classList.toggle('is-open', v); });
+        s('spin.read', vm.spin.readout, v => { hud.spinr.textContent = v; });
+        s('spin.preset', vm.spin.preset, v => hud.tipButtons.forEach((b, i) => b.setAttribute('aria-pressed', i === v ? 'true' : 'false')));
+
+        s('hint.show', vm.hint.show, v => phShow(hud.hint, v));
+        s('hint.text', vm.hint.text, v => { hud.hintt.textContent = v; });
+        s('hint.tone', vm.hint.tone, v => { hud.hint.className = 'ph-hint ph-glass' + (v ? ' is-' + v : ''); });
+
+        s('bih.show', vm.bihNote.show, v => phShow(hud.bihnote, v));
+        if (vm.bihNote.show) {
+            s('bih.text', vm.bihNote.text, v => { hud.bihnote.textContent = v; });
+            s('bih.pos', vm.bihNote.x.toFixed(1) + ',' + vm.bihNote.y.toFixed(1), () => { hud.bihnote.style.left = vm.bihNote.x + 'px'; hud.bihnote.style.top = vm.bihNote.y + 'px'; });
+        }
+
+        s('replace.show', vm.replace.show, v => phShow(hud.replace, v));
+
+        // While the call card holds the corner, the gauge steps up and Move cue ball goes left.
+        s('mini.show', vm.mini.show, v => { phShow(hud.mini, v); hud.view.classList.toggle('is-calling', v); });
+        s('mini.cap', vm.mini.caption || '', v => { hud.minicap.textContent = v; });
+        s('mini.tone', vm.mini.tone || '', v => { hud.mini.className = 'ph-mini ph-glass' + (v ? ' is-' + v : ''); });
+        s('mini.called', vm.mini.called, v => hud.miniButtons.forEach((b, i) => b.setAttribute('aria-pressed', i === v ? 'true' : 'false')));
+
+        s('dlg.show', vm.dialog.show, v => phShow(hud.scrim, v));
+        if (vm.dialog.show) {
+            const d = vm.dialog;
+            s('dlg.win', d.win, v => { hud.dialog.classList.toggle('is-loss', v === false); hud.dlgi.innerHTML = v === false ? PH_ICON.cross : PH_ICON.trophy; });
+            s('dlg.kicker', d.kicker, v => { hud.dlgk.textContent = v; });
+            s('dlg.title', d.title, v => { hud.dlgt.textContent = v; });
+            s('dlg.reason', d.reason || '', v => { hud.dlgr.textContent = v; });
+            s('dlg.rec', !!d.record, v => phShow(hud.dlgrec, v));
+            s('dlg.recl', d.recordLabel || '', v => { hud.dlgrl.textContent = v; });
+            s('dlg.recv', d.record || '', v => { hud.dlgrv.textContent = v; });
+            s('dlg.delta', d.delta || '', v => { hud.dlgd.textContent = v; });
+            s('dlg.note', d.note || '', v => { hud.dlgnt.textContent = v; phShow(hud.dlgn, !!v); });
+            s('dlg.p', d.primary, v => { hud.dlgp.textContent = v; });
+            s('dlg.s', d.secondary, v => { hud.dlgs.textContent = v; });
+        }
+
+        if (hud.foot) s('foot.show', vm.foot.show, v => phShow(hud.foot, v));
+        // In a tournament match: Bracket / Pause in place of the mode and Reset.
+        s('foot.tour', vm.foot.tour, v => { phShow(hud.mode, !v); phShow(hud.reset, !v); phShow(hud.bracket, v); phShow(hud.pause, v); if (hud.trophy) phShow(hud.trophy, !v); });
+        s('tour.show', vm.tour.show, v => { phShow(hud.tourhead, v); if (hud.title) phShow(hud.title, !v); });
+        if (vm.tour.show) {
+            s('tour.k', vm.tour.kicker, v => { hud.tourk.textContent = v; });
+            s('tour.n', vm.tour.title, v => { hud.tourn.textContent = v; });
+            s('tour.f', vm.tour.frame, v => { hud.tourf.textContent = v; });
+        }
+        s('foot.mode', vm.foot.modeLabel, v => { hud.model.textContent = v; });
+        const sh = vm.sheet;
+        s('sheet.show', sh.show, v => { phShow(hud.sheet, v); phShow(hud.sheetscrim, v); hud.mode.setAttribute('aria-expanded', v ? 'true' : 'false'); });
+        if (sh.show) {
+            s('sheet.mode', sh.mode, v => {
+                hud.modeButtons.forEach(b => b.setAttribute('aria-checked', b.getAttribute('data-ph-mode') === v ? 'true' : 'false'));
+                phShow(hud.sheetcpu, v === 'cpu'); phShow(hud.sheetpvp, v === 'pvp'); phShow(hud.sheettour, v === 'tour');
+            });
+            s('sheet.diff', sh.diffs.map(d => d.checked ? 1 : 0).join(''), () => hud.diffButtons.forEach((b, i) => b.setAttribute('aria-checked', sh.diffs[i].checked ? 'true' : 'false')));
+            s('sheet.chip', sh.chip, v => { hud.sheetchip.textContent = v; });
+            s('sheet.note', sh.note, v => { hud.sheetnote.textContent = v; phShow(hud.sheetnote, !!v); });
+            s('sheet.tour', sh.tour.cta + '|' + sh.tour.sub + '|' + sh.tour.saved, () => {
+                hud.sheettourcta.textContent = sh.tour.cta; hud.sheettoursub.textContent = sh.tour.sub; phShow(hud.sheettoursub, !!sh.tour.sub); phShow(hud.sheetabandon, sh.tour.saved);
+            });
+        }
+        s('ho.show', vm.handoff.show, v => phShow(hud.handoff, v));
+        if (vm.handoff.show) {
+            s('ho.to', vm.handoff.to, v => { hud.hot.textContent = v; });
+            s('ho.from', vm.handoff.from, v => { hud.hof.textContent = v; });
+            s('ho.ready', vm.handoff.ready, v => {
+                hud.ready.textContent = '';
+                const long = document.createElement('span'), short = document.createElement('span');
+                long.className = 'ph-ready-long'; long.textContent = v;
+                short.className = 'ph-ready-short'; short.textContent = 'READY';
+                hud.ready.append(long, short);
+            });
+            // "Pass to <name>" beside "<NAME>'S READY": when the name would be cut off,
+            // the button says READY alone (the line beside it already names the player).
+            s('ho.fit', vm.handoff.to + '|' + vm.handoff.ready + '|' + hud.el.clientWidth, () => {
+                hud.handoff.classList.remove('is-tight');
+                if (hud.hot.scrollWidth > hud.hot.clientWidth + 1 || hud.hof.scrollWidth > hud.hof.clientWidth + 1) hud.handoff.classList.add('is-tight');
+            });
+        }
+        s('cursor', vm.cursor, v => {
+            hud.canvas.classList.toggle('is-dragging', v === 'dragging');
+            hud.canvas.classList.toggle('is-placing', v === 'placing');
+        });
+    }
+
+    // ── Canvas bridge ─────────────────────────────────────────────────
+    // The renderer's theme colours, read off the HUD's computed --pool-*
+    // values and normalised to #rrggbb. Cached until phThemeChanged(),
+    // which the host calls on every theme or colour change.
+    function phColour(css, fallback) {
+        const v = String(css || '').trim();
+        let m = /^#([0-9a-f]{3})$/i.exec(v);
+        if (m) return '#' + m[1].split('').map(c => c + c).join('').toLowerCase();
+        m = /^#([0-9a-f]{6})/i.exec(v);
+        if (m) return '#' + m[1].toLowerCase();
+        m = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(v);
+        if (m) return '#' + [m[1], m[2], m[3]].map(x => Math.max(0, Math.min(255, Math.round(+x))).toString(16).padStart(2, '0')).join('');
+        return fallback;
+    }
+
+    function phThemeTokens(hud) {
+        if (hud.theme) return hud.theme;
+        const cs = getComputedStyle(hud.el);
+        const read = n => cs.getPropertyValue(n).trim();
+        hud.theme = {
+            accent: phColour(read('--pool-felt-accent'), PG_THEME.accent),
+            hot: phColour(read('--pool-hot'), PG_THEME.hot),
+            font: read('--pool-canvas-font') || PG_THEME.font,
+        };
+        return hud.theme;
+    }
+
+    function phThemeChanged(hud) { if (hud) hud.theme = null; }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — TOURNAMENT SCREENS (v2)
+    // ═══════════════════════════════════════════════════════════════════
+    // The tournament's screens from the design (TournamentSetup, BracketTree,
+    // BracketCompact, BracketFull, MatchIntro, MatchResult, Champion,
+    // ChampionFull, TrophyCabinet, and InMatch's resume, abandon and pause
+    // dialogs), over the pool HUD.
+    //
+    //   puTree(t, opts)        the bracket as HTML + SVG, the design's geometry:
+    //                          column (W − champ − rounds·gap) / rounds, card
+    //                          min(64, slot − 12), elbows at the gutter midpoint
+    //   pu*HTML(model)         each screen as HTML, from the tournament and the
+    //                          screen's own state
+    //   puMount / puSync       one overlay per HUD; the controller hands it the
+    //                          screen and it re-renders only when that changes.
+    //                          Clicks and edits come back through data-pu-act
+    //                          and data-pu-in to the controller's handlers
+    // Names are typed by people, so everything that goes into HTML is escaped.
+
+    const puEsc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const PU_ICON = {
+        back: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>',
+        minus: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg>',
+        plus: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>',
+        bracket: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h5v5H3M3 14h5v5H3M8 7.5h4v9H8M12 12h4M16 9h5v6h-5z"></path></svg>',
+        cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
+        cupBig: '<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3" fill="currentColor" fill-opacity="0.1"></path><path d="M9.5 7.2v1.6a2.5 2.5 0 0 0 1.4 2.2" stroke-opacity="0.6"></path></svg>',
+        you: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4.5 4.2-7 8-7s7 2.5 8 7"></path></svg>',
+        check: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>',
+        play: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"></path></svg>',
+        pause: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14"></path></svg>',
+        warn: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 16.5h-19L12 3z"></path><path d="M12 10v4M12 17.2v.1"></path></svg>',
+        exit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"></path></svg>',
+        close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
+        ball: '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="#F3EEE2"></circle><circle cx="8.8" cy="8.6" r="2" fill="#FFFFFF" fill-opacity="0.8"></circle></svg>',
+    };
+
+    // "QF", "SF", "F", "R16" for the TBD lines: "Winner QF 2".
+    function puShort(rounds, r) {
+        const fromEnd = rounds - 1 - r;
+        return fromEnd === 0 ? 'F' : fromEnd === 1 ? 'SF' : fromEnd === 2 ? 'QF' : 'R' + Math.pow(2, fromEnd + 1);
+    }
+    // How a match reads right now: 'bye' | 'done' | 'live' | 'next' | ''.
+    function puState(t, m, liveId) {
+        if (m.status === 'bye') return 'bye';
+        if (m.status === 'done') return 'done';
+        if (m.id === liveId || m.status === 'live') return 'live';
+        const n = ptNext(t);
+        return n && n.id === m.id ? 'next' : '';
+    }
+    // One line of a match: the player, or the bye, or who it is waiting for.
+    function puLine(t, m, side) {
+        const slot = side === 'a' ? m.a : m.b;
+        if (slot !== null) return { name: t.slots[slot].name, seed: String(t.slots[slot].seed), tbd: false };
+        if (m.round === 0) return { name: 'Bye', seed: '', tbd: true };
+        const feeder = ptMatch(t, m.round - 1, 2 * m.index + (side === 'a' ? 0 : 1));
+        if (feeder && feeder.status === 'bye') return { name: t.slots[feeder.a].name, seed: String(t.slots[feeder.a].seed), tbd: false };
+        return { name: 'Winner ' + puShort(t.rounds, m.round - 1) + ' ' + (2 * m.index + (side === 'a' ? 1 : 2)), seed: '', tbd: true };
+    }
+    // The round's name where a column is narrow: Last 16, Quarters, Semis, Final.
+    function puRoundShort(rounds, r) {
+        const fromEnd = rounds - 1 - r;
+        return fromEnd === 0 ? 'Final' : fromEnd === 1 ? 'Semis' : fromEnd === 2 ? 'Quarters' : 'Last ' + Math.pow(2, fromEnd + 1);
+    }
+    // The path to highlight: the champion's, else the YOU player's while still in.
+    function puPath(t) {
+        const champ = ptChampion(t);
+        let slot = champ;
+        if (slot === null) { const y = t.slots.findIndex(s => s.you); slot = y >= 0 && ptOut(t, y) === null ? y : null; }
+        const ids = new Set();
+        if (slot === null) return { ids, champ: false, name: '' };
+        // Every match they won, and the one they are in now (the design lights the way in).
+        t.matches.forEach(m => {
+            if (m.a !== slot && m.b !== slot) return;
+            if (((m.status === 'done' || m.status === 'bye') && m.winner === slot) || m.status === 'pending' || m.status === 'live') ids.add(m.id);
+        });
+        return { ids, champ: champ !== null, name: t.slots[slot].name };
+    }
+
+    // The mini tree's height: a row of first-round cards needs about 30 px each.
+    const puMiniH = t => Math.max(160, t.size / 2 * 30);
+    // opts: { w, h, mini, liveId }
+    function puTree(t, opts) {
+        const o = opts || {}, W = o.w || 900, H = o.h || 520, mini = !!o.mini;
+        const fx = v => Math.round(v * 10) / 10;
+        const cols = t.rounds, n0 = t.size / 2;
+        const hdr = mini ? 0 : 30, champW = mini ? 78 : 188, gap = mini ? 16 : 40;
+        const cardW = (W - champW - cols * gap) / cols;
+        const slotH = (H - hdr) / n0;
+        const cardH = mini ? Math.min(40, slotH - 6) : Math.min(64, slotH - 12);
+        const pos = (r, j) => { const cy = hdr + slotH * (j + 0.5) * Math.pow(2, r); return { x: r * (cardW + gap), y: cy - cardH / 2, cy }; };
+        const path = puPath(t);
+        let lines = '', hi = '', cards = '';
+        t.matches.forEach(m => {
+            const p = pos(m.round, m.index), st = puState(t, m, o.liveId);
+            const a = puLine(t, m, 'a'), b = puLine(t, m, 'b');
+            const [sa, sb] = ptScore(m), showScore = st === 'done' || st === 'live';
+            const aWin = (st === 'done' && m.winner === m.a) || st === 'bye', bWin = st === 'done' && m.winner === m.b;
+            const row = (L, score, win, lose) => '<div class="pu-tr-row' + (win ? ' is-win' : '') + (lose ? ' is-lose' : '') + (L.tbd ? ' is-tbd' : '') + '">' +
+                (mini ? '' : '<span class="pu-tr-seed">' + puEsc(L.seed) + '</span>') +
+                '<span class="pu-tr-name">' + puEsc(L.name) + '</span><span class="pu-tr-score">' + (showScore ? score : '') + '</span></div>';
+            cards += '<div class="pu-tr-card is-' + (st || 'wait') + (path.ids.has(m.id) ? ' is-path' : '') + '" style="left:' + fx(p.x) + 'px;top:' + fx(p.y) + 'px;width:' + fx(cardW) + 'px;height:' + fx(cardH) + 'px">' +
+                row(a, sa, aWin, st === 'done' && !aWin) + row(b, sb, bWin, st === 'done' && !bWin) +
+                (st && !mini ? '<span class="pu-chip is-' + st + '">' + st.toUpperCase() + '</span>' : '') + '</div>';
+            if (m.round > 0) [2 * m.index, 2 * m.index + 1].forEach(fj => {
+                const f = pos(m.round - 1, fj), x1 = f.x + cardW, mx = x1 + gap / 2;
+                const d = 'M' + fx(x1) + ' ' + fx(f.cy) + 'H' + fx(mx) + 'V' + fx(p.cy) + 'H' + fx(p.x);
+                if (path.ids.has(ptMatch(t, m.round - 1, fj).id) && path.ids.has(m.id)) hi += d; else lines += d;
+            });
+        });
+        const fp = pos(cols - 1, 0), chH = mini ? cardH : Math.max(cardH, 104), chX = cols * (cardW + gap);
+        const cd = 'M' + fx(fp.x + cardW) + ' ' + fx(fp.cy) + 'H' + fx(chX);
+        if (path.champ) hi += cd; else lines += cd;
+        const champ = ptChampion(t);
+        const heads = mini ? '' : Array.from({ length: cols }, (_, r) => '<div class="pu-tr-head" style="left:' + fx(r * (cardW + gap)) + 'px;width:' + fx(cardW) + 'px">' +
+            puEsc((cardW < 190 ? puRoundShort(t.rounds, r) : ptRoundName(t.rounds, r)).toUpperCase() + ' · RACE TO ' + t.settings.race[r]) + '</div>').join('') +
+            '<div class="pu-tr-head" style="left:' + fx(chX) + 'px;width:' + fx(champW) + 'px">CHAMPION</div>';
+        return '<div class="pu-tree' + (mini ? ' is-mini' : '') + '" role="img" aria-label="Tournament bracket" style="width:' + W + 'px;height:' + H + 'px">' + heads +
+            '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true"><path class="pu-tr-line" d="' + lines + '" stroke-width="' + (mini ? 1.25 : 1.5) + '"></path>' +
+            '<path class="pu-tr-hi" d="' + hi + '" stroke-width="' + (mini ? 1.25 : 1.5) + '"></path></svg>' + cards +
+            '<div class="pu-tr-champ' + (champ !== null ? ' is-won' : '') + '" style="left:' + fx(chX) + 'px;top:' + fx(fp.cy - chH / 2) + 'px;width:' + fx(champW) + 'px;height:' + fx(chH) + 'px">' +
+            PU_ICON.cup + (mini ? '' : '<span class="pu-tr-champ-l">CHAMPION</span>') + '<span class="pu-tr-champ-n">' + puEsc(champ !== null ? t.slots[champ].name : 'TBD') + '</span></div></div>';
+    }
+
+    // ── Screens ───────────────────────────────────────────────────────
+    const puHead = (kicker, title, back, right) => '<div class="pu-head">' +
+        (back ? '<button type="button" class="pu-iconbtn" data-pu-act="' + back + '" aria-label="Back">' + PU_ICON.back + '</button>' : '') +
+        '<div class="pu-head-t"><span class="pu-kicker">' + puEsc(kicker) + '</span><span class="pu-title">' + puEsc(title) + '</span></div>' + (right || '') + '</div>';
+    const puPill = text => '<span class="pu-pill">' + puEsc(text) + '</span>';
+    const puSeg = (label, key, opts, cur) => '<div class="pu-seg-row" role="radiogroup" aria-label="' + puEsc(label) + '"><span class="pu-seg-l">' + puEsc(label) + '</span>' +
+        '<div class="pu-seg" style="grid-template-columns:repeat(' + opts.length + ',minmax(0,1fr))">' +
+        opts.map(o => '<button type="button" role="radio" aria-checked="' + (o[0] === cur ? 'true' : 'false') + '" data-pu-act="set" data-pu-arg="' + key + ':' + o[0] + '">' + puEsc(o[1]) + '</button>').join('') + '</div></div>';
+
+    // s = { n, names, name, race: [per column], clock, guide, call, shuffle }
+    function puSetupHTML(s) {
+        const size = ptSizeFor(s.n), byes = size - s.n, cols = ptRaceColumns(size);
+        const rows = s.names.slice(0, s.n).map((nm, i) => '<div class="pu-player"><label class="pu-seedl" for="pu-p' + i + '">' + String(i + 1).padStart(2, '0') + '</label>' +
+            '<div class="pu-player-in"><input id="pu-p' + i + '" class="pu-input' + (i === 0 ? ' is-you' : '') + '" type="text" maxlength="16" placeholder="Player name" value="' + puEsc(nm) + '" data-pu-in="name:' + i + '" aria-label="' + (i === 0 ? 'Player 1 name (you)' : 'Player ' + (i + 1) + ' name') + '">' +
+            (i === 0 ? '<span class="pu-you">' + PU_ICON.you + 'YOU</span>' : '') + '</div></div>').join('');
+        const races = cols.map((c, ci) => '<label class="pu-race"><span>' + c.label + '</span><select data-pu-in="race:' + ci + '" aria-label="' + c.label + ', race to">' +
+            [1, 2, 3, 4, 5].map(v => '<option value="' + v + '"' + (v === s.race[ci] ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label>').join('');
+        return '<div class="pu-screen-in">' + puHead('TOURNAMENT · HUMANS ONLY', 'New tournament', 'close') +
+            '<div class="pu-body">' +
+            '<label class="pu-field"><span class="pu-seg-l">Name</span><input class="pu-input" type="text" maxlength="24" placeholder="' + puEsc(PT_NAMES[size]) + '" value="' + puEsc(s.name) + '" data-pu-in="tname" aria-label="Tournament name"></label>' +
+            '<div class="pu-count"><span class="pu-count-t"><span class="pu-strong">Contestants</span><span class="pu-note">Bracket of ' + size + (byes ? ' · ' + byes + (byes === 1 ? ' bye' : ' byes') + ' to top seeds' : '') + '</span></span>' +
+            '<div class="pu-stepper" role="group" aria-label="Contestants"><button type="button" data-pu-act="count" data-pu-arg="-1" aria-label="Fewer contestants"' + (s.n <= PT_MIN ? ' disabled' : '') + '>' + PU_ICON.minus + '</button>' +
+            '<span class="pu-count-n" aria-live="polite">' + s.n + '</span><button type="button" data-pu-act="count" data-pu-arg="1" aria-label="More contestants"' + (s.n >= PT_MAX ? ' disabled' : '') + '>' + PU_ICON.plus + '</button></div></div>' +
+            '<div class="pu-players">' + rows + '</div>' +
+            '<div class="pu-group"><span class="pu-kicker">FRAMES PER ROUND · RACE TO</span><div class="pu-races" style="grid-template-columns:repeat(' + cols.length + ',minmax(0,1fr))">' + races + '</div></div>' +
+            puSeg('Shot clock', 'clock', [[30, '30s'], [45, '45s'], [0, 'Off']], s.clock) +
+            puSeg('Guideline', 'guide', [['full', 'Full'], ['short', 'Short'], ['off', 'Off']], s.guide) +
+            puSeg('Call pocket', 'call', [['8', '8 only'], ['every', 'Every shot']], s.call) +
+            '<div class="pu-count"><span class="pu-count-t"><span class="pu-strong" id="pu-shuf">Shuffle seeds</span><span class="pu-note">Off keeps the list order as seeding</span></span>' +
+            '<button type="button" class="pu-switch" role="switch" aria-checked="' + (s.shuffle ? 'true' : 'false') + '" aria-labelledby="pu-shuf" data-pu-act="shuffle"><span><span></span></span></button></div>' +
+            '</div>' +
+            '<button type="button" class="pu-primary" data-pu-act="start">' + PU_ICON.bracket + 'START TOURNAMENT</button></div>';
+    }
+
+    // One match card on the compact bracket's round page.
+    function puMatchCard(t, m, liveId) {
+        const st = puState(t, m, liveId), [sa, sb] = ptScore(m), showScore = st === 'done' || st === 'live';
+        const code = puShort(t.rounds, m.round) + (t.rounds - 1 - m.round === 0 ? 'INAL' : ' ' + (m.index + 1));
+        const title = code === 'FINAL' ? 'FINAL · RACE TO ' + m.raceTo : st === 'bye' ? code + ' · BYE' : code + ' · RACE TO ' + m.raceTo;
+        const a = puLine(t, m, 'a'), b = st === 'bye' ? { name: 'Advances to ' + ptRoundName(t.rounds, m.round + 1).toLowerCase(), seed: '', tbd: true } : puLine(t, m, 'b');
+        const row = (L, score, win, lose) => '<div class="pu-mrow' + (win ? ' is-win' : '') + (lose ? ' is-lose' : '') + (L.tbd ? ' is-tbd' : '') + '"><span class="pu-mseed">' + puEsc(L.seed) + '</span>' +
+            '<span class="pu-mname">' + puEsc(L.name) + '</span><span class="pu-mscore">' + (showScore ? score : '') + '</span></div>';
+        return '<div class="pu-match is-' + (st || 'wait') + '"><div class="pu-match-h"><span class="pu-kicker">' + puEsc(title) + '</span>' +
+            (st ? '<span class="pu-chip is-' + st + '">' + st.toUpperCase() + '</span>' : '') + '</div>' +
+            row(a, sa, st === 'bye' || (st === 'done' && m.winner === m.a), st === 'done' && m.winner !== m.a) +
+            row(b, sb, st === 'done' && m.winner === m.b, st === 'done' && m.winner !== m.b) + '</div>';
+    }
+    // The CTA line under PLAY NEXT MATCH: "Ayesha vs Bilal · Semi-final".
+    function puNextLine(t) {
+        const n = ptNext(t);
+        return n ? t.slots[n.a].name + ' vs ' + t.slots[n.b].name + ' · ' + ptRoundName(t.rounds, n.round) : '';
+    }
+    // v = { t, tab, liveId, layout, miniW, maxW, maxH (the full tree's box in Max) }
+    function puBracketHTML(v) {
+        const t = v.t, next = ptNext(t), live = v.liveId && ptById(t, v.liveId);
+        const cta = live ? { act: 'resume', title: 'RESUME MATCH', sub: t.slots[live.a].name + ' vs ' + t.slots[live.b].name + ' · ' + ptRoundName(t.rounds, live.round) }
+            : next ? { act: 'play', title: 'PLAY NEXT MATCH', sub: puNextLine(t) } : { act: 'champion', title: 'SEE THE CHAMPION', sub: '' };
+        if (v.layout === 'max') {
+            const played = ptPlayable(t).filter(m => m.status === 'done').length, cur = next || live;
+            const stage = cur ? ptRoundName(t.rounds, cur.round) + ' · ' + played + ' of ' + ptPlayable(t).length + ' played' : 'Complete';
+            const path = puPath(t);
+            return '<div class="pu-screen-in is-max"><div class="pu-maxhead"><div class="pu-head-t"><span class="pu-kicker">' + puEsc(t.name.toUpperCase() + ' · ' + t.slots.length + ' PLAYERS') + '</span>' +
+                '<span class="pu-title is-big">' + puEsc(stage) + '</span></div>' +
+                '<div class="pu-legend"><span><span class="pu-chip is-live">LIVE</span>At the table</span><span><span class="pu-chip is-next">NEXT</span>Up next</span>' +
+                (path.name ? '<span><span class="pu-legend-line"></span>' + puEsc((path.champ ? 'Champion\'s path · ' : 'Your path · ') + path.name) + '</span>' : '') + '</div>' +
+                '<div class="pu-maxacts"><button type="button" class="pu-primary is-inline" data-pu-act="' + cta.act + '">' + PU_ICON.play + puEsc(cta.act === 'champion' ? cta.title : cta.title.replace(' MATCH', '') + (cta.sub ? ' · ' + cta.sub.split(' · ')[0].toUpperCase() : '')) + '</button>' +
+                '<button type="button" class="pu-iconbtn" data-pu-act="' + (live ? 'resume' : 'close') + '" aria-label="' + (live ? 'Back to the match' : 'Leave the bracket') + '">' + PU_ICON.back + '</button></div></div>' +
+                '<div class="pu-maxtree">' + puTree(t, { w: v.maxW || 1232, h: v.maxH || 672, liveId: v.liveId }) + '</div></div>';
+        }
+        const tabs = Array.from({ length: t.rounds }, (_, r) => {
+            const done = t.matches.filter(m => m.round === r).every(m => m.status === 'done' || m.status === 'bye');
+            return '<button type="button" role="tab" aria-selected="' + (r === v.tab ? 'true' : 'false') + '" data-pu-act="tab" data-pu-arg="' + r + '">' + (done ? PU_ICON.check : '') + puEsc(t.rounds > 3 ? puRoundShort(t.rounds, r) : ptRoundName(t.rounds, r)) + '</button>';
+        }).join('');
+        const page = t.matches.filter(m => m.round === v.tab).map(m => puMatchCard(t, m, v.liveId)).join('');
+        return '<div class="pu-screen-in">' + puHead(t.name.toUpperCase(), 'Bracket', live ? 'resume' : 'close', puPill(t.slots.length + ' PLAYERS')) +
+            '<div class="pu-tabs" role="tablist" aria-label="Rounds" style="grid-template-columns:repeat(' + t.rounds + ',minmax(0,1fr))">' + tabs + '</div>' +
+            '<div class="pu-body" role="tabpanel">' + page +
+            (v.tab > 0 ? '<div class="pu-group"><span class="pu-kicker">WHOLE BRACKET</span><div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: puMiniH(t), mini: true, liveId: v.liveId }) + '</div></div>' : '') + '</div>' +
+            '<button type="button" class="pu-primary is-two" data-pu-act="' + cta.act + '"><span>' + cta.title + '</span>' + (cta.sub ? '<span class="pu-primary-sub">' + puEsc(cta.sub) + '</span>' : '') + '</button></div>';
+    }
+
+    // Seed and route, for the intro: "Seed 4 · beat Zara 1–0", "Seed 1 · bye in QF".
+    function puRoute(t, slot, round) {
+        const bits = ['Seed ' + t.slots[slot].seed];
+        const prev = t.matches.find(m => m.round === round - 1 && (m.a === slot || m.b === slot));
+        if (prev && prev.status === 'bye') bits.push('bye in ' + puShort(t.rounds, prev.round));
+        else if (prev && prev.status === 'done') { const r = ptRun(t, slot)[round - 1]; if (r) bits.push(r.text + ' ' + r.score); }
+        return bits.join(' · ');
+    }
+    // v = { t, matchId }
+    function puIntroHTML(v) {
+        const t = v.t, m = ptById(t, v.matchId), num = ptMatchNumber(t, m);
+        const A = t.slots[m.a], B = t.slots[m.b], br = t.slots[ptBreaker(t, m, m.frames.length)];
+        const side = (S, slot, cls) => '<div class="pu-vs-side ' + cls + '"><div class="pu-avatar' + (slot === m.a ? ' is-lead' : '') + '">' + puEsc((S.name[0] || '?').toUpperCase()) + '</div>' +
+            '<span class="pu-vs-name">' + puEsc(S.name) + '</span><span class="pu-note">' + puEsc(puRoute(t, slot, m.round)) + '</span></div>';
+        return '<div class="pu-screen-in is-intro">' + puHead(t.name.toUpperCase() + ' · MATCH ' + num.n + ' OF ' + num.of, '', 'bracket') +
+            '<div class="pu-body is-center"><div class="pu-round"><span class="pu-round-n">' + puEsc(ptRoundName(t.rounds, m.round).toUpperCase()) + '</span><span class="pu-round-r">Race to ' + m.raceTo + '</span></div>' +
+            '<div class="pu-vs">' + side(A, m.a, 'is-a') + '<span class="pu-vs-x">VS</span>' + side(B, m.b, 'is-b') + '</div>' +
+            '<div class="pu-breaks">' + PU_ICON.ball + '<span><strong>' + puEsc(br.name) + ' breaks</strong><span class="pu-note"> · breaks alternate after</span></span></div></div>' +
+            '<div class="pu-foot"><span class="pu-note is-center">' + puEsc(A.name + ' and ' + B.name + ', take the seat when it\'s your shot.') + '</span>' +
+            '<button type="button" class="pu-primary" data-pu-act="ready">READY</button></div></div>';
+    }
+
+    // v = { t, matchId }
+    function puResultHTML(v) {
+        const t = v.t, m = ptById(t, v.matchId), num = ptMatchNumber(t, m), [sa, sb] = ptScore(m);
+        const W = t.slots[m.winner], L = t.slots[m.winner === m.a ? m.b : m.a];
+        const final = m.round === t.rounds - 1, next = ptNext(t);
+        const frames = m.frames.map((w, i) => '<div class="pu-frame' + (w === m.winner ? ' is-win' : '') + '"><span class="pu-kicker">FRAME ' + (i + 1) + '</span><span>' + puEsc(t.slots[w].name) + '</span></div>').join('');
+        return '<div class="pu-screen-in">' + puHead(t.name.toUpperCase(), ptRoundName(t.rounds, m.round) + ' · race to ' + m.raceTo, '', puPill('MATCH ' + num.n + ' OF ' + num.of)) +
+            '<div class="pu-body"><div class="pu-won"><div class="pu-won-top"><div class="pu-avatar is-lead">' + puEsc((W.name[0] || '?').toUpperCase()) + '</div>' +
+            '<div class="pu-won-t"><span class="pu-kicker is-accent">' + (final ? 'CHAMPION' : 'MATCH WON') + '</span><span class="pu-won-n">' + puEsc(W.name) + '</span></div>' +
+            '<span class="pu-won-s">' + Math.max(sa, sb) + '–' + Math.min(sa, sb) + '</span></div><div class="pu-frames" style="grid-template-columns:repeat(' + Math.min(3, m.frames.length) + ',minmax(0,1fr))">' + frames + '</div></div>' +
+            '<div class="pu-out"><span class="pu-avatar is-small">' + puEsc((L.name[0] || '?').toUpperCase()) + '</span><span class="pu-out-t">' + puEsc(L.name + ' is out') + '</span><span class="pu-note">' + puEsc(ptRoundName(t.rounds, m.round) + ' finish') + '</span></div>' +
+            '<div class="pu-group"><span class="pu-kicker">' + puEsc(final ? W.name.toUpperCase() + ' WINS ' + t.name.toUpperCase() : W.name.toUpperCase() + ' ADVANCES TO THE ' + ptRoundName(t.rounds, m.round + 1).toUpperCase()) + '</span>' +
+            '<div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: puMiniH(t), mini: true }) + '</div></div></div>' +
+            '<button type="button" class="pu-primary is-two" data-pu-act="' + (final ? 'champion' : 'bracket') + '"><span>CONTINUE</span><span class="pu-primary-sub">' +
+            puEsc(final ? 'The champion' : next ? 'Next: ' + t.slots[next.a].name + ' vs ' + t.slots[next.b].name + ' · ' + ptRoundName(t.rounds, next.round) : '') + '</span></button></div>';
+    }
+
+    const puDate = ms => { try { return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch (_) { return ''; } };
+    // v = { t, layout }
+    function puChampionHTML(v) {
+        const t = v.t, c = ptChampion(t), C = t.slots[c], fr = ptFrames(t, c);
+        const run = ptRun(t, c).map(r => '<div class="pu-run' + (r.round === t.rounds - 1 ? ' is-final' : '') + '"><span class="pu-kicker">' + puEsc(puRoundShort(t.rounds, r.round).toUpperCase()) + '</span>' +
+            '<span class="pu-run-t' + (r.kind === 'bye' ? ' is-muted' : '') + '">' + puEsc(r.text) + '</span><span class="pu-run-s">' + puEsc(r.score || '—') + '</span></div>').join('');
+        // A no-break space before each dot, so a wrapped line never starts with one.
+        const meta = t.slots.length + ' players\u00a0· ' + puDate(t.created) + '\u00a0· ' + fr.won + ' frames won, ' + fr.lost + ' lost';
+        const x = '<button type="button" class="pu-iconbtn pu-champ-x" data-pu-act="close" aria-label="Close">' + PU_ICON.close + '</button>';
+        const hero = '<div class="pu-hero"><span class="pu-hero-cup">' + PU_ICON.cupBig + '</span><span class="pu-kicker is-accent is-wide">' + puEsc('CHAMPION · ' + t.name.toUpperCase()) + '</span>' +
+            '<span class="pu-hero-n">' + puEsc(C.name) + '</span><span class="pu-note">' + puEsc(meta) + '</span></div>';
+        const acts = '<div class="pu-champ-acts"><button type="button" class="pu-primary" data-pu-act="new">NEW TOURNAMENT</button>' +
+            '<button type="button" class="pu-btn" data-pu-act="cabinet">' + PU_ICON.cup + 'Trophy cabinet</button></div>';
+        if (v.layout === 'max') {
+            return '<div class="pu-screen-in is-max is-champ">' + x + '<div class="pu-champ-grid"><div class="pu-champ-l">' + hero + '<div class="pu-runs">' + run + '</div>' + acts + '</div>' +
+                '<div class="pu-champ-r"><div class="pu-mini is-big">' + puTree(t, { w: 724, h: 520 }) + '</div></div></div></div>';
+        }
+        return '<div class="pu-screen-in is-champ">' + x + '<div class="pu-body">' + hero + '<div class="pu-runs">' + run + '</div>' +
+            '<div class="pu-group"><span class="pu-kicker">FINAL BRACKET</span><div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: puMiniH(t), mini: true }) + '</div></div></div>' + acts + '</div>';
+    }
+
+    // v = { cab }
+    function puCabinetHTML(v) {
+        const rows = ptCabinetRows(v.cab);
+        const cell = n => '<span class="pu-cab-c' + (n ? '' : ' is-zero') + '">' + (n || '–') + '</span>';
+        const table = rows.length ? rows.map((r, i) => '<div class="pu-cab-row" role="row"><span role="rowheader" class="pu-cab-name">' + (i === 0 ? '<span class="pu-crown">' + PU_ICON.cup + '</span>' : '<span class="pu-crown"></span>') +
+            puEsc(r.name) + '</span>' + cell(r[4]) + cell(r[8]) + cell(r[16]) + '<span class="pu-cab-t">' + r.total + '</span></div>').join('')
+            : '<div class="pu-empty">No titles yet. The first tournament you finish lands here.</div>';
+        const recent = (v.cab.recent || []).map(r => '<div class="pu-recent" role="listitem"><span class="pu-recent-s">' + r.size + '</span><span class="pu-recent-t"><span class="pu-strong">' + puEsc(r.name) + '</span>' +
+            '<span class="pu-note">' + puEsc(puDate(r.date) + ' · ' + r.players + ' players') + '</span></span><span class="pu-recent-c">' + PU_ICON.cup + puEsc(r.champ) + '</span></div>').join('');
+        return '<div class="pu-screen-in">' + puHead('SAVED ON THIS COMPUTER', 'Trophy cabinet', 'cabinetBack') +
+            '<div class="pu-body"><div class="pu-group"><span class="pu-kicker">TITLES BY BRACKET SIZE</span><div class="pu-cab" role="table" aria-label="Titles by bracket size">' +
+            '<div class="pu-cab-row is-head" role="row"><span>PLAYER</span><span>4</span><span>8</span><span>16</span><span class="is-accent">TOTAL</span></div>' + table + '</div></div>' +
+            (recent ? '<div class="pu-group"><span class="pu-kicker">RECENT TOURNAMENTS</span><div class="pu-recents" role="list">' + recent + '</div></div>' : '') + '</div></div>';
+    }
+
+    // The dialogs over the table: resume, abandon, pause. v = { t, liveId }
+    function puDialogHTML(kind, v) {
+        const t = v.t;
+        if (kind === 'pause') return '<div class="pu-dlg" role="dialog" aria-label="Paused"><span class="pu-dlg-icon">' + PU_ICON.pause + '</span>' +
+            '<span class="pu-dlg-t"><span class="pu-kicker">' + puEsc(t.name.toUpperCase()) + '</span><span class="pu-dlg-title">Paused</span><span class="pu-note">The shot clock is stopped.</span></span>' +
+            '<div class="pu-dlg-acts"><button type="button" class="pu-primary" data-pu-act="unpause">RESUME</button>' +
+            '<button type="button" class="pu-btn" data-pu-act="leave">Leave for now</button></div>' +
+            '<span class="pu-note is-center">Leaving keeps the match saved. Resume it from Game mode.</span></div>';
+        const live = (v.liveId && ptById(t, v.liveId)) || ptNext(t);
+        const where = live ? ptRoundName(t.rounds, live.round) : 'Final';
+        if (kind === 'abandon') return '<div class="pu-dlg is-hot" role="alertdialog" aria-label="Abandon tournament"><span class="pu-dlg-icon">' + PU_ICON.warn + '</span>' +
+            '<span class="pu-dlg-t"><span class="pu-dlg-title">' + puEsc('Abandon ' + t.name + '?') + '</span><span class="pu-note">' + puEsc('The bracket and every result for all ' + t.slots.length + ' players will be deleted from this computer. This can\'t be undone.') + '</span></span>' +
+            '<div class="pu-dlg-acts"><button type="button" class="pu-btn" data-pu-act="keep">Keep tournament</button><button type="button" class="pu-primary is-hot" data-pu-act="abandonYes">ABANDON TOURNAMENT</button></div></div>';
+        const score = live ? ptScore(live) : [0, 0];
+        return '<div class="pu-dlg" role="dialog" aria-label="Tournament in progress"><span class="pu-dlg-icon">' + PU_ICON.bracket + '</span>' +
+            '<span class="pu-dlg-t"><span class="pu-kicker">TOURNAMENT IN PROGRESS</span><span class="pu-dlg-title">' + puEsc(t.name + ' · ' + where) + '</span>' +
+            (live ? '<span class="pu-note">' + puEsc(t.slots[live.a].name + ' vs ' + t.slots[live.b].name + ', frame ' + (live.frames.length + 1)) + '</span>' : '') + '</span>' +
+            (live ? '<div class="pu-dlg-score"><span>' + puEsc(t.slots[live.a].name) + '</span><span class="pu-dlg-n">' + score[0] + '–' + score[1] + '</span><span>' + puEsc(t.slots[live.b].name) + '</span></div>' : '') +
+            '<div class="pu-dlg-acts"><button type="button" class="pu-primary" data-pu-act="resumeTour">RESUME</button><button type="button" class="pu-btn is-hot" data-pu-act="abandon">Abandon</button></div></div>';
+    }
+
+    // ── Mounting ──────────────────────────────────────────────────────
+    // One screen layer and one dialog layer per HUD, both inside .pool-hud.
+    function puMount(hud, on) {
+        if (hud.pu) return hud.pu;
+        const screen = document.createElement('div'), dialog = document.createElement('div');
+        screen.className = 'pu-screen'; screen.hidden = true;
+        dialog.className = 'pu-scrim'; dialog.hidden = true;
+        hud.el.appendChild(screen); hud.el.appendChild(dialog);
+        const act = e => {
+            const b = e.target.closest && e.target.closest('[data-pu-act]');
+            if (!b || b.disabled || !hud.el.contains(b)) return;
+            const f = on[b.getAttribute('data-pu-act')];
+            if (typeof f === 'function') f(b.getAttribute('data-pu-arg'));
+        };
+        const edit = e => {
+            const f = e.target.getAttribute && e.target.getAttribute('data-pu-in');
+            if (f && typeof on.edit === 'function') on.edit(f, e.target.value);
+        };
+        screen.addEventListener('click', act); dialog.addEventListener('click', act);
+        screen.addEventListener('input', edit); screen.addEventListener('change', edit);
+        // Keys typed into a field stay there: the host's number-key game shortcuts skip
+        // inputs but not selects, so "3" in a race-to select would switch to Tetris.
+        screen.addEventListener('keydown', e => { if (e.target.closest && e.target.closest('input, select, textarea')) e.stopPropagation(); });
+        hud.pu = { screen, dialog, key: { screen: null, dialog: null } };
+        return hud.pu;
+    }
+    // view = { screen: html | '', dialog: html | '', key: { screen, dialog } }
+    function puSync(hud, on, view) {
+        const pu = puMount(hud, on);
+        if (pu.key.screen !== view.key.screen) {
+            pu.key.screen = view.key.screen;
+            // Keep keyboard focus on the same control across a re-render (a stepper
+            // press re-renders the list; the focus stays on that button).
+            const a = document.activeElement, had = a && pu.screen.contains(a) && a.getAttribute('data-pu-act');
+            const sel = had ? '[data-pu-act="' + had + '"]' + (a.getAttribute('data-pu-arg') !== null ? '[data-pu-arg="' + a.getAttribute('data-pu-arg') + '"]' : '') : null;
+            pu.screen.innerHTML = view.screen || '';
+            pu.screen.hidden = !view.screen;
+            const again = sel && pu.screen.querySelector(sel);
+            if (again) again.focus({ preventScroll: true });
+        }
+        if (pu.key.dialog !== view.key.dialog) {
+            pu.key.dialog = view.key.dialog;
+            pu.dialog.innerHTML = view.dialog || '';
+            pu.dialog.hidden = !view.dialog;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — CPU (v2)
+    // ═══════════════════════════════════════════════════════════════════
+    // Four tiers on one planner (POOL_V2_PLAN.md, CPU):
+    //   1  candidates, from geometry: direct pots (ghost ball), one-rail banks,
+    //      one-rail kicks and two-ball combos, each with a make probability
+    //      for the tier's own aim error, and the best few safeties
+    //   2  the best candidates are played out on a cloned world with the real
+    //      physics and judged by prJudge, so a line that scratches, fouls or
+    //      drops the 8 early is thrown away before it is ever hit. First the
+    //      aim is corrected for throw and squirt: the planner steps a copy to
+    //      the first contact, reads the object ball's real departure and moves
+    //      the cue by the error over the cut's gain
+    //   3  the survivors are tried with the tier's spins and speeds and scored
+    //      on where the cue ball stops: the make probability of the best next
+    //      shot (pro: the best two)
+    //   4  when no pot is likely enough, a safety: a legal hit that leaves the
+    //      opponent the least
+    //   5  execution noise per tier
+    // Pure and time-sliced: paPlan() returns a job; job.step(ms) works until
+    // the budget is spent (each full trial is one shot to rest, about 3 ms).
+
+    const PA_DEG = Math.PI / 180;
+    // Tip offsets, in R (follow +y, right +x).
+    const PA_TIPS = {
+        stun: { x: 0, y: 0 }, follow: { x: 0, y: 0.35 }, draw: { x: 0, y: -0.45 },
+        left: { x: -0.3, y: 0 }, right: { x: 0.3, y: 0 },
+        followLeft: { x: -0.25, y: 0.3 }, followRight: { x: 0.25, y: 0.3 },
+        drawLeft: { x: -0.25, y: -0.35 }, drawRight: { x: 0.25, y: -0.35 },
+    };
+    // The tiers. aim is σ in degrees on direct pots; aimAlt on banks, kicks and
+    // combos; power is σ as a fraction. top = candidates played out; keep = how
+    // many survivors get the spin × speed search; refine = aim corrections.
+    // safeBelow: take a safety when the best pot's make probability is under it.
+    // robust: the top three finished lines are replayed this many times with the
+    // tier's own noise, and a line that fouls or loses the frame when missed is
+    // marked down (a zero-noise tier needs none: it plays what it verified).
+    // robustSafe: the same for safeties and escapes, where it differs from robust.
+    // sweep: when nothing pots and no safety is legal, turn the cue all the way
+    // round (1°), keep the gaps where the first ball hit is a legal one, and play
+    // the middle of each gap out: the escape a blind roll used to be.
+    const PA_TIERS = {
+        easy:   { label: 'Easy',   desc: 'Takes simple pots · misses often',     top: 4,  keep: 1, refine: 0, spins: ['stun'], speeds: [1],
+                  position: 0, bank: false, kick: false, combo: false, safeBelow: 0,    aim: 1.2, aimAlt: 1.8, power: 0.12 },
+        normal: { label: 'Normal', desc: 'Solid potting · little position play', top: 10, keep: 3, refine: 1, spins: ['stun', 'follow', 'draw'], speeds: [1, 1.4],
+                  position: 1, bank: true,  kick: false, combo: false, safeBelow: 0.25, aim: 0.5, aimAlt: 0.8, power: 0.06, robust: 2 },
+        hard:   { label: 'Hard',   desc: 'Plays position · rarely leaves a shot', top: 20, keep: 4, refine: 2, spins: ['stun', 'follow', 'draw', 'left', 'right'], speeds: [1, 1.4],
+                  position: 1, bank: true,  kick: true,  combo: true,  safeBelow: 0.4,  aim: 0.2, aimAlt: 0.4, power: 0.02, robust: 3, sweep: true },
+        pro:    { label: 'Pro',    desc: 'Hardly misses · call every shot',      top: 24, keep: 5, refine: 2,
+                  spins: ['stun', 'follow', 'draw', 'left', 'right', 'followLeft', 'followRight', 'drawLeft', 'drawRight'], speeds: [1, 1.4],
+                  position: 2, bank: true,  kick: true,  combo: true,  safeBelow: 0.5,  aim: 0,   aimAlt: 0.15, power: 0.0025, callEvery: true, robustSafe: 3, sweep: true },
+    };
+    const PA_TIER_NAMES = ['easy', 'normal', 'hard', 'pro'];
+    // A zero-noise tier's make probability still allows a hair of error: the
+    // physics the planner verified on is the physics it plays, so this is small.
+    const PA_SIGMA_FLOOR = 0.02 * PA_DEG;
+    // Candidates are ORDERED as a steady club player would rate them, so every
+    // tier tries the easy lines first; DECISIONS use the tier's own error.
+    const PA_SIGMA_RANK = 0.35 * PA_DEG;
+    const PA_MAX_CUT = 78 * PA_DEG;
+    const PA_PLACE_BACK = [110, 170];         // ball in hand: this far behind the ghost ball
+
+    // Standard normal from a uniform rng (Box–Muller).
+    function paGauss(rng) {
+        const u = Math.max(1e-12, rng()), v = rng();
+        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+    // erf, Abramowitz and Stegun 7.1.26 (|error| < 1.5e-7).
+    function paErf(x) {
+        const s = x < 0 ? -1 : 1; x = Math.abs(x);
+        const t = 1 / (1 + 0.3275911 * x);
+        const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+        return s * y;
+    }
+    const paAngDiff = (a, b) => { let d = a - b; d -= 2 * Math.PI * Math.round(d / (2 * Math.PI)); return d; };
+
+    // Is the straight path from (ax, ay) to (bx, by) clear of every ball but
+    // the ones in `skip`? A ball blocks when its centre comes within `gap`.
+    function paClear(balls, ax, ay, bx, by, skip, gap) {
+        const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1;
+        for (const b of balls) {
+            if (b.state === 'pocketed' || skip.indexOf(b.id) !== -1) continue;
+            const t = Math.max(0, Math.min(1, ((b.x - ax) * dx + (b.y - ay) * dy) / L2));
+            if (Math.hypot(ax + dx * t - b.x, ay + dy * t - b.y) < gap) return false;
         }
         return true;
     }
 
-    function poolPhysicsUpdate() {
-        // Sub-stepping prevents tunneling at high speeds.
-        // At max power 18, each sub-step moves max 6px (= 1 ball radius).
-        for (let step = 0; step < POOL_SUB_STEPS; step++) {
-            const activeBalls = poolBalls.filter(b => !b.pocketed);
-
-            // Move balls (fractional step)
-            for (const b of activeBalls) {
-                b.x += b.vx / POOL_SUB_STEPS;
-                b.y += b.vy / POOL_SUB_STEPS;
-            }
-
-            for (const b of activeBalls) {
-                if (b.x - b.r < POOL_CUSHION_X1) {
-                    b.x = POOL_CUSHION_X1 + b.r;
-                    b.vx = Math.abs(b.vx) * POOL_RESTITUTION;
-                    if (poolShotFired) poolCushionAfterHit = true;
-                    // Cushion English: side spin alters rebound angle (LEFT wall)
-                    if (b.id === 0 && b.spinSide) {
-                        const sf = Math.min(Math.sqrt(b.vx*b.vx + b.vy*b.vy) * 0.12, 3);
-                        b.vy += b.spinSide * sf;
-                        b.vy += (-b.spinVert) * Math.sign(b.vy) * sf * 0.4;
-                        b.spinSide *= 0.6; b.spinVert *= 0.5;
-                    }
-                }
-                if (b.x + b.r > POOL_CUSHION_X2) {
-                    b.x = POOL_CUSHION_X2 - b.r;
-                    b.vx = -Math.abs(b.vx) * POOL_RESTITUTION;
-                    if (poolShotFired) poolCushionAfterHit = true;
-                    // Cushion English: RIGHT wall
-                    if (b.id === 0 && b.spinSide) {
-                        const sf = Math.min(Math.sqrt(b.vx*b.vx + b.vy*b.vy) * 0.12, 3);
-                        b.vy -= b.spinSide * sf;
-                        b.vy += (-b.spinVert) * Math.sign(b.vy) * sf * 0.4;
-                        b.spinSide *= 0.6; b.spinVert *= 0.5;
-                    }
-                }
-                if (b.y - b.r < POOL_CUSHION_Y1) {
-                    b.y = POOL_CUSHION_Y1 + b.r;
-                    b.vy = Math.abs(b.vy) * POOL_RESTITUTION;
-                    if (poolShotFired) poolCushionAfterHit = true;
-                    // Cushion English: TOP wall
-                    if (b.id === 0 && b.spinSide) {
-                        const sf = Math.min(Math.sqrt(b.vx*b.vx + b.vy*b.vy) * 0.12, 3);
-                        b.vx += b.spinSide * sf;
-                        b.vx += (-b.spinVert) * Math.sign(b.vx) * sf * 0.4;
-                        b.spinSide *= 0.6; b.spinVert *= 0.5;
-                    }
-                }
-                if (b.y + b.r > POOL_CUSHION_Y2) {
-                    b.y = POOL_CUSHION_Y2 - b.r;
-                    b.vy = -Math.abs(b.vy) * POOL_RESTITUTION;
-                    if (poolShotFired) poolCushionAfterHit = true;
-                    // Cushion English: BOTTOM wall
-                    if (b.id === 0 && b.spinSide) {
-                        const sf = Math.min(Math.sqrt(b.vx*b.vx + b.vy*b.vy) * 0.12, 3);
-                        b.vx -= b.spinSide * sf;
-                        b.vx += (-b.spinVert) * Math.sign(b.vx) * sf * 0.4;
-                        b.spinSide *= 0.6; b.spinVert *= 0.5;
-                    }
-                }
-            }
-
-            for (let i = 0; i < activeBalls.length; i++) {
-                for (let j = i + 1; j < activeBalls.length; j++) {
-                    const a = activeBalls[i];
-                    const bj = activeBalls[j];
-                    const dx = bj.x - a.x;
-                    const dy = bj.y - a.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    const minDist = a.r + bj.r;
-
-                    if (dist < minDist && dist > 0.001) {
-                        // Track first ball hit by cue ball
-                        if (poolShotFired && poolFirstBallHit === -1) {
-                            if (a.id === 0) poolFirstBallHit = bj.id;
-                            else if (bj.id === 0) poolFirstBallHit = a.id;
-                        }
-
-                        // Unit normal from a toward bj
-                        const nx = dx / dist;
-                        const ny = dy / dist;
-
-                        // Relative velocity along normal
-                        const dvx = a.vx - bj.vx;
-                        const dvy = a.vy - bj.vy;
-                        const dvn = dvx * nx + dvy * ny;
-
-                        // Don't resolve if separating
-                        if (dvn <= 0) continue;
-
-                        // Capture cue speed BEFORE the elastic collision: a head-on shot leaves postSpeed ~0, which
-                        // would kill follow/draw. Pre-collision speed scales spin with shot power.
-                        let cueBallPreSpeed = 0;
-                        if (a.id === 0) {
-                            cueBallPreSpeed = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
-                        } else if (bj.id === 0) {
-                            cueBallPreSpeed = Math.sqrt(bj.vx * bj.vx + bj.vy * bj.vy);
-                        }
-
-                        // Elastic impulse for equal mass: balls swap normal velocity components
-                        a.vx -= dvn * nx;
-                        a.vy -= dvn * ny;
-                        bj.vx += dvn * nx;
-                        bj.vy += dvn * ny;
-
-                        // Separate overlapping balls (push apart along normal)
-                        const overlap = minDist - dist;
-                        a.x -= (overlap * 0.5) * nx;
-                        a.y -= (overlap * 0.5) * ny;
-                        bj.x += (overlap * 0.5) * nx;
-                        bj.y += (overlap * 0.5) * ny;
-
-                        // Apply cue ball spin (English) using PRE-collision speed.
-                        // Real pool physics: spin is angular momentum stored on the ball.
-                        // Follow (spinY=-1, top): cue ball continues forward after contact.
-                        // Draw   (spinY=+1, bottom): cue ball reverses backward.
-                        // Side   (spinX): cue ball deflects perpendicular to contact line.
-                        // 60% applied instantly at collision, 40% stored as residual drift
-                        // that gets applied gradually via cloth friction each frame.
-                        if (a.id === 0 && a.spinX !== undefined && (a.spinX !== 0 || a.spinY !== 0)) {
-                            const spinMag = Math.min(cueBallPreSpeed * 0.4, 10);
-                            // Side spin: perpendicular to contact normal (0.5× follow strength)
-                            a.vx += (-ny) * a.spinX * spinMag * 0.5;
-                            a.vy += nx * a.spinX * spinMag * 0.5;
-                            // Follow/draw: along contact normal (full strength)
-                            a.vx -= nx * a.spinY * spinMag;
-                            a.vy -= ny * a.spinY * spinMag;
-                            // Store residual spin for gradual cloth-friction drift
-                            a.spinDriftVx = ((-ny) * a.spinX * 0.2 - nx * a.spinY * 0.35) * cueBallPreSpeed;
-                            a.spinDriftVy = (nx * a.spinX * 0.2 - ny * a.spinY * 0.35) * cueBallPreSpeed;
-                            a.spinX = 0;
-                            a.spinY = 0;
-                        } else if (bj.id === 0 && bj.spinX !== undefined && (bj.spinX !== 0 || bj.spinY !== 0)) {
-                            const spinMag = Math.min(cueBallPreSpeed * 0.4, 10);
-                            bj.vx += ny * bj.spinX * spinMag * 0.5;
-                            bj.vy += (-nx) * bj.spinX * spinMag * 0.5;
-                            bj.vx += nx * bj.spinY * spinMag;
-                            bj.vy += ny * bj.spinY * spinMag;
-                            bj.spinDriftVx = (ny * bj.spinX * 0.2 + nx * bj.spinY * 0.35) * cueBallPreSpeed;
-                            bj.spinDriftVy = ((-nx) * bj.spinX * 0.2 + ny * bj.spinY * 0.35) * cueBallPreSpeed;
-                            bj.spinX = 0;
-                            bj.spinY = 0;
-                        }
-
-                        // Throw: side spin deflects object ball perpendicular to contact line
-                        if (a.id === 0 && a.spinSide) {
-                            const tF = Math.min(cueBallPreSpeed * 0.015, 1.5);
-                            bj.vx += (-ny) * (-a.spinSide) * tF;
-                            bj.vy += nx * (-a.spinSide) * tF;
-                            a.spinSide *= 0.5; a.spinVert *= 0.4;
-                        } else if (bj.id === 0 && bj.spinSide) {
-                            const tF = Math.min(cueBallPreSpeed * 0.015, 1.5);
-                            a.vx += ny * (-bj.spinSide) * tF;
-                            a.vy += (-nx) * (-bj.spinSide) * tF;
-                            bj.spinSide *= 0.5; bj.spinVert *= 0.4;
-                        }
-                    }
-                }
-            }
-
-            for (const b of activeBalls) {
-                if (b.pocketed) continue;
-                for (const p of poolPockets) {
-                    const dx = b.x - p.x;
-                    const dy = b.y - p.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist < POOL_POCKET_R) {
-                        b.pocketed = true;
-                        b.vx = 0;
-                        b.vy = 0;
-                        if (poolShotFired) {
-                            poolPocketedThisShot.push(b.id);
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Apply friction and rotation once per frame (after all sub-steps)
-        const postBalls = poolBalls.filter(b => !b.pocketed);
-        for (const b of postBalls) {
-            // Residual spin drift from cloth friction — the cue ball arcs after collision instead of
-            // snapping straight to its final trajectory.
-            if (b.id === 0 && b.spinDriftVx !== undefined &&
-                (b.spinDriftVx !== 0 || b.spinDriftVy !== 0)) {
-                b.vx += b.spinDriftVx * 0.12;
-                b.vy += b.spinDriftVy * 0.12;
-                b.spinDriftVx *= 0.90;
-                b.spinDriftVy *= 0.90;
-                if (Math.abs(b.spinDriftVx) < 0.01 && Math.abs(b.spinDriftVy) < 0.01) {
-                    b.spinDriftVx = 0;
-                    b.spinDriftVy = 0;
-                }
-            }
-
-            // Per-frame spin decay via cloth friction
-            if (b.id === 0) {
-                if (b.spinSide) { b.spinSide *= 0.998; if (Math.abs(b.spinSide) < 0.01) b.spinSide = 0; }
-                if (b.spinVert) { b.spinVert *= 0.993; if (Math.abs(b.spinVert) < 0.01) b.spinVert = 0; }
-            }
-
-            b.vx *= POOL_FRICTION;
-            b.vy *= POOL_FRICTION;
-
-            const speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
-            if (speed > POOL_MIN_VEL) {
-                b.rotation += speed / b.r;
-            }
-
-            if (Math.abs(b.vx) < POOL_MIN_VEL) b.vx = 0;
-            if (Math.abs(b.vy) < POOL_MIN_VEL) b.vy = 0;
-        }
+    // The balls the shooter may legally hit first, and the ones that count when potted.
+    function paTargets(world, frame, seat) {
+        const on = world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed');
+        const st = prStatusFrom(frame, seat, on.map(b => b.id));
+        if (st.onThe8) return on.filter(b => b.id === 8);
+        return on.filter(b => b.id !== 8 && (!st.group || prGroupOf(b.id) === st.group));
     }
 
-    function poolProcessTurnResult() {
-        // BCA Official 8-Ball Rules
-        // Ref: BCA Rule 7 (Legal Shot), Rule 8 (Combination), Rule 9 (8-ball)
-        //
-        // TABLE OPEN: until first legal pocket after break — any ball may be
-        //   struck first; potting the 8-ball on open table is a foul (loss).
-        // AFTER GROUPS ASSIGNED, not on-the-8:
-        //   Must strike own group ball first.
-        //   Hitting 8-ball first = foul (ball in hand).
-        //   Hitting opponent's ball first = foul (ball in hand).
-        // ON THE 8 (all 7 group balls cleared):
-        //   Must strike 8-ball first; scratch on the 8 = loss.
-        //   Legally pocket 8-ball = win.
-        //   Pocket 8-ball on a foul (including scratch) = loss.
-
-        const cueBall  = poolBalls[0];
-        const pocketed = poolPocketedThisShot;
-        let foul = false;
-        poolFoulMessage = '';
-
-        const myPocketed = poolTurn === 1 ? poolPlayer1Pocketed : poolPlayer2Pocketed;
-        const myGroup    = poolTurn === 1 ? poolPlayer1Group    : poolPlayer2Group;
-        const tableOpen  = !poolFirstPocket;
-        const onThe8     = !tableOpen && myPocketed.length >= 7;
-        const opponent   = poolTurn === 1 ? 2 : 1;
-
-        // Detect scratch via BOTH the ball flag AND the pocketed-this-shot array,
-        // so a stale/reset flag can't bypass the loss path.
-        const cueScratched   = cueBall.pocketed || pocketed.includes(0);
-        const eightPocketed  = pocketed.includes(8);
-
-        // 0. 8-BALL POCKETED -> IMMEDIATE GAME END. Win vs loss is decided up front so nothing in
-        // the regular pocket loop can override it.
-        if (eightPocketed) {
-            // Clean the flag so the post-game render doesn't show a missing cue ball
-            if (cueBall.pocketed) cueBall.pocketed = false;
-
-            // LOSS: scratched cue ball on the same shot — overrides everything else
-            if (cueScratched) {
-                poolFoulMessage = 'Scratch on 8-ball! You lose';
-                poolWinner = opponent;
-                endPoolGame();
-                return;
-            }
-            // LOSS: 8 pocketed on the open table (no groups assigned yet)
-            if (tableOpen) {
-                poolFoulMessage = 'Pocketed 8-ball on open table! You lose';
-                poolWinner = opponent;
-                endPoolGame();
-                return;
-            }
-            // LOSS: 8 pocketed before clearing your own group
-            if (!onThe8) {
-                poolFoulMessage = 'Pocketed 8-ball too early! You lose';
-                poolWinner = opponent;
-                endPoolGame();
-                return;
-            }
-            // LOSS: didn't strike the 8 first on the 8-ball shot
-            if (poolFirstBallHit !== 8) {
-                poolFoulMessage = (poolFirstBallHit === -1)
-                    ? 'No ball contacted on 8-ball shot! You lose'
-                    : 'Foul on 8-ball shot! You lose';
-                poolWinner = opponent;
-                endPoolGame();
-                return;
-            }
-            // WIN: all conditions met — legal 8-ball pot
-            poolFoulMessage = '';
-            poolWinner = poolTurn;
-            endPoolGame();
-            return;
-        }
-
-        // 1. SCRATCH (no 8-ball involved)
-        if (cueScratched) {
-            cueBall.pocketed = false;
-            foul = true;
-            poolFoulMessage = 'Scratch! Ball in hand';
-        }
-
-        // 2. NO BALL CONTACTED
-        if (!foul && poolFirstBallHit === -1) {
-            foul = true;
-            poolFoulMessage = 'Foul! No ball contacted';
-        }
-
-        // 3. WRONG FIRST BALL (BCA Rule 7 — groups must be assigned)
-        // NOTE: when table is open, any ball may be struck first (even 8-ball
-        // used as a carom is legal per BCA; only pocketing it is illegal).
-        if (!foul && !tableOpen && poolFirstBallHit !== -1) {
-            const hitId     = poolFirstBallHit;
-            const hitSolid  = hitId >= 1 && hitId <= 7;
-            const hitStripe = hitId >= 9 && hitId <= 15;
-            const hit8      = hitId === 8;
-
-            if (onThe8) {
-                // Must hit 8-ball first
-                if (!hit8) {
-                    foul = true;
-                    poolFoulMessage = 'Foul! Must hit 8-ball first';
-                }
-            } else {
-                // Must hit own group first — hitting 8-ball early = foul
-                if (hit8) {
-                    foul = true;
-                    poolFoulMessage = 'Foul! Hit 8-ball before clearing your group';
-                } else if (myGroup === 'solids' && hitStripe) {
-                    foul = true;
-                    poolFoulMessage = "Foul! Hit opponent's ball first";
-                } else if (myGroup === 'stripes' && hitSolid) {
-                    foul = true;
-                    poolFoulMessage = "Foul! Hit opponent's ball first";
-                }
-            }
-        }
-
-        // 4. NO RAIL AFTER CONTACT
-        // BCA Rule 7: must pocket a ball OR cause any ball to contact a rail.
-        if (!foul && pocketed.length === 0 && poolFirstBallHit !== -1 && !poolCushionAfterHit) {
-            foul = true;
-            poolFoulMessage = 'Foul! No rail after contact';
-        }
-
-        // 5. PROCESS POCKETED BALLS. The 8-ball case is handled in 0, the cue ball in 1; this loop
-        // credits only group balls (1-7, 9-15) to their owners.
-        let legalPocket  = false;
-        let legalPotCount = 0;
-
-        for (const bid of pocketed) {
-            if (bid === 0 || bid === 8) continue; // cue & 8-ball handled above
-
-            // Assign groups on first pocket. Balls pocketed on a foul stay down, so attribution holds.
-            if (!poolFirstPocket) {
-                const isSolid = bid >= 1 && bid <= 7;
-                poolFirstPocket = true;
-                if (poolTurn === 1) {
-                    poolPlayer1Group = isSolid ? 'solids' : 'stripes';
-                    poolPlayer2Group = isSolid ? 'stripes' : 'solids';
-                } else {
-                    poolPlayer2Group = isSolid ? 'solids' : 'stripes';
-                    poolPlayer1Group = isSolid ? 'stripes' : 'solids';
-                }
-            }
-
-            // Credit the ball to the correct player using the definitive group map
-            const p1IsSolids = poolPlayer1Group === 'solids';
-            const ballIsSolid = bid >= 1 && bid <= 7;
-            // isP1Ball: true if this ball belongs to player 1's group
-            const isP1Ball = (p1IsSolids && ballIsSolid) || (!p1IsSolids && !ballIsSolid);
-
-            if (isP1Ball) {
-                if (!poolPlayer1Pocketed.includes(bid)) poolPlayer1Pocketed.push(bid);
-                if (poolTurn === 1 && !foul) { legalPocket = true; legalPotCount++; }
-            } else {
-                if (!poolPlayer2Pocketed.includes(bid)) poolPlayer2Pocketed.push(bid);
-                if (poolTurn === 2 && !foul) { legalPocket = true; legalPotCount++; }
-            }
-        }
-
-        // 6. XP FOR LEGAL POTS
-        const isHumanTurn = poolTurn === 1 || poolMode === 'pvp';
-        if (isHumanTurn && legalPotCount > 0 && xpSystemReady) {
-            const xpGained = legalPotCount * 5;
-            userXP.currentXP += xpGained;
-            userXP.totalXP   += xpGained;
-            checkLevelUp();
-            saveUserXP(userXP);
-            const label = legalPotCount === 1 ? '1 pot' : legalPotCount + ' pots';
-            showXPNotification('🎱 +' + xpGained + ' XP (' + label + ')', 'game');
-            updateXPDisplay();
-        }
-
-        // 7. TURN MANAGEMENT
-        if (foul) {
-            // Opponent gets ball in hand
-            poolTurn = poolTurn === 1 ? 2 : 1;
-            poolBallInHand = true;
-            poolPlacingBall = true;
-            cueBall.x  = POOL_W * 0.25;
-            cueBall.y  = POOL_H / 2;
-            cueBall.vx = 0;
-            cueBall.vy = 0;
-        } else if (!legalPocket) {
-            // No legal pot — change turns
-            poolTurn = poolTurn === 1 ? 2 : 1;
-        }
-        // If legal pocket — same player continues
-
-        // 8. RESET SHOT STATE
-        poolShotFired       = false;
-        poolFirstBallHit    = -1;
-        poolCushionAfterHit = false;
-        poolPocketedThisShot = [];
-        poolCueSpinX = 0;
-        poolCueSpinY = 0;
-
-        if (poolMode === 'cpu' && poolTurn === 2 && !poolGameOver) {
-            poolAIDelay = 90 + Math.floor(Math.random() * 60); // 1.5–2.5 s
-        }
-
-        updatePoolScoreboard();
+    // Where to send a ball into pocket p: between the mouth and the hole's centre.
+    function paAimPoint(p) {
+        const mx = (p.mouth[0] + p.mouth[2]) / 2, my = (p.mouth[1] + p.mouth[3]) / 2;
+        return { x: (mx + p.x) / 2, y: (my + p.y) / 2 };
+    }
+    // How far off line a ball arriving along (dx, dy) can be and still drop.
+    // Corners forgive more than sides, and both less as the approach flattens.
+    function paPocketTol(p, dx, dy) {
+        const nx = p.kind === 'corner' ? p.sx / Math.SQRT2 : 0, ny = p.kind === 'corner' ? p.sy / Math.SQRT2 : p.sy;
+        const c = Math.max(0, (dx * nx + dy * ny) / (Math.hypot(dx, dy) || 1));
+        return p.kind === 'corner' ? 11 * (0.55 + 0.45 * c) : Math.max(0, 15 * (c - 0.25) / 0.75);
+    }
+    // Make probability of a cut: the cue's aim error, amplified by the cut's
+    // gain (dθ_object / dθ_cue = d / (2R cos cut)), against the pocket's
+    // angular tolerance seen from the object ball.
+    function paMakeProb(dcg, cut, lop, tol, sigma, R) {
+        if (tol <= 0) return 0;
+        const gain = dcg / (2 * R * Math.max(0.15, Math.cos(cut)));
+        const s = Math.max(sigma, PA_SIGMA_FLOOR) * gain;
+        const p = paErf((tol / Math.max(lop, 1)) / (Math.SQRT2 * s));
+        return p * (1 - 0.08 * Math.min(1, (dcg + lop) / 1400));
     }
 
-
-    function poolAIPlaceBall() {
-        const cueBall = poolBalls.find(b => b.id === 0);
-        if (!cueBall) return;
-
-        // Smart placement: place BEHIND/INLINE with target ball toward a pocket
-        let targetGroup = poolPlayer2Group;
-        let targets = poolBalls.filter(b => !b.pocketed && b.id !== 0 && b.id !== 8);
-        if (targetGroup === 'solids') targets = targets.filter(b => b.id >= 1 && b.id <= 7);
-        else if (targetGroup === 'stripes') targets = targets.filter(b => b.id >= 9 && b.id <= 15);
-        if (targets.length === 0 && poolFirstPocket) {
-            const eight = poolBalls.find(b => b.id === 8 && !b.pocketed);
-            if (eight) targets = [eight];
-        }
-        if (targets.length === 0) targets = poolBalls.filter(b => !b.pocketed && b.id !== 0);
-
-        let bestPos = { x: POOL_W * 0.25, y: POOL_H / 2 };
-        let bestScore = -Infinity;
-
-        // For each target-pocket combo, calculate ideal cue ball position
-        // (inline behind the target, opposite side from pocket)
-        for (const target of targets) {
-            for (const pocket of poolPockets) {
-                const tpx = pocket.x - target.x;
-                const tpy = pocket.y - target.y;
-                const tpDist = Math.sqrt(tpx * tpx + tpy * tpy);
-                if (tpDist < 1) continue;
-
-                // Ideal position: behind target, away from pocket, at various distances
-                const dirX = -tpx / tpDist; // direction away from pocket
-                const dirY = -tpy / tpDist;
-
-                const distances = [POOL_BALL_R * 4, POOL_BALL_R * 6, POOL_BALL_R * 8, POOL_BALL_R * 10];
-                for (const dist of distances) {
-                    const posX = target.x + dirX * dist;
-                    const posY = target.y + dirY * dist;
-
-                    if (posX < POOL_CUSHION_X1 + POOL_BALL_R + 2 || posX > POOL_CUSHION_X2 - POOL_BALL_R - 2 ||
-                        posY < POOL_CUSHION_Y1 + POOL_BALL_R + 2 || posY > POOL_CUSHION_Y2 - POOL_BALL_R - 2) continue;
-
-                    let valid = true;
-                    for (const b of poolBalls) {
-                        if (b.pocketed || b.id === 0) continue;
-                        if (Math.sqrt((posX - b.x) ** 2 + (posY - b.y) ** 2) < POOL_BALL_R * 2.5) {
-                            valid = false; break;
-                        }
-                    }
-                    if (!valid) continue;
-
-                    // Check clear path from pos to target
-                    const ctx2t_x = target.x - posX;
-                    const ctx2t_y = target.y - posY;
-                    const ctx2t_d = Math.sqrt(ctx2t_x * ctx2t_x + ctx2t_y * ctx2t_y);
-                    let pathClear = true;
-                    for (const other of poolBalls) {
-                        if (other.pocketed || other.id === 0 || other.id === target.id) continue;
-                        const proj = Math.max(0, Math.min(1,
-                            ((other.x - posX) * ctx2t_x + (other.y - posY) * ctx2t_y) / (ctx2t_d * ctx2t_d)
-                        ));
-                        const cx = posX + proj * ctx2t_x;
-                        const cy = posY + proj * ctx2t_y;
-                        if (Math.sqrt((other.x - cx) ** 2 + (other.y - cy) ** 2) < POOL_BALL_R * 2.5) {
-                            pathClear = false; break;
-                        }
-                    }
-
-                    let score = 0;
-                    if (pathClear) score += 100;
-                    score -= tpDist * 0.1; // prefer targets close to pocket
-                    score -= dist * 0.3;   // prefer closer placement to target
-                    // Bonus for being directly inline (straight shot)
-                    score += 20;
-
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestPos = { x: posX, y: posY };
-                    }
-                }
-            }
-        }
-
-        cueBall.x = bestPos.x;
-        cueBall.y = bestPos.y;
-        cueBall.vx = 0;
-        cueBall.vy = 0;
-        cueBall.pocketed = false;
-        poolBallInHand = false;
-        poolPlacingBall = false;
+    // A reasonable base speed for a pot: the object ball reaches the pocket
+    // with a little pace left, the cue ball having rolled to the contact.
+    function paBaseSpeed(cfg, dcg, cut, lop) {
+        const a = cfg.muRoll * cfg.gravity;
+        const vObj = 1.4 * Math.sqrt(200 * 200 + 2 * a * lop);
+        const vc = vObj / Math.max(0.2, Math.cos(cut));
+        return Math.max(450, Math.min(cfg.maxSpeed * 0.85, 1.4 * Math.sqrt(vc * vc + 2 * a * dcg)));
     }
 
-    // POOL AI — Trial Simulation
-    // Runs a lightweight physics sim to verify if a shot will pot the
-    // target ball. Returns { potted, finalDist } where finalDist is
-    // how close the target got to the pocket center (lower = better).
-    function poolTrialSim(cueX, cueY, targetX, targetY, pocketX, pocketY, angle, power) {
-        // Simulate just cue ball + target ball, check if target enters pocket
-        let cx = cueX, cy = cueY;
-        let cvx = Math.cos(angle) * power, cvy = Math.sin(angle) * power;
-        let tx = targetX, ty = targetY;
-        let tvx = 0, tvy = 0;
-        let hit = false;
-        const R2 = POOL_BALL_R * 2;
-        const steps = 180; // enough frames for ball to reach pocket
-
-        for (let i = 0; i < steps; i++) {
-            // Sub-steps (same as real physics)
-            for (let s = 0; s < POOL_SUB_STEPS; s++) {
-                cx += cvx / POOL_SUB_STEPS;
-                cy += cvy / POOL_SUB_STEPS;
-                tx += tvx / POOL_SUB_STEPS;
-                ty += tvy / POOL_SUB_STEPS;
-
-                if (tx - POOL_BALL_R < POOL_CUSHION_X1) { tx = POOL_CUSHION_X1 + POOL_BALL_R; tvx = Math.abs(tvx) * POOL_RESTITUTION; }
-                if (tx + POOL_BALL_R > POOL_CUSHION_X2) { tx = POOL_CUSHION_X2 - POOL_BALL_R; tvx = -Math.abs(tvx) * POOL_RESTITUTION; }
-                if (ty - POOL_BALL_R < POOL_CUSHION_Y1) { ty = POOL_CUSHION_Y1 + POOL_BALL_R; tvy = Math.abs(tvy) * POOL_RESTITUTION; }
-                if (ty + POOL_BALL_R > POOL_CUSHION_Y2) { ty = POOL_CUSHION_Y2 - POOL_BALL_R; tvy = -Math.abs(tvy) * POOL_RESTITUTION; }
-
-                if (cx - POOL_BALL_R < POOL_CUSHION_X1) { cx = POOL_CUSHION_X1 + POOL_BALL_R; cvx = Math.abs(cvx) * POOL_RESTITUTION; }
-                if (cx + POOL_BALL_R > POOL_CUSHION_X2) { cx = POOL_CUSHION_X2 - POOL_BALL_R; cvx = -Math.abs(cvx) * POOL_RESTITUTION; }
-                if (cy - POOL_BALL_R < POOL_CUSHION_Y1) { cy = POOL_CUSHION_Y1 + POOL_BALL_R; cvy = Math.abs(cvy) * POOL_RESTITUTION; }
-                if (cy + POOL_BALL_R > POOL_CUSHION_Y2) { cy = POOL_CUSHION_Y2 - POOL_BALL_R; cvy = -Math.abs(cvy) * POOL_RESTITUTION; }
-
-                // Ball-ball collision (elastic, equal mass)
-                if (!hit) {
-                    const dx = tx - cx, dy = ty - cy;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist < R2 && dist > 0.001) {
-                        hit = true;
-                        const nx = dx / dist, ny = dy / dist;
-                        const dvx = cvx - tvx, dvy = cvy - tvy;
-                        const dvn = dvx * nx + dvy * ny;
-                        if (dvn > 0) {
-                            cvx -= dvn * nx;
-                            cvy -= dvn * ny;
-                            tvx += dvn * nx;
-                            tvy += dvn * ny;
-                        }
-                        const overlap = R2 - dist;
-                        cx -= (overlap * 0.5) * nx;
-                        cy -= (overlap * 0.5) * ny;
-                        tx += (overlap * 0.5) * nx;
-                        ty += (overlap * 0.5) * ny;
-                    }
-                }
-
-                const pdx = tx - pocketX, pdy = ty - pocketY;
-                if (Math.sqrt(pdx * pdx + pdy * pdy) < POOL_POCKET_R) {
-                    return { potted: true, finalDist: 0 };
-                }
-            }
-
-            cvx *= POOL_FRICTION; cvy *= POOL_FRICTION;
-            tvx *= POOL_FRICTION; tvy *= POOL_FRICTION;
-            if (Math.abs(cvx) < POOL_MIN_VEL) cvx = 0;
-            if (Math.abs(cvy) < POOL_MIN_VEL) cvy = 0;
-            if (Math.abs(tvx) < POOL_MIN_VEL) tvx = 0;
-            if (Math.abs(tvy) < POOL_MIN_VEL) tvy = 0;
-
-            if (cvx === 0 && cvy === 0 && tvx === 0 && tvy === 0) break;
-        }
-
-        // Not potted — return closest approach distance to pocket
-        const fd = Math.sqrt((tx - pocketX) ** 2 + (ty - pocketY) ** 2);
-        return { potted: false, finalDist: fd };
-    }
-
-    // Given a base angle, try micro-adjustments to find one that pots.
-    // Returns the corrected angle or the original if none work.
-    function poolAIRefineAngle(cueX, cueY, targetX, targetY, pocketX, pocketY, baseAngle, power) {
-        const base = poolTrialSim(cueX, cueY, targetX, targetY, pocketX, pocketY, baseAngle, power);
-        if (base.potted) return baseAngle;
-
-        const adjustments = [0.004, -0.004, 0.008, -0.008, 0.013, -0.013, 0.018, -0.018, 0.025, -0.025];
-        let bestAngle = baseAngle;
-        let bestDist = base.finalDist;
-
-        for (const adj of adjustments) {
-            const testAngle = baseAngle + adj;
-            const result = poolTrialSim(cueX, cueY, targetX, targetY, pocketX, pocketY, testAngle, power);
-            if (result.potted) return testAngle; // Found a working angle
-            if (result.finalDist < bestDist) {
-                bestDist = result.finalDist;
-                bestAngle = testAngle;
-            }
-        }
-
-        return bestAngle; // Return closest even if none pot
-    }
-
-    function poolAITakeShot(precomputeOnly = false) {
-        const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
-        if (!cueBall) return;
-
-        let targetGroup = poolPlayer2Group;
-        let targets = poolBalls.filter(b => !b.pocketed && b.id !== 0 && b.id !== 8);
-
-        if (targetGroup === 'solids') {
-            targets = targets.filter(b => b.id >= 1 && b.id <= 7);
-        } else if (targetGroup === 'stripes') {
-            targets = targets.filter(b => b.id >= 9 && b.id <= 15);
-        }
-
-        if (targets.length === 0 && poolFirstPocket) {
-            const eightBall = poolBalls.find(b => b.id === 8 && !b.pocketed);
-            if (eightBall) targets = [eightBall];
-        }
-        if (targets.length === 0) {
-            targets = poolBalls.filter(b => !b.pocketed && b.id !== 0);
-        }
-
-        // Helper: check if a straight line is clear of all balls except excludeIds
-        function pathClear(x1, y1, x2, y2, excludeIds) {
-            const dx = x2 - x1, dy = y2 - y1;
-            const len2 = dx * dx + dy * dy;
-            if (len2 < 1) return true;
-            for (const b of poolBalls) {
-                if (b.pocketed || excludeIds.includes(b.id)) continue;
-                const proj = Math.max(0, Math.min(1,
-                    ((b.x - x1) * dx + (b.y - y1) * dy) / len2
-                ));
-                const cx = x1 + proj * dx, cy = y1 + proj * dy;
-                if (Math.sqrt((b.x - cx) ** 2 + (b.y - cy) ** 2) < POOL_BALL_R * 2.0) return false;
-            }
-            return true;
-        }
-
-        let bestShot = null;
-        let bestScore = -Infinity;
-
-        // PASS 1 — Direct shots (cue ball → ghost ball → pocket)
-        let anyDirectClear = false;
-
-        for (const target of targets) {
-            for (const pocket of poolPockets) {
-                const tpx = pocket.x - target.x, tpy = pocket.y - target.y;
-                const tpDist = Math.sqrt(tpx * tpx + tpy * tpy);
-                if (tpDist < 1) continue;
-
-                const ghostX = target.x - (tpx / tpDist) * (POOL_BALL_R * 2);
-                const ghostY = target.y - (tpy / tpDist) * (POOL_BALL_R * 2);
-
-                const cax = ghostX - cueBall.x, cay = ghostY - cueBall.y;
-                const caDist = Math.sqrt(cax * cax + cay * cay);
-                if (caDist < 1) continue;
-
-                const blocked   = !pathClear(cueBall.x, cueBall.y, ghostX, ghostY, [0, target.id]);
-                const tpBlocked = !pathClear(target.x, target.y, pocket.x, pocket.y, [0, target.id]);
-
-                if (!blocked) anyDirectClear = true;
-
-                let score = 0;
-                if (!blocked && !tpBlocked) score += 120;
-                else if (!blocked)           score +=  35;
-                else                         score -=  60;
-
-                score -= caDist * 0.06;
-                score -= tpDist * 0.15;
-
-                const shotAngle   = Math.atan2(cay, cax);
-                const pocketAngle = Math.atan2(tpy, tpx);
-                let cutAngle = Math.abs(shotAngle - pocketAngle) % (2 * Math.PI);
-                if (cutAngle > Math.PI) cutAngle = 2 * Math.PI - cutAngle;
-                score -= cutAngle * 12;
-                if (tpDist < 55) score += 30;
-                if (tpDist < 30) score += 20;
-
-                const deflectAngle = shotAngle + Math.PI / 2;
-                const cueFinalX = ghostX + Math.cos(deflectAngle) * 40;
-                const cueFinalY = ghostY + Math.sin(deflectAngle) * 40;
-                const centerDist = Math.sqrt((cueFinalX - POOL_W / 2) ** 2 + (cueFinalY - POOL_H / 2) ** 2);
-                score -= centerDist * 0.03;
-
-                let spinX = 0, spinY = 0;
-                if (!blocked && !tpBlocked) {
-                    if (caDist > 80) {
-                        spinX =  Math.cos(shotAngle) * 0.6;
-                        spinY =  Math.sin(shotAngle) * 0.6;
-                    } else {
-                        spinX = -Math.cos(shotAngle) * 0.5;
-                        spinY = -Math.sin(shotAngle) * 0.5;
-                    }
-                }
-
-                // Power: account for friction loss over both legs (cue→ghost and target→pocket)
-                // Slightly over-power to ensure ball reaches pocket center
-                const rawPower = Math.min(POOL_CUE_MAX_POWER * 0.92,
-                    Math.max(4.5, caDist * 0.065 + tpDist * 0.055 + 3.5));
-
-                if (score > bestScore && !blocked && !tpBlocked) {
-                    // Use trial simulation to refine the angle for verified potting
-                    const refinedAngle = poolAIRefineAngle(
-                        cueBall.x, cueBall.y, target.x, target.y,
-                        pocket.x, pocket.y, shotAngle, rawPower
-                    );
-                    bestScore = score;
-                    bestShot = { angle: refinedAngle, power: rawPower, spinX, spinY, type: 'direct' };
-                } else if (score > bestScore) {
-                    bestScore = score;
-                    bestShot = { angle: shotAngle, power: rawPower, spinX, spinY, type: 'direct' };
-                }
-            }
-        }
-
-        // PASS 2 — Cushion (rail) shots to break snookers
-        //   Uses the reflection principle: mirror cue ball across the
-        //   cushion wall, then the straight line mirror→target gives
-        //   the exact bounce point on the rail.
-        const snookered = !anyDirectClear || bestScore < 20;
-
-        if (snookered) {
-            // 4 cushion walls  { axis, val, min, max }
-            const walls = [
-                { axis: 'y', val: POOL_CUSHION_Y1, min: POOL_CUSHION_X1 + POOL_BALL_R, max: POOL_CUSHION_X2 - POOL_BALL_R },
-                { axis: 'y', val: POOL_CUSHION_Y2, min: POOL_CUSHION_X1 + POOL_BALL_R, max: POOL_CUSHION_X2 - POOL_BALL_R },
-                { axis: 'x', val: POOL_CUSHION_X1, min: POOL_CUSHION_Y1 + POOL_BALL_R, max: POOL_CUSHION_Y2 - POOL_BALL_R },
-                { axis: 'x', val: POOL_CUSHION_X2, min: POOL_CUSHION_Y1 + POOL_BALL_R, max: POOL_CUSHION_Y2 - POOL_BALL_R },
-            ];
-
-            for (const target of targets) {
-                for (const wall of walls) {
-                    // Mirror the cue ball position across the wall
-                    let mirrorX = cueBall.x, mirrorY = cueBall.y;
-                    if (wall.axis === 'y') mirrorY = 2 * wall.val - cueBall.y;
-                    else                   mirrorX = 2 * wall.val - cueBall.x;
-
-                    // Intersection of line (mirror → target) with the wall
-                    let bounceX, bounceY, t;
-                    if (wall.axis === 'y') {
-                        const dy = target.y - mirrorY;
-                        if (Math.abs(dy) < 0.1) continue;
-                        t = (wall.val - mirrorY) / dy;
-                        bounceX = mirrorX + t * (target.x - mirrorX);
-                        bounceY = wall.val;
-                        if (bounceX < wall.min || bounceX > wall.max) continue;
-                    } else {
-                        const dx = target.x - mirrorX;
-                        if (Math.abs(dx) < 0.1) continue;
-                        t = (wall.val - mirrorX) / dx;
-                        bounceX = wall.val;
-                        bounceY = mirrorY + t * (target.y - mirrorY);
-                        if (bounceY < wall.min || bounceY > wall.max) continue;
-                    }
-                    // Bounce point must lie between cue and the wall
-                    if (t <= 0 || t >= 1) continue;
-
-                    // Cue ball must actually be on the right side of the wall
-                    if (wall.axis === 'y') {
-                        if (wall.val === POOL_CUSHION_Y1 && cueBall.y <= wall.val + POOL_BALL_R) continue;
-                        if (wall.val === POOL_CUSHION_Y2 && cueBall.y >= wall.val - POOL_BALL_R) continue;
-                    } else {
-                        if (wall.val === POOL_CUSHION_X1 && cueBall.x <= wall.val + POOL_BALL_R) continue;
-                        if (wall.val === POOL_CUSHION_X2 && cueBall.x >= wall.val - POOL_BALL_R) continue;
-                    }
-
-                    // Both legs must be clear
-                    if (!pathClear(cueBall.x, cueBall.y, bounceX, bounceY, [0])) continue;
-                    if (!pathClear(bounceX, bounceY, target.x, target.y, [0, target.id])) continue;
-
-                    const dx1 = bounceX - cueBall.x, dy1 = bounceY - cueBall.y;
-                    const leg1Dist = Math.sqrt(dx1 * dx1 + dy1 * dy1);
-                    const dx2 = target.x - bounceX, dy2 = target.y - bounceY;
-                    const leg2Dist = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-                    const totalDist = leg1Dist + leg2Dist;
-
-                    const shotAngle = Math.atan2(dy1, dx1);
-
-                    // Score: valid cushion break is better than a bad direct shot
-                    let score = 65;
-                    score -= totalDist * 0.07;
-                    if (totalDist < 130) score += 15;
-                    if (leg2Dist < 50)   score += 10; // close approach to target after bounce
-
-                    // Side-spin to stabilise the bounce
-                    const spinX = Math.cos(shotAngle) * 0.35;
-                    const spinY = Math.sin(shotAngle) * 0.35;
-
-                    const rawPower = Math.min(POOL_CUE_MAX_POWER * 0.92,
-                        Math.max(4.0, totalDist * 0.065 + 3.5));
-
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestShot = { angle: shotAngle, power: rawPower, spinX, spinY, type: 'cushion' };
-                    }
-                }
-            }
-        }
-
-        // PASS 3 — Safety shot: graze target + send cue to a rail
-        //   Used only when no direct or cushion shot scored well.
-        //   Avoids hitting wrong ball — aims at legal target with a
-        //   thin cut so cue ball rolls to a cushion afterwards.
-        if (!bestShot || bestScore < -20) {
-            for (const target of targets) {
-                const dx = target.x - cueBall.x, dy = target.y - cueBall.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                const direct = pathClear(cueBall.x, cueBall.y, target.x, target.y, [0, target.id]);
-                // Try a thin graze (offset ±0.12 rad) so cue continues to a cushion
-                for (const offset of [-0.12, 0, 0.12]) {
-                    const angle = Math.atan2(dy, dx) + offset;
-                    const score = (direct ? 5 : -30) - dist * 0.05;
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestShot = {
-                            angle,
-                            power: Math.max(4.0, Math.min(POOL_CUE_MAX_POWER * 0.7, dist * 0.06 + 3.5)),
-                            spinX: 0, spinY: 0, type: 'safety'
-                        };
-                    }
-                }
-            }
-        }
-
-        if (!bestShot) {
-            const nearest = targets[0];
-            if (nearest) {
-                const dx = nearest.x - cueBall.x, dy = nearest.y - cueBall.y;
-                bestShot = { angle: Math.atan2(dy, dx), power: POOL_CUE_MAX_POWER * 0.6, spinX: 0, spinY: 0, type: 'fallback' };
-            } else {
-                bestShot = { angle: Math.random() * Math.PI * 2, power: POOL_CUE_MAX_POWER * 0.5, spinX: 0, spinY: 0, type: 'fallback' };
-            }
-        }
-
-        // Hard difficulty AI — simulation-verified shots get ZERO noise.
-        // Only cushion/safety/fallback shots get slight imprecision.
-        let angleNoise;
-        if (bestShot.type === 'direct') {
-            // Direct shots are already refined by trial simulation — no noise needed.
-            angleNoise = 0;
-        } else if (bestShot.type === 'cushion') {
-            angleNoise = 0.012; // inherent bounce imprecision
-        } else {
-            angleNoise = 0.006; // safety/fallback
-        }
-        if (angleNoise > 0) bestShot.angle += (Math.random() - 0.5) * angleNoise;
-        // Minimal power variation — hard CPU controls power precisely
-        bestShot.power *= 0.995 + Math.random() * 0.01;
-        bestShot.power  = Math.max(3.5, Math.min(POOL_CUE_MAX_POWER, bestShot.power));
-
-        poolCueSpinX = bestShot.spinX || 0;
-        poolCueSpinY = bestShot.spinY || 0;
-
-        if (precomputeOnly) {
-            // Store shot for visual display — fire later when poolAIDelay hits 0
-            poolAIPendingShot = { angle: bestShot.angle, power: bestShot.power, spinX: poolCueSpinX, spinY: poolCueSpinY };
-            poolCueAngle = bestShot.angle; // point cue at chosen angle for rendering
-        } else {
-            poolFireShot(cueBall, bestShot.angle, bestShot.power);
-        }
-    }
-
-    function poolFireShot(cueBall, angle, power) {
-        cueBall.vx = Math.cos(angle) * power;
-        cueBall.vy = Math.sin(angle) * power;
-
-        // Store spin on cue ball — applied AFTER hitting a target ball
-        cueBall.spinX = poolCueSpinX;
-        cueBall.spinY = poolCueSpinY;
-        cueBall.spinSide = poolCueSpinX;   // persistent for cushion English
-        cueBall.spinVert = poolCueSpinY;   // persistent for cushion angle
-        cueBall.spinDriftVx = 0;
-        cueBall.spinDriftVy = 0;
-
-        poolShotFired = true;
-        poolIsBreakShot = false;  // kitchen restriction lifts after first shot
-        poolFirstBallHit = -1;
-        poolCushionAfterHit = false;
-        poolPocketedThisShot = [];
-        poolAiming = false;
-        poolDragging = false;
-        poolAimLocked = false;
-        poolLockedAngle = 0;
-        poolShotTimer = POOL_SHOT_CLOCK;
-        poolShotTimerFrame = 0;
-    }
-
-
-    function poolGetTableColors() {
-        const key = userPreferences.poolTableColor || 'green';
-        return POOL_TABLE_COLORS[key] || POOL_TABLE_COLORS.green;
-    }
-
-    function drawPoolFrame() {
-        if (!poolCtx) return;
-        const ctx = poolCtx;
-        const W = poolCanvas.width;
-        const H = poolCanvas.height;
-        const scaleX = W / POOL_W;
-        const scaleY = H / POOL_CANVAS_H;
-
-        ctx.save();
-        ctx.scale(scaleX, scaleY);
-
-        // Animated ambient background — palette shifts with table color
-        poolBgTime += 0.008;
-        const _tk = userPreferences.poolTableColor || 'green';
-        // c0 = dark base, c1 = lighter accent (visibly different), g1/g2 = glow RGBA prefix
-        const _bgPals = {
-            green:     { c0:'#0a1a0e', c1:'#1c3d24', g1:'rgba(56,168,90,',  g2:'rgba(34,110,58,' },
-            red:       { c0:'#1a080a', c1:'#3a1214', g1:'rgba(180,60,60,',   g2:'rgba(130,30,30,' },
-            blue:      { c0:'#08101e', c1:'#122038', g1:'rgba(50,110,180,',  g2:'rgba(30,70,140,' },
-            lightgrey: { c0:'#111820', c1:'#1e2e3e', g1:'rgba(160,180,200,', g2:'rgba(110,140,165,'},
+    // Every pot from (cx, cy), best first: direct, and for the tiers that
+    // play them, one-rail banks, one-rail kicks and two-ball combos.
+    function paCandidates(world, frame, seat, cx, cy, tier, directOnly) {
+        const T = directOnly ? Object.assign({}, PA_TIERS[tier] || PA_TIERS.normal, { bank: false, kick: false, combo: false }) : (PA_TIERS[tier] || PA_TIERS.normal);
+        const R = world.cfg.ballR, t = world.table, cfg = world.cfg, out = [];
+        const targets = paTargets(world, frame, seat);
+        const sigma = T.aim * PA_DEG, sigmaAlt = T.aimAlt * PA_DEG;
+        const gap = 2 * R - 0.5;
+        // p: the tier's make probability (decides); rank: a steady player's (orders).
+        const odds = (dcg, cut, lop, tol, sig, k) => ({ p: k * paMakeProb(dcg, cut, lop, tol, sig, R), rank: k * paMakeProb(dcg, cut, lop, tol, Math.max(sig, PA_SIGMA_RANK), R) });
+        const push = (c) => { if (c.rank > 0.01) out.push(c); };
+        const direct = (b, p, pi, fromX, fromY, kind, extra) => {
+            const ap = paAimPoint(p);
+            const tx = ap.x - b.x, ty = ap.y - b.y, tl = Math.hypot(tx, ty);
+            const gx = b.x - tx / tl * 2 * R, gy = b.y - ty / tl * 2 * R;
+            const ax = gx - fromX, ay = gy - fromY, al = Math.hypot(ax, ay);
+            if (al < 1) return null;
+            const cut = Math.acos(Math.max(-1, Math.min(1, (ax * tx + ay * ty) / (al * tl))));
+            if (cut > PA_MAX_CUT) return null;
+            if (!paClear(world.balls, fromX, fromY, gx, gy, [0, b.id].concat(extra || []), gap)) return null;
+            if (!paClear(world.balls, b.x, b.y, ap.x, ap.y, [0, b.id].concat(extra || []), gap)) return null;
+            return { kind: kind || 'direct', ball: b.id, pocket: pi, angle: Math.atan2(ay, ax), gx, gy, dcg: al, cut, lop: tl,
+                want: Math.atan2(ty, tx), tol: paPocketTol(p, tx, ty) };
         };
-        const _bp = _bgPals[_tk] || _bgPals.green;
-        const _s1 = (Math.sin(poolBgTime) + 1) * 0.5;           // 0→1 slow oscillator
-        const _s2 = (Math.sin(poolBgTime * 0.71 + 1.4) + 1) * 0.5; // offset oscillator
+        // Cushion lines for a ball's centre: x = ±(HL − R), y = ±(HW − R).
+        const rails = [{ axis: 'x', v: t.halfLength - R }, { axis: 'x', v: -(t.halfLength - R) }, { axis: 'y', v: t.halfWidth - R }, { axis: 'y', v: -(t.halfWidth - R) }];
+        const mirror = (x, y, r) => (r.axis === 'x' ? { x: 2 * r.v - x, y } : { x, y: 2 * r.v - y });
+        const railHit = (ax, ay, bx, by, r) => {
+            // Where the line from a to b's mirror crosses the rail line, if it does between them.
+            const m = mirror(bx, by, r);
+            const da = r.axis === 'x' ? r.v - ax : r.v - ay, dm = r.axis === 'x' ? m.x - ax : m.y - ay;
+            if (Math.abs(dm) < 1e-9 || da / dm <= 0 || da / dm >= 1) return null;
+            const k = da / dm, hx = ax + (m.x - ax) * k, hy = ay + (m.y - ay) * k;
+            // Keep clear of the pockets: a bank off a jaw is a guess.
+            if (r.axis === 'x' ? Math.abs(hy) > t.halfWidth - 50 : Math.abs(hx) > t.halfLength - 50 || Math.abs(hx) < 45) return null;
+            return { x: hx, y: hy, m };
+        };
 
-        // Sweeping diagonal base gradient (oscillates left↔right)
-        const _gx0 = POOL_W * (0.1 + _s1 * 0.35);
-        const _gx1 = POOL_W * (0.55 + _s2 * 0.35);
-        const _bgGrad = ctx.createLinearGradient(_gx0, 0, _gx1, POOL_CANVAS_H);
-        _bgGrad.addColorStop(0,   _bp.c0);
-        _bgGrad.addColorStop(0.5, _bp.c1);
-        _bgGrad.addColorStop(1,   _bp.c0);
-        ctx.fillStyle = _bgGrad;
-        ctx.fillRect(0, 0, POOL_W, POOL_CANVAS_H);
-
-        // Top margin: pulsing radial glow (centre, breathing in/out)
-        const _tgA  = 0.55 + 0.25 * Math.sin(poolBgTime * 1.1);   // 0.30→0.80
-        const _tgR  = POOL_TABLE_OFFSET_Y * (1.6 + 0.55 * _s1);   // radius breathes
-        const _tcx  = POOL_W * (0.35 + 0.30 * _s2);               // centre drifts
-        const _tcy  = POOL_TABLE_OFFSET_Y * 0.50;
-        const _tGrad = ctx.createRadialGradient(_tcx, _tcy, 0, _tcx, _tcy, _tgR);
-        _tGrad.addColorStop(0,   _bp.g1 + _tgA + ')');
-        _tGrad.addColorStop(0.6, _bp.g1 + ((_tgA * 0.25).toFixed(3)) + ')');
-        _tGrad.addColorStop(1,   'rgba(0,0,0,0)');
-        ctx.fillStyle = _tGrad;
-        ctx.fillRect(0, 0, POOL_W, POOL_TABLE_OFFSET_Y + 18);
-
-        // Bottom margin: second pulsing radial glow (opposite phase)
-        const _botCY = POOL_TABLE_OFFSET_Y + POOL_H + POOL_TABLE_OFFSET_Y * 0.50;
-        const _bgA2  = 0.50 + 0.22 * Math.sin(poolBgTime * 0.85 + Math.PI); // opposite phase
-        const _bgR2  = POOL_TABLE_OFFSET_Y * (1.5 + 0.50 * _s1);
-        const _bcx   = POOL_W * (0.65 - 0.30 * _s2);              // drifts opposite to top
-        const _bGrad = ctx.createRadialGradient(_bcx, _botCY, 0, _bcx, _botCY, _bgR2);
-        _bGrad.addColorStop(0,   _bp.g2 + _bgA2 + ')');
-        _bGrad.addColorStop(0.6, _bp.g2 + ((_bgA2 * 0.25).toFixed(3)) + ')');
-        _bGrad.addColorStop(1,   'rgba(0,0,0,0)');
-        ctx.fillStyle = _bGrad;
-        ctx.fillRect(0, POOL_TABLE_OFFSET_Y + POOL_H - 14, POOL_W, POOL_TABLE_OFFSET_Y + 14);
-
-        // Sweeping shimmer band (diagonal streak across margins)
-        const _swOff = (poolBgTime * 72) % (POOL_W * 1.8) - 120;
-        const _swGrad = ctx.createLinearGradient(_swOff, 0, _swOff + 120, POOL_CANVAS_H * 0.55);
-        _swGrad.addColorStop(0,   'rgba(255,255,255,0)');
-        _swGrad.addColorStop(0.45, _bp.g1 + '0.18)');
-        _swGrad.addColorStop(0.55, _bp.g1 + '0.22)');
-        _swGrad.addColorStop(1,   'rgba(255,255,255,0)');
-        ctx.fillStyle = _swGrad;
-        // Paint shimmer only in top + bottom margins (not over the table area)
-        ctx.fillRect(0, 0, POOL_W, POOL_TABLE_OFFSET_Y);
-        ctx.fillRect(0, POOL_TABLE_OFFSET_Y + POOL_H, POOL_W, POOL_TABLE_OFFSET_Y);
-
-        // TABLE (translated to center vertically)
-        ctx.save();
-        ctx.translate(0, POOL_TABLE_OFFSET_Y);
-
-        const colors = poolGetTableColors();
-
-        ctx.fillStyle = colors.border;
-        ctx.fillRect(0, 0, POOL_W, POOL_H);
-
-        const cx1 = POOL_CUSHION_X1 - 2;
-        const cy1 = POOL_CUSHION_Y1 - 2;
-        const cx2 = POOL_CUSHION_X2 + 2;
-        const cy2 = POOL_CUSHION_Y2 + 2;
-        ctx.fillStyle = colors.felt;
-        ctx.fillRect(cx1, cy1, cx2 - cx1, cy2 - cy1);
-
-        ctx.fillStyle = colors.cushion;
-        ctx.fillRect(cx1, 0, cx2 - cx1, POOL_CUSHION_Y1);
-        ctx.fillRect(cx1, POOL_CUSHION_Y2, cx2 - cx1, POOL_H - POOL_CUSHION_Y2);
-        ctx.fillRect(0, cy1, POOL_CUSHION_X1, cy2 - cy1);
-        ctx.fillRect(POOL_CUSHION_X2, cy1, POOL_W - POOL_CUSHION_X2, cy2 - cy1);
-
-        ctx.fillStyle = 'rgba(255,255,255,0.3)';
-        const diamondSize = 2;
-        for (let i = 1; i <= 6; i++) {
-            const dx = POOL_CUSHION_X1 + (POOL_CUSHION_X2 - POOL_CUSHION_X1) * i / 7;
-            ctx.beginPath();
-            ctx.arc(dx, POOL_CUSHION_Y1 / 2, diamondSize, 0, Math.PI * 2);
-            ctx.fill();
+        for (const b of targets) {
+            t.pockets.forEach((p, pi) => {
+                const d = direct(b, p, pi, cx, cy);
+                if (d) { Object.assign(d, odds(d.dcg, d.cut, d.lop, d.tol, sigma, 1)); d.speed = paBaseSpeed(cfg, d.dcg, d.cut, d.lop); push(d); }
+                if (T.bank) rails.forEach(r => {
+                    // Object ball off one rail into the pocket: aim it at the pocket's mirror.
+                    const ap = paAimPoint(p), h = railHit(b.x, b.y, ap.x, ap.y, r);
+                    if (!h) return;
+                    if (!paClear(world.balls, b.x, b.y, h.x, h.y, [0, b.id], gap) || !paClear(world.balls, h.x, h.y, ap.x, ap.y, [0, b.id], gap)) return;
+                    const tx = h.x - b.x, ty = h.y - b.y, tl = Math.hypot(tx, ty);
+                    const gx = b.x - tx / tl * 2 * R, gy = b.y - ty / tl * 2 * R;
+                    const ax = gx - cx, ay = gy - cy, al = Math.hypot(ax, ay);
+                    const cut = Math.acos(Math.max(-1, Math.min(1, (ax * tx + ay * ty) / (al * tl))));
+                    if (cut > 60 * PA_DEG || !paClear(world.balls, cx, cy, gx, gy, [0, b.id], gap)) return;
+                    const lop = tl + Math.hypot(ap.x - h.x, ap.y - h.y);
+                    const tol = paPocketTol(p, ap.x - h.x, ap.y - h.y) * 0.7;
+                    push({ kind: 'bank', ball: b.id, pocket: pi, angle: Math.atan2(ay, ax), gx, gy, dcg: al, cut, lop, want: Math.atan2(ty, tx), tol,
+                        ...odds(al, cut, lop, tol, sigmaAlt, 0.75), speed: paBaseSpeed(cfg, al, cut, tl + (lop - tl) / 0.64) });
+                });
+                if (T.kick) rails.forEach(r => {
+                    // Cue ball off one rail onto the ghost ball.
+                    const ap = paAimPoint(p);
+                    const tx = ap.x - b.x, ty = ap.y - b.y, tl = Math.hypot(tx, ty);
+                    const gx = b.x - tx / tl * 2 * R, gy = b.y - ty / tl * 2 * R;
+                    if (!paClear(world.balls, b.x, b.y, ap.x, ap.y, [0, b.id], gap)) return;
+                    const h = railHit(cx, cy, gx, gy, r);
+                    if (!h || !paClear(world.balls, cx, cy, h.x, h.y, [0], gap) || !paClear(world.balls, h.x, h.y, gx, gy, [0, b.id], gap)) return;
+                    const ix = gx - h.x, iy = gy - h.y, il = Math.hypot(ix, iy);
+                    const cut = Math.acos(Math.max(-1, Math.min(1, (ix * tx + iy * ty) / (il * tl))));
+                    if (cut > 50 * PA_DEG) return;
+                    const dcg = Math.hypot(h.x - cx, h.y - cy) + il;
+                    push({ kind: 'kick', ball: b.id, pocket: pi, angle: Math.atan2(h.y - cy, h.x - cx), gx, gy, dcg, cut, lop: tl, want: Math.atan2(ty, tx),
+                        tol: paPocketTol(p, tx, ty), ...odds(dcg, cut, tl, paPocketTol(p, tx, ty), sigmaAlt, 0.55), speed: paBaseSpeed(cfg, dcg / 0.8, cut, tl) });
+                });
+                if (T.combo) targets.forEach(a => {
+                    // Cue ball → a → b into the pocket. The first ball hit is a, so a must be legal (it is).
+                    if (a === b) return;
+                    const ap = paAimPoint(p);
+                    const tx = ap.x - b.x, ty = ap.y - b.y, tl = Math.hypot(tx, ty);
+                    const gbx = b.x - tx / tl * 2 * R, gby = b.y - ty / tl * 2 * R;       // where a must hit b
+                    const ux = gbx - a.x, uy = gby - a.y, ul = Math.hypot(ux, uy);
+                    if (ul < 1 || ul > 350) return;
+                    const cutB = Math.acos(Math.max(-1, Math.min(1, (ux * tx + uy * ty) / (ul * tl))));
+                    if (cutB > 35 * PA_DEG) return;
+                    const gx = a.x - ux / ul * 2 * R, gy = a.y - uy / ul * 2 * R;
+                    const ax = gx - cx, ay = gy - cy, al = Math.hypot(ax, ay);
+                    const cutA = Math.acos(Math.max(-1, Math.min(1, (ax * ux + ay * uy) / (al * ul))));
+                    if (cutA > 45 * PA_DEG) return;
+                    if (!paClear(world.balls, cx, cy, gx, gy, [0, a.id], gap) || !paClear(world.balls, a.x, a.y, gbx, gby, [0, a.id, b.id], gap) ||
+                        !paClear(world.balls, b.x, b.y, ap.x, ap.y, [0, a.id, b.id], gap)) return;
+                    const oB = odds(ul, cutB, tl, paPocketTol(p, tx, ty), sigmaAlt, 1), oA = odds(al, cutA, ul, 2 * R * 0.35, sigmaAlt, 1);
+                    push({ kind: 'combo', ball: a.id, pots: b.id, pocket: pi, angle: Math.atan2(ay, ax), gx, gy, dcg: al, cut: cutA, lop: ul, want: Math.atan2(uy, ux),
+                        tol: 2 * R * 0.35, p: 0.8 * oA.p * oB.p, rank: 0.8 * oA.rank * oB.rank, speed: paBaseSpeed(cfg, al, cutA, (ul + tl) / Math.max(0.3, Math.cos(cutB))) });
+                });
+            });
         }
-        for (let i = 1; i <= 6; i++) {
-            const dx = POOL_CUSHION_X1 + (POOL_CUSHION_X2 - POOL_CUSHION_X1) * i / 7;
-            ctx.beginPath();
-            ctx.arc(dx, POOL_CUSHION_Y2 + (POOL_H - POOL_CUSHION_Y2) / 2, diamondSize, 0, Math.PI * 2);
-            ctx.fill();
-        }
-
-        for (const p of poolPockets) {
-            ctx.fillStyle = colors.pocket;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, POOL_POCKET_R, 0, Math.PI * 2);
-            ctx.fill();
-            const pg = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, POOL_POCKET_R);
-            pg.addColorStop(0, 'rgba(0,0,0,0.9)');
-            pg.addColorStop(1, 'rgba(0,0,0,0.3)');
-            ctx.fillStyle = pg;
-            ctx.fill();
-        }
-
-        // Head string / baulk line
-        if (poolIsBreakShot && poolPlacingBall) {
-            ctx.fillStyle = 'rgba(255,255,160,0.10)';
-            ctx.fillRect(POOL_CUSHION_X1, POOL_CUSHION_Y1,
-                POOL_BAULK_X - POOL_CUSHION_X1, POOL_CUSHION_Y2 - POOL_CUSHION_Y1);
-            ctx.strokeStyle = 'rgba(255,255,160,0.80)';
-            ctx.lineWidth = 0.9;
-            ctx.setLineDash([3, 2]);
-            ctx.beginPath();
-            ctx.moveTo(POOL_BAULK_X, POOL_CUSHION_Y1);
-            ctx.lineTo(POOL_BAULK_X, POOL_CUSHION_Y2);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            const dCY = POOL_H / 2;
-            const dR  = (POOL_CUSHION_Y2 - POOL_CUSHION_Y1) * 0.20;
-            ctx.strokeStyle = 'rgba(255,255,160,0.45)';
-            ctx.lineWidth = 0.7;
-            ctx.setLineDash([2, 2]);
-            ctx.beginPath();
-            ctx.arc(POOL_BAULK_X, dCY, dR, Math.PI * 0.5, Math.PI * 1.5);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        } else {
-            ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-            ctx.lineWidth = 0.5;
-            ctx.setLineDash([4, 4]);
-            ctx.beginPath();
-            ctx.moveTo(POOL_BAULK_X, POOL_CUSHION_Y1);
-            ctx.lineTo(POOL_BAULK_X, POOL_CUSHION_Y2);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-
-        for (const b of poolBalls) {
-            if (b.pocketed) continue;
-            poolDrawBall(ctx, b);
-        }
-
-        // Draw cue ball ghost when placing
-        if (poolPlacingBall) {
-            const gx = poolMouseX / scaleX;
-            const gy = poolMouseY / scaleY - POOL_TABLE_OFFSET_Y;
-            const inKitchen = !poolIsBreakShot || (gx <= POOL_BAULK_X - POOL_BALL_R);
-            ctx.globalAlpha = 0.55;
-            ctx.fillStyle = inKitchen ? '#ffffff' : '#ff5555';
-            ctx.beginPath();
-            ctx.arc(gx, gy, POOL_BALL_R, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.globalAlpha = 0.85;
-            ctx.strokeStyle = inKitchen ? 'rgba(255,255,255,0.9)' : 'rgba(255,80,80,0.9)';
-            ctx.lineWidth = 0.8;
-            ctx.beginPath();
-            ctx.arc(gx, gy, POOL_BALL_R, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-        }
-
-        // Aiming line and cue stick (drawn in table-space)
-        const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
-        const isHumanTurn = poolTurn === 1 || poolMode === 'pvp';
-        const isCPUAiming = poolMode === 'cpu' && poolTurn === 2 && poolAIPendingShot !== null && !poolPlacingBall;
-        if (cueBall && poolAllStopped() && !poolGameOver && !poolPlacingBall) {
-            if (isHumanTurn) {
-                poolDrawCue(ctx, cueBall, scaleX, scaleY);
-            } else if (isCPUAiming) {
-                const savedLocked = poolAimLocked;
-                const savedLockedAngle = poolLockedAngle;
-                poolAimLocked = true;
-                poolLockedAngle = poolAIPendingShot.angle;
-                poolDrawCue(ctx, cueBall, scaleX, scaleY);
-                poolAimLocked = savedLocked;
-                poolLockedAngle = savedLockedAngle;
-            }
-        }
-
-        // Foul message (over table)
-        if (poolFoulMessage) {
-            ctx.fillStyle = 'rgba(220, 50, 50, 0.85)';
-            ctx.font = 'bold 11px Inter, sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(poolFoulMessage, POOL_W / 2, POOL_H / 2 - 4);
-            ctx.fillStyle = 'rgba(255,255,255,0.7)';
-            ctx.font = '8px Inter, sans-serif';
-            ctx.fillText('Ball in hand for opponent', POOL_W / 2, POOL_H / 2 + 10);
-        }
-
-        ctx.restore(); // end table translate
-
-        // HUD in top & bottom margins
-        poolDrawHUD(ctx);
-
-        if (cueBall && !cueBall.pocketed && poolAllStopped() && !poolGameOver && isHumanTurn && !poolPlacingBall) {
-            poolDrawSpinIndicator(ctx);
-        }
-
-        // Game over overlay (full canvas)
-        if (poolGameOver) {
-            ctx.fillStyle = 'rgba(0,0,0,0.6)';
-            ctx.fillRect(0, 0, POOL_W, POOL_CANVAS_H);
-            ctx.fillStyle = '#fff';
-            ctx.font = 'bold 16px Inter, sans-serif';
-            ctx.textAlign = 'center';
-            const winnerName = poolWinner === 1 ? 'Player 1' : (poolMode === 'cpu' ? 'CPU' : 'Player 2');
-            ctx.fillText(`${winnerName} Wins!`, POOL_W / 2, POOL_CANVAS_H / 2 - 10);
-            ctx.font = '10px Inter, sans-serif';
-            ctx.fillText('Click Reset to play again', POOL_W / 2, POOL_CANVAS_H / 2 + 14);
-        }
-
-        ctx.restore();
+        return out.sort((a, b) => b.rank - a.rank);
     }
 
-    function poolDrawBall(ctx, ball) {
-        const x = ball.x, y = ball.y, r = ball.r;
-        // Rolling offset — the label orbits the ball centre so it appears to roll toward movement.
-        const rollAngle = ball.rotation || 0;
-        // Offset for the number circle "orbiting" the surface
-        const orbitR = r * 0.25; // how far the label can shift from center
-        const labelOffX = Math.sin(rollAngle) * orbitR;
-        const labelOffY = -Math.cos(rollAngle) * orbitR;
-        // Visibility factor — label fades as it "rotates" to the back
-        const labelVis = Math.max(0, Math.cos(rollAngle));
-
-        if (ball.stripe) {
-            // Stripe ball: white base with colored band
-            ctx.fillStyle = '#f5f5f5';
-            ctx.beginPath();
-            ctx.arc(x, y, r, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Colored stripe band — rolls with the ball
-            ctx.save();
-            ctx.translate(x, y);
-            // Rotate the stripe clipping area to simulate rolling
-            ctx.rotate(rollAngle * 0.3); // slower visual rotation for stripe
-            ctx.beginPath();
-            ctx.rect(-r, -r * 0.45, r * 2, r * 0.9);
-            ctx.clip();
-            ctx.fillStyle = ball.color;
-            ctx.beginPath();
-            ctx.arc(0, 0, r, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-        } else {
-            ctx.fillStyle = ball.color;
-            ctx.beginPath();
-            ctx.arc(x, y, r, 0, Math.PI * 2);
-            ctx.fill();
-        }
-
-        // Number circle (not for cue ball) — orbits to simulate 3D rolling
-        if (ball.num > 0 && labelVis > 0.1) {
-            const lx = x + labelOffX;
-            const ly = y + labelOffY;
-            // Scale shrinks as label "rotates" away
-            const scale = 0.7 + labelVis * 0.3;
-            ctx.save();
-            ctx.translate(lx, ly);
-            ctx.scale(scale, scale);
-            ctx.fillStyle = '#fff';
-            ctx.beginPath();
-            ctx.arc(0, 0, r * 0.45, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#111';
-            ctx.font = `bold ${Math.round(r * 0.65)}px Inter, sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(ball.num.toString(), 0, 0.5);
-            ctx.restore();
-        }
-
-        // 3D highlight
-        const grad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
-        grad.addColorStop(0, 'rgba(255,255,255,0.4)');
-        grad.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.stroke();
+    // The best pots left for `seat` from where the cue ball is, as make
+    // probabilities (direct only, so it is cheap): what position is worth.
+    function paNextShots(world, frame, seat, tier) {
+        const cue = world.balls.find(b => b.id === 0);
+        if (!cue || cue.state === 'pocketed') return [];
+        // Ranked as a steady player would see them: for a zero-noise tier every p is
+        // near 1, and position is about leaving an easy shot, not merely a possible one.
+        return paCandidates(world, frame, seat, cue.x, cue.y, tier === 'pro' ? 'hard' : tier, true).map(c => c.rank);
     }
 
-    function poolDrawCue(ctx, cueBall, scaleX, scaleY) {
-        // When aim is locked (mouse held), use the frozen angle.
-        // During free aim, compute from current mouse position with smoothing.
-        let angle;
-        if (poolAimLocked) {
-            angle = poolLockedAngle;
-        } else {
-            const mx = poolMouseX / scaleX;
-            const my = poolMouseY / scaleY - POOL_TABLE_OFFSET_Y;
-            const targetAngle = Math.atan2(my - cueBall.y, mx - cueBall.x);
-            // Smooth angular interpolation to prevent pixel-skipping jitter.
-            // Lerp factor 0.35 = responsive but silky smooth.
-            let delta = targetAngle - poolCueAngle;
-            // Normalize delta to [-PI, PI] to avoid wrapping jumps
-            while (delta > Math.PI) delta -= 2 * Math.PI;
-            while (delta < -Math.PI) delta += 2 * Math.PI;
-            poolCueAngle += delta * 0.35;
-            angle = poolCueAngle;
+    // The first ball the cue ball touches on this shot, or -1 (none before it stops).
+    function paFirstContact(world, shot) {
+        const w = ppCloneWorld(world);
+        ppStrike(w, shot);
+        for (let i = 0; i < 400; i++) {
+            ppStep(w, 1 / 60);
+            const hit = w.log.find(e => e.type === 'ball' && (e.a === 0 || e.b === 0));
+            if (hit) return hit.a === 0 ? hit.b : hit.a;
+            if (ppSettled(w)) return -1;
         }
+        return -1;
+    }
 
-        // Aiming line (dotted). Cast ahead for hitBall, flag an illegal target (mirrors the
-        // poolProcessTurnResult foul checks), then pick guide colours.
-
-        // Cast line from cue ball in shot direction until hitting something
-        const dirX = Math.cos(angle);
-        const dirY = Math.sin(angle);
-        let lineLen = 200;
-        let hitBall = null;
-        let hitDist = Infinity;
-
-        // Find first collision along the line using proper ray-circle intersection
-        // The ghost ball (cue ball) touches the target when center-to-center = 2*R
-        for (const b of poolBalls) {
-            if (b.pocketed || b.id === 0) continue;
-            const dx = b.x - cueBall.x;
-            const dy = b.y - cueBall.y;
-            const proj = dx * dirX + dy * dirY;
-            if (proj <= 0) continue;
-            // Perpendicular distance from ball center to the aim line
-            const perpDist = Math.abs(-dx * dirY + dy * dirX);
-            const combinedR = POOL_BALL_R * 2; // sum of radii
-            if (perpDist < combinedR) {
-                // Ray-circle intersection: find exact contact distance
-                // d = proj - sqrt(combinedR^2 - perpDist^2)
-                const halfChord = Math.sqrt(combinedR * combinedR - perpDist * perpDist);
-                const contactDist = proj - halfChord;
-                if (contactDist > 0 && contactDist < hitDist) {
-                    hitDist = contactDist;
-                    hitBall = b;
-                }
-                lineLen = Math.min(lineLen, contactDist > 0 ? contactDist : 0);
+    // Steps a copy to the cue ball's first contact and returns the angle the
+    // first object ball actually left at, or null.
+    function paDeparture(world, shot, ballId) {
+        const w = ppCloneWorld(world);
+        ppStrike(w, shot);
+        const t0 = w.t;
+        for (let i = 0; i < 360 && w.t - t0 < 4; i++) {
+            ppStep(w, 1 / 60);
+            if (w.log.some(e => e.type === 'ball' && (e.a === 0 || e.b === 0))) {
+                const hit = w.log.find(e => e.type === 'ball' && (e.a === 0 || e.b === 0));
+                const other = hit.a === 0 ? hit.b : hit.a;
+                if (other !== ballId) return null;
+                const b = w.balls.find(o => o.id === ballId);
+                return Math.hypot(b.vx, b.vy) > 1 ? Math.atan2(b.vy, b.vx) : null;
             }
+            if (ppSettled(w)) return null;
         }
+        return null;
+    }
+    // Corrects the aim for throw and squirt: the object ball's departure
+    // error, divided by the cut's gain, moves the cue.
+    function paRefine(world, cand, shot, n, R) {
+        if (cand.kind === 'kick') return shot;
+        let s = shot;
+        const gain = cand.dcg / (2 * R * Math.max(0.15, Math.cos(cand.cut)));
+        for (let i = 0; i < n; i++) {
+            const dep = paDeparture(world, s, cand.ball);
+            if (dep === null) break;
+            const err = paAngDiff(dep, cand.want);
+            if (Math.abs(err) < 0.05 * PA_DEG) break;
+            // Turning the cue one way sends the object ball the other: dθ_object = −gain · dθ_cue.
+            s = Object.assign({}, s, { angle: s.angle + err / gain });
+        }
+        return s;
+    }
 
-        if (dirX > 0) lineLen = Math.min(lineLen, (POOL_CUSHION_X2 - cueBall.x) / dirX);
-        else if (dirX < 0) lineLen = Math.min(lineLen, (POOL_CUSHION_X1 - cueBall.x) / dirX);
-        if (dirY > 0) lineLen = Math.min(lineLen, (POOL_CUSHION_Y2 - cueBall.y) / dirY);
-        else if (dirY < 0) lineLen = Math.min(lineLen, (POOL_CUSHION_Y1 - cueBall.y) / dirY);
+    // Plays a shot to rest on a copy and judges it for the shooter.
+    function paTrial(world, frame, seat, shot) {
+        const w = ppCloneWorld(world);
+        ppStrike(w, shot);
+        ppSimulate(w);
+        return { w, v: prJudge(frame, w, shot.call) };
+    }
+    // How good a judged shot is for the shooter. `p` is the make probability
+    // of the line it was aimed on; position is the next shot's.
+    function paScore(r, seat, tier, p) {
+        const v = r.v, T = PA_TIERS[tier];
+        if (v.frameOver) return v.winner === seat ? 1e6 : -1e6;
+        if (v.foul) return -1000;
+        if (!v.continues) return -500;
+        let pos = 0;
+        if (T.position) {
+            const next = paNextShots(r.w, v.next, seat, tier).sort((a, b) => b - a);
+            pos = (next[0] || 0) + (T.position > 1 ? 0.5 * (next[1] || 0) : 0);
+        }
+        return 1000 * p + 300 * pos;
+    }
+    // A safety's worth: the opponent's best chance after it, as low as possible.
+    function paSafetyScore(r, seat) {
+        const v = r.v;
+        if (v.frameOver) return v.winner === seat ? 1e6 : -1e6;
+        if (v.foul) return -1000;
+        if (v.continues) return 600;          // a pot on a safety is a bonus
+        const opp = 3 - seat;
+        const best = Math.max(0, ...paNextShots(r.w, v.next, opp, 'normal'));
+        return 400 * (1 - best);
+    }
 
-        lineLen = Math.max(0, lineLen);
-
-        let aimIllegal = false;
-        if (hitBall) {
-            const curGroup = poolTurn === 1 ? poolPlayer1Group : poolPlayer2Group;
-            const tableOpen = !poolFirstPocket;
-            const myPocketed = poolTurn === 1 ? poolPlayer1Pocketed : poolPlayer2Pocketed;
-            const onThe8 = !tableOpen && myPocketed.length >= 7;
-
-            if (!tableOpen) {
-                const hid = hitBall.id;
-                const isSolid  = hid >= 1 && hid <= 7;
-                const isStripe = hid >= 9 && hid <= 15;
-                const is8      = hid === 8;
-
-                if (onThe8) {
-                    if (!is8) aimIllegal = true; // must hit 8-ball
-                } else {
-                    if (is8) aimIllegal = true; // can't hit 8 early
-                    else if (curGroup === 'solids' && isStripe) aimIllegal = true;
-                    else if (curGroup === 'stripes' && isSolid) aimIllegal = true;
-                }
+    // opts: { tier, rng, noise (default true), aimDeg / powerFrac (override the
+    // tier's execution noise, for the balance check's human models) }.
+    // The job's shot is { angle, speed, tipX, tipY, call }, job.plan says
+    // what it is ('break' | 'pot' | 'safety' | 'escape' | 'fallback'), and job.kind the
+    // line ('direct' | 'bank' | 'kick' | 'combo' | 'safety').
+    function paPlan(world, frame, opts) {
+        const o = opts || {}, seat = frame.turn, cfg = world.cfg, R = cfg.ballR;
+        const tier = PA_TIERS[o.tier] ? o.tier : 'normal', T = PA_TIERS[tier];
+        const cue = world.balls.find(b => b.id === 0);
+        const st = prStatus(frame, world, seat);
+        const job = { done: false, shot: null, tried: 0, plan: '', tier };
+        let lineKind = 'direct';
+        const finish = (shot, plan) => {
+            const s = Object.assign({ tipX: 0, tipY: 0, call: -1 }, shot);
+            if (o.noise !== false && o.rng) {
+                const aim = (o.aimDeg !== undefined ? o.aimDeg : lineKind === 'direct' ? T.aim : T.aimAlt) * PA_DEG;
+                const pw = o.powerFrac !== undefined ? o.powerFrac : T.power;
+                s.angle += paGauss(o.rng) * aim;
+                s.speed = Math.max(150, Math.min(cfg.maxSpeed, s.speed * (1 + paGauss(o.rng) * pw)));
             }
+            job.shot = s; job.plan = plan; job.kind = plan === 'break' ? 'break' : lineKind; job.done = true;
+        };
+
+        // The break: near full power at the head ball, never called.
+        if (frame.isBreak) {
+            const apex = world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed').sort((a, b) => a.x - b.x)[0];
+            job.step = () => {
+                finish({ angle: Math.atan2(apex.y - cue.y, apex.x - cue.x), speed: cfg.maxSpeed * (tier === 'easy' ? 0.82 : 0.96) }, 'break');
+                return true;
+            };
+            return job;
         }
 
-        // Draw the aim line (white = legal, red = illegal)
-        ctx.strokeStyle = aimIllegal ? 'rgba(255,60,60,0.85)' : 'rgba(255,255,255,0.82)';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([5, 4]);
-        ctx.beginPath();
+        const cands = paCandidates(world, frame, seat, cue.x, cue.y, tier).slice(0, T.top);
+        const call = c => (st.callRequired ? c.pocket : -1);
+        const legal = new Set(paTargets(world, frame, seat).map(b => b.id));
+        const stageA = cands.map(c => ({ c }));
+        const good = [], variants = [], safeties = [], scored = [], robustQ = [], safeScored = [], safeQ = [];
+        let stage = 'A', bestPot = null, bestSafe = null, bestEscape = null, swept = false;
+        const sweep = [], escapes = [];
+        const safeReps = T.robustSafe || T.robust;
 
-        ctx.moveTo(cueBall.x, cueBall.y);
-        ctx.lineTo(cueBall.x + dirX * lineLen, cueBall.y + dirY * lineLen);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        // Safety lines: each legal ball, full and half-ball either side, soft; and
+        // one-rail kicks at it, for when the direct way is blocked.
+        const makeSafeties = () => {
+            const tg = paTargets(world, frame, seat)
+                .sort((a, b) => Math.hypot(a.x - cue.x, a.y - cue.y) - Math.hypot(b.x - cue.x, b.y - cue.y)).slice(0, 3);
+            tg.forEach(b => {
+                const base = Math.atan2(b.y - cue.y, b.x - cue.x), dist = Math.hypot(b.x - cue.x, b.y - cue.y);
+                const half = Math.asin(Math.min(1, R / Math.max(dist, 2 * R)));
+                [0, half, -half].forEach(off => [0.45, 0.7].forEach(k => {
+                    if (!paClear(world.balls, cue.x, cue.y, b.x, b.y, [0, b.id], 2 * R - 0.5)) return;
+                    safeties.push({ angle: base + off, speed: Math.max(500, Math.min(1900, k * 1.4 * Math.sqrt(2 * cfg.muRoll * cfg.gravity * (dist + 400)))), call: -1 });
+                }));
+                const t = world.table;
+                [['x', t.halfLength - R], ['x', -(t.halfLength - R)], ['y', t.halfWidth - R], ['y', -(t.halfWidth - R)]].forEach(([axis, v]) => {
+                    const m = axis === 'x' ? { x: 2 * v - b.x, y: b.y } : { x: b.x, y: 2 * v - b.y };
+                    const da = axis === 'x' ? v - cue.x : v - cue.y, dm = axis === 'x' ? m.x - cue.x : m.y - cue.y;
+                    if (Math.abs(dm) < 1e-9 || da / dm <= 0 || da / dm >= 1) return;
+                    const k = da / dm, hx = cue.x + (m.x - cue.x) * k, hy = cue.y + (m.y - cue.y) * k;
+                    if (!paClear(world.balls, cue.x, cue.y, hx, hy, [0], 2 * R - 0.5) || !paClear(world.balls, hx, hy, b.x, b.y, [0, b.id], 2 * R - 0.5)) return;
+                    const ang = Math.atan2(hy - cue.y, hx - cue.x), len = Math.hypot(hx - cue.x, hy - cue.y) + Math.hypot(b.x - hx, b.y - hy);
+                    [1.1, 1.5].forEach(q => safeties.push({ angle: ang, speed: Math.min(2400, q * 1.4 * Math.sqrt(2 * cfg.muRoll * cfg.gravity * (len / 0.8 + 300))), call: -1 }));
+                });
+            });
+        };
 
-        // Draw ghost ball contact guide at point of impact
-        if (hitBall) {
-            const ghostX = cueBall.x + dirX * hitDist;
-            const ghostY = cueBall.y + dirY * hitDist;
-
-            if (aimIllegal) {
-                // PROHIBITION SIGN (NOT ALLOWED)
-                const prohibR = POOL_BALL_R;
-
-                ctx.strokeStyle = 'rgba(255,50,50,0.92)';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(ghostX, ghostY, prohibR, 0, Math.PI * 2);
-                ctx.stroke();
-
-                ctx.fillStyle = 'rgba(255,40,40,0.18)';
-                ctx.beginPath();
-                ctx.arc(ghostX, ghostY, prohibR, 0, Math.PI * 2);
-                ctx.fill();
-
-                // Diagonal slash (top-left to bottom-right, rotated 45 degrees)
-                ctx.strokeStyle = 'rgba(255,50,50,0.92)';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                const slashAngle = Math.PI / 4; // 45 degrees
-                ctx.moveTo(ghostX - Math.cos(slashAngle) * prohibR, ghostY - Math.sin(slashAngle) * prohibR);
-                ctx.lineTo(ghostX + Math.cos(slashAngle) * prohibR, ghostY + Math.sin(slashAngle) * prohibR);
-                ctx.stroke();
-
-            } else {
-
-                // Ghost ball outline (where cue ball will be at contact)
-                ctx.strokeStyle = 'rgba(255,255,255,0.92)';
-                ctx.lineWidth = 1.8;
-                ctx.setLineDash([3, 2]);
-                ctx.beginPath();
-                ctx.arc(ghostX, ghostY, POOL_BALL_R, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.setLineDash([]);
-
-                // Fill ghost ball with subtle transparency
-                ctx.fillStyle = 'rgba(255,255,255,0.22)';
-                ctx.beginPath();
-                ctx.arc(ghostX, ghostY, POOL_BALL_R, 0, Math.PI * 2);
-                ctx.fill();
-
-                // Compute accurate target ball direction using contact physics
-                // The impulse is along the line connecting ghost center to target center
-                const contactNX = (hitBall.x - ghostX);
-                const contactNY = (hitBall.y - ghostY);
-                const contactLen = Math.sqrt(contactNX * contactNX + contactNY * contactNY);
-                if (contactLen > 0) {
-                    const nx = contactNX / contactLen;
-                    const ny = contactNY / contactLen;
-                    // Target ball receives velocity along contact normal
-                    // v_target = (v_cue . n) * n (for equal mass elastic collision)
-                    const cueDotN = dirX * nx + dirY * ny;
-
-                    // Only draw if a meaningful hit
-                    if (cueDotN > 0.1) {
-                        const targetDirX = nx;
-                        const targetDirY = ny;
-                        const projLen = 30 * cueDotN; // length proportional to how direct the hit is
-
-                        ctx.strokeStyle = 'rgba(255,220,0,0.95)';
-                        ctx.lineWidth = 1.8;
-                        ctx.setLineDash([4, 3]);
-                        ctx.beginPath();
-                        ctx.moveTo(hitBall.x, hitBall.y);
-                        ctx.lineTo(hitBall.x + targetDirX * projLen, hitBall.y + targetDirY * projLen);
-                        ctx.stroke();
-                        ctx.setLineDash([]);
-
-                        const arrowX = hitBall.x + targetDirX * projLen;
-                        const arrowY = hitBall.y + targetDirY * projLen;
-                        ctx.fillStyle = 'rgba(255,220,0,0.95)';
-                        ctx.beginPath();
-                        ctx.arc(arrowX, arrowY, 2.5, 0, Math.PI * 2);
-                        ctx.fill();
-
-                        // Also show cue ball deflection path
-                        // v_cue_after = v_cue - (v_cue . n) * n
-                        const cueAfterX = dirX - cueDotN * nx;
-                        const cueAfterY = dirY - cueDotN * ny;
-                        const cueAfterLen = Math.sqrt(cueAfterX * cueAfterX + cueAfterY * cueAfterY);
-                        if (cueAfterLen > 0.15) {
-                            const cueDeflX = cueAfterX / cueAfterLen;
-                            const cueDeflY = cueAfterY / cueAfterLen;
-                            ctx.strokeStyle = 'rgba(180,220,255,0.75)';
-                            ctx.lineWidth = 1.4;
-                            ctx.setLineDash([3, 3]);
-                            ctx.beginPath();
-                            ctx.moveTo(ghostX, ghostY);
-                            ctx.lineTo(ghostX + cueDeflX * 28, ghostY + cueDeflY * 28);
-                            ctx.stroke();
-                            ctx.setLineDash([]);
-                        }
+        const now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+        job.step = budgetMs => {
+            if (job.done) return true;
+            const t0 = now();
+            const spent = () => budgetMs !== undefined && now() - t0 >= budgetMs;
+            while (!spent()) {
+                if (stage === 'A') {
+                    // Stage A: does the line pot, cleanly, with stun at its base speed?
+                    const item = stageA.shift();
+                    if (!item) {
+                        stage = 'B';
+                        good.sort((a, b) => b.c.rank - a.c.rank).slice(0, T.keep).forEach(g => T.spins.forEach(sp => T.speeds.forEach(k => variants.push({ c: g.c, base: g.shot, sp, k }))));
+                        continue;
                     }
+                    const c = item.c;
+                    let shot = { angle: c.angle, speed: c.speed, tipX: 0, tipY: 0, call: call(c) };
+                    shot = paRefine(world, c, shot, T.refine, R);
+                    const r = paTrial(world, frame, seat, shot);
+                    job.tried++;
+                    if (r.v.frameOver && r.v.winner === seat) { lineKind = c.kind; finish(shot, 'pot'); return true; }
+                    if (!r.v.foul && r.v.continues && !r.v.frameOver) good.push({ c, shot, r });
+                } else if (stage === 'B') {
+                    // Stage B: the survivors, with the tier's spins and speeds, for position.
+                    const item = variants.shift();
+                    if (!item) {
+                        // Robustness: the best three lines, replayed with the tier's noise.
+                        if (T.robust && o.rng && o.noise !== false && scored.length) {
+                            scored.sort((a, b) => b.score - a.score).slice(0, 3).forEach(e => { e.bad = 0; e.n = 0; for (let i = 0; i < T.robust; i++) robustQ.push(e); });
+                            stage = 'R';
+                            continue;
+                        }
+                        // No pot at all: every tier looks for a legal escape. A pot the tier is
+                        // unlikely to make: the tiers that play safe look for a safety.
+                        const needSafe = !bestPot || bestPot.score <= 0 || (T.safeBelow > 0 && bestPot.c.p < T.safeBelow);
+                        if (needSafe) { makeSafeties(); stage = 'S'; } else stage = 'done';
+                        continue;
+                    }
+                    const tip = PA_TIPS[item.sp];
+                    // From stage A's corrected aim; spin changes throw and squirt, so one more correction.
+                    let shot = { angle: item.base.angle, speed: Math.min(cfg.maxSpeed * 0.9, item.c.speed * item.k), tipX: tip.x, tipY: tip.y, call: call(item.c) };
+                    shot = paRefine(world, item.c, shot, Math.min(1, T.refine), R);
+                    const r = paTrial(world, frame, seat, shot);
+                    job.tried++;
+                    const score = paScore(r, seat, tier, item.c.p);
+                    scored.push({ c: item.c, shot, score });
+                    if (!bestPot || score > bestPot.score) bestPot = { c: item.c, shot, score };
+                } else if (stage === 'R') {
+                    const e = robustQ.shift();
+                    if (!e) {
+                        // Marked down by how often the line fouls or loses the frame when missed.
+                        scored.slice(0, 3).forEach(x => { if (x.n) x.score -= 900 * x.bad / x.n; });
+                        bestPot = scored.slice(0, 3).reduce((m, x) => (!m || x.score > m.score ? x : m), null);
+                        const needSafe = !bestPot || bestPot.score <= 0 || (T.safeBelow > 0 && bestPot.c.p < T.safeBelow);
+                        if (needSafe) { makeSafeties(); stage = 'S'; } else stage = 'done';
+                        continue;
+                    }
+                    const aim = (e.c.kind === 'direct' ? T.aim : T.aimAlt) * PA_DEG;
+                    const shot = Object.assign({}, e.shot, { angle: e.shot.angle + paGauss(o.rng) * aim, speed: e.shot.speed * (1 + paGauss(o.rng) * T.power) });
+                    const r = paTrial(world, frame, seat, shot);
+                    job.tried++;
+                    e.n++;
+                    if (r.v.foul || (r.v.frameOver && r.v.winner !== seat)) e.bad += r.v.frameOver ? 2 : 1;
+                } else if (stage === 'S') {
+                    const shot = safeties.shift();
+                    if (!shot) {
+                        // The best three safeties, replayed with the tier's noise: a safety or
+                        // an escape that fouls when it is a little off is no safety.
+                        if (safeReps && o.rng && o.noise !== false && safeScored.length) {
+                            safeScored.sort((a, b) => b.score - a.score).slice(0, 3).forEach(e => { e.bad = 0; e.n = 0; for (let i = 0; i < safeReps; i++) safeQ.push(e); });
+                            stage = 'SR';
+                        } else stage = 'done';
+                        continue;
+                    }
+                    const r = paTrial(world, frame, seat, shot);
+                    job.tried++;
+                    const score = paSafetyScore(r, seat);
+                    safeScored.push({ shot, score });
+                    if (!bestSafe || score > bestSafe.score) bestSafe = { shot, score };
+                } else if (stage === 'SR') {
+                    const e = safeQ.shift();
+                    if (!e) {
+                        safeScored.slice(0, 3).forEach(x => { if (x.n) x.score -= 1200 * x.bad / x.n; });
+                        bestSafe = safeScored.slice(0, 3).reduce((m, x) => (!m || x.score > m.score ? x : m), null);
+                        stage = 'done';
+                        continue;
+                    }
+                    const shot = Object.assign({}, e.shot, { angle: e.shot.angle + paGauss(o.rng) * T.aimAlt * PA_DEG, speed: e.shot.speed * (1 + paGauss(o.rng) * T.power) });
+                    const r = paTrial(world, frame, seat, shot);
+                    job.tried++;
+                    e.n++;
+                    if (r.v.foul || (r.v.frameOver && r.v.winner !== seat)) e.bad += r.v.frameOver ? 2 : 1;
+                } else if (stage === 'K') {
+                    // The sweep: the first ball hit, one degree at a time.
+                    const a = sweep.length;
+                    if (a < 360) { sweep.push(legal.has(paFirstContact(world, { angle: a * PA_DEG, speed: 1800, tipX: 0, tipY: 0 }))); continue; }
+                    // The legal gaps, widest first; the middle of each is the escape that
+                    // forgives the most aim error, so that is the one played out.
+                    const gaps = [];
+                    const start = sweep.indexOf(false);
+                    if (start === -1) gaps.push({ mid: 0, n: 360 });
+                    else for (let i = 1, run = 0; i <= 360; i++) {
+                        const at = (start + i) % 360;
+                        if (sweep[at] && i < 360) { run++; continue; }
+                        if (run) gaps.push({ mid: at - 1 - (run - 1) / 2, n: run });
+                        run = 0;
+                    }
+                    gaps.sort((x, y) => y.n - x.n).slice(0, 10).forEach(g => [1400, 2300].forEach(sp =>
+                        escapes.push({ angle: g.mid * PA_DEG, speed: Math.min(cfg.maxSpeed, sp), tipX: 0, tipY: 0, call: -1 })));
+                    stage = 'K2';
+                } else if (stage === 'K2') {
+                    const shot = escapes.shift();
+                    if (!shot) { stage = 'done'; continue; }
+                    const r = paTrial(world, frame, seat, shot);
+                    job.tried++;
+                    if (r.v.foul || (r.v.frameOver && r.v.winner !== seat)) continue;
+                    const score = paSafetyScore(r, seat);
+                    if (!bestEscape || score > bestEscape.score) bestEscape = { shot, score };
+                } else {
+                    // Nothing that pots, no legal safety: hard and pro sweep for an escape
+                    // before they settle for a blind roll.
+                    const settled = (bestPot && bestPot.score > 0) || (bestSafe && bestSafe.score > 0) || good.length;
+                    if (!settled && T.sweep && !swept) { swept = true; stage = 'K'; continue; }
+                    // Choose. A likely pot; else a safety that leaves little; else the
+                    // best pot anyway; else a legal survivor from stage A; else a roll.
+                    const potOk = bestPot && bestPot.score > 0;
+                    if (potOk && (bestPot.c.p >= T.safeBelow || !bestSafe || bestSafe.score < 250)) { lineKind = bestPot.c.kind; finish(bestPot.shot, 'pot'); }
+                    else if (bestSafe && bestSafe.score > 0) { lineKind = 'safety'; finish(bestSafe.shot, 'safety'); }
+                    else if (potOk) { lineKind = bestPot.c.kind; finish(bestPot.shot, 'pot'); }
+                    else if (good.length) { lineKind = good[0].c.kind; finish(good[0].shot, 'pot'); }
+                    else if (bestEscape) { lineKind = 'safety'; finish(bestEscape.shot, 'escape'); }
+                    else {
+                        // Nothing clean at all: roll a legal ball, the nearest, softly.
+                        const b = paTargets(world, frame, seat).sort((x, y) => Math.hypot(x.x - cue.x, x.y - cue.y) - Math.hypot(y.x - cue.x, y.y - cue.y))[0];
+                        const near = b ? world.table.pockets.reduce((m, p, i) => (Math.hypot(p.x - b.x, p.y - b.y) < Math.hypot(world.table.pockets[m].x - b.x, world.table.pockets[m].y - b.y) ? i : m), 0) : -1;
+                        lineKind = 'safety';
+                        finish(b ? { angle: Math.atan2(b.y - cue.y, b.x - cue.x), speed: 1200, call: st.callRequired ? near : -1 } : { angle: 0, speed: 1200 }, 'fallback');
+                    }
+                    return true;
                 }
             }
-        }
-
-        const pullBack = poolDragging ? poolCuePower * 2 : 0;
-        const cueStart = POOL_BALL_R + 2 + pullBack;
-        const cueLen = 100;
-
-        const cueEndX = cueBall.x - Math.cos(angle) * (cueStart + cueLen);
-        const cueEndY = cueBall.y - Math.sin(angle) * (cueStart + cueLen);
-        const cueStartX = cueBall.x - Math.cos(angle) * cueStart;
-        const cueStartY = cueBall.y - Math.sin(angle) * cueStart;
-
-        // Cue tip (white ferrule)
-        ctx.strokeStyle = '#eee';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(cueStartX, cueStartY);
-        const ferruleX = cueBall.x - Math.cos(angle) * (cueStart + 4);
-        const ferruleY = cueBall.y - Math.sin(angle) * (cueStart + 4);
-        ctx.lineTo(ferruleX, ferruleY);
-        ctx.stroke();
-
-        // Cue shaft (wood)
-        ctx.strokeStyle = '#d4a76a';
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(ferruleX, ferruleY);
-        const midX = cueBall.x - Math.cos(angle) * (cueStart + cueLen * 0.5);
-        const midY = cueBall.y - Math.sin(angle) * (cueStart + cueLen * 0.5);
-        ctx.lineTo(midX, midY);
-        ctx.stroke();
-
-        // Cue butt (darker)
-        ctx.strokeStyle = '#8b5e3c';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(midX, midY);
-        ctx.lineTo(cueEndX, cueEndY);
-        ctx.stroke();
-
-        if (poolDragging) {
-            const powerPct = poolCuePower / POOL_CUE_MAX_POWER;
-            ctx.fillStyle = `rgba(${Math.round(255 * powerPct)}, ${Math.round(255 * (1 - powerPct))}, 0, 0.7)`;
-            ctx.fillRect(POOL_W - 14, POOL_CUSHION_Y1 + 2, 6, (POOL_CUSHION_Y2 - POOL_CUSHION_Y1 - 4));
-            ctx.fillStyle = `rgb(${Math.round(255 * powerPct)}, ${Math.round(255 * (1 - powerPct))}, 0)`;
-            const barH = (POOL_CUSHION_Y2 - POOL_CUSHION_Y1 - 4) * powerPct;
-            ctx.fillRect(POOL_W - 14, POOL_CUSHION_Y2 - 2 - barH, 6, barH);
-        }
+            return false;
+        };
+        return job;
     }
 
-    function poolDrawSpinIndicator(ctx) {
-        // Spin indicator centered in bottom margin
-        const indicatorR = 14;
-        const ix = POOL_W / 2;
-        const iy = POOL_TABLE_OFFSET_Y + POOL_H + 46;
-
-        ctx.fillStyle = 'rgba(255,255,255,0.12)';
-        ctx.beginPath();
-        ctx.arc(ix, iy, indicatorR + 3, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#ddd';
-        ctx.beginPath();
-        ctx.arc(ix, iy, indicatorR, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
-
-        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(ix - indicatorR, iy);
-        ctx.lineTo(ix + indicatorR, iy);
-        ctx.moveTo(ix, iy - indicatorR);
-        ctx.lineTo(ix, iy + indicatorR);
-        ctx.stroke();
-
-        // Spin dot (red)
-        const dotX = ix + poolCueSpinX * indicatorR * 0.7;
-        const dotY = iy + poolCueSpinY * indicatorR * 0.7;
-        ctx.fillStyle = '#e33';
-        ctx.beginPath();
-        ctx.arc(dotX, dotY, 2.5, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = 'rgba(255,255,255,0.6)';
-        ctx.font = '7px Inter, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('SPIN', ix, iy + indicatorR + 11);
+    // Where to put the cue ball with ball in hand: behind the ghost ball of
+    // the easiest pot, straight or at a slight angle; on the break, in the
+    // middle of the kitchen.
+    function paPlace(world, frame, rng, tier) {
+        const t = world.table, R = world.cfg.ballR, zone = frame.ballInHand;
+        if (zone === 'kitchen') {
+            const y = rng ? (rng() - 0.5) * 120 : 0;
+            return [t.headX - 60, y];
+        }
+        const T = PA_TIERS[tier] || PA_TIERS.normal;
+        const sigma = T.aim * PA_DEG;
+        let best = null;
+        for (const b of paTargets(world, frame, frame.turn)) {
+            t.pockets.forEach(p => {
+                const ap = paAimPoint(p);
+                const tx = ap.x - b.x, ty = ap.y - b.y, tl = Math.hypot(tx, ty), ux = tx / tl, uy = ty / tl;
+                const gx = b.x - ux * 2 * R, gy = b.y - uy * 2 * R;
+                if (!paClear(world.balls, b.x, b.y, ap.x, ap.y, [0, b.id], 2 * R - 0.5)) return;
+                const tol = paPocketTol(p, tx, ty);
+                PA_PLACE_BACK.forEach(D => [0, 12, -12].forEach(deg => {
+                    const a = Math.atan2(uy, ux) + deg * PA_DEG;
+                    const x = gx - Math.cos(a) * D, y = gy - Math.sin(a) * D;
+                    if (prCanPlace(world, x, y, zone)) return;
+                    if (!paClear(world.balls, x, y, gx, gy, [0, b.id], 2 * R - 0.5)) return;
+                    // A slight angle is worth a little: the cue ball can be steered after it.
+                    const score = paMakeProb(D, Math.abs(deg) * PA_DEG, tl, tol, sigma, R) + (deg ? 0.02 : 0);
+                    if (!best || score > best.score) best = { x, y, score };
+                }));
+            });
+        }
+        if (best) return [best.x, best.y];
+        // Nowhere clean: the first free spot on a coarse grid.
+        for (let x = -400; x <= 400; x += 50) for (let y = -200; y <= 200; y += 50) if (!prCanPlace(world, x, y, zone)) return [x, y];
+        return [t.headX - 60, 0];
     }
 
-    function poolDrawHUD(ctx) {
-        const p1Name = 'Player 1';
-        const p2Name = poolMode === 'cpu' ? 'CPU' : 'Player 2';
-        const p1Group = poolPlayer1Group;
-        const p2Group = poolPlayer2Group;
-
-        const p1Active = poolTurn === 1;
-        const p2Active = poolTurn === 2;
-
-        const showTimer = poolGameRunning && !poolGameOver && poolAllStopped() && !poolShotFired && !poolPlacingBall;
-        const timerPct = poolShotTimer / POOL_SHOT_CLOCK;
-        let timerBarColor;
-        if (timerPct > 0.5) timerBarColor = 'rgba(80,220,100,0.85)';
-        else if (timerPct > 0.25) timerBarColor = 'rgba(255,180,40,0.85)';
-        else timerBarColor = 'rgba(255,70,50,0.85)';
-
-        // TOP HUD AREA (y: 0 .. POOL_TABLE_OFFSET_Y)
-        const badgeW = 140;
-        const badgeH = 26;
-        const badgeY = 20;
-
-        // Player 1 badge
-        ctx.fillStyle = 'rgba(0,0,0,0.35)';
-        ctx.beginPath();
-        ctx.roundRect(14, badgeY, badgeW, badgeH, 5);
-        ctx.fill();
-        if (p1Active && showTimer) {
-            ctx.fillStyle = timerBarColor;
-            ctx.beginPath();
-            ctx.roundRect(14, badgeY, badgeW * timerPct, badgeH, 5);
-            ctx.fill();
-            if (timerPct < 0.25) {
-                ctx.shadowColor = '#ff3333';
-                ctx.shadowBlur = 6;
-                ctx.fillStyle = timerBarColor;
-                ctx.beginPath();
-                ctx.roundRect(14, badgeY, badgeW * timerPct, badgeH, 5);
-                ctx.fill();
-                ctx.shadowBlur = 0;
-            }
-        } else if (p1Active) {
-            ctx.fillStyle = 'rgba(80,200,120,0.30)';
-            ctx.beginPath();
-            ctx.roundRect(14, badgeY, badgeW, badgeH, 5);
-            ctx.fill();
-        }
-
-        // Player 2 badge
-        ctx.fillStyle = 'rgba(0,0,0,0.35)';
-        ctx.beginPath();
-        ctx.roundRect(POOL_W - 14 - badgeW, badgeY, badgeW, badgeH, 5);
-        ctx.fill();
-        if (p2Active && showTimer) {
-            const barW = badgeW * timerPct;
-            ctx.fillStyle = timerBarColor;
-            ctx.beginPath();
-            ctx.roundRect(POOL_W - 14 - badgeW + (badgeW - barW), badgeY, barW, badgeH, 5);
-            ctx.fill();
-            if (timerPct < 0.25) {
-                ctx.shadowColor = '#ff3333';
-                ctx.shadowBlur = 6;
-                ctx.fillStyle = timerBarColor;
-                ctx.beginPath();
-                ctx.roundRect(POOL_W - 14 - badgeW + (badgeW - barW), badgeY, barW, badgeH, 5);
-                ctx.fill();
-                ctx.shadowBlur = 0;
-            }
-        } else if (p2Active) {
-            ctx.fillStyle = 'rgba(80,200,120,0.30)';
-            ctx.beginPath();
-            ctx.roundRect(POOL_W - 14 - badgeW, badgeY, badgeW, badgeH, 5);
-            ctx.fill();
-        }
-
-        if (p1Active) {
-            ctx.strokeStyle = 'rgba(120,255,150,0.5)';
-            ctx.lineWidth = 0.8;
-            ctx.beginPath();
-            ctx.roundRect(14, badgeY, badgeW, badgeH, 5);
-            ctx.stroke();
-        }
-        if (p2Active) {
-            ctx.strokeStyle = 'rgba(120,255,150,0.5)';
-            ctx.lineWidth = 0.8;
-            ctx.beginPath();
-            ctx.roundRect(POOL_W - 14 - badgeW, badgeY, badgeW, badgeH, 5);
-            ctx.stroke();
-        }
-
-        ctx.font = 'bold 11px Inter, sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillStyle = '#fff';
-        ctx.fillText(p1Name, 22, badgeY + 17);
-        ctx.textAlign = 'right';
-        ctx.fillText(p2Name, POOL_W - 22, badgeY + 17);
-
-        ctx.font = '8px Inter, sans-serif';
-        ctx.fillStyle = 'rgba(255,255,255,0.60)';
-        const p1WL = `${poolRecord.p1Wins}W ${poolRecord.p1Losses}L`;
-        const p2WL = `${poolRecord.p2Wins}W ${poolRecord.p2Losses}L`;
-        ctx.textAlign = 'right';
-        ctx.fillText(p1WL, 14 + badgeW - 6, badgeY + 10);
-        ctx.textAlign = 'left';
-        ctx.fillText(p2WL, POOL_W - 14 - badgeW + 6, badgeY + 10);
-
-        if (p1Group) {
-            const groupY = badgeY + badgeH + 14;
-            ctx.font = 'bold 8px Inter, sans-serif';
-
-            ctx.textAlign = 'left';
-            const p1IsSolids = p1Group === 'solids';
-            ctx.fillStyle = p1IsSolids ? '#f0c830' : '#74b9ff';
-            ctx.beginPath();
-            ctx.arc(22, groupY - 3, 4, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = 'rgba(255,255,255,0.85)';
-            ctx.fillText(p1IsSolids ? 'Solids' : 'Stripes', 30, groupY);
-
-            ctx.textAlign = 'right';
-            const p2IsSolids = p2Group === 'solids';
-            ctx.fillStyle = p2IsSolids ? '#f0c830' : '#74b9ff';
-            ctx.beginPath();
-            ctx.arc(POOL_W - 22, groupY - 3, 4, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = 'rgba(255,255,255,0.85)';
-            ctx.fillText(p2IsSolids ? 'Solids' : 'Stripes', POOL_W - 30, groupY);
-        }
-
-        // BOTTOM HUD AREA (y: POOL_TABLE_OFFSET_Y + POOL_H .. POOL_CANVAS_H)
-        const bottomStart = POOL_TABLE_OFFSET_Y + POOL_H;
-        const trayLabelY = bottomStart + 20;
-        const trayBallY = bottomStart + 38;
-        const ballR = 5.5;
-
-        // Player 1 pocketed
-        if (poolPlayer1Pocketed.length > 0) {
-            ctx.fillStyle = 'rgba(255,255,255,0.40)';
-            ctx.font = 'bold 7px Inter, sans-serif';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'alphabetic';
-            ctx.fillText('P1 Pocketed', 14, trayLabelY);
-        }
-        for (let i = 0; i < poolPlayer1Pocketed.length; i++) {
-            const def = POOL_BALL_DEFS[poolPlayer1Pocketed[i]];
-            const bx = 14 + i * (ballR * 2 + 3);
-            if (def.stripe) {
-                ctx.fillStyle = '#f5f5f5';
-                ctx.beginPath();
-                ctx.arc(bx, trayBallY, ballR, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.save();
-                ctx.beginPath();
-                ctx.rect(bx - ballR, trayBallY - 2, ballR * 2, 4);
-                ctx.clip();
-                ctx.fillStyle = def.color;
-                ctx.beginPath();
-                ctx.arc(bx, trayBallY, ballR, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            } else {
-                ctx.fillStyle = def.color;
-                ctx.beginPath();
-                ctx.arc(bx, trayBallY, ballR, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            ctx.fillStyle = '#fff';
-            ctx.font = 'bold 5px Inter, sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(def.num.toString(), bx, trayBallY + 0.3);
-        }
-
-        // Player 2 pocketed
-        if (poolPlayer2Pocketed.length > 0) {
-            ctx.fillStyle = 'rgba(255,255,255,0.40)';
-            ctx.font = 'bold 7px Inter, sans-serif';
-            ctx.textAlign = 'right';
-            ctx.textBaseline = 'alphabetic';
-            ctx.fillText('P2 Pocketed', POOL_W - 14, trayLabelY);
-        }
-        for (let i = 0; i < poolPlayer2Pocketed.length; i++) {
-            const def = POOL_BALL_DEFS[poolPlayer2Pocketed[i]];
-            const bx = POOL_W - 14 - i * (ballR * 2 + 3);
-            if (def.stripe) {
-                ctx.fillStyle = '#f5f5f5';
-                ctx.beginPath();
-                ctx.arc(bx, trayBallY, ballR, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.save();
-                ctx.beginPath();
-                ctx.rect(bx - ballR, trayBallY - 2, ballR * 2, 4);
-                ctx.clip();
-                ctx.fillStyle = def.color;
-                ctx.beginPath();
-                ctx.arc(bx, trayBallY, ballR, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            } else {
-                ctx.fillStyle = def.color;
-                ctx.beginPath();
-                ctx.arc(bx, trayBallY, ballR, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            ctx.fillStyle = '#fff';
-            ctx.font = 'bold 5px Inter, sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(def.num.toString(), bx, trayBallY + 0.3);
-        }
-        ctx.textBaseline = 'alphabetic';
+    // Adaptive difficulty from your record against the CPU, as Ludo does it:
+    // eased off when you struggle, pushed when you win. It never climbs to pro
+    // by itself, because pro changes the rules for you too (every shot is
+    // called); pro is only ever picked. A pinned tier wins over all of it.
+    function paAdaptiveTier(rec) {
+        const wins = (rec && rec.wins) || 0, losses = (rec && rec.losses) || 0, games = wins + losses;
+        if (games < 5) return 'normal';
+        const rate = wins / games;
+        if (rate < 0.35) return 'easy';
+        if (rate <= 0.65) return 'normal';
+        return 'hard';
+    }
+    function paTierFor(pref, rec) {
+        return PA_TIERS[pref] ? pref : paAdaptiveTier(rec);
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — GAME (v2)
+    // ═══════════════════════════════════════════════════════════════════
+    // The controller: it runs the match and ties the physics, rules, camera,
+    // renderer, HUD and CPU into the panel the host shows.
+    //
+    // What the rest of the userscript calls:
+    //   initPoolGame()        switchGame opened the panel: build it once, keep a
+    //                         frame in progress, attach input, start the loop
+    //   poolDetach()          switchGame left: stop the loop, drop the window
+    //                         listeners, close Max
+    //   resetPoolGame()       a fresh rack
+    //   togglePoolMode()      Vs CPU ⇄ 2 Players, then a fresh rack (from a tournament
+    //                         match: back to the mode before it)
+    //   togglePoolMaximize()  the Max view, through the shared toggleGameMaxModal
+    //   poolOnThemeChange()   applyPreferences ran: re-read the theme tokens
+    //   poolMode, poolGamesWon, poolMaximized, poolRecord, poolCpuTier
+    //   poolWinsByTier()      your CPU wins by the tier each frame was locked to
+    //                         read by the leaderboard, achievements and tests
+    //
+    // Input (POOL_V2_PLAN.md, Input):
+    //   3D     sideways mouse movement turns the aim (0.3°/px, Shift 0.05°/px),
+    //          and keeps doing so after the mouse leaves the table
+    //   2D     point at the target
+    //   power  press, then pull back or push forward along the shot line;
+    //          back under 3% and release, or Esc, cancels
+    //   ←/→    ±0.1° while the table has the mouse or Max is open
+    //   ball in hand: drag the cue ball; it stops at the cushions and, on
+    //          the break, at the head string. Move cue ball picks it up again
+    // Tournaments (pool-tour.js, pool-tour-ui.js): poolMode 'tour' while a match is on
+    // the table. The bracket is saved to localStorage (poolTournament) after every frame,
+    // with a snapshot of the table after every shot, and offered back when the panel
+    // next opens. Titles go to the trophy cabinet (poolTrophyCabinet).
+    // Escape never resets the frame here; it cancels a power drag, else the
+    // Max modal's own handler closes Max.
 
-    function handlePoolMouseDown(e) {
-        if (!poolGameRunning || poolGameOver) return;
-        if (currentGame !== 'pool') return;
-        const rect = poolCanvas.getBoundingClientRect();
+    const POOL_CLOCK_S = 30;                 // shot clock for human turns, as today
+    const POOL_AIM_REACH = 240;              // px past the table's edge the aim keeps following
+    const POOL_DEAD_PX = 4;                  // power drag dead zone
+    const POOL_STRIKE_MS = 90;               // the cue's forward stroke before the ball launches
+    const POOL_TOAST_MS = 2200;
+    const POOL_POT_XP = 5;
+    // A frame's XP (POOL_V2_PLAN.md, Progression): a CPU win by the tier it was played at,
+    // 2 Players as it has always paid Player 1, a tournament match for the YOU seat only.
+    const POOL_WIN_XP = { easy: 60, normal: 80, hard: 100, pro: 120 };
+    const POOL_LOSS_XP = 15, POOL_PVP_WIN_XP = 80, POOL_TOUR_WIN_XP = 80;
+    const POOL_MAX_W = 1280, POOL_MAX_H = 800;
+    const POOL_DEG = Math.PI / 180;
+    const POOL_TOUR_KEY = 'poolTournament', POOL_CAB_KEY = 'poolTrophyCabinet';
+    const POOL_RESULT_MS = 1100;             // the last pot drops before the match result covers the table
 
-        const canvasX = e.clientX - rect.left;
-        const canvasY = e.clientY - rect.top;
-        poolMouseX = canvasX;
-        poolMouseY = canvasY;
+    let poolMode = 'cpu';                    // 'cpu' | 'pvp' | 'tour'
+    let poolGamesWon = 0;                    // all-time wins, as stored by savePoolHighScore
+    let poolRecord = null;                   // { p1Wins, p1Losses, p2Wins, p2Losses }
+    let poolMaximized = false;
+    // The CPU's tier for this frame: locked when the frame starts (adaptive or
+    // pinned, userPreferences.poolDifficulty), so it cannot shift mid-frame.
+    let poolCpuTier = 'normal';
 
-        const canvasGameX = canvasX / (rect.width / POOL_W);
-        const canvasGameY = canvasY / (rect.height / POOL_CANVAS_H);
-        const gameX = canvasGameX;
-        const gameY = canvasGameY - POOL_TABLE_OFFSET_Y;
+    // Everything else about the panel and the match lives in one object, so
+    // a reset is a reassignment rather than thirty lines of lets.
+    const poolS = {
+        root: null, hudC: null, hudM: null, hud: null, canvas: null, ctx: null, maxFrame: null, maxPanel: null,
+        W: 0, H: 0, dpr: 1, cfg: null, director: null, cache: {},
+        world: null, frame: null, rackId: 0, awardedRack: -1, breaker: 1, frames: [0, 0], seed: 0, rng: null,
+        phase: 'aim', aim: 0, power: 0, tip: { x: 0, y: 0 }, spinOpen: false, called: -1, guide: null, guideKey: '',
+        drops: [], down: new Set(), drag: null, strikeT: 0, shot: null,
+        // The object balls each seat has potted this frame (the cards show them on an open
+        // table).
+        pots: { 1: [], 2: [] },
+        toast: null, toastMs: 0, fouled: 0, handoff: 0, result: null, placed: false, clockLeft: POOL_CLOCK_S,
+        cpu: null, wins: 0,
+        // Your record against the CPU (adaptive difficulty reads it), and the Game mode sheet.
+        cpuRec: null, sheet: { open: false, mode: 'cpu' },
+        // Table settings: guide length (full | short | off) and call every shot. Fixed for
+        // quick matches today; tournaments (Phase 7) and the pro tier (Phase 6) set them.
+        guideMode: 'full', callEvery: false, clockTotal: POOL_CLOCK_S,
+        // The tournament: the bracket (t, with t.current the match in progress), the screen
+        // and dialog over the panel, the match on the table, setup's draft, the cabinet.
+        tour: { t: null, screen: null, dialog: null, dlgBack: null, tab: 0, matchId: null, setup: null, cab: null, cabBack: null,
+            prevMode: 'cpu', pending: 0, rev: 0, checked: false },
+        running: false, raf: null, lastMs: 0, acc: 0, sinceDraw: 0, drawKey: '',
+        attached: false, armed: false, lastX: null, leanSave: null, scheme: null,
+    };
 
-        // Check spin indicator click (bottom-center margin)
-        const spinIX = POOL_W / 2, spinIY = POOL_TABLE_OFFSET_Y + POOL_H + 46, spinIR = 17;
-        if (Math.sqrt((canvasGameX - spinIX) ** 2 + (canvasGameY - spinIY) ** 2) < spinIR) {
-            poolCueSpinX = Math.max(-1, Math.min(1, (canvasGameX - spinIX) / 14));
-            poolCueSpinY = Math.max(-1, Math.min(1, (canvasGameY - spinIY) / 14));
-            return;
-        }
-
-        if (poolPlacingBall) {
-            const cueBall = poolBalls[0];
-            // Check valid placement (not overlapping other balls)
-            let valid = true;
-            const placeX = gameX;
-            const placeY = gameY;
-
-            // Must be within table bounds
-            if (placeX < POOL_CUSHION_X1 + POOL_BALL_R || placeX > POOL_CUSHION_X2 - POOL_BALL_R ||
-                placeY < POOL_CUSHION_Y1 + POOL_BALL_R || placeY > POOL_CUSHION_Y2 - POOL_BALL_R) {
-                valid = false;
-            }
-
-            // Break shot: cue ball must stay inside the kitchen (behind the head string)
-            if (poolIsBreakShot && placeX > POOL_BAULK_X - POOL_BALL_R) {
-                valid = false;
-            }
-
-            for (const b of poolBalls) {
-                if (b.pocketed || b.id === 0) continue;
-                const d = Math.sqrt((placeX - b.x) ** 2 + (placeY - b.y) ** 2);
-                if (d < POOL_BALL_R * 2.5) {
-                    valid = false;
-                    break;
-                }
-            }
-
-            if (valid) {
-                cueBall.x = placeX;
-                cueBall.y = placeY;
-                cueBall.pocketed = false;
-                poolPlacingBall = false;
-                poolBallInHand = false;
-                poolFoulMessage = '';
-            }
-            return;
-        }
-
-        if (!poolAllStopped()) return;
-        const isHumanTurn = poolTurn === 1 || poolMode === 'pvp';
-        if (!isHumanTurn) return;
-
-        // Lock current aim angle at the moment of mouse-down
-        poolLockedAngle = poolCueAngle;
-        poolAimLocked = true;
-        poolAiming = true;
-        poolDragging = true;
-        poolCuePower = 0;
+    // ── Seats, names, records ─────────────────────────────────────────
+    const poolMe = () => (typeof lbDisplayName === 'string' && lbDisplayName.trim() ? lbDisplayName.trim().slice(0, 16) : '');
+    function poolNames() {
+        const me = poolMe(), m = poolTourMatch();
+        if (m) return { 1: poolS.tour.t.slots[m.a].name, 2: poolS.tour.t.slots[m.b].name };
+        return poolMode === 'cpu' ? { 1: me || 'You', 2: 'CPU' } : { 1: me || 'Player 1', 2: 'Player 2' };
     }
+    // The picked difficulty: 'adaptive' (the default) or a pinned tier.
+    const poolDifficulty = () => (PA_TIERS[userPreferences.poolDifficulty] ? userPreferences.poolDifficulty : 'adaptive');
+    function poolLoadCpuRecord() {
+        let r = null;
+        try { r = JSON.parse(localStorage.getItem('poolCpuRecord') || 'null'); } catch (_) {}
+        return { wins: (r && parseInt(r.wins, 10)) || 0, losses: (r && parseInt(r.losses, 10)) || 0 };
+    }
+    function poolSaveCpuRecord(r) { try { localStorage.setItem('poolCpuRecord', JSON.stringify(r)); } catch (_) {} }
+    const poolCpuRec = () => poolS.cpuRec || (poolS.cpuRec = poolLoadCpuRecord());
+    // Locks the tier for the frame; pro calls every shot, for both seats.
+    function poolLockTier() {
+        const S = poolS;
+        poolCpuTier = paTierFor(poolDifficulty(), poolCpuRec());
+        S.frame.callEvery = S.callEvery || (poolMode === 'cpu' && !!PA_TIERS[poolCpuTier].callEvery);
+        // The wins button shows the board being played for, and that is this frame's tier.
+        poolRefreshScoreBtn();
+    }
+    // Nothing has been hit yet in this frame, so a new difficulty can apply to it.
+    const poolFrameFresh = () => !!poolS.frame && poolS.frame.isBreak && poolS.phase !== 'moving' && poolS.phase !== 'strike';
 
-    function handlePoolMouseMove(e) {
-        if (currentGame !== 'pool') return;
-        const rect = poolCanvas.getBoundingClientRect();
-        poolMouseX = e.clientX - rect.left;
-        poolMouseY = e.clientY - rect.top;
-
-        if (poolDragging && poolAimLocked) {
-            // Aim is locked — compute power from how far the mouse is pulled
-            // back along the locked shot axis (projection onto shot direction).
-            const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
-            if (!cueBall) return;
-            const scaleRatioX = rect.width / POOL_W;
-            const scaleRatioY = rect.height / POOL_CANVAS_H;
-            const mx = poolMouseX / scaleRatioX;
-            const my = poolMouseY / scaleRatioY - POOL_TABLE_OFFSET_Y;
-            const shotDirX = Math.cos(poolLockedAngle);
-            const shotDirY = Math.sin(poolLockedAngle);
-            // Pull vector: from mouse toward cue ball along shot axis
-            const pullX = cueBall.x - mx;
-            const pullY = cueBall.y - my;
-            const projection = pullX * shotDirX + pullY * shotDirY;
-            // Absolute value: power builds whether the mouse is pulled back or dragged forward, which
-            // lifts the canvas-bounds restriction on corner shots.
-            poolCuePower = Math.min(POOL_CUE_MAX_POWER, Math.max(0, (Math.abs(projection) - 5) * 0.20));
-            // Angle stays locked — do NOT update poolCueAngle here
+    function poolRecordText(seat) {
+        const m = poolTourMatch();
+        if (m) return 'Seed ' + poolS.tour.t.slots[seat === 1 ? m.a : m.b].seed;
+        const r = poolRecord || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
+        if (poolMode === 'cpu' && seat === 2) {
+            const label = PA_TIERS[poolCpuTier].label;
+            return poolDifficulty() === 'adaptive' ? 'Adaptive · ' + label : label;
         }
+        return seat === 1 ? r.p1Wins + 'W · ' + r.p1Losses + 'L' : r.p2Wins + 'W · ' + r.p2Losses + 'L';
     }
-
-    function handlePoolMouseUp(e) {
-        if (currentGame !== 'pool') return;
-        if (!poolDragging) return;
-
-        const cueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
-        if (cueBall && poolCuePower > 0.5 && poolAllStopped()) {
-            poolFireShot(cueBall, poolLockedAngle, poolCuePower);
-        }
-        // Whether shot or not — always release the drag/lock
-        poolDragging = false;
-        poolAimLocked = false;
-        poolAiming = false;
-        poolCuePower = 0;
+    // Your CPU wins by tier, keyed on the tier locked when each frame started, so a pick
+    // changed mid-frame cannot re-file a win. Not seeded from the all-time count: those
+    // wins' difficulty was never recorded, so they stay on the All-time board.
+    function poolWinsByTier() {
+        const out = { easy: 0, normal: 0, hard: 0, pro: 0 };
+        try {
+            const raw = JSON.parse(localStorage.getItem('poolWinsByTier') || 'null');
+            if (raw && typeof raw === 'object') PA_TIER_NAMES.forEach(t => { out[t] = parseInt(raw[t], 10) || 0; });
+        } catch (_) { /* corrupt storage reads as no wins, never as a throw */ }
+        return out;
     }
-
-    function handlePoolTouchStart(e) {
-        e.preventDefault();
-        if (e.touches.length > 0) {
-            const touch = e.touches[0];
-            handlePoolMouseDown({ clientX: touch.clientX, clientY: touch.clientY, preventDefault: () => {} });
-        }
+    function poolRecordTierWin(tier) {
+        if (PA_TIER_NAMES.indexOf(tier) === -1) return;
+        const byTier = poolWinsByTier();
+        byTier[tier]++;
+        try { localStorage.setItem('poolWinsByTier', JSON.stringify(byTier)); } catch (_) { /* quota */ }
     }
-
-    function handlePoolTouchMove(e) {
-        e.preventDefault();
-        if (e.touches.length > 0) {
-            const touch = e.touches[0];
-            handlePoolMouseMove({ clientX: touch.clientX, clientY: touch.clientY });
-        }
+    // The count on the wins button: the tier being played, 2 Players, or (in a tournament,
+    // which has no board) the all-time CPU total.
+    function poolWins() {
+        const byMode = loadPoolWinsByMode();
+        if (poolMode === 'pvp') return byMode.pvp;
+        if (poolMode === 'cpu') return poolWinsByTier()[poolCpuTier] || 0;
+        return byMode.cpu;
     }
+    // The header button and the Max trophy show the same count; it only changes when a
+    // frame ends or the mode flips, so it is read here and cached, not every frame.
+    function poolRefreshScoreBtn() { poolS.wins = poolWins(); updateGameScoreBtn('pool', null, poolS.wins); }
+    const poolCpuTurn = () => poolMode === 'cpu' && poolS.frame && poolS.frame.turn === 2 && !poolS.frame.over;
+    const poolCueBall = () => poolS.world.balls[0];
+    const poolSpeedOf = p => poolS.cfg.maxSpeed * p / 100;
+    const poolTip = () => poolS.tip;
 
-    function handlePoolTouchEnd(e) {
-        e.preventDefault();
-        handlePoolMouseUp({});
-    }
-
-
-    function initPoolGame() {
-        poolCanvas = document.getElementById('pool-canvas');
-        if (!poolCanvas) return;
-        poolCtx = poolCanvas.getContext('2d');
-        poolGamesWon = loadPoolHighScore();
-        loadPoolWinsByMode();   // seeds the per-mode split on first run
-        poolRecord = loadPoolRecord();
-        poolPockets = poolGetPockets();
-        resetPoolGame();
-        updatePoolScoreboard();
+    // ── Frames ────────────────────────────────────────────────────────
+    function poolNewFrame(breaker) {
+        const S = poolS;
+        if (!S.cfg) S.cfg = ppCreateWorld().cfg;
+        S.seed = (Date.now() ^ (S.rackId * 2654435761)) >>> 0;
+        S.rng = ppRandom(S.seed);
+        S.world = ppRack(ppCreateWorld(), S.rng);
+        S.breaker = breaker === 2 ? 2 : 1;
+        S.frame = prNewFrame({ breaker: S.breaker, callEvery: S.callEvery });
+        poolLockTier();
+        S.rackId++;
+        // Inside the kitchen, not on its line, so a press on the ball never rounds past it.
+        S.world.balls[0].x = S.world.table.headX - 80; S.world.balls[0].y = 0;
+        S.down = new Set(); S.drops = []; S.called = -1; S.guide = null; S.guideKey = ''; S.pots = { 1: [], 2: [] };
+        S.aim = 0; S.power = 0; S.tip = { x: 0, y: 0 }; S.spinOpen = false; S.phase = 'bih'; S.placed = false; S.drag = null; S.shot = null;
+        S.toast = null; S.toastMs = 0; S.fouled = 0; S.result = null; S.cpu = null;
+        // A tournament's later frames start with the breaker taking the seat.
+        const tm = poolTourMatch();
+        S.handoff = tm && tm.frames.length > 0 ? S.breaker : 0; S.clockLeft = S.clockTotal || POOL_CLOCK_S;
+        S.drawKey = '';
     }
 
     function resetPoolGame() {
-        poolBalls = poolRackBalls();
-        poolPockets = poolGetPockets();
-        poolTurn = 1;
-        poolGameOver = false;
-        poolGameRunning = false;
-        poolWinner = 0;
-        poolFirstPocket = false;
-        poolPlayer1Group = null;
-        poolPlayer2Group = null;
-        poolPlayer1Pocketed = [];
-        poolPlayer2Pocketed = [];
-        poolFoulMessage = '';
-        poolShotFired = false;
-        poolFirstBallHit = -1;
-        poolCushionAfterHit = false;
-        poolPocketedThisShot = [];
-        poolBallInHand = true;      // break shot: player must place cue ball in kitchen
-        poolPlacingBall = true;
-        poolIsBreakShot = true;      // kitchen restriction active until first shot
-        poolAiming = false;
-        poolDragging = false;
-        poolAimLocked = false;
-        poolLockedAngle = 0;
-        poolCuePower = 0;
-        poolCueSpinX = 0;
-        poolCueSpinY = 0;
-        poolAIDelay = 0;
-        poolAIPendingShot = null;
-        poolShotTimer = POOL_SHOT_CLOCK;
-        poolShotTimerFrame = 0;
-        if (poolAnimFrame) { cancelAnimationFrame(poolAnimFrame); poolAnimFrame = null; }
-        drawPoolFrame();
-        updatePoolScoreboard();
-    }
-
-    function startPoolGame() {
-        if (poolGameRunning) return;
-        // Force a full reset if the previous game ended — otherwise Play re-triggers endPoolGame
-        // with the same winner (XP farm).
-        if (poolGameOver) {
-            resetPoolGame();
-        }
-        poolGameRunning = true;
-        poolGameOver = false;
-        poolLastLogicMs = 0;
-        poolAccumulator = 0;
-        poolLastFrameMs = 0;
-        if (!poolBalls.length) poolBalls = poolRackBalls();
-        poolLoop();
-    }
-
-    function poolLoop(now) {
-        if (!poolGameRunning) return;
-        poolAnimFrame = requestAnimationFrame(poolLoop);
-        if (!now) return; // first manual call has no timestamp
-
-        // Fixed timestep: game logic always runs at 60 updates/sec
-        if (!poolLastLogicMs) poolLastLogicMs = now;
-        let delta = now - poolLastLogicMs;
-        poolLastLogicMs = now;
-        if (delta > 100) delta = 100;
-        poolAccumulator += delta;
-        while (poolAccumulator >= FIXED_DT) {
-            if (!poolAllStopped()) {
-                poolPhysicsUpdate();
-                poolFoulMessage = '';
-                poolShotTimer = POOL_SHOT_CLOCK;
-                poolShotTimerFrame = 0;
-            } else if (poolShotFired) {
-                poolProcessTurnResult();
-                poolShotTimer = POOL_SHOT_CLOCK;
-                poolShotTimerFrame = 0;
-            } else if (poolMode === 'cpu' && poolTurn === 2 && !poolGameOver) {
-                if (poolPlacingBall || poolBallInHand) {
-                    poolAIPlaceBall();
-                    poolAIPendingShot = null;
-                } else {
-                    if (poolAIPendingShot === null) {
-                        poolAITakeShot(true);
-                    }
-                    if (poolAIDelay > 0) {
-                        poolAIDelay--;
-                    } else {
-                        const aiCueBall = poolBalls.find(b => b.id === 0 && !b.pocketed);
-                        if (aiCueBall && poolAIPendingShot) {
-                            poolCueSpinX = poolAIPendingShot.spinX || 0;
-                            poolCueSpinY = poolAIPendingShot.spinY || 0;
-                            poolFireShot(aiCueBall, poolAIPendingShot.angle, poolAIPendingShot.power);
-                            poolAIPendingShot = null;
-                        }
-                    }
-                }
-            } else if (!poolGameOver && !poolPlacingBall) {
-                poolShotTimerFrame++;
-                if (poolShotTimerFrame >= 60) {
-                    poolShotTimerFrame = 0;
-                    poolShotTimer--;
-                    if (poolShotTimer <= 0) {
-                        poolFoulMessage = 'Shot clock expired!';
-                        poolTurn = poolTurn === 1 ? 2 : 1;
-                        poolBallInHand = true;
-                        poolPlacingBall = true;
-                        poolShotTimer = POOL_SHOT_CLOCK;
-                        poolShotTimerFrame = 0;
-                        if (poolMode === 'cpu' && poolTurn === 2) {
-                            poolAIDelay = 60;
-                        }
-                        updatePoolScoreboard();
-                    }
-                }
-            }
-            poolAccumulator -= FIXED_DT;
-        }
-
-        // Render: capped by FPS setting
-        const renderElapsed = now - poolLastFrameMs;
-        if (renderElapsed < getFrameInterval()) return;
-        poolLastFrameMs = now - (renderElapsed % getFrameInterval());
-        drawPoolFrame();
-    }
-
-    function endPoolGame() {
-        poolGameOver = true;
-        poolGameRunning = false;
-        if (poolAnimFrame) { cancelAnimationFrame(poolAnimFrame); poolAnimFrame = null; }
-
-        if (poolWinner === 1) {
-            poolGamesWon++;
-            savePoolHighScore(poolGamesWon);
-            savePoolWinByMode(poolMode);
-            poolRecord.p1Wins++;
-            poolRecord.p2Losses++;
-            savePoolRecord(poolRecord);
-            awardGameXP('pool', { won: true });
-        } else if (poolWinner === 2) {
-            poolRecord.p2Wins++;
-            poolRecord.p1Losses++;
-            savePoolRecord(poolRecord);
-            awardGameXP('pool', { won: false });
-        }
-
-        updatePoolScoreboard();
-        drawPoolFrame();
-    }
-
-    function updatePoolScoreboard() {
-        const p1 = document.getElementById('pool-p1-score');
-        const p2 = document.getElementById('pool-p2-score');
-        const turn = document.getElementById('pool-turn-label');
-        if (p1) p1.textContent = poolPlayer1Pocketed.length;
-        if (p2) p2.textContent = poolPlayer2Pocketed.length;
-        // The button shows wins in the mode being played, which is what the
-        // Pool board ranks — the balls-pocketed figures beside it are per-frame.
-        const byMode = loadPoolWinsByMode();
-        updateGameScoreBtn('pool', null, poolMode === 'pvp' ? byMode.pvp : byMode.cpu);
-        if (turn) {
-            if (poolGameOver) {
-                const w = poolWinner === 1 ? 'P1 Wins!' : (poolMode === 'cpu' ? 'CPU Wins!' : 'P2 Wins!');
-                turn.textContent = w;
-            } else {
-                turn.textContent = poolTurn === 1 ? 'Turn: P1' : (poolMode === 'cpu' ? 'Turn: CPU' : 'Turn: P2');
-            }
-        }
+        if (!poolS.cfg) poolS.cfg = ppCreateWorld().cfg;
+        // A tournament frame is not re-rackable: that would undo a lost frame.
+        if (poolMode === 'tour' && poolTourMatch()) return;
+        poolNewFrame(poolS.breaker);
     }
 
     function togglePoolMode() {
+        if (poolMode === 'tour') { poolLeaveTour(); return; }
         poolMode = poolMode === 'cpu' ? 'pvp' : 'cpu';
-        const btns = document.querySelectorAll('#pool-controls .snake-btn');
-        if (btns.length > 0) btns[0].textContent = poolMode === 'cpu' ? '🔄 PvCPU' : '🔄 PvP';
-        resetPoolGame();
+        poolS.frames = [0, 0];
+        poolNewFrame(1);
+        poolRefreshScoreBtn();
     }
 
+    // The frame is over: record it once per rack, however it ended.
+    function poolEndFrame(v) {
+        const S = poolS, w = v.winner;
+        if (S.awardedRack === S.rackId) return;
+        S.awardedRack = S.rackId;
+        // Tournament frames go to the bracket, not to the quick-match records or XP (Phase 8).
+        if (poolMode === 'tour') { poolTourFrameOver(w); return; }
+        if (!poolRecord) poolRecord = loadPoolRecord();
+        // Seed the per-mode split before the all-time count moves; seeded after,
+        // it would copy this win in and then count it again.
+        loadPoolWinsByMode();
+        const vsCPU = poolMode === 'cpu', tier = poolCpuTier;
+        if (w === 1) {
+            poolGamesWon++;
+            savePoolHighScore(poolGamesWon);
+            savePoolWinByMode(poolMode);
+            // Filed before the award: the award's achievement check and the wins button read it.
+            if (vsCPU) poolRecordTierWin(tier);
+            poolRecord.p1Wins++; poolRecord.p2Losses++;
+            savePoolRecord(poolRecord);
+        } else if (w === 2) {
+            poolRecord.p2Wins++; poolRecord.p1Losses++;
+            savePoolRecord(poolRecord);
+        }
+        if (w === 1 || w === 2) {
+            const won = w === 1;
+            awardGameXP('pool', { won, vsCPU, tier: vsCPU ? tier : null,
+                xp: !won ? POOL_LOSS_XP : vsCPU ? POOL_WIN_XP[tier] || POOL_WIN_XP.normal : POOL_PVP_WIN_XP });
+        }
+        if (poolMode === 'cpu') {
+            const rec = poolCpuRec();
+            if (w === 1) rec.wins++; else rec.losses++;
+            poolSaveCpuRecord(rec);
+        }
+        S.frames[w - 1]++;
+        poolRefreshScoreBtn();
+    }
+
+    // +5 XP per legal pot, for your pots against the CPU only. 2 Players paid both seats
+    // (problem 8): the XP lands on this machine's account whoever is at the table.
+    function poolAwardPots(seat, n) {
+        if (!n || poolMode !== 'cpu' || seat !== 1 || !xpSystemReady) return;
+        const xpGained = n * POOL_POT_XP;
+        userXP.currentXP += xpGained;
+        userXP.totalXP += xpGained;
+        checkLevelUp();
+        saveUserXP(userXP);
+        showXPNotification('🎱 +' + xpGained + ' XP (' + (n === 1 ? '1 pot' : n + ' pots') + ')', 'game');
+        updateXPDisplay();
+    }
+
+    // What the frame-over dialog says about the next frame's CPU, when adaptive.
+    function poolAdaptiveNote() {
+        if (poolMode !== 'cpu' || poolDifficulty() !== 'adaptive') return '';
+        const now = poolCpuTier, next = paAdaptiveTier(poolCpuRec()), label = PA_TIERS[next].label;
+        const d = PA_TIER_NAMES.indexOf(next) - PA_TIER_NAMES.indexOf(now);
+        return d > 0 ? 'Adaptive steps up to ' + label + ' next frame' : d < 0 ? 'Adaptive eases to ' + label + ' next frame' : 'Adaptive stays at ' + label;
+    }
+
+    function poolShowToast(t) { poolS.toast = t; poolS.toastMs = t && t.kind !== 'foul' ? POOL_TOAST_MS : 0; }
+
+    // Applies a verdict (a judged shot or a timeout) and sets up the next turn.
+    function poolAfterTurn(v) {
+        const S = poolS, shooter = v.shooter;
+        S.frame = v.next; S.called = -1; S.tip = { x: 0, y: 0 }; S.spinOpen = false; S.power = 0; S.cpu = null; S.shot = null;
+        if (v.frameOver) {
+            const w = v.winner, t = prText(v, poolNames());
+            const you = poolMode === 'cpu' ? w === 1 : null;
+            poolEndFrame(v);
+            if (poolMode === 'tour') { poolTourResult(t); return; }
+            S.result = {
+                win: you === null ? true : you, title: t.title, reason: t.sub,
+                recordLabel: (poolMode === 'cpu' ? poolNames()[1] : poolNames()[w]).toUpperCase() + ' · RECORD',
+                record: poolRecordText(poolMode === 'cpu' ? 1 : w),
+                delta: poolMode === 'cpu' ? (you ? '+1 WIN' : '+1 LOSS') : '+1 WIN',
+                note: poolAdaptiveNote(),
+            };
+            S.phase = 'over'; S.toast = null;
+            return;
+        }
+        S.fouled = v.foul ? shooter : 0;
+        // Hot-seat: when the table changes hands, the next player takes the seat first.
+        if (poolMode !== 'cpu' && S.frame.turn !== shooter) S.handoff = S.frame.turn;
+        if (S.frame.ballInHand) {
+            const c = poolCueBall();
+            if (c.state === 'pocketed') prPlaceCue(S.world, S.world.table.headX - 80, 0);
+            S.phase = 'bih'; S.placed = false;
+        } else { S.phase = 'aim'; poolAimAtNearest(); }
+        S.clockLeft = S.clockTotal || POOL_CLOCK_S;
+        // A shot boundary: the table is still, so this is the state a reload comes back to.
+        poolTourSnapshot();
+    }
+
+    function poolSettle() {
+        const S = poolS;
+        const v = prJudge(S.frame, S.world, S.called);
+        poolShowToast(prText(v, poolNames()));
+        if (v.respot8) prSpotBall(S.world, 8);
+        if (!v.foul) poolAwardPots(v.shooter, v.counted.length);
+        poolAfterTurn(v);
+    }
+
+    // ── Aim helpers ───────────────────────────────────────────────────
+    function poolLegalTarget(id) {
+        const S = poolS, st = prStatus(S.frame, S.world);
+        if (S.frame.isBreak) return true;
+        if (st.onThe8) return id === 8;
+        if (id === 8) return false;
+        return !st.group || prGroupOf(id) === st.group;
+    }
+    function poolAimAtNearest() {
+        const S = poolS, c = poolCueBall();
+        const cands = S.world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed' && poolLegalTarget(b.id));
+        if (!cands.length) return;
+        cands.sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y));
+        S.aim = Math.atan2(cands[0].y - c.y, cands[0].x - c.x);
+    }
+    function poolRefreshGuide() {
+        const S = poolS;
+        if (S.phase !== 'aim' && S.phase !== 'strike') { S.guide = null; return; }
+        const p = S.drag ? Math.max(S.power, 5) : 50, t = poolTip();
+        const key = [S.aim.toFixed(5), Math.round(p), t.x, t.y, S.world.t].join();
+        if (key === S.guideKey) return;
+        S.guideKey = key;
+        S.guide = pgGuide(S.world, { angle: S.aim, speed: poolSpeedOf(p), tipX: t.x, tipY: t.y });
+    }
+    // A human may act: not in the hand-off, not while the CPU plays.
+    const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over' && !poolS.sheet.open && !poolTourBlocked();
+
+    // ── The CPU's turn ────────────────────────────────────────────────
+    // Wait a beat, place the ball if it has it in hand, think (time-sliced),
+    // turn the cue onto the line, draw it back, then strike.
+    function poolCpuTick(dt) {
+        const S = poolS;
+        if (!poolCpuTurn() || poolTourBlocked() || S.phase === 'moving' || S.phase === 'strike') return;
+        const c = S.cpu || (S.cpu = { stage: 'wait', t: 0 });
+        c.t += dt;
+        if (S.phase === 'bih') {
+            if (c.t < 550) return;
+            const p = paPlace(S.world, S.frame, S.rng, poolCpuTier);
+            prPlaceCue(S.world, p[0], p[1]);
+            S.phase = 'aim'; S.placed = true; poolAimAtNearest();
+            S.cpu = { stage: 'wait', t: 0 };
+            return;
+        }
+        if (S.phase !== 'aim') return;
+        if (c.stage === 'wait') {
+            if (c.t < 350) return;
+            S.tip = { x: 0, y: 0 }; S.spinOpen = false;
+            c.job = paPlan(S.world, S.frame, { rng: S.rng, tier: poolCpuTier });
+            c.stage = 'think'; c.t = 0;
+        } else if (c.stage === 'think') {
+            if (!c.job.step(3)) return;
+            c.shot = c.job.shot; c.from = S.aim; c.stage = 'turn'; c.t = 0;
+            if (c.shot.call >= 0) S.called = c.shot.call;
+        } else if (c.stage === 'turn') {
+            const k = Math.min(1, c.t / 650);
+            let d = c.shot.angle - c.from;
+            d -= 2 * Math.PI * Math.round(d / (2 * Math.PI));
+            S.aim = c.from + d * pcEase(k);
+            if (k >= 1 && c.t > 900) { c.stage = 'draw'; c.t = 0; }
+        } else if (c.stage === 'draw') {
+            const target = Math.min(100, c.shot.speed / S.cfg.maxSpeed * 100);
+            S.power = target * Math.min(1, c.t / 380);
+            if (c.t >= 560) { S.shot = c.shot; S.phase = 'strike'; S.strikeT = 0; }
+        }
+    }
+
+    // ── The loop ──────────────────────────────────────────────────────
+    function poolCamInput() {
+        const S = poolS, c = poolCueBall();
+        return {
+            camera: userPreferences.poolCamera === '2d' ? '2d' : '3d',
+            shotCam: userPreferences.poolShotCam === '3d' ? '3d' : 'overhead',
+            phase: S.phase === 'moving' ? 'moving' : S.phase === 'bih' ? 'bih' : 'aim',
+            cue: [c.x, c.y], aim: S.aim, lean: poolLean(),
+        };
+    }
+    const poolLean = () => { const v = Number(userPreferences.poolLean); return Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 35; };
+
+    function poolTick(dt) {
+        const S = poolS;
+        if (S.phase === 'strike') {
+            S.strikeT += dt;
+            if (S.strikeT >= POOL_STRIKE_MS) {
+                S.world.log = [];
+                const t = poolTip();
+                ppStrike(S.world, S.shot || { angle: S.aim, speed: poolSpeedOf(S.power), tipX: t.x, tipY: t.y });
+                S.shot = null;
+                S.phase = 'moving'; S.acc = 0; S.toast = null; S.fouled = 0; S.placed = false;
+            }
+        } else if (S.phase === 'moving') {
+            S.acc += dt;
+            while (S.acc >= 1000 / 60) {
+                ppStep(S.world, 1 / 60); S.acc -= 1000 / 60;
+                S.world.balls.forEach(b => {
+                    if (b.state === 'pocketed' && !S.down.has(b.id)) {
+                        S.down.add(b.id);
+                        // The shooter's, whatever the verdict: a ball down on a foul stays down.
+                        // The 8 is left out; on the break it comes back.
+                        if (b.id !== 0 && b.id !== 8) S.pots[S.frame.turn].push(b.id);
+                        S.drops.push({ ball: Object.assign({}, b, { q: b.q.slice() }), pocket: b.pocket, t: 0 });
+                    }
+                });
+                if (ppSettled(S.world)) { ppSimulate(S.world, 0.001); poolSettle(); break; }
+            }
+        } else if (S.phase === 'aim' && poolCanAct() && !S.drag && S.clockTotal) {
+            // The clock waits for the hand-off and for ball in hand, as today, and a
+            // tournament can turn it off.
+            S.clockLeft -= dt / 1000;
+            if (S.clockLeft <= 0) {
+                const v = prTimeout(S.frame);
+                poolShowToast(prText(v, poolNames()));
+                poolAfterTurn(v);
+            }
+        }
+        poolCpuTick(dt);
+        // A match just ended: its result covers the table once the last ball has dropped.
+        if (S.tour.pending > 0) { S.tour.pending -= dt; if (S.tour.pending <= 0) { S.tour.pending = 0; S.tour.screen = 'result'; poolTourBump(); } }
+        if (S.toastMs) { S.toastMs -= dt; if (S.toastMs <= 0) { S.toastMs = 0; if (!S.handoff) S.toast = null; } }
+        S.drops.forEach(d => { d.t += dt / 250; });
+        S.drops = S.drops.filter(d => d.t < 1);
+        if (S.phase !== 'moving') S.down = new Set(S.world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+    }
+
+    function poolFit() {
+        const S = poolS, c = S.canvas;
+        const w = Math.round(c.clientWidth), h = Math.round(c.clientHeight);
+        if (!w || !h) return false;
+        if (w === S.W && h === S.H) return true;
+        S.W = w; S.H = h;
+        c.width = Math.round(w * S.dpr); c.height = Math.round(h * S.dpr);
+        if (!S.director) S.director = pcDirector(w, h, S.cfg);
+        pcResize(S.director, w, h);
+        S.cache = {}; S.drawKey = '';
+        return true;
+    }
+
+    function poolDraw(dt) {
+        const S = poolS;
+        if (!poolFit()) return;
+        const pose = pcDirect(S.director, poolCamInput(), dt);
+        const v = pcView(pose);
+        poolRefreshGuide();
+        const st = prStatus(S.frame, S.world);
+        const aiming = (S.phase === 'aim' || S.phase === 'strike') && !S.handoff;
+        const pull = 8 + S.power * 1.1;
+        const gap = S.phase === 'strike' ? pull + (1 - pull) * Math.min(1, S.strikeT / POOL_STRIKE_MS) : pull;
+        const c = poolCueBall();
+        const bihBad = S.phase === 'bih' ? prCanPlace(S.world, c.x, c.y, S.frame.ballInHand) : null;
+        const felt = userPreferences.poolTableColor || 'green';
+        const theme = phThemeTokens(S.hud);
+        // Nothing on the table moved and the camera is still: keep last frame's pixels.
+        const key = JSON.stringify([pose, S.world.t, c.x, c.y, S.aim, S.power, gap, S.phase, S.called, S.handoff, felt, theme, S.drops.length, S.guideKey, S.guideMode, S.W, S.H]);
+        if (key !== S.drawKey || S.drops.length) {
+            S.drawKey = key;
+            pgRender(S.ctx, {
+                view: v, world: S.world, felt, dpr: S.dpr, cache: S.cache, theme,
+                makeCanvas: (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h }),
+                aim: aiming ? { angle: S.aim, power: S.power, gap } : null,
+                guide: aiming ? S.guide : null, guideMode: S.guideMode,
+                illegal: !!(S.guide && S.guide.hit > 0 && !poolLegalTarget(S.guide.hit)),
+                bih: S.phase === 'bih' ? { x: c.x, y: c.y, valid: !bihBad } : null,
+                kitchen: S.phase === 'bih' && S.frame.ballInHand === 'kitchen',
+                call: aiming && st.callRequired ? { called: S.called } : null,
+                drops: S.drops,
+            });
+        }
+        const gs = S.phase === 'bih' ? pcProject(v, [c.x, c.y, S.cfg.ballR]) : null;
+        const cpuTurn = poolCpuTurn();
+        phRender(S.hud, phModel({
+            layout: S.hud.layout, mode: poolMode, names: poolNames(), records: { 1: poolRecordText(1), 2: poolRecordText(2) },
+            frames: S.frames, trophies: S.wins,
+            frame: S.frame, world: S.world, phase: S.phase, camera: userPreferences.poolCamera === '2d' ? '2d' : '3d',
+            lean: poolLean(), power: S.power, dragging: !!(S.drag && S.drag.kind === 'power'), tip: S.tip, spinOpen: S.spinOpen, called: S.called,
+            clock: !cpuTurn && S.clockTotal ? { left: Math.max(0, S.clockLeft), total: S.clockTotal } : null,
+            toast: S.toast, fouled: S.fouled, handoff: S.handoff,
+            bih: S.phase === 'bih' ? { valid: !bihBad, reason: bihBad, placed: S.placed, sx: gs && gs[0], sy: gs && gs[1], sr: gs ? S.cfg.ballR * gs[2] : 0 } : null,
+            result: S.result,
+            canReplace: !!S.frame.ballInHand && S.placed && poolCanAct(),
+            cpuTurn,
+            sheet: { open: S.sheet.open, mode: S.sheet.mode, note: poolSheetNote() },
+            difficulty: poolDifficulty(), adaptiveTier: paAdaptiveTier(poolCpuRec()),
+            tour: poolTourHead(), tourSheet: poolTourSheet(),
+            pots: S.pots,
+        }));
+        poolTourSync();
+    }
+
+    // Under the difficulty list: when the pick cannot apply to the frame being played.
+    function poolSheetNote() {
+        if (poolMode !== 'cpu' || poolFrameFresh() || poolS.phase === 'over') return '';
+        const next = paTierFor(poolDifficulty(), poolCpuRec());
+        return next !== poolCpuTier ? PA_TIERS[next].label + ' from the next frame; this one stays ' + PA_TIERS[poolCpuTier].label : '';
+    }
+
+    function poolLoop(ms) {
+        const S = poolS;
+        if (!S.running) return;
+        S.raf = requestAnimationFrame(poolLoop);
+        const dt = S.lastMs ? Math.min(100, Math.max(0, ms - S.lastMs)) : 16;
+        S.lastMs = ms;
+        poolTick(dt);
+        // Logic runs every animation frame; drawing honours the FPS setting.
+        S.sinceDraw += dt;
+        if (S.sinceDraw + 0.5 < getFrameInterval()) return;
+        const elapsed = S.sinceDraw;
+        S.sinceDraw = 0;
+        poolDraw(elapsed);
+    }
+
+    // ── Input ─────────────────────────────────────────────────────────
+    function poolView() { return pcView(poolS.director.pose || pcDirect(poolS.director, poolCamInput(), 0)); }
+    function poolLocal(e) {
+        const S = poolS, r = S.canvas.getBoundingClientRect(), k = r.width / S.W || 1;
+        return [(e.clientX - r.left) / k, (e.clientY - r.top) / k];
+    }
+    const poolClamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const poolIsControl = el => !!(el && el.closest && el.closest('button, input, select, label, a, textarea'));
+    function poolDisarm() { poolS.armed = false; poolS.lastX = null; }
+
+    // Power, as in the old engine: only movement along the shot line counts,
+    // pulled back or pushed forward; full power fits inside the canvas.
+    function poolShotAxis() {
+        const S = poolS, v = poolView(), c = poolCueBall(), R = S.cfg.ballR;
+        const a = pcProject(v, [c.x, c.y, R]), b = pcProject(v, [c.x + Math.cos(S.aim) * 60, c.y + Math.sin(S.aim) * 60, R]);
+        if (!a || !b) return [0, -1];
+        const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        return [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+    }
+    function poolRoom(px, py, ux, uy) {
+        const S = poolS;
+        let t = Infinity;
+        if (ux > 1e-9) t = Math.min(t, (S.W - px) / ux); else if (ux < -1e-9) t = Math.min(t, -px / ux);
+        if (uy > 1e-9) t = Math.min(t, (S.H - py) / uy); else if (uy < -1e-9) t = Math.min(t, -py / uy);
+        return Math.max(0, t);
+    }
+    // The ball follows the pointer but stops at the cushions and, on the
+    // break, at the head string, so it can be dragged along them (as v1 did).
+    function poolPlace(sx, sy) {
+        const S = poolS;
+        const p = pcView(pcOrtho(S.W, S.H, S.cfg)).unproject(sx, sy);
+        const q = prClampPlace(S.world, p[0], p[1], S.frame.ballInHand);
+        prPlaceCue(S.world, q[0], q[1]);
+    }
+
+    function poolOnEnter(e) { poolS.armed = true; poolS.lastX = poolLocal(e)[0]; }
+    function poolOnDown(e) {
+        const S = poolS;
+        S.spinOpen = false;
+        if (!poolCanAct() || !S.W) return;
+        const [sx, sy] = poolLocal(e);
+        try { S.canvas.setPointerCapture(e.pointerId); } catch (_) {}
+        S.armed = true; S.lastX = sx;
+        if (S.phase === 'bih') { S.drag = { kind: 'place' }; S.placed = false; poolPlace(sx, sy); return; }
+        if (S.phase !== 'aim') return;
+        const st = prStatus(S.frame, S.world);
+        if (st.callRequired) {
+            const hit = pgPocketMarks(poolView(), S.world.table).find(m => m.inView && Math.hypot(m.x - sx, m.y - sy) < Math.max(22, m.r));
+            if (hit) { S.called = hit.i; return; }
+            if (S.called < 0) return;
+        }
+        const ax = poolShotAxis();
+        const reach = poolClamp(Math.max(poolRoom(sx, sy, ax[0], ax[1]), poolRoom(sx, sy, -ax[0], -ax[1])) - 6, 40, S.W > 1000 ? 220 : 140);
+        S.drag = { kind: 'power', x: sx, y: sy, ax, reach };
+        S.power = 0;
+    }
+    function poolOnMove(e) {
+        const S = poolS;
+        if (!S.W) return;
+        const [sx, sy] = poolLocal(e);
+        if (S.drag && S.drag.kind === 'place') { poolPlace(sx, sy); return; }
+        if (S.drag && S.drag.kind === 'power') {
+            const px = poolClamp(sx, 0, S.W), py = poolClamp(sy, 0, S.H);
+            const along = Math.abs((px - S.drag.x) * S.drag.ax[0] + (py - S.drag.y) * S.drag.ax[1]);
+            S.power = Math.min(100, Math.max(0, along - POOL_DEAD_PX) / (S.drag.reach - POOL_DEAD_PX) * 100);
+            return;
+        }
+        if (!S.armed) return;
+        const far = sx < -POOL_AIM_REACH || sx > S.W + POOL_AIM_REACH || sy < -POOL_AIM_REACH || sy > S.H + POOL_AIM_REACH;
+        if (far || poolIsControl(e.target)) { poolDisarm(); return; }
+        const dx = S.lastX === null ? 0 : sx - S.lastX;
+        S.lastX = sx;
+        if (S.phase !== 'aim' || !poolCanAct()) return;
+        if (userPreferences.poolCamera !== '2d') S.aim -= dx * (e.shiftKey ? 0.05 : 0.3) * POOL_DEG;
+        else {
+            const p = poolView().unproject(sx, sy, S.cfg.ballR), c = poolCueBall();
+            if (p && Math.hypot(p[0] - c.x, p[1] - c.y) > 2) S.aim = Math.atan2(p[1] - c.y, p[0] - c.x);
+        }
+    }
+    function poolOnUp() {
+        const S = poolS;
+        if (!S.drag) return;
+        const d = S.drag; S.drag = null;
+        if (d.kind === 'place') {
+            const c = poolCueBall();
+            if (!prCanPlace(S.world, c.x, c.y, S.frame.ballInHand)) { S.placed = true; S.phase = 'aim'; poolAimAtNearest(); }
+            return;
+        }
+        if (S.power < 3) { S.power = 0; return; }
+        S.phase = 'strike'; S.strikeT = 0;
+    }
+    function poolOnCancel() { if (poolS.drag && poolS.drag.kind === 'power') { poolS.drag = null; poolS.power = 0; } else poolOnUp(); }
+    function poolOnWindowDown(e) {
+        if (e.target !== poolS.canvas) poolDisarm();
+        // A press anywhere but the spin control or its picker closes the picker.
+        const t = e.target;
+        if (poolS.spinOpen && !(t && t.closest && t.closest('.ph-spinpop, .ph-spin'))) poolS.spinOpen = false;
+    }
+    function poolOnKey(e) {
+        const S = poolS;
+        if (!S.attached || typeof currentGame !== 'undefined' && currentGame !== 'pool') return;
+        // The spin picker takes its own keys (arrows move the tip, Esc closes it).
+        if (e.target && e.target.closest && e.target.closest('.ph-spinpop')) return;
+        // Esc closes the Game mode sheet first, and nothing else sees it.
+        if (e.key === 'Escape' && S.sheet.open) { S.sheet.open = false; e.preventDefault(); e.stopImmediatePropagation(); return; }
+        // Esc resumes from Pause, and backs out of the abandon question.
+        if (e.key === 'Escape' && (S.tour.dialog === 'pause' || S.tour.dialog === 'abandon')) {
+            poolTourOn[S.tour.dialog === 'pause' ? 'unpause' : 'keep'](); e.preventDefault(); e.stopImmediatePropagation(); return;
+        }
+        if (e.key === 'Escape' && S.drag && S.drag.kind === 'power') {
+            // Cancel the stroke, and nothing else: not the Max modal, not a reset.
+            S.drag = null; S.power = 0;
+            e.preventDefault(); e.stopImmediatePropagation();
+            return;
+        }
+        if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && S.phase === 'aim' && poolCanAct() && (S.armed || poolMaximized)) {
+            const tag = e.target && e.target.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            S.aim += (e.key === 'ArrowLeft' ? 1 : -1) * 0.1 * POOL_DEG;
+            e.preventDefault();
+        }
+    }
+
+    // ── HUD wiring ────────────────────────────────────────────────────
+    const poolOn = {
+        camera: m => { userPreferences.poolCamera = m === '2d' ? '2d' : '3d'; savePreferences(); },
+        lean: v => {
+            userPreferences.poolLean = v;
+            // The slider fires on every step; save once it settles.
+            clearTimeout(poolS.leanSave);
+            poolS.leanSave = setTimeout(savePreferences, 400);
+        },
+        // Spin: anywhere inside the miscue ring. The tip resets to the centre after every shot.
+        tip: t => { if (poolCanAct()) poolS.tip = phClampTip(t.x, t.y); },
+        tipStep: d => { if (poolCanAct()) poolS.tip = phClampTip(poolS.tip.x + d.x, poolS.tip.y + d.y); },
+        spinToggle: () => { poolS.spinOpen = !poolS.spinOpen && poolCanAct(); },
+        spinClose: () => { poolS.spinOpen = false; },
+        // The footer's mode button and the frame-over dialog's second button open the Game mode sheet.
+        mode: () => { const S = poolS; S.sheet = { open: !S.sheet.open, mode: poolMode }; S.spinOpen = false; },
+        sheetTab: m => { poolS.sheet.mode = m === 'pvp' || m === 'tour' ? m : 'cpu'; },
+        sheetClose: () => { poolS.sheet.open = false; },
+        // A difficulty: remembered (the same setting as ⚙️), in force now if nothing has
+        // been hit yet, else from the next frame. From 2 Players it switches to Vs CPU.
+        difficulty: d => {
+            const S = poolS;
+            userPreferences.poolDifficulty = PA_TIERS[d] ? d : 'adaptive';
+            savePreferences();
+            if (poolMode !== 'cpu') { poolSetMode('cpu'); S.sheet.open = false; return; }
+            if (poolFrameFresh()) { poolLockTier(); S.sheet.open = false; }
+        },
+        startPvp: () => { poolSetMode('pvp'); poolS.sheet.open = false; },
+        // The sheet's Tournament tab, and the tournament footer.
+        tourGo: () => {
+            const T = poolS.tour;
+            poolS.sheet.open = false;
+            if (T.t && T.t.current) { poolTourResume(); return; }
+            if (T.t) { T.screen = 'bracket'; T.tab = poolTourTab(); } else { T.setup = poolTourSetupFresh(); T.screen = 'setup'; }
+            poolTourBump();
+        },
+        tourCabinet: () => { const T = poolS.tour; poolS.sheet.open = false; T.cabBack = null; T.screen = 'cabinet'; poolTourBump(); },
+        tourAbandon: () => { const T = poolS.tour; poolS.sheet.open = false; if (!T.t) return; T.dlgBack = null; T.dialog = 'abandon'; poolTourBump(); },
+        tourBracket: () => { const T = poolS.tour; if (!T.t) return; poolS.spinOpen = false; T.screen = 'bracket'; T.tab = poolTourTab(); poolTourBump(); },
+        tourPause: () => { const T = poolS.tour; if (!T.t) return; poolS.spinOpen = false; poolS.drag = null; poolS.power = 0; T.dialog = 'pause'; poolTourBump(); },
+        reset: () => resetPoolGame(),
+        max: () => togglePoolMaximize(),
+        call: i => { if (poolCanAct()) poolS.called = i; },
+        ready: () => { const S = poolS; S.handoff = 0; S.toast = null; S.fouled = 0; S.clockLeft = S.clockTotal || POOL_CLOCK_S; },
+        // Pick the cue ball up again. The clock pauses in ball in hand and
+        // carries on from where it was once the ball is down, so this never buys time back.
+        replace: () => { const S = poolS; if (S.phase === 'aim' && S.frame.ballInHand && poolCanAct() && !S.drag) { S.phase = 'bih'; S.placed = false; S.power = 0; } },
+        primary: () => { if (poolMode === 'tour') poolTourNextFrame(); else poolNewFrame(3 - poolS.breaker); },
+        secondary: () => { if (poolMode === 'tour') poolOn.tourBracket(); else poolS.sheet = { open: true, mode: poolMode }; },
+    };
+
+    function poolBuild(root) {
+        const S = poolS;
+        root.innerHTML = '';
+        S.root = root;
+        S.canvas = document.createElement('canvas');
+        S.ctx = S.canvas.getContext('2d');
+        S.hudC = phBuild(root, { layout: 'compact', on: poolOn, canvas: S.canvas });
+        S.hud = S.hudC;
+        S.W = S.H = 0;
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────
+    function initPoolGame() {
+        const root = document.getElementById('pool-root');
+        if (!root) return;
+        const S = poolS;
+        poolGamesWon = loadPoolHighScore();
+        loadPoolWinsByMode();   // seeds the per-mode split on first run
+        poolRecord = loadPoolRecord();
+        poolS.cpuRec = poolLoadCpuRecord();
+        if (!S.cfg) S.cfg = ppCreateWorld().cfg;
+        if (!S.hudC || !root.contains(S.hudC.el)) poolBuild(root);
+        // A frame in progress survives switching to another game and back.
+        if (!S.world) poolNewFrame(1);
+        // Once per page: a tournament saved last time is offered back.
+        if (!S.tour.checked) {
+            S.tour.checked = true;
+            const t = poolTourLoad();
+            if (t) { S.tour.t = t; S.tour.dialog = 'resume'; poolTourBump(); }
+        }
+        poolAttach();
+        poolRefreshScoreBtn();
+    }
+
+    function poolAttach() {
+        const S = poolS;
+        if (S.attached) return;
+        S.attached = true;
+        S.dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const c = S.canvas;
+        c.addEventListener('pointerenter', poolOnEnter);
+        c.addEventListener('pointerdown', poolOnDown);
+        c.addEventListener('pointerup', poolOnUp);
+        c.addEventListener('pointercancel', poolOnCancel);
+        window.addEventListener('pointermove', poolOnMove);
+        window.addEventListener('pointerdown', poolOnWindowDown, true);
+        window.addEventListener('keydown', poolOnKey, true);
+        window.addEventListener('blur', poolDisarm);
+        document.documentElement.addEventListener('pointerleave', poolDisarm);
+        if (window.matchMedia) {
+            S.scheme = window.matchMedia('(prefers-color-scheme: dark)');
+            if (S.scheme.addEventListener) S.scheme.addEventListener('change', poolOnThemeChange);
+        }
+        S.running = true; S.lastMs = 0; S.sinceDraw = Infinity; S.drawKey = '';
+        S.raf = requestAnimationFrame(poolLoop);
+    }
+
+    function poolDetach() {
+        const S = poolS;
+        poolTourSnapshot();
+        if (poolMaximized) togglePoolMaximize();
+        S.running = false;
+        if (S.raf) { cancelAnimationFrame(S.raf); S.raf = null; }
+        if (!S.attached) return;
+        S.attached = false;
+        const c = S.canvas;
+        c.removeEventListener('pointerenter', poolOnEnter);
+        c.removeEventListener('pointerdown', poolOnDown);
+        c.removeEventListener('pointerup', poolOnUp);
+        c.removeEventListener('pointercancel', poolOnCancel);
+        window.removeEventListener('pointermove', poolOnMove);
+        window.removeEventListener('pointerdown', poolOnWindowDown, true);
+        window.removeEventListener('keydown', poolOnKey, true);
+        window.removeEventListener('blur', poolDisarm);
+        document.documentElement.removeEventListener('pointerleave', poolDisarm);
+        if (S.scheme && S.scheme.removeEventListener) S.scheme.removeEventListener('change', poolOnThemeChange);
+        S.scheme = null;
+        S.drag = null; S.power = S.phase === 'strike' ? S.power : 0;
+        poolDisarm();
+    }
+
+    // ── Tournament ────────────────────────────────────────────────────
+    // The bracket lives in poolS.tour.t; poolMode is 'tour' only while one of its
+    // matches is on the table (tour.matchId). Screens and dialogs cover the panel
+    // and stop the clock and every input under them.
+    const poolTourMatch = () => { const T = poolS.tour; return poolMode === 'tour' && T.t && T.matchId ? ptById(T.t, T.matchId) || null : null; };
+    const poolTourBlocked = () => !!(poolS.tour.screen || poolS.tour.dialog || poolS.tour.pending);
+    function poolTourBump() { poolS.tour.rev++; }
+    // Seat 1 is the match's upper line (a), seat 2 the lower (b).
+    const poolTourBreakerSeat = m => (ptBreaker(poolS.tour.t, m, m.frames.length) === m.a ? 1 : 2);
+    // The round the bracket opens on: the match in progress, else the next one, else the final.
+    function poolTourTab() {
+        const t = poolS.tour.t, m = (t.current && ptById(t, t.current)) || ptNext(t);
+        return m ? m.round : t.rounds - 1;
+    }
+
+    // A finished tournament is not kept: it is in the cabinet, and there is nothing to resume.
+    function poolTourSave() {
+        const t = poolS.tour.t;
+        try {
+            if (t && ptChampion(t) === null) localStorage.setItem(POOL_TOUR_KEY, JSON.stringify(t));
+            else localStorage.removeItem(POOL_TOUR_KEY);
+        } catch (_) {}
+    }
+    // The saved tournament, or null. A corrupt one, or one from another version, is
+    // dropped behind a toast; it is never half-loaded.
+    function poolTourLoad() {
+        let raw = null;
+        try { raw = localStorage.getItem(POOL_TOUR_KEY); } catch (_) { return null; }
+        if (!raw) return null;
+        let t = null;
+        try { t = ptValidate(JSON.parse(raw)); } catch (_) { t = null; }
+        if (t && t.current) {
+            const m = ptById(t, t.current);
+            if (!m || m.status === 'done' || m.status === 'bye' || m.a === null || m.b === null) t.current = null;
+        }
+        if (t && ptChampion(t) === null) return t;
+        try { localStorage.removeItem(POOL_TOUR_KEY); } catch (_) {}
+        if (!t) poolShowToast({ kind: 'notice', title: "Couldn't resume the tournament", sub: 'The saved bracket was damaged or out of date' });
+        return null;
+    }
+    function poolCabinet() {
+        const T = poolS.tour;
+        if (!T.cab) {
+            let c = null;
+            try { c = JSON.parse(localStorage.getItem(POOL_CAB_KEY) || 'null'); } catch (_) {}
+            T.cab = c && c.v === 1 && c.titles && typeof c.titles === 'object' && Array.isArray(c.recent) ? c : ptCabinetEmpty();
+        }
+        return T.cab;
+    }
+
+    // The table after a shot: the balls, the rules state and the clock. Written only when
+    // nothing is moving; restored only into the same frame of the same match.
+    function poolTourSnapshot() {
+        const S = poolS, T = S.tour, m = poolTourMatch();
+        if (!m || !T.t.current || !S.world || S.phase === 'moving' || S.phase === 'strike' || S.phase === 'over' || S.frame.over) return;
+        T.t.snapshot = {
+            match: m.id, frames: m.frames.length, breaker: S.breaker, frame: JSON.parse(JSON.stringify(S.frame)),
+            balls: S.world.balls.map(b => ({ id: b.id, x: b.x, y: b.y, q: b.q.slice(), state: b.state, pocket: b.pocket })),
+            clockLeft: S.clockLeft, fouled: S.fouled, pots: { 1: S.pots[1].slice(), 2: S.pots[2].slice() },
+        };
+        poolTourSave();
+    }
+    function poolTourRestore(snap, m) {
+        const S = poolS;
+        let world = null;
+        try {
+            if (!snap || snap.match !== m.id || snap.frames !== m.frames.length || !Array.isArray(snap.balls) || snap.balls.length !== 16) return false;
+            const f = snap.frame;
+            if (!f || f.v !== 1 || (f.turn !== 1 && f.turn !== 2) || f.over) return false;
+            world = ppCreateWorld();
+            world.balls = snap.balls.map(b => {
+                if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) throw new Error('ball');
+                const ball = ppMakeBall(b.id | 0, b.x, b.y);
+                ball.state = b.state === 'pocketed' ? 'pocketed' : 'stationary';
+                ball.pocket = b.pocket | 0;
+                if (Array.isArray(b.q) && b.q.length === 4 && b.q.every(Number.isFinite)) ball.q = b.q.slice();
+                return ball;
+            });
+        } catch (_) { return false; }
+        poolNewFrame(snap.breaker === 2 ? 2 : 1);
+        S.world = world; S.frame = JSON.parse(JSON.stringify(snap.frame));
+        S.clockLeft = Number.isFinite(snap.clockLeft) && snap.clockLeft > 0 ? snap.clockLeft : S.clockTotal || POOL_CLOCK_S;
+        S.fouled = snap.fouled === 1 || snap.fouled === 2 ? snap.fouled : 0;
+        const potsOf = a => (Array.isArray(a) ? a.filter(id => Number.isInteger(id) && id > 0 && id < 16 && id !== 8) : []);
+        S.pots = { 1: potsOf(snap.pots && snap.pots[1]), 2: potsOf(snap.pots && snap.pots[2]) };
+        if (poolCueBall().state === 'pocketed') prPlaceCue(S.world, S.world.table.headX - 80, 0);
+        S.down = new Set(S.world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+        if (S.frame.ballInHand) { S.phase = 'bih'; S.placed = false; } else { S.phase = 'aim'; poolAimAtNearest(); }
+        S.drawKey = '';
+        return true;
+    }
+
+    // The table follows the tournament's settings while one of its matches is on.
+    function poolTourApply() {
+        const S = poolS, set = S.tour.t.settings;
+        S.guideMode = set.guide === 'short' || set.guide === 'off' ? set.guide : 'full';
+        S.callEvery = set.call === 'every';
+        S.clockTotal = set.clock === 45 ? 45 : set.clock === 0 ? 0 : POOL_CLOCK_S;
+    }
+    // Puts a match on the table: from the start, or from its snapshot.
+    function poolTourSeat(m, fromSnapshot) {
+        const S = poolS, T = S.tour;
+        if (poolMode !== 'tour') T.prevMode = poolMode;
+        poolMode = 'tour';
+        T.matchId = m.id; T.t.current = m.id;
+        poolTourApply();
+        S.frames = ptScore(m); S.sheet.open = false; S.spinOpen = false;
+        if (!(fromSnapshot && poolTourRestore(T.t.snapshot, m))) poolNewFrame(poolTourBreakerSeat(m));
+        poolTourSave();
+    }
+    // Back to quick matches (the mode before the tournament, or the one asked for).
+    // The tournament stays saved and can be resumed from the Game mode sheet.
+    function poolLeaveTour(mode) {
+        const S = poolS, T = S.tour;
+        poolTourSnapshot();
+        poolMode = mode === 'pvp' || mode === 'cpu' ? mode : T.prevMode === 'pvp' ? 'pvp' : 'cpu';
+        T.matchId = null; T.pending = 0;
+        S.guideMode = 'full'; S.callEvery = false; S.clockTotal = POOL_CLOCK_S;
+        S.frames = [0, 0];
+        poolNewFrame(1);
+        poolRefreshScoreBtn();
+    }
+    function poolSetMode(mode) {
+        if (poolMode === 'tour') poolLeaveTour(mode);
+        else if (poolMode !== mode) togglePoolMode();
+    }
+    // Resume: the match in progress goes back on the table (the whole-table state from
+    // the last shot) and whoever is on the shot takes the seat; with none, the bracket.
+    function poolTourResume() {
+        const S = poolS, T = S.tour, t = T.t;
+        T.dialog = null; T.screen = null; poolTourBump();
+        const m = t && t.current && ptById(t, t.current);
+        if (!m) { if (t) { T.screen = 'bracket'; T.tab = poolTourTab(); } return; }
+        if (poolTourMatch() === m) return;
+        poolTourSeat(m, true);
+        S.handoff = S.frame.turn;
+    }
+
+    // Called by poolEndFrame: the frame goes into the bracket, and it is saved.
+    function poolTourFrameOver(seat) {
+        const S = poolS, T = S.tour, m = poolTourMatch();
+        if (!m || (seat !== 1 && seat !== 2)) return;
+        const r = ptRecordFrame(T.t, m.id, seat === 1 ? m.a : m.b);
+        T.t = r.t;
+        S.frames = ptScore(ptById(T.t, m.id));
+        if (r.matchOver) {
+            T.t.current = null;
+            // Match XP for the YOU seat only, once per match: 80 won, 15 lost. Matches between
+            // other names pay nothing, byes and titles pay nothing (the bracket is farmable).
+            const mm = ptById(T.t, m.id), mine = [mm.a, mm.b].find(s => T.t.slots[s] && T.t.slots[s].you);
+            if (mine !== undefined) {
+                const won = mm.winner === mine;
+                awardGameXP('pool', { won, vsCPU: false, tour: true, round: ptRoundName(T.t.rounds, mm.round), xp: won ? POOL_TOUR_WIN_XP : POOL_LOSS_XP });
+            }
+            if (ptChampion(T.t) !== null) {
+                T.cab = ptCabinetAdd(poolCabinet(), T.t);
+                try { localStorage.setItem(POOL_CAB_KEY, JSON.stringify(T.cab)); } catch (_) {}
+            }
+        }
+        poolTourSave();
+        poolTourBump();
+    }
+    // The frame-over dialog for a frame that leaves the match going; a won match goes
+    // to its result screen instead, once the last ball has dropped.
+    function poolTourResult(text) {
+        const S = poolS, m = poolTourMatch();
+        S.phase = 'over'; S.toast = null;
+        if (!m) return;
+        if (m.status === 'done') { S.result = null; S.tour.pending = POOL_RESULT_MS; return; }
+        S.result = {
+            win: true, title: text.title, reason: text.sub,
+            recordLabel: 'MATCH · RACE TO ' + m.raceTo, record: S.frames[0] + '–' + S.frames[1],
+            delta: '+1 FRAME', note: '',
+        };
+    }
+    function poolTourNextFrame() {
+        const m = poolTourMatch();
+        if (m && m.status !== 'done') poolNewFrame(poolTourBreakerSeat(m));
+    }
+
+    // Setup's draft: four players (the smallest full bracket), you in slot 1.
+    function poolTourSetupFresh() {
+        const names = Array.from({ length: PT_MAX }, () => '');
+        names[0] = poolMe();
+        return poolTourSetupRace({ n: 4, names, name: '', clock: 30, guide: 'full', call: '8', shuffle: false, size: 0, race: [] });
+    }
+    // The race-to columns follow the bracket size; a new size starts from its defaults.
+    function poolTourSetupRace(d) {
+        const size = ptSizeFor(d.n);
+        if (d.size !== size) { d.size = size; d.race = ptRaceColumns(size).map(c => PT_RACE_DEFAULT[size][c.rounds[0]]); }
+        return d;
+    }
+    function poolTourStart() {
+        const T = poolS.tour, d = T.setup, cols = ptRaceColumns(d.size);
+        const race = Array.from({ length: ptRoundsFor(d.size) }, (_, r) => d.race[cols.findIndex(c => c.rounds.indexOf(r) !== -1)]);
+        T.t = ptCreate({ names: d.names.slice(0, d.n), you: 0, name: d.name, settings: { race, clock: d.clock, guide: d.guide, call: d.call, shuffle: d.shuffle } });
+        T.t.current = null;
+        T.setup = null;
+        poolTourSave();
+        T.screen = 'bracket'; T.tab = 0;
+        poolTourBump();
+    }
+
+    // The screens' and dialogs' buttons (pool-tour-ui.js data-pu-act, and edits).
+    const poolTourOn = {
+        edit: (field, value) => {
+            const d = poolS.tour.setup;
+            if (!d) return;
+            const v = String(value === undefined || value === null ? '' : value);
+            if (field === 'tname') d.name = v.slice(0, 24);
+            else if (field.indexOf('name:') === 0) d.names[+field.slice(5)] = v.slice(0, 16);
+            else if (field.indexOf('race:') === 0) d.race[+field.slice(5)] = Math.max(1, Math.min(5, parseInt(v, 10) || 1));
+            // No re-render: the field keeps its caret, and nothing else depends on it.
+        },
+        count: arg => { const d = poolS.tour.setup; if (!d) return; d.n = Math.max(PT_MIN, Math.min(PT_MAX, d.n + (+arg || 0))); poolTourSetupRace(d); poolTourBump(); },
+        set: arg => {
+            const d = poolS.tour.setup, i = String(arg).indexOf(':');
+            if (!d || i < 0) return;
+            const k = String(arg).slice(0, i), v = String(arg).slice(i + 1);
+            if (k === 'clock') d.clock = v === '45' ? 45 : v === '0' ? 0 : 30;
+            else if (k === 'guide') d.guide = v === 'short' || v === 'off' ? v : 'full';
+            else if (k === 'call') d.call = v === 'every' ? 'every' : '8';
+            poolTourBump();
+        },
+        shuffle: () => { const d = poolS.tour.setup; if (d) { d.shuffle = !d.shuffle; poolTourBump(); } },
+        start: () => { if (poolS.tour.setup) poolTourStart(); },
+        tab: arg => { poolS.tour.tab = Math.max(0, +arg || 0); poolTourBump(); },
+        play: () => { const T = poolS.tour, n = T.t && ptNext(T.t); if (!n) return; T.introId = n.id; T.screen = 'intro'; poolTourBump(); },
+        ready: () => {
+            const T = poolS.tour, m = T.t && T.introId && ptById(T.t, T.introId);
+            if (!m || m.status === 'done') return;
+            T.screen = null; poolTourBump();
+            poolTourSeat(m, false);
+        },
+        resume: () => poolTourResume(),
+        resumeTour: () => poolTourResume(),
+        bracket: () => { const T = poolS.tour; if (!T.t) return; T.screen = 'bracket'; T.tab = poolTourTab(); poolTourBump(); },
+        champion: () => { const T = poolS.tour; if (T.t && ptChampion(T.t) !== null) { T.screen = 'champion'; poolTourBump(); } },
+        // Leaving a screen. From the champion the tournament is finished and let go; with
+        // no match in progress, a tournament table goes back to quick matches.
+        close: () => {
+            const T = poolS.tour;
+            if (T.screen === 'champion' || (T.t && ptChampion(T.t) !== null)) T.t = null;
+            T.screen = null; T.setup = null; poolTourBump();
+            if (poolMode === 'tour' && !(T.t && T.t.current)) poolLeaveTour();
+        },
+        new: () => {
+            const T = poolS.tour;
+            T.t = null; poolTourSave();
+            if (poolMode === 'tour') poolLeaveTour();
+            T.setup = poolTourSetupFresh(); T.screen = 'setup'; poolTourBump();
+        },
+        cabinet: () => { const T = poolS.tour; T.cabBack = T.screen; T.screen = 'cabinet'; poolTourBump(); },
+        cabinetBack: () => { const T = poolS.tour; T.screen = T.cabBack || null; T.cabBack = null; poolTourBump(); },
+        unpause: () => { poolS.tour.dialog = null; poolTourBump(); },
+        // Pause → Leave for now: the match is saved as it stands, to be resumed later.
+        leave: () => { const T = poolS.tour; T.dialog = null; poolTourBump(); poolLeaveTour(); },
+        abandon: () => { const T = poolS.tour; T.dlgBack = T.dialog; T.dialog = 'abandon'; poolTourBump(); },
+        keep: () => { const T = poolS.tour; T.dialog = T.dlgBack || null; T.dlgBack = null; poolTourBump(); },
+        abandonYes: () => {
+            const T = poolS.tour;
+            T.t = null; T.dialog = null; T.dlgBack = null; T.screen = null; poolTourSave(); poolTourBump();
+            if (poolMode === 'tour') poolLeaveTour();
+        },
+    };
+
+    // The HUD's tournament header: "CITY OPEN" over "Semi-final · race to 2", FRAME n.
+    function poolTourHead() {
+        const S = poolS, m = poolTourMatch();
+        if (!m) return null;
+        const n = S.phase === 'over' ? m.frames.length : m.frames.length + 1;
+        return { kicker: S.tour.t.name.toUpperCase(), title: ptRoundName(S.tour.t.rounds, m.round) + ' · race to ' + m.raceTo, frame: 'FRAME ' + Math.max(1, n) };
+    }
+    // The Game mode sheet's Tournament tab: resume the saved one, or set one up.
+    function poolTourSheet() {
+        const t = poolS.tour.t;
+        if (!t) return { saved: false };
+        const m = (t.current && ptById(t, t.current)) || ptNext(t);
+        return { saved: true, name: t.name, where: m ? t.slots[m.a].name + ' vs ' + t.slots[m.b].name + ' · ' + ptRoundName(t.rounds, m.round) : '' };
+    }
+    // Renders the screen and dialog over whichever HUD is showing, only when either changed.
+    function poolTourSync() {
+        const S = poolS, T = S.tour, hud = S.hud, max = hud.layout === 'max';
+        const pu = puMount(hud, poolTourOn);
+        const miniW = (hud.miniW && hud.miniW.w === hud.el.clientWidth && hud.miniW.v) || (max ? 440 : Math.max(240, Math.min(388, (hud.el.clientWidth || 368) - 34)));
+        const liveId = T.t && T.t.current;
+        const needsT = T.screen && T.screen !== 'setup' && T.screen !== 'cabinet';
+        const screen = T.screen && !(needsT && !T.t) && !(T.screen === 'setup' && !T.setup) ? T.screen : null;
+        const dialog = T.dialog && T.t ? T.dialog : null;
+        // Max: the full tree takes the HUD's width and what the 64 px header leaves of its height.
+        const maxW = max ? hud.el.clientWidth || 1232 : 0, maxH = max ? Math.max(300, (hud.el.clientHeight || 752) - 80) : 0;
+        const key = { screen: screen ? screen + '|' + T.rev + '|' + miniW + '|' + maxW + 'x' + maxH : '', dialog: dialog ? dialog + '|' + T.rev : '' };
+        if (pu.key.screen === key.screen && pu.key.dialog === key.dialog) return;
+        let html = '';
+        if (screen === 'setup') html = puSetupHTML(T.setup);
+        else if (screen === 'bracket') html = puBracketHTML({ t: T.t, tab: Math.min(T.tab, T.t.rounds - 1), liveId, layout: hud.layout, miniW, maxW, maxH });
+        else if (screen === 'intro') html = puIntroHTML({ t: T.t, matchId: T.introId });
+        else if (screen === 'result') html = puResultHTML({ t: T.t, matchId: T.matchId, miniW });
+        else if (screen === 'champion') html = puChampionHTML({ t: T.t, layout: hud.layout, miniW });
+        else if (screen === 'cabinet') html = puCabinetHTML({ cab: poolCabinet() });
+        puSync(hud, poolTourOn, { screen: html, dialog: dialog ? puDialogHTML(dialog, { t: T.t, liveId }) : '', key });
+        hud.el.classList.toggle('is-pu', !!screen);
+        // The mini tree is laid out for its box's real width (the body's scrollbar takes
+        // some): measured after the render, and drawn again once if it was off.
+        const box = screen && pu.screen.querySelector('.pu-mini:not(.is-big)');
+        if (box && box.clientWidth && Math.abs(box.clientWidth - miniW) > 0.5) { hud.miniW = { w: hud.el.clientWidth, v: box.clientWidth }; pu.key.screen = null; }
+    }
+
+    // ── Theme ─────────────────────────────────────────────────────────
+    // The Max view is body-level: give it the widget's theme classes and
+    // tokens, as the host does for its PiP clone, so Cyberpunk resolves there.
+    function poolSyncMaxTheme() {
+        const f = poolS.maxFrame;
+        if (!f) return;
+        const widget = document.getElementById('total-time-summary');
+        const cyber = !!(widget && widget.classList.contains('retro-theme'));
+        f.classList.toggle('retro-theme', cyber);
+        if (cyber) { applyCyberTokens(f); applyCyberShape(f); }
+        else { clearCyberTokens(f); clearCyberShape(f); }
+    }
+
+    function poolOnThemeChange() {
+        const S = poolS;
+        if (!S.hudC) return;
+        poolSyncMaxTheme();
+        phThemeChanged(S.hudC); phThemeChanged(S.hudM);
+        S.cache = {}; S.drawKey = '';
+    }
+
+    // ── Max ───────────────────────────────────────────────────────────
+    // The design's full view (1280 × 800), scaled down to fit the window.
+    // Layout stays in design pixels; poolLocal() maps the pointer through the scale.
+    function poolFitMax() {
+        const S = poolS;
+        if (!S.maxFrame || !S.maxPanel) return;
+        const k = Math.min(1, (window.innerWidth - 32) / POOL_MAX_W, (window.innerHeight - 32) / POOL_MAX_H);
+        S.maxPanel.style.width = Math.round(POOL_MAX_W * k) + 'px';
+        S.maxPanel.style.height = Math.round(POOL_MAX_H * k) + 'px';
+        S.maxFrame.style.transform = 'scale(' + k + ')';
+    }
+    function poolBuildMax(panel) {
+        const S = poolS;
+        S.maxPanel = panel;
+        S.maxFrame = document.createElement('div');
+        S.maxFrame.className = 'pool-max-frame';
+        panel.appendChild(S.maxFrame);
+        S.hudM = phBuild(S.maxFrame, { layout: 'max', on: poolOn, canvas: S.canvas, title: '8-Ball Pool' });
+        S.hud = S.hudM;
+        poolSyncMaxTheme();
+        poolFitMax();
+        window.addEventListener('resize', poolFitMax);
+        S.W = S.H = 0; S.drawKey = '';
+    }
+    function poolUnbuildMax() {
+        const S = poolS;
+        window.removeEventListener('resize', poolFitMax);
+        S.hudC.view.insertBefore(S.canvas, S.hudC.view.firstChild);
+        S.hudM = null; S.hud = S.hudC; S.maxFrame = null; S.maxPanel = null;
+        S.W = S.H = 0; S.drawKey = '';
+    }
+    function togglePoolMaximize() {
+        if (!poolS.hudC) return;
+        poolMaximized = toggleGameMaxModal({
+            canvasId: 'pool-root',
+            title: '8-Ball Pool',
+            panelClass: 'pool-max-panel',
+            build: poolBuildMax,
+            unbuild: poolUnbuildMax,
+            onToggle: togglePoolMaximize,
+        });
+    }
+    // ═══ END POOL ENGINE ═══
+
     // SHARED MAXIMIZE-TO-MODAL HELPER (Pool + Ludo)
-    // Invisible placeholder keeps the panel from collapsing; overlay + panel are built, the real
-    // canvas moves across, its backing store scales 2x, and everything is restored on close.
-    // Callers supply only their ids and buffer size. Both renderers derive scale from
-    // canvas.width (drawPoolFrame / POOL_W, ludoRender / LUDO_CANVAS_W).
-    // State is keyed by canvasId, so two games cannot cross wires. Returns the new maximized state.
+    // Two ways in:
+    //   canvas (Ludo)  an invisible placeholder keeps the panel from collapsing; overlay + panel
+    //                  are built, the real canvas moves across, its backing store scales 2x, and
+    //                  everything is restored on close. The renderer derives its scale from
+    //                  canvas.width (ludoRender / LUDO_CANVAS_W).
+    //   cfg.build      (Pool) the game brings its own Max layout: it gets the overlay and an
+    //                  empty panel (plus cfg.panelClass) to fill, and cfg.unbuild() on close.
+    //                  No header, no placeholder, no canvas handling.
+    // Both get the backdrop click and Escape to close. State is keyed by canvasId (any element
+    // id), so two games cannot cross wires. Returns the new maximized state.
     const _gameMaxModals = {};
 
     function toggleGameMaxModal(cfg) {
         const canvas = document.getElementById(cfg.canvasId);
         if (!canvas) return false;
         const openState = _gameMaxModals[cfg.canvasId];
+
+        if (!openState && cfg.build) {
+            const overlay = document.createElement('div');
+            overlay.id = cfg.canvasId + '-max-overlay';
+            overlay.className = 'pool-modal-overlay';
+            const panel = document.createElement('div');
+            panel.className = 'pool-modal-panel' + (cfg.panelClass ? ' ' + cfg.panelClass : '');
+            overlay.appendChild(panel);
+            document.body.appendChild(overlay);
+            cfg.build(panel);
+            requestAnimationFrame(() => {
+                overlay.classList.add('active');
+                panel.classList.add('active');
+            });
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) { if (cfg.onToggle) cfg.onToggle(); else toggleGameMaxModal(cfg); }
+            });
+            overlay._escHandler = function(e) {
+                if (e.key === 'Escape') { if (cfg.onToggle) cfg.onToggle(); else toggleGameMaxModal(cfg); }
+            };
+            document.addEventListener('keydown', overlay._escHandler);
+            _gameMaxModals[cfg.canvasId] = { overlay, placeholder: null, original: null, unbuild: cfg.unbuild };
+            return true;
+        }
 
         if (!openState) {
             const gameContainer = canvas.closest('.snake-game-container') || canvas.parentElement;
@@ -4719,6 +7489,7 @@
         const overlay = openState.overlay;
         const placeholder = openState.placeholder;
         const original = openState.original;
+        if (openState.unbuild) openState.unbuild();
 
         if (original) {
             // Restore buffer size first, then CSS styles
@@ -4748,17 +7519,6 @@
 
         delete _gameMaxModals[cfg.canvasId];
         return false;
-    }
-
-    function togglePoolMaximize() {
-        poolMaximized = toggleGameMaxModal({
-            canvasId: 'pool-canvas',
-            title: '🎱 8-Ball Pool',
-            bufferW: POOL_W,
-            bufferH: POOL_CANVAS_H,
-            onToggle: togglePoolMaximize,
-        });
-        drawPoolFrame();
     }
 
     // ═══ SNAKE ENGINE — generated from snake-dev/, do not edit here ═══
@@ -9923,17 +12683,9 @@
                 }
                 break;
             case 'pool':
-                if (poolAnimFrame) { cancelAnimationFrame(poolAnimFrame); poolAnimFrame = null; }
-                poolGameRunning = false;
-                if (poolCanvas) {
-                    poolCanvas.removeEventListener('mousedown', handlePoolMouseDown);
-                    poolCanvas.removeEventListener('mousemove', handlePoolMouseMove);
-                    poolCanvas.removeEventListener('mouseup', handlePoolMouseUp);
-                    poolCanvas.removeEventListener('touchstart', handlePoolTouchStart);
-                    poolCanvas.removeEventListener('touchmove', handlePoolTouchMove);
-                    poolCanvas.removeEventListener('touchend', handlePoolTouchEnd);
-                }
-                if (poolMaximized) togglePoolMaximize();
+                // Stops the loop, drops pool's window listeners and closes its Max view.
+                // The frame in progress stays, so switching back picks it up.
+                poolDetach();
                 break;
             case 'ludo':
                 // cleanupLudoGame cancels ludoAnimFrame, drains the pending loop-timer, detaches both pointer
@@ -9953,7 +12705,7 @@
         const tetrisCv = document.getElementById('tetris-canvas');
         const gameArea = document.getElementById('multi-game-area');
         const breakoutCv = document.getElementById('breakout-canvas');
-        const poolCv = document.getElementById('pool-canvas');
+        const poolCv = document.getElementById('pool-root');
         const ludoCv = document.getElementById('ludo-canvas');
         const prayerPanel = document.getElementById('prayer-panel');
         const lbPanelEl = document.getElementById('leaderboard-panel');
@@ -9999,15 +12751,8 @@
                 break;
             case 'pool':
                 if (poolCv) poolCv.style.display = 'block';
+                // Builds the panel once, binds its own input and starts the loop.
                 initPoolGame();
-                if (poolCanvas) {
-                    poolCanvas.addEventListener('mousedown', handlePoolMouseDown);
-                    poolCanvas.addEventListener('mousemove', handlePoolMouseMove);
-                    poolCanvas.addEventListener('mouseup', handlePoolMouseUp);
-                    poolCanvas.addEventListener('touchstart', handlePoolTouchStart, { passive: false });
-                    poolCanvas.addEventListener('touchmove', handlePoolTouchMove, { passive: false });
-                    poolCanvas.addEventListener('touchend', handlePoolTouchEnd);
-                }
                 break;
             case 'ludo':
                 if (ludoCv) ludoCv.style.display = 'block';
@@ -10070,7 +12815,7 @@
                 { const s = document.getElementById('breakout-scoreboard'); if (s) s.style.display = 'flex'; }
                 break;
             case 'pool':
-                { const c = document.getElementById('pool-controls'); if (c) c.style.display = 'flex'; }
+                // No controls row: the pool panel has its own footer (Vs CPU / Reset / Max).
                 { const s = document.getElementById('pool-scoreboard'); if (s) s.style.display = 'flex'; }
                 break;
             case 'ludo':
@@ -10515,6 +13260,10 @@
 
         if (!has('flapMaster')   && flappyHS >= 50)    unlockAchievement('flapMaster', S);
         if (!has('poolShark')    && poolWon >= 100)    unlockAchievement('poolShark', S);
+        // Pro wins are filed by tier (poolWinsByTier), so Called It survives a wipe too.
+        let poolTierWins = {};
+        try { poolTierWins = JSON.parse(localStorage.getItem('poolWinsByTier') || '{}') || {}; } catch (_) {}
+        if (!has('calledIt')     && (parseInt(poolTierWins.pro, 10) || 0) >= 1) unlockAchievement('calledIt', S);
         if (!has('ludoChamp')    && ludoWon >= 100)    unlockAchievement('ludoChamp', S);
         // tetrisMaster, sharpshooter, brickBuster and lightning need session metrics (lines, accuracy,
         // level, avgTime) absent from localStorage; ludoFlawless and ludoHunter are per-match facts.
@@ -10596,6 +13345,10 @@
                     typeof poolGamesWon === 'number' && poolGamesWon >= 100) {
                     unlockAchievement('poolShark');
                 }
+                // Pro is the one tier that cannot be farmed: it calls every shot, both seats.
+                if (!userXP.achievements.includes('calledIt') && p && p.vsCPU && p.won && p.tier === 'pro') {
+                    unlockAchievement('calledIt');
+                }
                 break;
             case 'ludo':
                 // All three are CPU-only: hot-seat wins cost nothing to farm,
@@ -10625,7 +13378,7 @@
         snakeCharmer: 80, flapMaster: 100, tetrisMaster: 120,
         snakeEndless: 80, snakeWalled: 90, snakeGourmand: 100,
         snakeCampaign: 110, snakeConqueror: 200, snakeLong: 90,
-        sharpshooter: 100, lightning: 120, brickBuster: 100, poolShark: 150,
+        sharpshooter: 100, lightning: 120, brickBuster: 100, poolShark: 150, calledIt: 120,
         ludoChamp: 150, ludoFlawless: 120, ludoHunter: 80,
         curator: 40, picturePerfect: 40, meditative: 200, teamPlayer: 60
     };
@@ -10980,13 +13733,16 @@
             }
 
             case 'pool': {
-                // Decent reward for winning against CPU
-                if (performance.won) {
-                    xpGained = 80;
-                    message = `🎱 +${xpGained} XP (Pool: Victory against CPU! 🏆)`;
+                // The award is computed in pool-game.js (the CPU's tier, 2 Players, a tournament match for
+                // the YOU seat), where the headless XP tests pin it; re-clamped here as Ludo's is.
+                xpGained = Math.max(0, Math.min(AC_MAX_XP_PER_GAME, Math.round(performance.xp || 0)));
+                const poolTier = { easy: 'Easy', normal: 'Normal', hard: 'Hard', pro: 'Pro' }[performance.tier];
+                if (performance.tour) {
+                    message = performance.won ? `🎱 +${xpGained} XP (Pool: ${performance.round} won! 🏆)` : `🎱 +${xpGained} XP (Pool: ${performance.round}, good game)`;
+                } else if (performance.vsCPU) {
+                    message = performance.won ? `🎱 +${xpGained} XP (Pool: beat the ${poolTier || ''} CPU! 🏆)` : `🎱 +${xpGained} XP (Pool: good game vs the ${poolTier || ''} CPU)`;
                 } else {
-                    xpGained = 15;
-                    message = `🎱 +${xpGained} XP (Pool: Good game)`;
+                    message = performance.won ? `🎱 +${xpGained} XP (Pool: Player 1 wins 🏆)` : `🎱 +${xpGained} XP (Pool: good game)`;
                 }
                 break;
             }
@@ -13132,14 +15888,14 @@
                     box-shadow: 0 0 18px rgba(102,126,234,0.10), inset 0 0 8px rgba(0,0,0,0.04);
                 }
                 .attendance-summary:not(.retro-theme) .prayer-label {
-                    color: rgba(102,126,234,0.8);
+                    color: #4c5fd5;
                 }
                 .attendance-summary:not(.retro-theme) .prayer-digital {
                     color: #059669;
                     text-shadow: 0 0 8px rgba(5,150,105,0.25);
                 }
                 .attendance-summary:not(.retro-theme) .prayer-sublabel {
-                    color: rgba(0,0,0,0.38);
+                    color: rgba(0,0,0,0.58);
                 }
                 .attendance-summary:not(.retro-theme) .prayer-plus-btn {
                     box-shadow: 0 4px 14px rgba(102,126,234,0.3), 0 2px 6px rgba(0,0,0,0.12);
@@ -15074,6 +17830,1049 @@
             .cyber-contrast-chip.is-fail { color: #ff2a6d; }
             /* ═══ END CYBERPUNK HUD THEME ═══ */
 
+            /* ═══ POOL THEME — generated from pool-dev/pool-theme.css, do not edit here ═══ */
+            /* ═══════════════════════════════════════════════════════════════
+               8-BALL POOL — HUD THEME (v2)
+               ═══════════════════════════════════════════════════════════════
+               Layout, components and states follow the design canvas; colour,
+               type and shape come from the widget's own presets. Every rule
+               below the token blocks reads only --pool-* properties, and the
+               token blocks are the only place those are mapped:
+                 1  Glassmorphic Aurora, dark (the default)
+                 2  Glassmorphic Aurora, light (prefers-color-scheme)
+                 3  Cyberpunk HUD (user-picked colours, so no light variant)
+               Overlays sit on the felt, not on the panel, so they stay dark
+               glass in light mode too. The table and balls are physical and
+               drawn on the canvas from their own materials.
+               Nothing here sets clip-path or filter on .ph-view or anything
+               around it: the canvas and its popovers live inside.
+
+               Scope is ".retro-theme .pool-hud", not ".attendance-summary …",
+               because the Max view lives in a body-level modal: its root carries
+               copies of the widget's retro-theme and shape classes, so the
+               Cyberpunk tokens (declared on .retro-theme) resolve there too.
+               The Cyberpunk block comes after the light block and redefines
+               everything it sets, so light mode never leaks into Cyberpunk. */
+
+            .pool-hud {
+                --pool-card: rgba(255, 255, 255, 0.08);
+                --pool-card-line: rgba(255, 255, 255, 0.16);
+                --pool-control: rgba(255, 255, 255, 0.08);
+                --pool-control-line: rgba(255, 255, 255, 0.14);
+                --pool-hover: rgba(255, 255, 255, 0.16);
+                --pool-hover-text: var(--pool-text);
+                --pool-text: rgba(255, 255, 255, 0.92);
+                --pool-muted: rgba(255, 255, 255, 0.66);
+                --pool-faint: rgba(255, 255, 255, 0.56);
+                --pool-primary: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
+                --pool-primary-text: #ffffff;
+                --pool-accent: var(--aurora-4);
+                --pool-accent-rgb: 79, 172, 254;
+                /* The accent as text on the panel (tags, the Max trophy); overlays on the felt keep --pool-accent. */
+                /* On the dark panel the aurora accent and the hot red read under 4.5:1 at tag size,
+                   so their text forms are lifted toward white. --pool-accent-lite is the same for
+                   accent text on the dark glass overlays (the sheet's chip). */
+                --pool-accent-lite: color-mix(in srgb, var(--pool-accent) 62%, #ffffff);
+                --pool-accent-ink: var(--pool-accent-lite);
+                --pool-hot-ink: color-mix(in srgb, var(--pool-hot) 58%, #ffffff);
+                --pool-hot-lite: color-mix(in srgb, var(--pool-hot) 62%, #ffffff);
+                /* A hot button's fill: deep enough for white text (the hot red is 3:1). */
+                --pool-hot-fill: #cf3049;
+                --pool-felt-accent: var(--aurora-3);
+                --pool-hot: #ff5d73;
+                --pool-hot-rgb: 255, 93, 115;
+                --pool-hot-edge: none;
+                --pool-glow: 0 0 24px rgba(var(--pool-accent-rgb), 0.16);
+                --pool-overlay: rgba(8, 10, 11, 0.66);
+                --pool-overlay-strong: rgba(8, 10, 11, 0.82);
+                --pool-overlay-line: rgba(255, 255, 255, 0.10);
+                --pool-overlay-text: rgba(255, 255, 255, 0.92);
+                --pool-overlay-muted: rgba(255, 255, 255, 0.62);
+                --pool-overlay-blur: blur(8px);
+                --pool-track: rgba(255, 255, 255, 0.14);
+                --pool-display: 'Inter', system-ui, sans-serif;
+                --pool-display-weight: 700;
+                --pool-body: 'Inter', system-ui, sans-serif;
+                --pool-num: 'Inter', system-ui, sans-serif;
+                --pool-canvas-font: 'Inter', system-ui, sans-serif;
+                --pool-label-case: uppercase;
+                --pool-radius: 14px;
+                --pool-radius-sm: 12px;
+                --pool-backdrop-3d: radial-gradient(ellipse 80% 70% at 50% 28%, #251f33 0%, #101315 55%, #06080a 100%);
+                --pool-backdrop-2d: radial-gradient(ellipse 75% 75% at 50% 50%, #1d1a26 0%, #0b0d0f 80%);
+                --pool-backdrop-grid: none;
+                /* The tournament screens: opaque, over the whole panel. */
+                --pool-screen: linear-gradient(180deg, #16151f 0%, #0b0c11 100%);
+                --pool-scheme: dark;
+            }
+
+            @media (prefers-color-scheme: light) {
+                .pool-hud {
+                    --pool-card: rgba(0, 0, 0, 0.04);
+                    --pool-card-line: rgba(0, 0, 0, 0.10);
+                    --pool-control: rgba(0, 0, 0, 0.04);
+                    --pool-control-line: rgba(0, 0, 0, 0.10);
+                    --pool-hover: rgba(0, 0, 0, 0.08);
+                    --pool-text: rgba(0, 0, 0, 0.86);
+                    --pool-muted: rgba(0, 0, 0, 0.60);
+                    --pool-faint: rgba(0, 0, 0, 0.56);
+                    --pool-glow: 0 0 20px rgba(var(--pool-accent-rgb), 0.18);
+                    /* Aurora blue is 2:1 on the light panel; this deeper blue is over 4.5:1. */
+                    --pool-accent-ink: #1a5cb0;
+                    --pool-hot-ink: #a81d35;
+                    --pool-screen: linear-gradient(180deg, #faf9fd 0%, #f3f2fa 100%);
+                    --pool-scheme: light;
+                }
+            }
+
+            .retro-theme .pool-hud {
+                --pool-card: var(--rt-panel-strong);
+                --pool-card-line: var(--rt-border);
+                --pool-control: var(--rt-panel-strong);
+                --pool-control-line: var(--rt-border);
+                --pool-hover: var(--rt-text);
+                --pool-hover-text: var(--rt-bg-1);
+                --pool-text: var(--rt-text);
+                --pool-muted: var(--rt-text-dim);
+                /* Cyberpunk's faint tone is decoration-grade; text that means something takes dim. */
+                --pool-faint: var(--rt-text-dim);
+                /* The theme's one allowed inversion: a --rt-text fill with --rt-bg-1
+                   type. An accent fill carrying text is never allowed in Cyberpunk. */
+                --pool-primary: var(--rt-text);
+                --pool-primary-text: var(--rt-bg-1);
+                --pool-accent: var(--rt-accent);
+                --pool-accent-rgb: var(--rt-accent-rgb);
+                --pool-accent-ink: var(--rt-accent);
+                --pool-accent-lite: var(--rt-accent);
+                --pool-hot-ink: var(--pool-hot);
+                --pool-hot-lite: var(--pool-hot);
+                --pool-hot-fill: #c42a45;
+                --pool-felt-accent: var(--rt-accent);
+                --pool-hot: #ff4d6d;
+                --pool-hot-rgb: 255, 77, 109;
+                /* User colours can land on any hue, so hot never relies on hue alone. */
+                --pool-hot-edge: var(--rt-hazard);
+                --pool-glow: var(--rt-glow-soft);
+                --pool-overlay: var(--rt-panel-strong);
+                --pool-overlay-strong: var(--rt-panel-strong);
+                --pool-overlay-line: var(--rt-border);
+                --pool-overlay-text: var(--rt-text);
+                --pool-overlay-muted: var(--rt-text-dim);
+                --pool-overlay-blur: none;
+                --pool-track: rgba(var(--rt-border-rgb), 0.25);
+                --pool-display: 'Orbitron', sans-serif;
+                --pool-display-weight: 700;
+                --pool-body: 'Share Tech Mono', monospace;
+                --pool-num: 'Share Tech Mono', monospace;
+                --pool-canvas-font: 'Share Tech Mono', monospace;
+                --pool-radius: var(--rt-radius);
+                --pool-radius-sm: var(--rt-radius-sm);
+                --pool-backdrop-3d: radial-gradient(ellipse 80% 70% at 50% 28%, var(--rt-bg-2) 0%, var(--rt-bg-1) 100%);
+                --pool-backdrop-2d: radial-gradient(ellipse 75% 75% at 50% 50%, var(--rt-bg-2) 0%, var(--rt-bg-1) 100%);
+                --pool-backdrop-grid:
+                    linear-gradient(var(--rt-grid) 1px, transparent 1px) 0 0 / 24px 24px,
+                    linear-gradient(90deg, var(--rt-grid) 1px, transparent 1px) 0 0 / 24px 24px;
+                --pool-screen: linear-gradient(135deg, var(--rt-bg-1), var(--rt-bg-2));
+                --pool-scheme: dark;
+            }
+
+            /* ── Components ─────────────────────────────────────────────── */
+            /* The design is 368 wide, but the widget's side panel is 350 on screens up
+               to 1400 px (316 for the HUD) and full width below 1200. So the compact HUD
+               is fluid: the viewport keeps 368:412, the overlays that run down it are
+               anchored to its height (they land on the design's pixels at 368), and
+               below 360 px wide the camera toggle drops its "AUTO" suffix. It stops
+               growing at 420 px so a stacked layout does not get a table taller than
+               the screen. */
+            .pool-hud {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                color: var(--pool-text);
+                font-family: var(--pool-body);
+                container: pool-hud / inline-size;
+            }
+            .pool-hud[data-layout="compact"] { max-width: 420px; margin: 0 auto; }
+            .pool-hud button { font: inherit; color: inherit; }
+            .pool-hud .ph-label {
+                font-family: var(--pool-display);
+                font-weight: var(--pool-display-weight);
+                text-transform: var(--pool-label-case);
+                letter-spacing: 0.12em;
+            }
+            .pool-hud .ph-num { font-family: var(--pool-num); font-variant-numeric: tabular-nums; }
+
+            /* Player cards and the frame count */
+            .pool-hud .ph-cards {
+                height: 72px;
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) 52px minmax(0, 1fr);
+                gap: 8px;
+            }
+            .pool-hud .ph-card {
+                position: relative;
+                overflow: hidden;
+                box-sizing: border-box;
+                padding: 10px 12px;
+                border-radius: var(--pool-radius);
+                background: var(--pool-card);
+                border: 1px solid var(--pool-card-line);
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                min-width: 0;
+                transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            }
+            .pool-hud .ph-card[data-seat="2"] { align-items: flex-end; }
+            .pool-hud .ph-card.is-active { border-color: var(--pool-accent); box-shadow: var(--pool-glow); }
+            .pool-hud .ph-card.is-hot { border-color: var(--pool-hot); box-shadow: 0 0 24px rgba(var(--pool-hot-rgb), 0.18); }
+            .pool-hud .ph-card-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; }
+            .pool-hud .ph-card[data-seat="2"] .ph-card-top { flex-direction: row-reverse; }
+            .pool-hud .ph-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+            .pool-hud .ph-tag { font-size: 9px; color: var(--pool-accent-ink); white-space: nowrap; flex-shrink: 0; text-transform: none; letter-spacing: 0.06em; }
+            .pool-hud .ph-tag.is-hot { color: var(--pool-hot-ink); }
+            .pool-hud .ph-tag.is-pulse { animation: ph-pulse 1s ease-in-out infinite; }
+            @keyframes ph-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+            .pool-hud .ph-rec { font-size: 11px; color: var(--pool-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+            .pool-hud .ph-group { display: flex; gap: 4px; }
+            .pool-hud .ph-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; transition: opacity 0.25s ease; }
+            .pool-hud .ph-dot.is-down { opacity: 0.2; }
+            .pool-hud .ph-open { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; font-weight: 500; color: var(--pool-muted); white-space: nowrap; }
+            .pool-hud .ph-card[data-seat="2"] .ph-open { flex-direction: row-reverse; }
+            .pool-hud .ph-open-balls { display: flex; gap: 3px; }
+            .pool-hud .ph-open-balls:empty { display: none; }
+            .pool-hud .ph-clock {
+                position: absolute; bottom: 0; left: 0; height: 3px; width: 0;
+                background: var(--pool-accent);
+                box-shadow: 0 0 8px var(--pool-accent);
+            }
+            .pool-hud .ph-card[data-seat="2"] .ph-clock { left: auto; right: 0; }
+            .pool-hud .ph-card.is-hot .ph-clock { background: var(--pool-hot); box-shadow: 0 0 8px var(--pool-hot); }
+            .pool-hud .ph-frames { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+            .pool-hud .ph-frames-n { font-family: var(--pool-num); font-weight: 700; white-space: nowrap; font-size: 22px; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+            .pool-hud .ph-frames-l { font-size: 9px; color: var(--pool-muted); letter-spacing: 0.14em; }
+
+            /* The table viewport */
+            .pool-hud .ph-view {
+                position: relative;
+                width: 100%;
+                aspect-ratio: 368 / 412;
+                border-radius: var(--pool-radius);
+                overflow: hidden;
+                border: 1px solid var(--pool-card-line);
+                box-sizing: border-box;
+                flex-shrink: 0;
+                background: var(--pool-backdrop-grid), var(--pool-backdrop-3d);
+                touch-action: none;
+                user-select: none;
+            }
+            .pool-hud .ph-view.is-2d { background: var(--pool-backdrop-grid), var(--pool-backdrop-2d); }
+            .pool-hud .ph-canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
+            .pool-hud .ph-canvas.is-dragging { cursor: grabbing; }
+            .pool-hud .ph-canvas.is-placing { cursor: grab; }
+            .pool-hud .ph-layer { position: absolute; inset: 0; pointer-events: none; }
+            .pool-hud .ph-layer > * { position: absolute; }
+            .pool-hud .ph-glass {
+                background: var(--pool-overlay);
+                border: 1px solid var(--pool-overlay-line);
+                backdrop-filter: var(--pool-overlay-blur);
+                -webkit-backdrop-filter: var(--pool-overlay-blur);
+                color: var(--pool-overlay-text);
+            }
+            .pool-hud [hidden] { display: none !important; }
+
+            .pool-hud .ph-cam { left: 10px; top: 10px; display: flex; gap: 2px; padding: 3px; border-radius: 11px; pointer-events: auto; }
+            .pool-hud .ph-cam button {
+                display: flex; align-items: center; gap: 5px; height: 30px; padding: 0 10px;
+                border: 0; border-radius: 8px; background: transparent; color: var(--pool-overlay-muted);
+                font-size: 12px; cursor: pointer;
+            }
+            .pool-hud .ph-cam button[aria-pressed="true"] { background: var(--pool-primary); color: var(--pool-primary-text); }
+            .pool-hud .ph-pill { right: 10px; top: 10px; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 14px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+            .pool-hud .ph-pill-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pool-accent); box-shadow: 0 0 8px var(--pool-accent); }
+
+            .pool-hud .ph-toast {
+                left: 10px; right: 10px; top: 10px; box-sizing: border-box; min-height: 60px; padding: 10px 14px;
+                display: flex; align-items: center; gap: 12px; border-radius: var(--pool-radius);
+                background: var(--pool-overlay-strong); border-color: rgba(var(--pool-accent-rgb), 0.6);
+                box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+            }
+            .pool-hud .ph-toast.is-foul { border-color: rgba(var(--pool-hot-rgb), 0.7); background: var(--pool-hot-edge) left top / 4px 100% no-repeat, var(--pool-overlay-strong); }
+            .pool-hud .ph-toast-icon { width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.16); color: var(--pool-accent); }
+            .pool-hud .ph-toast.is-foul .ph-toast-icon { background: rgba(var(--pool-hot-rgb), 0.16); color: var(--pool-hot); }
+            .pool-hud .ph-toast-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+            .pool-hud .ph-toast-title { font-size: 13px; font-weight: 600; color: var(--pool-accent); }
+            .pool-hud .ph-toast.is-foul .ph-toast-title { color: var(--pool-hot); }
+            .pool-hud .ph-toast-sub { font-size: 12px; }
+
+            .pool-hud .ph-lean {
+                left: 10px; top: 60px; width: 40px; height: min(288px, calc(100% - 124px)); box-sizing: border-box; padding: 10px 0;
+                display: flex; flex-direction: column; align-items: center; gap: 6px; border-radius: 20px; pointer-events: auto;
+            }
+            .pool-hud .ph-lean-l { font-size: 9px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-lean-v { font-size: 12px; font-weight: 600; }
+            .pool-hud .ph-lean-chev { color: var(--pool-overlay-muted); }
+            .pool-hud .ph-rng { position: relative; width: 28px; flex-grow: 1; }
+            .pool-hud .ph-rng-track { position: absolute; left: 12px; top: 0; width: 4px; height: 100%; border-radius: 2px; background: var(--pool-track); }
+            .pool-hud .ph-rng-fill { position: absolute; left: 12px; bottom: 0; width: 4px; border-radius: 2px; background: var(--pool-accent); }
+            .pool-hud .ph-rng-thumb { position: absolute; left: 5px; width: 18px; height: 18px; margin-bottom: -9px; border-radius: 50%; background: var(--pool-overlay-text); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); }
+            .pool-hud .ph-rng:focus-within .ph-rng-thumb { box-shadow: 0 0 0 4px rgba(var(--pool-accent-rgb), 0.35), 0 2px 6px rgba(0, 0, 0, 0.5); }
+            .pool-hud .ph-rng input {
+                position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0;
+                cursor: ns-resize; writing-mode: vertical-lr; direction: rtl;
+            }
+
+            /* Anchored above Move cue ball and the hint: at 412 tall this is the design's 190–330. */
+            .pool-hud .ph-gauge {
+                right: 12px; bottom: 82px; width: 8px; height: min(140px, calc(100% - 232px)); border-radius: 4px; overflow: hidden;
+                background: var(--pool-overlay); border: 1px solid var(--pool-overlay-line); opacity: 0.45;
+                transition: opacity 0.15s ease;
+            }
+            .pool-hud .ph-gauge.is-live { opacity: 1; }
+            .pool-hud .ph-gauge.is-locked { opacity: 0.3; }
+            .pool-hud .ph-gauge-fill { position: absolute; left: 0; bottom: 0; width: 100%; height: 0; background: var(--pool-accent); box-shadow: 0 0 10px var(--pool-accent); }
+            .pool-hud .ph-gauge.is-hot .ph-gauge-fill { background: var(--pool-hot); box-shadow: 0 0 10px var(--pool-hot); }
+            .pool-hud .ph-lock { right: 6px; bottom: calc(86px + min(140px, calc(100% - 232px))); width: 20px; height: 18px; display: flex; align-items: center; justify-content: center; color: var(--pool-overlay-muted); }
+
+            .pool-hud .ph-spin {
+                left: 10px; bottom: 10px; display: flex; align-items: center; gap: 8px; height: 44px;
+                padding: 0 12px 0 5px; border-radius: 22px; cursor: pointer; pointer-events: auto; text-align: left;
+            }
+            .pool-hud .ph-spin-ball {
+                position: relative; width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+                background: radial-gradient(circle at 35% 30%, #ffffff 0%, #ede7da 45%, #bdb6a6 100%);
+                box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+            }
+            .pool-hud .ph-spin-ball::before, .pool-hud .ph-spin-ball::after { content: ''; position: absolute; left: 50%; top: 50%; background: rgba(20, 25, 27, 0.18); }
+            .pool-hud .ph-spin-ball::before { width: 1px; height: 65%; transform: translate(-50%, -50%); }
+            .pool-hud .ph-spin-ball::after { width: 65%; height: 1px; transform: translate(-50%, -50%); }
+            .pool-hud .ph-spin-dot { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #d2352b; box-shadow: 0 0 0 2px rgba(210, 53, 43, 0.25); transition: left 0.15s ease, top 0.15s ease; }
+            .pool-hud .ph-spin-text { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+            .pool-hud .ph-spin-l { font-size: 9px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-spin-v { font-size: 12px; font-weight: 600; white-space: nowrap; }
+            .pool-hud .ph-spin.is-open { border-color: rgba(var(--pool-accent-rgb), 0.6); }
+            /* The dot can be dragged on the small ball itself. */
+            .pool-hud .ph-spin-ball { cursor: grab; touch-action: none; }
+            .pool-hud .ph-spin-ball:active { cursor: grabbing; }
+
+            /* The spin picker: a big ball face above the control, the miscue ring
+               (0.6 R) drawn on it, and the presets beside it. */
+            .pool-hud .ph-spinpop {
+                left: 10px; bottom: 62px; z-index: 3; box-sizing: border-box; padding: 10px;
+                display: flex; flex-direction: column; gap: 8px; border-radius: var(--pool-radius);
+                background: var(--pool-overlay-strong); pointer-events: auto;
+                box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+            }
+            .pool-hud .ph-spinpop-read { font-size: 11px; font-weight: 600; color: var(--pool-overlay-text); white-space: nowrap; }
+            .pool-hud .ph-spinpop-body { display: flex; gap: 10px; align-items: center; }
+            .pool-hud .ph-spinpop-ball {
+                position: relative; width: 112px; height: 112px; border-radius: 50%; flex-shrink: 0;
+                background: radial-gradient(circle at 35% 30%, #ffffff 0%, #ede7da 45%, #bdb6a6 100%);
+                box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 6px 14px rgba(0, 0, 0, 0.35);
+                cursor: crosshair; touch-action: none; outline: none;
+            }
+            .pool-hud .ph-spinpop-ball::before, .pool-hud .ph-spinpop-ball::after { content: ''; position: absolute; left: 50%; top: 50%; background: rgba(20, 25, 27, 0.18); }
+            .pool-hud .ph-spinpop-ball::before { width: 1px; height: 80%; transform: translate(-50%, -50%); }
+            .pool-hud .ph-spinpop-ball::after { width: 80%; height: 1px; transform: translate(-50%, -50%); }
+            .pool-hud .ph-spinpop-ball:focus-visible { box-shadow: 0 0 0 3px rgba(var(--pool-accent-rgb), 0.55), 0 6px 14px rgba(0, 0, 0, 0.35); }
+            .pool-hud .ph-spinpop-ring {
+                position: absolute; left: 20%; top: 20%; width: 60%; height: 60%; box-sizing: border-box;
+                border-radius: 50%; border: 1px dashed rgba(20, 25, 27, 0.35); pointer-events: none;
+            }
+            .pool-hud .ph-spinpop-ball .ph-spin-dot { width: 14px; height: 14px; margin: -7px 0 0 -7px; box-shadow: 0 0 0 3px rgba(210, 53, 43, 0.25); transition: none; pointer-events: none; }
+            .pool-hud .ph-spinpop-chips { display: flex; flex-direction: column; gap: 4px; }
+            .pool-hud .ph-spinpop-chips .ph-btn { height: 20px; padding: 0 10px; font-size: 10px; color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
+            .pool-hud .ph-spinpop-chips .ph-btn[aria-pressed="true"] { border-color: var(--pool-accent); color: var(--pool-accent); }
+            .pool-hud .ph-spinpop-chips .ph-btn:hover { background: var(--pool-hover); color: var(--pool-hover-text); }
+
+            .pool-hud .ph-hint {
+                right: 10px; bottom: 10px; display: flex; align-items: center; height: 28px; padding: 0 10px;
+                border-radius: 14px; font-size: 12px; font-weight: 600; white-space: nowrap;
+                font-family: var(--pool-body);
+            }
+            .pool-hud .ph-hint.is-power { color: var(--pool-accent); }
+            .pool-hud .ph-hint.is-call { border-color: rgba(var(--pool-accent-rgb), 0.6); color: var(--pool-accent); }
+            .pool-hud .ph-hint.is-hot { border-color: rgba(var(--pool-hot-rgb), 0.6); color: var(--pool-hot); background: var(--pool-hot-edge) left top / 3px 100% no-repeat, var(--pool-overlay); }
+
+            .pool-hud .ph-bihnote {
+                transform: translateX(-50%); height: 24px; padding: 0 10px; border-radius: 12px; display: flex; align-items: center;
+                background: var(--pool-overlay-strong); border: 1px solid rgba(var(--pool-hot-rgb), 0.7); color: var(--pool-hot);
+                font-size: 11px; letter-spacing: 0.06em; white-space: nowrap;
+            }
+
+            /* Back to ball in hand: sits on the hint, clear of the power gauge and the foul toast. */
+            .pool-hud .ph-replace {
+                right: 10px; bottom: 44px; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+                border-radius: 14px; font: inherit; font-size: 11px; font-weight: 600; white-space: nowrap;
+                cursor: pointer; pointer-events: auto;
+            }
+            .pool-hud .ph-replace:hover { border-color: rgba(var(--pool-accent-rgb), 0.6); color: var(--pool-accent); }
+            .pool-hud .ph-replace:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
+
+            /* The call card (3D): the hint's corner, holding the hint's line and the pocket map,
+               so calling adds nothing else to the table. Bottom right is the near rail in the
+               chase camera, clear of the shot. Six 24 px targets on a 52 x 26 table. */
+            .pool-hud .ph-mini {
+                right: 10px; bottom: 10px; min-width: 88px; width: max-content; box-sizing: border-box; padding: 5px 6px 6px; border-radius: var(--pool-radius-sm);
+                display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: auto;
+            }
+            .pool-hud .ph-mini-cap { max-width: 100%; font-size: 11px; font-weight: 600; line-height: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-mini.is-call { border-color: rgba(var(--pool-accent-rgb), 0.6); }
+            .pool-hud .ph-mini.is-call .ph-mini-cap, .pool-hud .ph-mini.is-power .ph-mini-cap { color: var(--pool-accent); }
+            .pool-hud .ph-mini.is-hot { border-color: rgba(var(--pool-hot-rgb), 0.6); background: var(--pool-hot-edge) left top / 3px 100% no-repeat, var(--pool-overlay); }
+            .pool-hud .ph-mini.is-hot .ph-mini-cap { color: var(--pool-hot); }
+            .pool-hud .ph-mini-pad { position: relative; width: 76px; height: 50px; }
+            .pool-hud .ph-mini-table { position: absolute; left: 12px; top: 12px; width: 52px; height: 26px; box-sizing: border-box; border-radius: 3px; background: #1d6e55; border: 3px solid #553220; }
+            .pool-hud .ph-mini button {
+                position: absolute; width: 24px; height: 24px; padding: 0; border: 0; background: transparent;
+                display: flex; align-items: center; justify-content: center; cursor: pointer;
+            }
+            .pool-hud .ph-mini button span {
+                width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                border: 2px solid rgba(var(--pool-accent-rgb), 0.55); background: var(--pool-overlay);
+            }
+            .pool-hud .ph-mini button[aria-pressed="true"] span { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.25); }
+            .pool-hud .ph-mini button:hover span { border-color: var(--pool-accent); }
+            /* While the card holds the corner: the gauge and its padlock step up over it, and
+               Move cue ball goes bottom left, over the spin control (the lean slider is hidden). */
+            .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-gauge { bottom: 98px; height: min(140px, calc(100% - 248px)); }
+            .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-lock { bottom: calc(102px + min(140px, calc(100% - 248px))); }
+            .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-replace { right: auto; left: 10px; bottom: 62px; }
+            .pool-hud .ph-mini button[aria-pressed="true"] span::after { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--pool-accent); }
+
+            /* Frame-over dialog */
+            .pool-hud .ph-scrim { inset: 0; background: rgba(7, 9, 10, 0.62); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; pointer-events: auto; }
+            .pool-hud .ph-dialog {
+                width: min(320px, calc(100% - 32px)); box-sizing: border-box; padding: 20px; border-radius: var(--pool-radius);
+                background: var(--pool-overlay-strong); border: 1px solid rgba(var(--pool-accent-rgb), 0.45);
+                box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55); display: flex; flex-direction: column; gap: 14px; color: var(--pool-overlay-text);
+            }
+            .pool-hud .ph-dialog.is-loss { border-color: rgba(var(--pool-hot-rgb), 0.5); background: var(--pool-hot-edge) left top / 4px 100% no-repeat, var(--pool-overlay-strong); }
+            .pool-hud .ph-dialog-head { display: flex; align-items: center; gap: 12px; }
+            .pool-hud .ph-dialog-icon { width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.14); color: var(--pool-accent); }
+            .pool-hud .ph-dialog.is-loss .ph-dialog-icon { background: rgba(var(--pool-hot-rgb), 0.16); color: var(--pool-hot); }
+            .pool-hud .ph-dialog-kicker { font-size: 10px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-dialog-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 24px; line-height: 1.1; }
+            .pool-hud .ph-dialog-reason { font-size: 13px; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-dialog-rec { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: var(--pool-radius-sm); background: rgba(255, 255, 255, 0.06); }
+            .pool-hud .ph-dialog-rec-l { font-size: 9px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-dialog-rec-v { font-size: 18px; font-weight: 600; }
+            .pool-hud .ph-dialog-delta { font-size: 12px; letter-spacing: 0.08em; color: var(--pool-accent); }
+            .pool-hud .ph-dialog.is-loss .ph-dialog-delta { color: var(--pool-hot); }
+            .pool-hud .ph-dialog-note { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-dialog-actions { display: flex; flex-direction: column; gap: 8px; }
+
+            /* Buttons: the primary fill, and the footer's control tiles */
+            .pool-hud .ph-primary {
+                height: 48px; border: 0; border-radius: var(--pool-radius-sm); cursor: pointer;
+                background: var(--pool-primary); color: var(--pool-primary-text);
+                font-size: 15px; letter-spacing: 0.08em; transition: filter 0.15s ease, transform 0.1s ease;
+            }
+            .pool-hud .ph-primary:hover { filter: brightness(1.07); }
+            .pool-hud .ph-primary:active, .pool-hud .ph-btn:active { transform: translateY(1px); }
+            .pool-hud .ph-btn {
+                border: 1px solid var(--pool-control-line); border-radius: var(--pool-radius-sm); cursor: pointer;
+                background: var(--pool-control); color: var(--pool-text); font-size: 11px; font-weight: 600;
+                transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+            }
+            .pool-hud .ph-btn:hover { background: var(--pool-hover); color: var(--pool-hover-text); }
+            .pool-hud .ph-dialog .ph-btn { height: 44px; font-size: 13px; color: var(--pool-overlay-text); }
+            .pool-hud button:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
+
+            .pool-hud .ph-foot { height: 52px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+            .pool-hud .ph-foot .ph-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0; }
+            .pool-hud .ph-handoff {
+                height: 52px; box-sizing: border-box; padding: 4px 4px 4px 10px; display: flex; align-items: center; gap: 10px;
+                border-radius: var(--pool-radius-sm); background: var(--pool-card); border: 1px solid var(--pool-accent);
+            }
+            .pool-hud .ph-handoff-icon { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.14); color: var(--pool-accent); }
+            .pool-hud .ph-handoff-text { display: flex; flex-direction: column; gap: 1px; flex-grow: 1; min-width: 0; }
+            .pool-hud .ph-handoff-to { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-handoff-from { font-size: 11px; color: var(--pool-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-handoff .ph-primary { height: 44px; padding: 0 14px; font-size: 13px; letter-spacing: 0.06em; white-space: nowrap; }
+
+            /* Cyberpunk shape: buttons get the .snake-btn corner cut; panels keep
+               only the radius (never clip-path on the viewport or its parents). */
+            .retro-theme .pool-hud .ph-btn,
+            .retro-theme .pool-hud .ph-primary {
+                clip-path: polygon(7px 0, 100% 0, 100% 100%, 0 100%, 0 7px);
+            }
+            .retro-theme .pool-hud .ph-btn { border-color: var(--rt-border-strong); text-shadow: var(--rt-glow-soft); }
+            .retro-theme .pool-hud .ph-btn:hover { text-shadow: none; }
+            .retro-theme .pool-hud .ph-view { border-color: var(--rt-border); }
+            /* Orbitron runs wide: a card tag in it squeezes the name to a few letters. */
+            .retro-theme .pool-hud .ph-tag { font-family: var(--pool-num); letter-spacing: 0.08em; font-size: 10px; }
+
+            /* ── Max layout (Max.dc.html) ───────────────────────────────── */
+            .pool-hud[data-layout="max"] { gap: 16px; height: 100%; }
+            .pool-hud[data-layout="max"] .ph-top {
+                height: 64px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 24px;
+            }
+            .pool-hud[data-layout="max"] .ph-title { display: flex; align-items: center; gap: 12px; font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 24px; }
+            .pool-hud[data-layout="max"] .ph-cards { height: 64px; display: flex; align-items: stretch; gap: 12px; }
+            .pool-hud[data-layout="max"] .ph-card { width: 220px; flex-direction: row; align-items: center; gap: 12px; padding: 10px 14px; }
+            .pool-hud[data-layout="max"] .ph-card[data-seat="2"] { flex-direction: row-reverse; }
+            .pool-hud[data-layout="max"] .ph-avatar {
+                width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+                background: var(--pool-control); color: var(--pool-muted); font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 14px;
+            }
+            .pool-hud[data-layout="max"] .ph-card.is-active .ph-avatar { background: var(--pool-primary); color: var(--pool-primary-text); }
+            .pool-hud[data-layout="max"] .ph-card-body { display: flex; flex-direction: column; gap: 5px; flex-grow: 1; min-width: 0; }
+            .pool-hud[data-layout="max"] .ph-card[data-seat="2"] .ph-card-body { align-items: flex-end; }
+            .pool-hud[data-layout="max"] .ph-card-top { align-items: baseline; }
+            .pool-hud[data-layout="max"] .ph-name { font-size: 14px; }
+            .pool-hud[data-layout="max"] .ph-dot { width: 14px; height: 14px; }
+            .pool-hud[data-layout="max"] .ph-frames { width: 96px; }
+            .pool-hud[data-layout="max"] .ph-frames-n { font-size: 30px; line-height: 1; }
+            .pool-hud[data-layout="max"] .ph-frames-l { font-size: 10px; }
+            .pool-hud[data-layout="max"] .ph-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+            .pool-hud[data-layout="max"] .ph-actions .ph-btn { height: 44px; min-width: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; font-size: 12px; }
+            .pool-hud[data-layout="max"] .ph-actions .ph-btn.is-icon { padding: 0; width: 44px; }
+            .pool-hud[data-layout="max"] .ph-trophy {
+                display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 18px;
+                background: var(--pool-card); border: 1px solid rgba(var(--pool-accent-rgb), 0.28); color: var(--pool-accent-ink); font-size: 16px; font-weight: 700;
+            }
+            .pool-hud[data-layout="max"] .ph-view { aspect-ratio: 1232 / 672; border-radius: 18px; flex: 1 1 auto; }
+            .pool-hud[data-layout="max"] .ph-cam { left: 16px; top: 16px; gap: 3px; padding: 4px; border-radius: 13px; }
+            .pool-hud[data-layout="max"] .ph-cam button { height: 36px; padding: 0 14px; font-size: 13px; gap: 7px; border-radius: 9px; }
+            .pool-hud[data-layout="max"] .ph-pill { right: 16px; top: 16px; height: 34px; padding: 0 14px; border-radius: 17px; font-size: 12px; gap: 8px; }
+            .pool-hud[data-layout="max"] .ph-toast { left: 16px; right: auto; top: 16px; width: 420px; }
+            .pool-hud[data-layout="max"] .ph-lean { left: 16px; top: 150px; width: 48px; height: 360px; border-radius: 24px; }
+            .pool-hud[data-layout="max"] .ph-lean-l { font-size: 10px; }
+            .pool-hud[data-layout="max"] .ph-lean-v { font-size: 13px; }
+            .pool-hud[data-layout="max"] .ph-gauge { right: 20px; top: 226px; bottom: auto; width: 10px; height: 220px; border-radius: 5px; }
+            .pool-hud[data-layout="max"] .ph-lock { right: 15px; top: 202px; bottom: auto; }
+            .pool-hud[data-layout="max"] .ph-spin { left: 16px; bottom: 16px; height: 72px; padding: 0 18px 0 6px; gap: 12px; border-radius: 36px; }
+            .pool-hud[data-layout="max"] .ph-spin-ball { width: 60px; height: 60px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 6px 14px rgba(0, 0, 0, 0.35); }
+            .pool-hud[data-layout="max"] .ph-spin-dot { width: 12px; height: 12px; margin: -6px 0 0 -6px; box-shadow: 0 0 0 3px rgba(210, 53, 43, 0.25); }
+            .pool-hud[data-layout="max"] .ph-spin-l { font-size: 10px; }
+            .pool-hud[data-layout="max"] .ph-spin-v { font-size: 16px; }
+            .pool-hud[data-layout="max"] .ph-spinpop { left: 16px; bottom: 100px; padding: 14px; gap: 10px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-read { font-size: 13px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-ball { width: 160px; height: 160px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-ball .ph-spin-dot { width: 18px; height: 18px; margin: -9px 0 0 -9px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-chips { gap: 6px; }
+            .pool-hud[data-layout="max"] .ph-spinpop-chips .ph-btn { height: 26px; padding: 0 14px; font-size: 12px; }
+            .pool-hud[data-layout="max"] .ph-replace { right: 16px; bottom: 58px; height: 32px; padding: 0 13px; border-radius: 16px; font-size: 12px; }
+            .pool-hud[data-layout="max"] .ph-hint { right: 16px; bottom: 16px; height: 34px; padding: 0 14px; border-radius: 17px; font-size: 13px; }
+            .pool-hud[data-layout="max"] .ph-mini { right: 16px; bottom: 16px; transform: scale(1.3); transform-origin: right bottom; }
+            .pool-hud[data-layout="max"] .ph-view.is-calling .ph-replace { right: auto; left: 16px; bottom: 100px; }
+            .pool-hud[data-layout="max"] .ph-handoff { width: 520px; align-self: center; }
+
+            /* ── The Max view's surface ─────────────────────────────────── */
+            /* toggleGameMaxModal builds the overlay and panel (cfg.build); pool
+               empties the panel and draws its own 1280 x 800 frame, scaled to fit
+               the window by poolFitMax(). The frame is body-level, so it carries
+               copies of the widget's theme classes for Cyberpunk to resolve. */
+            .pool-modal-panel.pool-max-panel {
+                position: relative;
+                width: auto;
+                padding: 0;
+                overflow: visible;
+                background: none;
+                border: 0;
+                border-radius: 0;
+                box-shadow: none;
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+            }
+            .pool-max-frame {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 1280px;
+                height: 800px;
+                box-sizing: border-box;
+                padding: 24px;
+                border-radius: 20px;
+                transform-origin: 0 0;
+                overflow: hidden;
+                background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(118, 75, 162, 0.30) 0%, rgba(12, 13, 20, 0.98) 72%), #0b0c12;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+            }
+            @media (prefers-color-scheme: light) {
+                .pool-max-frame {
+                    background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(118, 75, 162, 0.14) 0%, rgba(247, 246, 253, 0.98) 72%), #f5f4fb;
+                    border-color: rgba(0, 0, 0, 0.08);
+                    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.25);
+                }
+            }
+            .pool-max-frame.retro-theme {
+                border-radius: var(--rt-radius);
+                background: var(--rt-brackets), linear-gradient(135deg, var(--rt-bg-1), var(--rt-bg-2));
+                border-color: var(--rt-border);
+                box-shadow: var(--rt-glow-soft);
+            }
+
+            /* ── The widget's narrow column (316 px on screens up to 1400) ── */
+            @container pool-hud (max-width: 359px) {
+                /* More room for a name beside its tag: a slimmer frames column, tighter padding. */
+                .pool-hud .ph-cards { grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr); gap: 6px; }
+                .pool-hud .ph-card { padding: 10px 9px; }
+                .pool-hud .ph-card-top { gap: 4px; }
+                /* The hand-off strip: the READY button gives the "Pass to" text its room. */
+                .pool-hud .ph-handoff { gap: 8px; padding-left: 8px; }
+                .pool-hud .ph-handoff-icon { width: 28px; height: 28px; }
+                .pool-hud .ph-handoff .ph-primary { padding: 0 10px; font-size: 11px; letter-spacing: 0.03em; }
+                .pool-hud .ph-cam-more { display: none; }
+                .pool-hud .ph-cam button { padding: 0 8px; }
+                .pool-hud .ph-pill { padding: 0 9px; }
+            }
+            /* phRender marks a card is-tight when its name would be cut off beside the tag. */
+            .pool-hud .ph-tag-short { display: none; }
+            .pool-hud .ph-card.is-tight .ph-tag-long { display: none; }
+            .pool-hud .ph-card.is-tight .ph-tag-short { display: inline; }
+            .pool-hud .ph-spin-side-s { display: none; }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .ph-spin-side { display: none; }
+                .pool-hud .ph-spin-side-s { display: inline; }
+            }
+            .pool-hud .ph-ready-short { display: none; }
+            .pool-hud .ph-handoff.is-tight .ph-ready-long { display: none; }
+            .pool-hud .ph-handoff.is-tight .ph-ready-short { display: inline; }
+
+            /* ── The Game mode sheet (InMatch.dc.html, ModeSheet) ─────────── */
+            /* A bottom sheet over the whole panel: the modes, then the CPU's
+               difficulty (Adaptive carries a chip with the tier it plays now), or
+               the 2 Players explainer. */
+            .pool-hud { position: relative; }
+            .pool-hud .ph-sheet-scrim {
+                position: absolute; inset: 0; z-index: 8; border-radius: var(--pool-radius);
+                background: rgba(7, 9, 10, 0.6); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+            }
+            .pool-hud .ph-sheet {
+                position: absolute; left: 0; right: 0; bottom: 0; z-index: 9; box-sizing: border-box; padding: 16px;
+                display: flex; flex-direction: column; gap: 12px; border-radius: 20px;
+                background: var(--pool-overlay-strong); border-top: 1px solid var(--pool-overlay-line);
+                box-shadow: 0 -18px 40px rgba(0, 0, 0, 0.5); color: var(--pool-overlay-text);
+            }
+            .pool-hud .ph-sheet-head { height: 44px; display: flex; align-items: center; justify-content: space-between; }
+            .pool-hud .ph-sheet-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 18px; }
+            .pool-hud .ph-sheet-head .ph-btn { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
+            .pool-hud .ph-sheet-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+            .pool-hud .ph-sheet-mode {
+                height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 0;
+                border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-overlay-line); background: transparent;
+                color: var(--pool-overlay-text); font-size: 12px; font-weight: 600; cursor: pointer;
+            }
+            .pool-hud .ph-sheet-mode[aria-checked="true"] { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.12); }
+            .pool-hud .ph-sheet-mode:hover { background: rgba(var(--pool-accent-rgb), 0.08); }
+            .pool-hud .ph-sheet-l { font-size: 10px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); margin-bottom: 8px; }
+            .pool-hud .ph-sheet-diffs { display: flex; flex-direction: column; gap: 4px; }
+            .pool-hud .ph-sheet-diff {
+                height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 12px; box-sizing: border-box;
+                border-radius: var(--pool-radius-sm); border: 1px solid transparent; background: transparent;
+                color: var(--pool-overlay-text); text-align: left; cursor: pointer;
+            }
+            .pool-hud .ph-sheet-diff:hover { background: rgba(var(--pool-accent-rgb), 0.06); }
+            .pool-hud .ph-sheet-diff[aria-checked="true"] { border-color: rgba(var(--pool-accent-rgb), 0.45); background: rgba(var(--pool-accent-rgb), 0.08); }
+            .pool-hud .ph-sheet-radio {
+                width: 18px; height: 18px; flex-shrink: 0; box-sizing: border-box; border-radius: 50%;
+                border: 2px solid var(--pool-overlay-muted); display: flex; align-items: center; justify-content: center;
+            }
+            .pool-hud .ph-sheet-radio span { width: 8px; height: 8px; border-radius: 50%; background: var(--pool-accent); opacity: 0; }
+            .pool-hud .ph-sheet-diff[aria-checked="true"] .ph-sheet-radio { border-color: var(--pool-accent); }
+            .pool-hud .ph-sheet-diff[aria-checked="true"] .ph-sheet-radio span { opacity: 1; }
+            .pool-hud .ph-sheet-dt { display: flex; flex-direction: column; gap: 1px; flex-grow: 1; min-width: 0; }
+            .pool-hud .ph-sheet-dn { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+            .pool-hud .ph-sheet-dd { font-size: 11px; color: var(--pool-overlay-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-sheet-chip {
+                display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; white-space: nowrap;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.45); color: var(--pool-accent-lite); font-size: 8px; letter-spacing: 0.12em;
+            }
+            .pool-hud .ph-sheet-note { font-size: 11px; color: var(--pool-overlay-muted); padding: 6px 12px 0; }
+            .pool-hud .ph-sheet-pvp {
+                padding: 14px; border-radius: var(--pool-radius); border: 1px solid var(--pool-overlay-line);
+                display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--pool-overlay-text);
+            }
+            .pool-hud .ph-sheet-pvp .ph-primary { height: 48px; font-size: 14px; }
+            .pool-hud[data-layout="max"] .ph-sheet { left: 50%; right: auto; width: 520px; transform: translateX(-50%); bottom: 24px; }
+            .pool-hud[data-layout="max"] .ph-sheet-scrim { border-radius: 20px; }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .ph-sheet { padding: 12px; gap: 10px; }
+                .pool-hud .ph-sheet-diff { gap: 10px; padding: 0 10px; }
+            }
+
+            /* ── Tournament: the in-match header, footer and the sheet's tab ─ */
+            .pool-hud .ph-sheet-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .pool-hud .ph-tourhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; }
+            .pool-hud .ph-tourhead-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+            .pool-hud .ph-tourhead-k { font-size: 10px; letter-spacing: 0.14em; color: var(--pool-accent-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-tourhead-n { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-tourhead-f {
+                display: flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 12px; flex-shrink: 0; white-space: nowrap;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.35); color: var(--pool-accent-ink); font-size: 10px;
+            }
+            .pool-hud[data-layout="max"] .ph-tourhead { justify-content: flex-start; gap: 14px; }
+            .pool-hud[data-layout="max"] .ph-tourhead-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; }
+            .pool-hud[data-layout="max"] .ph-tourhead-f { height: 30px; padding: 0 14px; border-radius: 15px; font-size: 11px; }
+            .pool-hud .ph-primary.is-two { height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+            .pool-hud .ph-primary-sub { font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+            .pool-hud .ph-sheet-links { display: flex; gap: 8px; }
+            .pool-hud .ph-sheet-links .ph-btn {
+                flex: 1 1 0; height: 40px; display: flex; align-items: center; justify-content: center; gap: 6px;
+                color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); font-size: 12px;
+            }
+            .pool-hud .ph-sheet-links .ph-btn.is-hot { color: var(--pool-hot-lite); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+
+            /* ── Tournament screens (pool-tour-ui.js) ───────────────────── */
+            /* Each screen covers the whole panel, opaque; its body scrolls and its
+               primary button stays pinned at the bottom. Dialogs sit on the table
+               in the frame-over dialog's dark glass. */
+            .pool-hud .pu-screen {
+                position: absolute; inset: 0; z-index: 12; overflow: hidden; border-radius: var(--pool-radius);
+                background: var(--pool-screen); color: var(--pool-text); color-scheme: var(--pool-scheme);
+                border: 1px solid var(--pool-card-line); box-sizing: border-box;
+            }
+            .pool-hud .pu-screen-in { position: relative; height: 100%; box-sizing: border-box; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+            .pool-hud .pu-head { display: flex; align-items: center; gap: 10px; min-height: 44px; flex-shrink: 0; }
+            .pool-hud .pu-head-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex-grow: 1; }
+            .pool-hud .pu-kicker {
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); text-transform: var(--pool-label-case);
+                font-size: 10px; letter-spacing: 0.14em; color: var(--pool-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .pool-hud .pu-kicker.is-accent { color: var(--pool-accent-ink); }
+            .pool-hud .pu-kicker.is-wide { letter-spacing: 0.2em; }
+            .pool-hud .pu-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 18px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-title.is-big { font-size: 26px; }
+            .pool-hud .pu-title:empty { display: none; }
+            .pool-hud .pu-pill {
+                display: flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 12px; flex-shrink: 0; white-space: nowrap;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.35); color: var(--pool-accent-ink);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.12em;
+            }
+            .pool-hud .pu-body {
+                flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 14px;
+                margin: 0 -6px; padding: 2px 6px; scrollbar-width: thin; scrollbar-color: var(--pool-faint) transparent; overscroll-behavior: contain;
+            }
+            .pool-hud .pu-body.is-center { justify-content: center; align-items: stretch; text-align: center; gap: 20px; }
+            .pool-hud .pu-note { font-size: 11px; color: var(--pool-muted); }
+            .pool-hud .pu-note.is-center { text-align: center; }
+            .pool-hud .pu-strong { font-size: 13px; font-weight: 600; }
+            .pool-hud .pu-group { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+
+            .pool-hud .pu-primary {
+                flex-shrink: 0; width: 100%; height: 48px; border: 0; border-radius: var(--pool-radius-sm); cursor: pointer;
+                display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; box-sizing: border-box;
+                background: var(--pool-primary); color: var(--pool-primary-text);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); text-transform: var(--pool-label-case);
+                font-size: 14px; letter-spacing: 0.08em; transition: filter 0.15s ease, transform 0.1s ease;
+            }
+            .pool-hud .pu-primary:hover { filter: brightness(1.07); }
+            .pool-hud .pu-primary:active, .pool-hud .pu-btn:active, .pool-hud .pu-iconbtn:active { transform: translateY(1px); }
+            .pool-hud .pu-primary.is-two { height: 56px; flex-direction: column; gap: 2px; }
+            .pool-hud .pu-primary-sub {
+                font-family: var(--pool-body); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none;
+                max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .pool-hud .pu-primary.is-inline { width: auto; height: 44px; }
+            .pool-hud .pu-primary.is-hot { background: var(--pool-hot-fill); color: #ffffff; }
+            .pool-hud .pu-btn, .pool-hud .pu-iconbtn {
+                height: 44px; border: 1px solid var(--pool-control-line); border-radius: var(--pool-radius-sm); cursor: pointer;
+                background: var(--pool-control); color: var(--pool-text); font-size: 13px; font-weight: 600;
+                display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; box-sizing: border-box;
+                transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+            }
+            .pool-hud .pu-iconbtn { width: 44px; padding: 0; flex-shrink: 0; }
+            .pool-hud .pu-btn:hover, .pool-hud .pu-iconbtn:hover { background: var(--pool-hover); color: var(--pool-hover-text); }
+            .pool-hud .pu-btn.is-hot { color: var(--pool-hot-ink); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+            .pool-hud .pu-screen button:focus-visible, .pool-hud .pu-scrim button:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
+            .pool-hud .pu-screen button:disabled { opacity: 0.35; cursor: default; }
+
+            /* Setup */
+            .pool-hud .pu-field { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+            .pool-hud .pu-seg-l { font-size: 11px; font-weight: 600; color: var(--pool-muted); }
+            .pool-hud .pu-input {
+                width: 100%; height: 40px; box-sizing: border-box; padding: 0 12px; border-radius: var(--pool-radius-sm);
+                border: 1px solid var(--pool-control-line); background: var(--pool-control); color: var(--pool-text);
+                font: inherit; font-size: 13px; outline: none;
+            }
+            .pool-hud .pu-input::placeholder { color: var(--pool-faint); }
+            .pool-hud .pu-input:focus { border-color: var(--pool-accent); box-shadow: 0 0 0 3px rgba(var(--pool-accent-rgb), 0.2); }
+            .pool-hud .pu-input.is-you { padding-right: 64px; }
+            .pool-hud .pu-count { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+            .pool-hud .pu-count-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            .pool-hud .pu-stepper { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+            .pool-hud .pu-stepper button {
+                width: 36px; height: 36px; padding: 0; display: flex; align-items: center; justify-content: center; cursor: pointer;
+                border: 1px solid var(--pool-control-line); border-radius: var(--pool-radius-sm); background: var(--pool-control); color: var(--pool-text);
+            }
+            .pool-hud .pu-stepper button:hover:not(:disabled) { background: var(--pool-hover); color: var(--pool-hover-text); }
+            .pool-hud .pu-count-n { width: 32px; text-align: center; font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 700; }
+            .pool-hud .pu-players {
+                display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
+            }
+            .pool-hud .pu-player { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 8px; }
+            .pool-hud .pu-seedl { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--pool-faint); }
+            .pool-hud .pu-player-in { position: relative; }
+            .pool-hud .pu-you {
+                position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 4px;
+                height: 20px; padding: 0 7px; border-radius: 10px; border: 1px solid rgba(var(--pool-accent-rgb), 0.4); color: var(--pool-accent-ink);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.12em; pointer-events: none;
+            }
+            .pool-hud .pu-races { display: grid; gap: 8px; }
+            .pool-hud .pu-race { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--pool-muted); }
+            .pool-hud .pu-race select {
+                height: 36px; padding: 0 8px; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-control-line);
+                background: var(--pool-control); color: var(--pool-text); font: inherit; font-size: 13px; cursor: pointer;
+            }
+            .pool-hud .pu-race select:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
+            .pool-hud .pu-seg-row { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+            .pool-hud .pu-seg { display: grid; gap: 2px; padding: 3px; border-radius: 11px; background: var(--pool-control); border: 1px solid var(--pool-control-line); }
+            .pool-hud .pu-seg button {
+                height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--pool-muted);
+                font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+            }
+            .pool-hud .pu-seg button:hover { color: var(--pool-text); }
+            .pool-hud .pu-seg button[aria-checked="true"] { background: var(--pool-primary); color: var(--pool-primary-text); }
+            .pool-hud .pu-switch { width: 44px; height: 26px; padding: 0; border: 0; background: transparent; cursor: pointer; flex-shrink: 0; }
+            .pool-hud .pu-switch > span {
+                position: relative; display: block; width: 44px; height: 26px; box-sizing: border-box; border-radius: 13px;
+                background: var(--pool-track); border: 1px solid var(--pool-control-line); transition: background 0.15s ease;
+            }
+            .pool-hud .pu-switch > span > span {
+                position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%;
+                background: var(--pool-text); transition: transform 0.15s ease;
+            }
+            .pool-hud .pu-switch[aria-checked="true"] > span { background: var(--pool-accent); border-color: var(--pool-accent); }
+            .pool-hud .pu-switch[aria-checked="true"] > span > span { transform: translateX(18px); background: #ffffff; }
+
+            /* Bracket: round tabs and match cards */
+            .pool-hud .pu-tabs { display: grid; gap: 2px; padding: 3px; border-radius: 11px; background: var(--pool-control); border: 1px solid var(--pool-control-line); flex-shrink: 0; }
+            .pool-hud .pu-tabs button {
+                height: 32px; min-width: 0; padding: 0 4px; border: 1px solid transparent; border-radius: 8px; background: transparent;
+                color: var(--pool-muted); font-size: 11px; font-weight: 600; cursor: pointer;
+                display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; overflow: hidden;
+            }
+            .pool-hud .pu-tabs button svg { color: var(--pool-accent-ink); flex-shrink: 0; }
+            .pool-hud .pu-tabs button[aria-selected="true"] { background: var(--pool-card); border-color: rgba(var(--pool-accent-rgb), 0.5); color: var(--pool-text); }
+            .pool-hud .pu-match {
+                display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-card); border: 1px solid var(--pool-card-line); flex-shrink: 0;
+            }
+            .pool-hud .pu-match.is-live { border-color: var(--pool-accent); box-shadow: var(--pool-glow); }
+            .pool-hud .pu-match.is-next { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .pu-match-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+            .pool-hud .pu-mrow { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 13px; }
+            .pool-hud .pu-mseed { font-family: var(--pool-num); font-size: 11px; color: var(--pool-faint); }
+            .pool-hud .pu-mname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-mscore { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; }
+            .pool-hud .pu-mrow.is-win .pu-mname { font-weight: 600; }
+            .pool-hud .pu-mrow.is-lose { color: var(--pool-muted); }
+            .pool-hud .pu-mrow.is-tbd { color: var(--pool-faint); font-style: italic; }
+            .pool-hud .pu-chip {
+                display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; box-sizing: border-box;
+                border: 1px solid var(--pool-control-line); color: var(--pool-muted); background: var(--pool-screen);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 8px; letter-spacing: 0.12em; font-style: normal;
+            }
+            .pool-hud .pu-chip.is-live { border-color: var(--pool-accent); color: var(--pool-accent-ink); }
+            .pool-hud .pu-chip.is-next { border-color: rgba(var(--pool-accent-rgb), 0.5); color: var(--pool-accent-ink); }
+            .pool-hud .pu-chip.is-bye { color: var(--pool-faint); }
+
+            /* The tree (the design's geometry, laid out by puTree) */
+            .pool-hud .pu-mini { overflow: hidden; flex-shrink: 0; }
+            .pool-hud .pu-tree { position: relative; flex-shrink: 0; }
+            .pool-hud .pu-tree > svg { position: absolute; left: 0; top: 0; overflow: visible; }
+            .pool-hud .pu-tr-line { fill: none; stroke: var(--pool-card-line); }
+            .pool-hud .pu-tr-hi { fill: none; stroke: var(--pool-accent); }
+            .pool-hud .pu-tr-head {
+                position: absolute; top: 0; height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.14em; color: var(--pool-muted);
+            }
+            .pool-hud .pu-tr-card {
+                position: absolute; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; padding: 0 8px;
+                border-radius: 8px; border: 1px solid var(--pool-card-line); background: var(--pool-screen);
+            }
+            .pool-hud .pu-tr-card::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--pool-card); pointer-events: none; }
+            .pool-hud .pu-tr-card.is-path { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .pu-tr-card.is-live { border-color: var(--pool-accent); box-shadow: var(--pool-glow); }
+            .pool-hud .pu-tr-card.is-next { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .pu-tr-card .pu-chip { position: absolute; right: 6px; top: -8px; }
+            .pool-hud .pu-tr-row { position: relative; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 6px; font-size: 12px; min-height: 0; flex: 1 1 0; }
+            .pool-hud .pu-tr-seed { font-family: var(--pool-num); font-size: 10px; color: var(--pool-faint); }
+            .pool-hud .pu-tr-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-tr-score { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; }
+            .pool-hud .pu-tr-row.is-win .pu-tr-name { font-weight: 600; }
+            .pool-hud .pu-tr-row.is-lose { color: var(--pool-muted); }
+            .pool-hud .pu-tr-row.is-tbd { color: var(--pool-faint); font-style: italic; }
+            .pool-hud .pu-tree.is-mini .pu-tr-card { padding: 0 5px; border-radius: 6px; }
+            .pool-hud .pu-tree.is-mini .pu-tr-row { grid-template-columns: minmax(0, 1fr) auto; gap: 4px; font-size: 9.5px; }
+            .pool-hud .pu-tr-champ {
+                position: absolute; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+                padding: 0 8px; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-card-line); background: var(--pool-card); color: var(--pool-muted);
+            }
+            .pool-hud .pu-tr-champ.is-won { border-color: var(--pool-accent); color: var(--pool-accent-ink); box-shadow: var(--pool-glow); }
+            .pool-hud .pu-tr-champ-l { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.14em; }
+            .pool-hud .pu-tr-champ-n { max-width: 100%; font-size: 13px; font-weight: 600; color: var(--pool-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-tree.is-mini .pu-tr-champ { gap: 2px; padding: 0 4px; border-radius: 6px; }
+            .pool-hud .pu-tree.is-mini .pu-tr-champ svg { width: 12px; height: 12px; }
+            .pool-hud .pu-tree.is-mini .pu-tr-champ-n { font-size: 9.5px; }
+
+            /* Match intro */
+            .pool-hud .pu-round { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+            .pool-hud .pu-round-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 22px; letter-spacing: 0.06em; }
+            .pool-hud .pu-round-r { font-size: 12px; color: var(--pool-muted); }
+            .pool-hud .pu-vs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; }
+            .pool-hud .pu-vs-side { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+            .pool-hud .pu-vs-name { max-width: 100%; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-vs-x { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 13px; letter-spacing: 0.14em; color: var(--pool-faint); }
+            .pool-hud .pu-avatar {
+                width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+                background: var(--pool-control); border: 1px solid var(--pool-control-line); color: var(--pool-muted);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px;
+            }
+            .pool-hud .pu-avatar.is-lead { background: var(--pool-primary); color: var(--pool-primary-text); border-color: transparent; }
+            .pool-hud .pu-avatar.is-small { width: 28px; height: 28px; font-size: 12px; }
+            .pool-hud .pu-breaks {
+                display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-card); border: 1px solid var(--pool-card-line); font-size: 12px; text-align: left;
+            }
+            .pool-hud .pu-breaks svg { flex-shrink: 0; }
+            .pool-hud .pu-foot { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+
+            /* Match result */
+            .pool-hud .pu-won {
+                display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: var(--pool-radius);
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.45); background: rgba(var(--pool-accent-rgb), 0.08); flex-shrink: 0;
+            }
+            .pool-hud .pu-won-top { display: flex; align-items: center; gap: 12px; }
+            .pool-hud .pu-won-top .pu-avatar { width: 44px; height: 44px; font-size: 17px; }
+            .pool-hud .pu-won-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex-grow: 1; }
+            .pool-hud .pu-won-n { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-won-s { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 28px; font-weight: 700; flex-shrink: 0; }
+            .pool-hud .pu-frames { display: grid; gap: 6px; }
+            .pool-hud .pu-frame {
+                display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 8px 10px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-control); border: 1px solid var(--pool-control-line); font-size: 12px;
+            }
+            .pool-hud .pu-frame > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-frame.is-win { border-color: rgba(var(--pool-accent-rgb), 0.45); }
+            .pool-hud .pu-out {
+                display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
+                background: var(--pool-card); border: 1px solid var(--pool-card-line); flex-shrink: 0;
+            }
+            .pool-hud .pu-out-t { flex-grow: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-out .pu-note { flex-shrink: 0; }
+
+            /* Champion: a quiet rise, the run, the final bracket */
+            .pool-hud .pu-champ-x { position: absolute; right: 12px; top: 12px; z-index: 1; }
+            .pool-hud .pu-hero { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 44px 4px; text-align: center; flex-shrink: 0; animation: pu-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+            .pool-hud .pu-hero-cup { display: flex; padding: 10px; border-radius: 50%; color: var(--pool-accent-ink); background: radial-gradient(circle, rgba(var(--pool-accent-rgb), 0.2) 0%, rgba(var(--pool-accent-rgb), 0) 70%); }
+            .pool-hud .pu-hero .pu-note { text-wrap: balance; }
+            .pool-hud .pu-hero-n { max-width: 100%; font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 28px; line-height: 1.15; overflow-wrap: anywhere; }
+            @keyframes pu-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+            @media (prefers-reduced-motion: reduce) { .pool-hud .pu-hero { animation: none; } }
+            .pool-hud .pu-runs { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+            .pool-hud .pu-run {
+                display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px;
+                border-radius: var(--pool-radius-sm); background: var(--pool-card); border: 1px solid var(--pool-card-line);
+            }
+            .pool-hud .pu-run.is-final { border-color: rgba(var(--pool-accent-rgb), 0.45); }
+            .pool-hud .pu-run-t { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-run-t.is-muted { color: var(--pool-muted); }
+            .pool-hud .pu-run-s { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; }
+            .pool-hud .pu-champ-acts { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+
+            /* Trophy cabinet */
+            .pool-hud .pu-cab { display: flex; flex-direction: column; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-card-line); overflow: hidden; flex-shrink: 0; }
+            .pool-hud .pu-cab-row {
+                display: grid; grid-template-columns: minmax(0, 1fr) 34px 34px 34px 46px; align-items: center; gap: 2px;
+                min-height: 40px; padding: 0 12px; border-top: 1px solid var(--pool-card-line); font-size: 13px;
+            }
+            .pool-hud .pu-cab-row.is-head {
+                min-height: 32px; border-top: 0; background: var(--pool-control); color: var(--pool-muted);
+                font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 9px; letter-spacing: 0.12em;
+            }
+            .pool-hud .pu-cab-row.is-head > span:not(:first-child) { text-align: center; }
+            .pool-hud .pu-cab-row .is-accent { color: var(--pool-accent-ink); }
+            .pool-hud .pu-cab-name { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-crown { width: 16px; flex-shrink: 0; display: flex; color: var(--pool-accent-ink); }
+            .pool-hud .pu-cab-c { text-align: center; font-family: var(--pool-num); font-variant-numeric: tabular-nums; }
+            .pool-hud .pu-cab-c.is-zero { color: var(--pool-faint); }
+            .pool-hud .pu-cab-t { text-align: center; font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-weight: 700; color: var(--pool-accent-ink); }
+            .pool-hud .pu-empty { padding: 18px 14px; font-size: 12px; color: var(--pool-muted); text-align: center; border-top: 1px solid var(--pool-card-line); }
+            .pool-hud .pu-recents { display: flex; flex-direction: column; gap: 6px; }
+            .pool-hud .pu-recent {
+                display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px;
+                border-radius: var(--pool-radius-sm); background: var(--pool-card); border: 1px solid var(--pool-card-line);
+            }
+            .pool-hud .pu-recent-s {
+                width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+                background: var(--pool-control); font-family: var(--pool-num); font-weight: 700; font-size: 12px;
+            }
+            .pool-hud .pu-recent-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+            .pool-hud .pu-recent-t > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-recent-c { display: flex; align-items: center; gap: 5px; max-width: 120px; font-size: 12px; font-weight: 600; color: var(--pool-accent-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-recent-c svg { flex-shrink: 0; }
+
+            /* Resume, abandon and pause: on the table, like the frame-over dialog */
+            .pool-hud .pu-scrim {
+                position: absolute; inset: 0; z-index: 13; border-radius: var(--pool-radius); display: flex; align-items: center; justify-content: center;
+                background: rgba(7, 9, 10, 0.62); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+            }
+            .pool-hud .pu-dlg {
+                width: min(320px, calc(100% - 32px)); box-sizing: border-box; padding: 20px; border-radius: var(--pool-radius);
+                background: var(--pool-overlay-strong); border: 1px solid rgba(var(--pool-accent-rgb), 0.45); color: var(--pool-overlay-text);
+                box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55); display: flex; flex-direction: column; gap: 14px;
+            }
+            .pool-hud .pu-dlg.is-hot { border-color: rgba(var(--pool-hot-rgb), 0.5); background: var(--pool-hot-edge) left top / 4px 100% no-repeat, var(--pool-overlay-strong); }
+            .pool-hud .pu-dlg-icon { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.14); color: var(--pool-accent); }
+            .pool-hud .pu-dlg.is-hot .pu-dlg-icon { background: rgba(var(--pool-hot-rgb), 0.16); color: var(--pool-hot); }
+            .pool-hud .pu-dlg-t { display: flex; flex-direction: column; gap: 4px; }
+            .pool-hud .pu-dlg-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 20px; line-height: 1.2; overflow-wrap: anywhere; }
+            .pool-hud .pu-dlg .pu-kicker, .pool-hud .pu-dlg .pu-note { color: var(--pool-overlay-muted); }
+            .pool-hud .pu-dlg .pu-note { font-size: 12px; }
+            .pool-hud .pu-dlg-score {
+                display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px 12px;
+                border-radius: var(--pool-radius-sm); background: rgba(255, 255, 255, 0.06); font-size: 13px; font-weight: 600;
+            }
+            .pool-hud .pu-dlg-score > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-dlg-score > span:last-child { text-align: right; }
+            .pool-hud .pu-dlg-n { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 20px; font-weight: 700; }
+            .pool-hud .pu-dlg-acts { display: flex; flex-direction: column; gap: 8px; }
+            .pool-hud .pu-dlg .pu-btn { color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
+            .pool-hud .pu-dlg .pu-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--pool-overlay-text); }
+            .pool-hud .pu-dlg .pu-btn.is-hot { color: var(--pool-hot-lite); border-color: rgba(var(--pool-hot-rgb), 0.5); }
+
+            /* Max: the bracket and champion have their own full layouts; the rest
+               keep the compact column, centred. */
+            .pool-hud[data-layout="max"] .pu-screen { border-radius: 18px; border: 0; }
+            .pool-hud[data-layout="max"] .pu-screen-in:not(.is-max) { width: 456px; margin: 0 auto; padding: 24px 8px; }
+            .pool-hud[data-layout="max"] .pu-screen-in.is-max { padding: 0; gap: 16px; }
+            .pool-hud .pu-maxhead { height: 64px; display: flex; align-items: center; gap: 28px; flex-shrink: 0; padding: 0 20px; }
+            .pool-hud .pu-maxhead .pu-head-t { flex-grow: 0; min-width: 240px; }
+            .pool-hud .pu-legend { display: flex; align-items: center; gap: 18px; font-size: 12px; color: var(--pool-muted); flex-grow: 1; min-width: 0; overflow: hidden; }
+            .pool-hud .pu-legend > span { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+            .pool-hud .pu-legend-line { display: inline-block; width: 20px; height: 2px; border-radius: 1px; background: var(--pool-accent); }
+            .pool-hud .pu-maxacts { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+            .pool-hud .pu-maxacts .pu-primary { max-width: 440px; }
+            .pool-hud .pu-maxtree { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+            .pool-hud[data-layout="max"] .pu-screen-in.is-max.is-champ { padding: 32px 40px; }
+            .pool-hud .pu-champ-grid { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 40px; align-items: center; height: 100%; }
+            .pool-hud .pu-champ-l { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+            .pool-hud .pu-champ-r { display: flex; align-items: center; justify-content: center; min-width: 0; }
+            .pool-hud .pu-mini.is-big { overflow: visible; }
+            .pool-hud[data-layout="max"] .pu-hero-n { font-size: 40px; }
+            .pool-hud[data-layout="max"] .pu-dlg { width: 380px; }
+
+            /* Cyberpunk: the corner cut on buttons, the glow on text, as the HUD */
+            .retro-theme .pool-hud .pu-primary, .retro-theme .pool-hud .pu-btn, .retro-theme .pool-hud .pu-iconbtn,
+            .retro-theme .pool-hud .pu-stepper button {
+                clip-path: polygon(7px 0, 100% 0, 100% 100%, 0 100%, 0 7px);
+            }
+            .retro-theme .pool-hud .pu-btn, .retro-theme .pool-hud .pu-iconbtn { border-color: var(--rt-border-strong); text-shadow: var(--rt-glow-soft); }
+            .retro-theme .pool-hud .pu-screen { border-color: var(--rt-border); }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .pu-screen-in { padding: 12px; gap: 10px; }
+                .pool-hud .pu-title { font-size: 16px; }
+                .pool-hud .pu-run { grid-template-columns: 76px minmax(0, 1fr) auto; gap: 8px; padding: 8px 10px; }
+                .pool-hud .pu-cab-row { grid-template-columns: minmax(0, 1fr) 28px 28px 28px 40px; padding: 0 10px; }
+                .pool-hud .pu-tabs button { font-size: 10px; }
+                .pool-hud .ph-sheet-mode { font-size: 11px; }
+            }
+            /* ═══ END POOL THEME ═══ */
+
             /* Borderless PiP Window - Hide Browser Chrome */
             @media (display-mode: picture-in-picture) {
                 /* Target the PiP window itself */
@@ -16461,16 +20260,6 @@
                 cursor: none;
             }
 
-            #pool-canvas {
-                border-radius: 12px;
-                box-shadow: 0 0 20px rgba(45, 138, 78, 0.3), inset 0 2px 8px rgba(0, 0, 0, 0.4);
-                display: block;
-                cursor: crosshair;
-                aspect-ratio: 1 / 1;
-                width: 100%;
-                height: auto;
-            }
-
             /* 344/416, not 1/1 — a square board between two 58px HUD strips. The backing
                            store stays 344x416 while CSS scales the element, so ludoRender divides
                            canvas.width by LUDO_CANVAS_W and hit-testing rescales pointer coords the same. */
@@ -16766,14 +20555,14 @@
                     box-shadow: 0 0 14px rgba(102,126,234,0.08), inset 0 0 6px rgba(0,0,0,0.03);
                 }
                 .prayer-label {
-                    color: rgba(102, 126, 234, 0.75);
+                    color: #4c5fd5;
                 }
                 .prayer-digital {
                     color: #059669;
                     text-shadow: 0 0 6px rgba(5,150,105,0.20);
                 }
                 .prayer-sublabel {
-                    color: rgba(0, 0, 0, 0.36);
+                    color: rgba(0, 0, 0, 0.58);
                 }
                 .prayer-plus-btn {
                     box-shadow: 0 4px 14px rgba(102,126,234,0.25), 0 2px 6px rgba(0,0,0,0.10);
@@ -16859,7 +20648,7 @@
                 .attendance-summary:not(.retro-theme) .xp-next-milestone {
                     background: rgba(255, 193, 7, 0.10);
                     border-color: rgba(255, 193, 7, 0.22);
-                    color: #b8860b;
+                    color: #8a6300;
                 }
                 .attendance-summary:not(.retro-theme) .level-badge {
                     color: #fff;
@@ -16890,7 +20679,7 @@
                     color: #fff;
                 }
                 .attendance-summary:not(.retro-theme) .image-placeholder {
-                    color: rgba(0, 0, 0, 0.38);
+                    color: rgba(0, 0, 0, 0.60);
                 }
 
                 .attendance-summary:not(.retro-theme) .pool-color-swatch {
@@ -17029,6 +20818,82 @@
                 .attendance-summary:not(.retro-theme) .gap-warning {
                     background: linear-gradient(135deg, #ffeaa7, #fab1a0) !important;
                     color: #2d3436 !important;
+                }
+
+                /* Every game's header score button was white on the white header. */
+                .attendance-summary:not(.retro-theme) .game-score-btn {
+                    background: rgba(0, 0, 0, 0.05);
+                    border-color: rgba(0, 0, 0, 0.12);
+                    color: rgba(0, 0, 0, 0.85);
+                }
+                .attendance-summary:not(.retro-theme) .game-score-btn:hover {
+                    background: rgba(108, 92, 231, 0.12);
+                    border-color: rgba(108, 92, 231, 0.45);
+                }
+                .attendance-summary:not(.retro-theme) .game-score-btn .gsb-best { opacity: 0.72; }
+                .attendance-summary:not(.retro-theme) .game-score-btn.is-record {
+                    background: rgba(253, 203, 110, 0.28);
+                    border-color: rgba(214, 158, 46, 0.75);
+                }
+                .attendance-summary:not(.retro-theme) .game-score-btn.is-record .gsb-score { color: #8a6300; }
+                /* The figures beside it (lines, level, mode, turn) sat under 3:1. */
+                .attendance-summary:not(.retro-theme) .gsb-aside { opacity: 0.85; }
+
+                /* The three timers: the same hues, deep enough to read on their tinted cards. */
+                .attendance-summary:not(.retro-theme) .worked-time { color: #00806a; }
+                .attendance-summary:not(.retro-theme) .remaining-time { color: #c0482b; }
+                .attendance-summary:not(.retro-theme) .xp-achievements-view-all {
+                    color: #fff;
+                    background: linear-gradient(135deg, rgba(102, 126, 234, 0.92), rgba(118, 75, 162, 0.92));
+                    border-color: rgba(0, 0, 0, 0.06);
+                }
+
+                /* The settings modal and Ludo's Max panel live on <body>, outside
+                   .attendance-summary, so the light rules written for them above never
+                   matched. The same rules, keyed off the page not being in Cyberpunk.
+                   Pool's Max panel is excluded: its frame draws its own surface. */
+                body:not(:has(.attendance-summary.retro-theme)) .settings-modal {
+                    background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(248,248,252,0.96));
+                    border-color: rgba(0, 0, 0, 0.10);
+                    box-shadow: 0 20px 60px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.95);
+                    color: rgba(0, 0, 0, 0.85);
+                }
+                body:not(:has(.attendance-summary.retro-theme)) .settings-option {
+                    background: rgba(0, 0, 0, 0.03);
+                    border-color: rgba(0, 0, 0, 0.06);
+                }
+                body:not(:has(.attendance-summary.retro-theme)) .settings-option:hover { background: rgba(0, 0, 0, 0.06); }
+                body:not(:has(.attendance-summary.retro-theme)) .settings-option-label { color: rgba(0, 0, 0, 0.85); }
+                body:not(:has(.attendance-summary.retro-theme)) .settings-option-label small { color: rgba(0, 0, 0, 0.62); opacity: 1 !important; }
+                body:not(:has(.attendance-summary.retro-theme)) .ludo-rule-row span { color: rgba(0, 0, 0, 0.82); opacity: 1; }
+                body:not(:has(.attendance-summary.retro-theme)) .ludo-rule-row small { color: rgba(0, 0, 0, 0.60); opacity: 1 !important; }
+                body:not(:has(.attendance-summary.retro-theme)) .ludo-rule-row code { color: rgba(0, 0, 0, 0.75); }
+                body:not(:has(.attendance-summary.retro-theme)) .toggle-switch:not(.active) { background: rgba(0, 0, 0, 0.14); }
+                body:not(:has(.attendance-summary.retro-theme)) .settings-select {
+                    background: rgba(255, 255, 255, 0.88);
+                    border-color: rgba(0, 0, 0, 0.14);
+                    color: rgba(0, 0, 0, 0.85);
+                }
+                body:not(:has(.attendance-summary.retro-theme)) .settings-select:hover {
+                    background: rgba(255, 255, 255, 0.96);
+                    border-color: rgba(0, 0, 0, 0.22);
+                }
+                body:not(:has(.attendance-summary.retro-theme)) .settings-select option { background: #fff; color: #222; }
+                body:not(:has(.attendance-summary.retro-theme)) .settings-modal-overlay { background: rgba(0, 0, 0, 0.30); }
+                body:not(:has(.attendance-summary.retro-theme)) .pool-modal-panel:not(.pool-max-panel) {
+                    background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(248,248,252,0.96));
+                    border-color: rgba(0, 0, 0, 0.10);
+                    box-shadow: 0 24px 80px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.95);
+                }
+                body:not(:has(.attendance-summary.retro-theme)) .pool-modal-title { color: rgba(0, 0, 0, 0.85); }
+                body:not(:has(.attendance-summary.retro-theme)) .pool-modal-close {
+                    background: rgba(0, 0, 0, 0.05);
+                    border-color: rgba(0, 0, 0, 0.10);
+                    color: rgba(0, 0, 0, 0.65);
+                }
+                body:not(:has(.attendance-summary.retro-theme)) .pool-modal-close:hover {
+                    background: rgba(255, 80, 80, 0.12);
+                    color: #dc2626;
                 }
             }
 
@@ -17623,6 +21488,23 @@
                     <div class="pool-color-swatch ${userPreferences.poolTableColor === 'blue' ? 'active' : ''}" data-pool-color="blue" style="background: linear-gradient(135deg, #2a5a8a, #1a3a5c);" title="Blue"></div>
                     <div class="pool-color-swatch ${userPreferences.poolTableColor === 'lightgrey' ? 'active' : ''}" data-pool-color="lightgrey" style="background: linear-gradient(135deg, #a8b0b8, #c8cfd6);" title="Light Grey"></div>
                 </div>
+            </div>
+            <div class="settings-option">
+                <span class="settings-option-label"><span class="rt-emo">🎱</span> Pool Shot Camera</span>
+                <select class="settings-select" data-pref="poolShotCam">
+                    <option value="overhead" ${userPreferences.poolShotCam !== '3d' ? 'selected' : ''}>Overhead — rise to the top view</option>
+                    <option value="3d" ${userPreferences.poolShotCam === '3d' ? 'selected' : ''}>Stay 3D — stand up, whole table</option>
+                </select>
+            </div>
+            <div class="settings-option">
+                <span class="settings-option-label"><span class="rt-emo">🎱</span> Pool CPU</span>
+                <select class="settings-select" data-pref="poolDifficulty">
+                    <option value="adaptive" ${userPreferences.poolDifficulty === 'adaptive' || !userPreferences.poolDifficulty ? 'selected' : ''}>Adaptive — matches your form</option>
+                    <option value="easy" ${userPreferences.poolDifficulty === 'easy' ? 'selected' : ''}>Easy — simple pots, misses often</option>
+                    <option value="normal" ${userPreferences.poolDifficulty === 'normal' ? 'selected' : ''}>Normal — solid, little position</option>
+                    <option value="hard" ${userPreferences.poolDifficulty === 'hard' ? 'selected' : ''}>Hard — plays position</option>
+                    <option value="pro" ${userPreferences.poolDifficulty === 'pro' ? 'selected' : ''}>Pro — hardly misses, call every shot</option>
+                </select>
             </div>
             <div class="settings-option">
                 <span class="settings-option-label"><span class="rt-emo">🎲</span> Ludo Board</span>
@@ -18628,6 +22510,8 @@
         }
 
         applyGameMode();
+        // The pool canvas cannot read CSS, so it caches the theme's colours; drop them.
+        if (typeof poolOnThemeChange === 'function') poolOnThemeChange();
     }
 
     // Game Mode: show/hide left and right panels
@@ -19647,8 +23531,6 @@
                             </button>
                         </div>
                         <div id="pool-scoreboard" class="snake-scoreboard" style="display: none;">
-                            <span class="snake-score gsb-aside"><span id="pool-p1-score">0</span>–<span id="pool-p2-score">0</span></span>
-                            <span class="snake-score gsb-aside" id="pool-turn-label">Turn: P1</span>
                             <button id="pool-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('pool')">
                                 <span class="gsb-best" id="pool-wins">0</span>
                                 <span class="gsb-trophy">🏆</span>
@@ -19678,7 +23560,8 @@
                     <!-- Tetris Canvas -->
                     <canvas id="tetris-canvas" class="snake-canvas" width="368" height="368" style="display:none;"></canvas>
                     <canvas id="breakout-canvas" class="snake-canvas" width="368" height="368" style="display:none; cursor:none;"></canvas>
-                    <canvas id="pool-canvas" width="368" height="368" style="display:none; cursor:crosshair;"></canvas>
+                    <!-- 8-Ball Pool: initPoolGame() builds the cards, the table and the footer in here. -->
+                    <div id="pool-root" class="pool-root" style="display:none;"></div>
                     <!-- Ludo is 344×416, not 368² — a square board plus HUD strips. -->
                     <canvas id="ludo-canvas" width="344" height="416" style="display:none; cursor:pointer;"></canvas>
 
@@ -19754,12 +23637,8 @@
                     </div>
 
                     <!-- Pool Controls -->
-                    <div id="pool-controls" class="snake-controls" style="display: none;">
-                        <button class="snake-btn" onclick="window.togglePoolModeBtn()">🔄 PvCPU</button>
-                        <button class="snake-btn" onclick="window.startPoolGameBtn()">▶ Play</button>
-                        <button class="snake-btn" onclick="window.resetPoolGameBtn()">🔄 Reset</button>
-                        <button class="snake-btn" onclick="window.togglePoolMaximizeBtn()">⛶ Max</button>
-                    </div>
+                    <!-- Pool has no controls row: its footer is part of the panel. -->
+                    <div id="pool-controls" class="snake-controls" style="display: none;"></div>
 
                     <!-- Ludo Controls -->
                     <div id="ludo-controls" class="snake-controls" style="display: none;">
@@ -20005,7 +23884,6 @@
                                 case 'flappy': resetFlappyGame(); break;
                                 case 'tetris': resetTetrisGame(); break;
                                 case 'breakout': resetBreakoutGame(); break;
-                                case 'pool': resetPoolGame(); break;
                                 case 'ludo': resetLudoGame(); break;
                             }
                             break;
@@ -20075,10 +23953,6 @@
         window.resetTetrisGameBtn = () => { resetTetrisGame(); };
         window.startBreakoutGameBtn = () => { startBreakoutGame(); };
         window.resetBreakoutGameBtn = () => { resetBreakoutGame(); };
-        window.startPoolGameBtn = () => { startPoolGame(); };
-        window.resetPoolGameBtn = () => { resetPoolGame(); };
-        window.togglePoolModeBtn = () => { togglePoolMode(); };
-        window.togglePoolMaximizeBtn = () => { togglePoolMaximize(); };
         window.startLudoGameBtn = () => { startLudoGame(); };
         window.resetLudoGameBtn = () => { resetLudoGame(); };
         window.cycleLudoModeBtn = () => {

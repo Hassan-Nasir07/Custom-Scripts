@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pool v2 table prototype</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;800&family=Share+Tech+Mono&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- The real stylesheets, not copies: the Cyberpunk theme and pool's own. -->
+<link rel="stylesheet" href="../cyber-dev/cyber-theme.css">
+<link rel="stylesheet" href="pool-theme.css">
+<style>
+    /* ──────────────────────────────────────────────────────────────────
+       HOST BASE: the handful of widget rules the pool HUD sits inside
+       (aurora tokens, the glass games container and its header, light
+       mode, the Max modal's overlay), copied from AttendanceTimeCheckerPlus.js
+       so the HUD renders here as it does in the panel. Everything pool,
+       the Max frame included, is pool-theme.css.
+       ────────────────────────────────────────────────────────────────── */
+    :root { --aurora-1: #667eea; --aurora-2: #764ba2; --aurora-3: #f093fb; --aurora-4: #4facfe; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Inter', system-ui, sans-serif; color: #e8e4da; background: linear-gradient(135deg, #1b1740 0%, #0f1426 60%, #0b0f1a 100%); min-height: 100vh; }
+    .rig { display: flex; gap: 20px; padding: 20px; align-items: flex-start; }
+    .attendance-summary { position: relative; padding: 20px; border-radius: 24px; background: rgba(255, 255, 255, 0.06); }
+    .left-panel { width: 400px; display: flex; flex-direction: column; gap: 20px; flex-shrink: 0; }
+    .snake-game-container { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 16px; padding: 16px; position: relative; overflow: hidden; }
+    .snake-game-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px; }
+    .snake-game-title { font-size: 1rem; font-weight: 600; color: rgba(255, 255, 255, 0.9); white-space: nowrap; }
+    .game-score-btn { display: inline-flex; align-items: baseline; gap: 3px; padding: 3px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.18); color: rgba(255, 255, 255, 0.9); font: inherit; line-height: 1.1; }
+    .game-score-btn .gsb-best { font-size: 0.9rem; font-weight: 700; }
+    @media (prefers-color-scheme: light) {
+        body { background: linear-gradient(135deg, #eef0ff 0%, #f6f3ff 60%, #fbfbff 100%); color: #2d3436; }
+        .attendance-summary { background: rgba(255, 255, 255, 0.7); }
+        .snake-game-container { background: rgba(255, 255, 255, 0.82); border-color: rgba(0, 0, 0, 0.10); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08); }
+        .snake-game-title { color: rgba(0, 0, 0, 0.88); }
+        .game-score-btn { background: rgba(0, 0, 0, 0.05); border-color: rgba(0, 0, 0, 0.12); color: rgba(0, 0, 0, 0.85); }
+    }
+    /* The host's Max modal (toggleGameMaxModal): the overlay; pool empties the panel. */
+    .pool-modal-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.65); }
+
+    /* The rig's own controls. */
+    .side { width: 290px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: #d8d4ca; }
+    .side fieldset { border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 10px; padding: 10px 12px; margin: 0; background: rgba(10, 12, 14, 0.55); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .side legend { color: #8e989d; padding: 0 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    .side button, .side select { background: #222a30; color: #e8e4da; border: 1px solid #36424a; border-radius: 8px; padding: 5px 9px; cursor: pointer; font: inherit; }
+    .side button.on { background: #3a4a55; border-color: #6d8796; }
+    .side label { display: flex; gap: 6px; align-items: center; }
+    .side .hint { font-size: 12px; color: #9aa4a9; line-height: 1.45; }
+    .side #xplog { font-size: 11px; color: #9aa4a9; white-space: pre-line; max-height: 90px; overflow: auto; }
+</style>
+</head>
+<body>
+<div class="rig">
+    <div id="total-time-summary" class="attendance-summary">
+        <div class="left-panel">
+            <div class="snake-game-container">
+                <div class="snake-game-header">
+                    <span id="game-title" class="snake-game-title">🎱 8-Ball Pool</span>
+                    <div class="snake-scoreboard">
+                        <button id="pool-lb-btn" class="game-score-btn" type="button"><span class="gsb-best" id="pool-wins">0</span><span class="gsb-trophy">🏆</span></button>
+                    </div>
+                </div>
+                <div id="pool-root"></div>
+            </div>
+        </div>
+    </div>
+    <div class="side">
+        <fieldset><legend>Theme</legend>
+            <button data-theme="glassmorphic">Glassmorphic</button><button data-theme="retro-futuristic">Cyberpunk</button>
+            <label>Palette <select id="palette"></select></label>
+            <label>Shape <select id="shape"><option>notched</option><option>chamfered</option><option>stepped</option><option>rounded</option></select></label>
+            <label><input id="narrow" type="checkbox"> The widget's 316 px column</label>
+            <div class="hint">Light or dark Glassmorphic follows your OS setting, as the widget does.</div>
+        </fieldset>
+        <fieldset><legend>Match</legend>
+            <label>Mode <select id="mode"><option value="cpu">Vs CPU</option><option value="pvp">2 Players</option></select></label>
+            <label>CPU <select id="diff"><option value="adaptive">Adaptive</option><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option><option value="pro">Pro</option></select></label>
+            <label><input id="every" type="checkbox"> Call every shot</label>
+        </fieldset>
+        <fieldset><legend>Table</legend>
+            <label>During the shot <select id="shotcam"><option value="overhead">Overhead</option><option value="3d">Stay 3D</option></select></label>
+            <label>Guides <select id="guides"><option>full</option><option>short</option><option>off</option></select></label>
+            <label>Felt <select id="felt"><option>green</option><option>red</option><option>blue</option><option>lightgrey</option></select></label>
+        </fieldset>
+        <fieldset><legend>Scenes</legend>
+            <button data-scene="mid">Mid-frame</button><button data-scene="eight">On the 8</button><button data-scene="bih">Ball in hand</button>
+        </fieldset>
+        <fieldset><legend>Records and XP (this page only)</legend>
+            <div id="xplog">No frames finished yet.</div>
+        </fieldset>
+        <div class="hint">
+            This page runs the widget's own controller (pool-game.js) and CPU (pool-ai.js), on stand-ins for the host. The CPU select is the same setting as ⚙️ Pool CPU.
+            3D: move the mouse sideways to aim (Shift for fine); it keeps aiming past the table's edge. 2D: point to aim.
+            Press, then pull back or push forward along the shot line for power, and release. Return to the start or press Esc to cancel.
+            Spin: drag the red dot on SPIN, or click SPIN for the big picker (letting go confirms).
+            Ball in hand: drag the cue ball; Move cue ball picks it up again. When a call is needed, tap a pocket ring (or the call card's map in 3D).
+        </div>
+    </div>
+</div>
+
+<script>
+/* ──────────────────────────────────────────────────────────────────────
+   Stand-ins for what pool-game.js and cyber-hud.js find in the userscript's
+   scope. The storage helpers are the host's own, so records behave as they
+   do in the widget (on this page's localStorage).
+   ────────────────────────────────────────────────────────────────────── */
+var userPreferences = Object.assign({
+    displayTheme: 'glassmorphic',
+    cyberBgPrimary: '#07091a', cyberBgSecondary: '#11142b', cyberAccent: '#fff200', cyberHighlight: '#00e5ff',
+    cyberPanelTint: '#00e5ff', cyberText: '#fff200', cyberGlow: '#fff200', cyberBorder: '#fff200',
+    cyberGlowIntensity: 0.6, cyberPanelShape: 'notched', gameFps: 60,
+    poolTableColor: 'green', poolCamera: '3d', poolLean: 35, poolShotCam: 'overhead',
+}, (() => { try { return JSON.parse(localStorage.getItem('poolProtoPrefs') || '{}'); } catch (_) { return {}; } })());
+var isPipActive = false, pipWindow = null;
+var currentGame = 'pool', lbDisplayName = 'Ayesha', xpSystemReady = false;
+function savePreferences() { try { localStorage.setItem('poolProtoPrefs', JSON.stringify(userPreferences)); } catch (_) {} }
+function hexToRgbStr(hex) {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+    return m ? parseInt(m[1], 16) + ', ' + parseInt(m[2], 16) + ', ' + parseInt(m[3], 16) : '0, 0, 0';
+}
+function getFrameInterval() { return 1000 / (Number(userPreferences.gameFps) === 30 ? 30 : 60); }
+function updateGameScoreBtn(game, cur, best) { const el = document.getElementById(game + '-wins'); if (el) el.textContent = best; }
+function awardGameXP(type, perf) {
+    const log = document.getElementById('xplog');
+    if (log) log.textContent = (log.textContent === 'No frames finished yet.' ? '' : log.textContent + '\n') +
+        new Date().toLocaleTimeString() + '  ' + (perf.won ? 'won' : 'lost') + ': +' + (perf.xp || 0) + ' XP' + (perf.tier ? ' (' + perf.tier + ')' : '');
+}
+function loadPoolHighScore() {
+    const saved = localStorage.getItem('poolGamesWon');
+    return saved ? parseInt(saved) : 0;
+}
+function savePoolHighScore(score) { localStorage.setItem('poolGamesWon', score.toString()); }
+function loadPoolWinsByMode() {
+    let rec = null;
+    try { rec = JSON.parse(localStorage.getItem('poolWinsByMode') || 'null'); } catch (_) {}
+    if (!rec || typeof rec !== 'object') {
+        rec = { cpu: parseInt(localStorage.getItem('poolGamesWon') || '0', 10) || 0, pvp: 0 };
+        localStorage.setItem('poolWinsByMode', JSON.stringify(rec));
+    }
+    return { cpu: parseInt(rec.cpu, 10) || 0, pvp: parseInt(rec.pvp, 10) || 0 };
+}
+function savePoolWinByMode(mode) {
+    const rec = loadPoolWinsByMode();
+    rec[mode === 'pvp' ? 'pvp' : 'cpu']++;
+    localStorage.setItem('poolWinsByMode', JSON.stringify(rec));
+}
+function loadPoolRecord() {
+    const saved = localStorage.getItem('poolRecord');
+    return saved ? JSON.parse(saved) : { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
+}
+function savePoolRecord(rec) { localStorage.setItem('poolRecord', JSON.stringify(rec)); }
+// The host's shared Max modal, its cfg.build path only (the one pool uses):
+// an overlay and an empty panel, backdrop click and Escape to close, cfg.unbuild on close.
+const _gameMaxModals = {};
+function toggleGameMaxModal(cfg) {
+    const open = _gameMaxModals[cfg.canvasId];
+    if (!open) {
+        const overlay = document.createElement('div');
+        overlay.className = 'pool-modal-overlay';
+        const panel = document.createElement('div');
+        panel.className = 'pool-modal-panel' + (cfg.panelClass ? ' ' + cfg.panelClass : '');
+        overlay.appendChild(panel);
+        document.body.appendChild(overlay);
+        cfg.build(panel);
+        overlay.addEventListener('click', e => { if (e.target === overlay) cfg.onToggle(); });
+        overlay._esc = e => { if (e.key === 'Escape') cfg.onToggle(); };
+        document.addEventListener('keydown', overlay._esc);
+        _gameMaxModals[cfg.canvasId] = { overlay, unbuild: cfg.unbuild };
+        return true;
+    }
+    open.unbuild();
+    document.removeEventListener('keydown', open.overlay._esc);
+    open.overlay.remove();
+    delete _gameMaxModals[cfg.canvasId];
+    return false;
+}
+</script>
+<script src="../cyber-dev/cyber-hud.js"></script>
+<script src="pool-physics.js"></script>
+<script src="pool-rules.js"></script>
+<script src="pool-tour.js"></script>
+<script src="pool-camera.js"></script>
+<script src="pool-render.js"></script>
+<script src="pool-hud.js"></script>
+<script src="pool-tour-ui.js"></script>
+<script src="pool-ai.js"></script>
+<script src="pool-game.js"></script>
+<script>
+(() => {
+    const Q = new URLSearchParams(location.search);
+    const still = Q.has('still');                      // one frame for snapshot.js: no loop, no CPU
+    const $ = id => document.getElementById(id);
+    const widget = $('total-time-summary');
+    const S = poolS;
+    const DEG = Math.PI / 180;
+
+    // The widget's column on screens up to 1400 px: 350 wide, so 316 for the HUD.
+    const setNarrow = on => { document.querySelector('.left-panel').style.width = on ? '350px' : ''; };
+    setNarrow(Q.has('narrow'));
+
+    // ── Theme ─────────────────────────────────────────────────────────
+    // The query string sets a scene's look for this load only; the rig's
+    // controls change and remember it.
+    if (Q.get('theme')) userPreferences.displayTheme = Q.get('theme') === 'cyber' ? 'retro-futuristic' : 'glassmorphic';
+    else if (still) userPreferences.displayTheme = 'glassmorphic';
+    if (Q.get('shape')) userPreferences.cyberPanelShape = Q.get('shape');
+    if (Q.get('palette') && CYBER_PALETTES[Q.get('palette')]) Object.assign(userPreferences, CYBER_PALETTES[Q.get('palette')]);
+    if (Q.has('camera')) userPreferences.poolCamera = Q.get('camera') === '2d' ? '2d' : '3d';
+    else if (still) userPreferences.poolCamera = '3d';
+    if (Q.has('lean')) userPreferences.poolLean = +Q.get('lean'); else if (still) userPreferences.poolLean = 35;
+    if (Q.has('shotcam')) userPreferences.poolShotCam = Q.get('shotcam'); else if (still) userPreferences.poolShotCam = 'overhead';
+    if (Q.has('felt')) userPreferences.poolTableColor = Q.get('felt'); else if (still) userPreferences.poolTableColor = 'green';
+    if (Q.has('diff')) userPreferences.poolDifficulty = Q.get('diff'); else if (still) userPreferences.poolDifficulty = 'adaptive';
+    // As the host's applyPreferences does, then pool's hook.
+    function applyTheme(save) {
+        const cyber = userPreferences.displayTheme === 'retro-futuristic';
+        widget.classList.toggle('retro-theme', cyber);
+        if (cyber) applyCyberpunkTheme(widget); else clearCyberpunkTheme(widget);
+        poolOnThemeChange();
+        document.querySelectorAll('[data-theme]').forEach(b => b.classList.toggle('on', b.dataset.theme === userPreferences.displayTheme));
+        if (save) savePreferences();
+    }
+
+    // ── The widget's own controller ───────────────────────────────────
+    if (Q.get('mode') === 'pvp') poolMode = 'pvp';
+    S.guideMode = Q.get('guides') || 'full';
+    S.callEvery = Q.has('every');
+    applyTheme(false);
+    // A still is one scene: no tournament saved by an earlier load is offered back.
+    if (still) S.tour.checked = true;
+    initPoolGame();                                     // builds the HUD, racks, attaches, starts the loop
+    if (still) { S.running = false; if (S.raf) cancelAnimationFrame(S.raf); S.raf = null; }
+
+    // ── Scenes: design states set straight onto the controller ────────
+    // The design's layouts (Table.dc.html), in its y-down frame; flipped here.
+    const LAYOUTS = {
+        mid: { balls: [[1, 230, -120], [3, 140, 20], [4, 330, 150], [6, -60, -160], [7, 420, -60], [8, 60, 190], [9, -300, -90], [11, 370, 40], [12, -380, 180], [15, -230, -200]], cue: [-160, 70] },
+        eight: { balls: [[8, 300, -100], [9, -300, -90], [12, -380, 180], [15, -230, -200]], cue: [-60, 40] },
+        late: { balls: [[11, 370, 40], [12, -380, 180], [15, -230, -200]], cue: [60, 80] },
+    };
+    function scene(name) {
+        const key = name === 'win' || name === 'loss' ? 'late' : ['bih', 'bihbad', 'foul', 'clock'].includes(name) ? 'mid' : name;
+        const L = LAYOUTS[key];
+        poolNewFrame(1);
+        if (!L) return;
+        const w = ppCreateWorld();
+        const onT = new Set(L.balls.map(b => b[0]));
+        w.balls = [ppMakeBall(0, L.cue[0], -L.cue[1])].concat(L.balls.map(([id, x, y]) => ppMakeBall(id, x, -y)));
+        for (let id = 1; id <= 15; id++) if (!onT.has(id)) w.balls.push(Object.assign(ppMakeBall(id, 0, 0), { state: 'pocketed' }));
+        S.world = w;
+        Object.assign(S.frame, { isBreak: false, ballInHand: null, shots: 5, groups: { 1: 'solids', 2: 'stripes' } });
+        S.down = new Set(w.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+        S.aim = Q.has('aim') ? -(+Q.get('aim')) * DEG : 6.8 * DEG;
+        S.phase = 'aim'; S.guideKey = '';
+        if (name === 'bih' || name === 'bihbad') { S.phase = 'bih'; S.frame.ballInHand = 'anywhere'; }
+        if (name === 'bihbad') { const b = w.balls.find(o => o.id === 3); prPlaceCue(w, b.x + 10, b.y + 6); }
+    }
+
+    const sc = Q.get('scene') || 'rack';
+    if (sc !== 'rack' && sc !== 'break') scene(sc);
+    if (sc === 'rack' && still && !Q.has('bihbreak')) { S.phase = 'aim'; S.aim = 0; }
+    if (Q.has('power')) { S.power = +Q.get('power'); S.drag = { kind: 'power', x: 0, y: 0, ax: [0, -1], reach: 140 }; }
+    if (Q.has('call')) S.called = +Q.get('call');
+    // ?spin=i picks a preset, ?tipx=&tipy= any tip, ?spinopen=1 opens the picker.
+    if (Q.has('spin')) { const p = PH_SPINS[+Q.get('spin') % PH_SPINS.length]; S.tip = { x: p.x, y: p.y }; }
+    if (Q.has('tipx') || Q.has('tipy')) S.tip = phClampTip(+Q.get('tipx') || 0, +Q.get('tipy') || 0);
+    if (Q.has('spinopen')) S.spinOpen = true;
+    // ?sheet=cpu|pvp opens the Game mode sheet on that tab.
+    if (Q.get('sheet')) S.sheet = { open: true, mode: ['pvp', 'tour'].includes(Q.get('sheet')) ? Q.get('sheet') : 'cpu' };
+    // ?tour=setup|bracket|intro|match|result|champion|cabinet|resume|pause|abandon: a
+    // tournament of ?n players (6 by default) with ?played matches decided, the better
+    // seed winning bar every third match; ?tframe=1 plays a frame of the next match first.
+    const NAMES = ['Ayesha', 'Bilal', 'Hamza', 'Sana', 'Usman', 'Zara', 'Omar', 'Hira', 'Ali', 'Fatima', 'Imran', 'Mariam', 'Noor', 'Saad', 'Taha', 'Yusra'];
+    function demoTour(n, played) {
+        let t = ptCreate({ names: NAMES.slice(0, n), you: 0, seed: 7, created: Date.UTC(2026, 8, 26, 12), settings: {} });
+        t.current = null;
+        for (let k = 0; k < played; k++) {
+            const m = ptNext(t);
+            if (!m) break;
+            const better = t.slots[m.a].seed < t.slots[m.b].seed ? m.a : m.b, worse = better === m.a ? m.b : m.a;
+            const w = k % 3 === 2 ? worse : better, l = w === m.a ? m.b : m.a;
+            // The loser takes a frame when the race allows it: 2–1, 3–2.
+            for (let i = 0; i < m.raceTo - 1 && i < 1; i++) t = ptRecordFrame(t, m.id, l).t;
+            while (ptById(t, m.id).status !== 'done') t = ptRecordFrame(t, m.id, w).t;
+        }
+        return t;
+    }
+    const tq = Q.get('tour');
+    if (tq || (Q.get('sheet') === 'tour' && Q.has('n'))) {
+        const T = S.tour, n = +Q.get('n') || 6, played = Q.has('played') ? +Q.get('played') : 0;
+        if (tq === 'setup') {
+            T.setup = poolTourSetupFresh();
+            T.setup.n = n; NAMES.slice(1, n).forEach((nm, i) => { T.setup.names[i + 1] = nm; }); poolTourSetupRace(T.setup);
+            T.screen = 'setup';
+        } else if (tq === 'cabinet') {
+            let cab = ptCabinetEmpty();
+            [[8, 'City Open'], [4, 'Club Cup'], [16, 'Masters'], [8, 'Friday Frames'], [4, 'Office Cup']].forEach(([k, name], i) => {
+                const tt = demoTour(k, 99); tt.name = name; tt.id = 'demo' + i; cab = ptCabinetAdd(cab, tt);
+                cab.recent[0].date = Date.UTC(2026, 8, 14 + i * 3, 12);
+            });
+            T.cab = Q.has('empty') ? ptCabinetEmpty() : cab; T.screen = 'cabinet';
+        } else {
+            T.t = demoTour(n, tq === 'champion' ? 99 : played);
+            const next = ptNext(T.t);
+            if (Q.has('tframe') && next) T.t = ptRecordFrame(T.t, next.id, next.b).t;
+            if (tq === 'bracket') { T.screen = 'bracket'; T.tab = Q.has('tab') ? +Q.get('tab') : poolTourTab(); }
+            if (tq === 'intro') { T.introId = next.id; T.screen = 'intro'; }
+            if (tq === 'champion') { T.matchId = null; T.screen = 'champion'; }
+            if (tq === 'result') { T.matchId = ptPlayable(T.t)[played - 1].id; poolMode = 'tour'; T.screen = 'result'; }
+            if (tq === 'match' || tq === 'pause') poolTourSeat(ptById(T.t, next.id), false);
+            if (tq === 'pause') T.dialog = 'pause';
+            if (tq === 'resume' || tq === 'abandon') { T.t.current = next.id; T.dialog = tq; }
+        }
+    }
+    // ?bihcall=1: ball in hand while on the 8 (add &placed=1 for Move cue ball beside the call card).
+    if (Q.has('bihcall')) { S.phase = 'bih'; S.frame.ballInHand = 'anywhere'; }
+    // ?open=1: an open table after the break, each seat with what it potted (?open=4: four for seat 1).
+    if (Q.has('open')) {
+        S.frame.groups = { 1: null, 2: null };
+        S.pots = Q.get('open') === '4' ? { 1: [2, 5, 10, 13], 2: [14] } : { 1: [2, 10], 2: [5, 13, 14] };
+    }
+    // ?swap=1: last frame ended with seat 1 on solids, all seven down; this frame seat 1 is on
+    // stripes. Drawn once in between, so a tracker that kept last frame's dots would show here.
+    if (Q.has('swap')) {
+        const keep = S.world.balls.map(b => b.state);
+        S.world.balls.forEach(b => { if (b.id >= 1 && b.id <= 7) b.state = 'pocketed'; });
+        S.frame.groups = { 1: 'solids', 2: 'stripes' };
+        poolFit(); poolDraw(0);
+        S.world.balls.forEach((b, i) => { b.state = keep[i]; });
+        S.frame.groups = { 1: 'stripes', 2: 'solids' };
+    }
+    if (Q.has('max')) togglePoolMaximize();
+    if (Q.has('placed') && S.phase === 'bih') { S.placed = true; S.phase = 'aim'; poolAimAtNearest(); }
+    if (sc === 'foul') {
+        poolMode = 'pvp';
+        const v = prJudge(S.frame, Object.assign({}, S.world, { log: [{ type: 'strike' }, { type: 'ball', a: 0, b: 12 }, { type: 'cushion', ball: 0 }] }), -1);
+        poolShowToast(prText(v, poolNames())); poolAfterTurn(v);
+        userPreferences.poolCamera = '2d';
+    }
+    if (sc === 'clock') { poolMode = 'pvp'; S.clockLeft = Q.has('hot') ? 4 : 18; }
+    if (sc === 'win' || sc === 'loss') {
+        const w = sc === 'win' ? 1 : 2;
+        poolAfterTurn({ frameOver: true, winner: w, shooter: 1, reason: sc === 'win' ? 'eightPotted' : 'eightScratch', foul: sc === 'loss' ? 'scratch' : null,
+            next: Object.assign({}, S.frame, { over: true, winner: w }) });
+    }
+    if (sc === 'break') {
+        S.phase = 'aim';
+        if (Q.has('aim')) S.aim = -(+Q.get('aim')) * DEG;
+        poolFit(); pcDirect(S.director, poolCamInput(), 0);    // the camera sees the aim before the strike
+        prPlaceCue(S.world, S.world.table.headX - 80, 0);
+        ppStrike(S.world, { angle: S.aim, speed: S.cfg.maxSpeed, tipX: 0, tipY: 0 });
+        S.phase = 'moving';
+        for (let i = 0; i < (+Q.get('t') || 15); i++) ppStep(S.world, 1 / 60);
+        pcDirect(S.director, poolCamInput(), 0); pcDirect(S.director, poolCamInput(), 5000);
+    }
+    if (still) {
+        requestAnimationFrame(() => {
+            const settle = () => { S.drawKey = ''; poolDraw(0); poolDraw(5000); };
+            settle();
+            if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { settle(); window.__ready = true; });
+            else window.__ready = true;
+        });
+    }
+
+    // ── Rig controls ──────────────────────────────────────────────────
+    document.querySelectorAll('[data-theme]').forEach(b => b.onclick = () => { userPreferences.displayTheme = b.dataset.theme; applyTheme(true); });
+    const pal = $('palette');
+    pal.innerHTML = '<option value="">(custom)</option>' + Object.keys(CYBER_PALETTES).map(k => '<option value="' + k + '">' + CYBER_PALETTES[k].label + '</option>').join('');
+    pal.onchange = () => { if (pal.value) { Object.assign(userPreferences, CYBER_PALETTES[pal.value]); applyTheme(true); } };
+    $('shape').value = userPreferences.cyberPanelShape;
+    $('shape').onchange = e => { userPreferences.cyberPanelShape = e.target.value; applyTheme(true); };
+    $('narrow').checked = Q.has('narrow'); $('narrow').onchange = e => setNarrow(e.target.checked);
+    $('mode').value = poolMode; $('mode').onchange = e => { if (e.target.value !== poolMode) togglePoolMode(); };
+    $('diff').value = userPreferences.poolDifficulty || 'adaptive';
+    $('diff').onchange = e => { userPreferences.poolDifficulty = e.target.value; savePreferences(); if (poolFrameFresh()) poolLockTier(); };
+    $('every').checked = S.callEvery; $('every').onchange = e => { S.callEvery = e.target.checked; S.frame.callEvery = S.callEvery; };
+    $('shotcam').value = userPreferences.poolShotCam; $('shotcam').onchange = e => { userPreferences.poolShotCam = e.target.value; savePreferences(); };
+    $('guides').value = S.guideMode; $('guides').onchange = e => { S.guideMode = e.target.value; };
+    $('felt').value = userPreferences.poolTableColor; $('felt').onchange = e => { userPreferences.poolTableColor = e.target.value; savePreferences(); };
+    document.querySelectorAll('[data-scene]').forEach(b => b.onclick = () => scene(b.dataset.scene));
+    // The HUD's Vs CPU button switches the mode too; keep the rig's select in step.
+    setInterval(() => { if ($('mode').value !== poolMode) $('mode').value = poolMode; }, 300);
+
+    // What only a real browser can check, run by `snapshot.js --check` on each scene.
+    window.__hudAudit = () => {
+        const hud = S.hud, canvas = S.canvas, tip = S.tip;
+        const out = [], ok = (name, cond, detail) => out.push([name, !!cond, detail === undefined ? '' : String(detail)]);
+        const vr = hud.view.getBoundingClientRect();
+        const visible = el => !el.closest('[hidden]') && el.getClientRects().length > 0;
+        let chain = [], n = hud.view;
+        while (n && n.nodeType === 1) { const cs = getComputedStyle(n); if (cs.filter !== 'none' || cs.clipPath !== 'none') chain.push(n.className || n.tagName); n = n.parentElement; }
+        ok('no filter or clip-path on the viewport or any ancestor', !chain.length, chain.join(' < '));
+        if (hud.layout === 'compact') {
+            const cards = hud.el.querySelector('.ph-cards').getBoundingClientRect().height;
+            ok('cards row is 72 px', Math.abs(cards - 72) < 0.5, cards);
+            if (visible(hud.foot)) ok('footer is 52 px', Math.abs(hud.foot.getBoundingClientRect().height - 52) < 0.5);
+            ok('viewport keeps the design\'s 368:412', Math.abs(vr.width / vr.height - 368 / 412) < 0.01, (vr.width / vr.height).toFixed(4));
+        } else {
+            // The hand-off strip takes its row under the table, so the table gives up that height.
+            if (!visible(hud.handoff)) ok('Max viewport keeps 1232:672', Math.abs(vr.width / vr.height - 1232 / 672) < 0.01, (vr.width / vr.height).toFixed(4));
+        }
+        const layer = Array.from(hud.view.querySelectorAll('.ph-layer > *')).filter(visible);
+        const outside = layer.filter(el => { const r = el.getBoundingClientRect(); return r.left < vr.left - 1 || r.right > vr.right + 1 || r.top < vr.top - 1 || r.bottom > vr.bottom + 1; });
+        ok('every overlay stays inside the table', !outside.length, outside.map(e => e.className).join(', '));
+        const hit = (a, b) => { const p = a.getBoundingClientRect(), q = b.getBoundingClientRect(); return p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom; };
+        [['spin', 'hint'], ['cam', 'pill'], ['lean', 'spin'], ['mini', 'lean'], ['replace', 'hint'], ['replace', 'gauge'], ['replace', 'spin'], ['replace', 'toast'], ['replace', 'lock'],
+         ['gauge', 'hint'], ['lock', 'pill'], ['gauge', 'pill'], ['spinpop', 'spin'], ['spinpop', 'hint'], ['spinpop', 'pill'], ['spinpop', 'cam']].forEach(([a, b]) => {
+            if (hud[a] && hud[b] && visible(hud[a]) && visible(hud[b])) ok(a + ' and ' + b + ' do not overlap', !hit(hud[a], hud[b]));
+        });
+        // Every control a keyboard or a screen reader can reach has a name.
+        const nameless = Array.from(hud.el.querySelectorAll('button, input, select, textarea, [tabindex], [role="img"]')).filter(visible)
+            .filter(el => !((el.getAttribute('aria-label') || '').trim() || el.getAttribute('aria-labelledby') || el.textContent.trim() ||
+                (el.id && hud.el.querySelector('label[for="' + el.id + '"]')) || el.closest('label')));
+        ok('every control has an accessible name', !nameless.length, nameless.map(e => e.tagName + '.' + e.className).join(', '));
+        const clipped = Array.from(hud.el.querySelectorAll('.ph-name, .ph-tag, .ph-hint span, .ph-pill span, .ph-cam span, .ph-frames-n, .ph-toast-title, .ph-dialog-title, .ph-btn span, .ph-replace span, .ph-spinpop-read, .ph-spinpop-chips .ph-btn, .ph-spin-v, .ph-handoff-to, .ph-handoff-from, .ph-handoff .ph-primary, .ph-sheet-dn, .ph-sheet-dd, .ph-sheet-chip, .ph-sheet-mode span, .ph-sheet-title, .ph-mini-cap, .ph-tourhead-k, .ph-tourhead-n, .ph-tourhead-f, .ph-primary-sub, .ph-sheet-links .ph-btn span'))
+            .filter(visible).filter(el => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).display !== 'inline');
+        ok('no label is cut off', !clipped.length, clipped.map(e => e.className + ' "' + e.textContent + '"').join(', '));
+        if (Q.has('spinopen')) {
+            ok('the spin picker is open', visible(hud.spinpop));
+            const b = hud.spinbig.getBoundingClientRect(), d = hud.spinbigd.getBoundingClientRect();
+            const ex = b.left + b.width / 2 + tip.x * b.width / 2, ey = b.top + b.height / 2 - tip.y * b.height / 2;
+            ok('the picker dot sits where the tip strikes', Math.abs(d.left + d.width / 2 - ex) < 1 && Math.abs(d.top + d.height / 2 - ey) < 1, [d.left + d.width / 2 - ex, d.top + d.height / 2 - ey].map(v => v.toFixed(2)).join());
+        }
+        if (visible(hud.handoff)) { const h = hud.handoff; ok('the hand-off strip holds its content', h.scrollHeight <= h.clientHeight + 1 && h.scrollWidth <= h.clientWidth + 1, h.scrollWidth + 'x' + h.scrollHeight + ' in ' + h.clientWidth + 'x' + h.clientHeight); }
+        if (Q.get('sheet')) {
+            const sh = hud.sheet, er = hud.el.getBoundingClientRect(), r = sh.getBoundingClientRect();
+            ok('the Game mode sheet is open on the ' + Q.get('sheet') + ' tab', visible(sh) && hud.modeButtons.some(b => b.getAttribute('aria-checked') === 'true' && b.getAttribute('data-ph-mode') === Q.get('sheet')));
+            ok('the sheet fits inside the panel and holds its content', r.top >= er.top - 1 && r.bottom <= er.bottom + 1 && r.left >= er.left - 1 && r.right <= er.right + 1 && sh.scrollHeight <= sh.clientHeight + 1,
+               [r.top - er.top, er.bottom - r.bottom, sh.scrollHeight, sh.clientHeight].map(v => v.toFixed ? v.toFixed(0) : v).join());
+        }
+        // The trackers dim exactly the balls that are down, and an open table lists each seat's pots.
+        hud.cards.forEach((r, i) => {
+            const seat = i + 1, grp = S.frame.groups[seat], down = id => S.world.balls.some(b => b.id === id && b.state === 'pocketed');
+            if (grp) {
+                const ids = grp === 'solids' ? [1, 2, 3, 4, 5, 6, 7] : [9, 10, 11, 12, 13, 14, 15];
+                const got = Array.from(r.group.children).map(d => d.classList.contains('is-down') ? 1 : 0).join(''), want = ids.map(id => down(id) ? 1 : 0).join('');
+                ok('seat ' + seat + '\'s tracker dims exactly the potted balls', got === want, got + ' vs ' + want);
+            } else if (visible(r.open)) {
+                const want = (S.pots[seat] || []).filter(down).length;
+                ok('seat ' + seat + ' on an open table shows the ' + want + ' ball(s) it potted', r.openb.children.length === want, r.openb.children.length);
+                ok('seat ' + seat + '\'s potted row fits its card', r.open.scrollWidth <= r.open.clientWidth + 1 && r.open.getBoundingClientRect().right <= r.el.getBoundingClientRect().right + 0.5 && r.open.getBoundingClientRect().left >= r.el.getBoundingClientRect().left - 0.5, r.open.scrollWidth + ' in ' + r.open.clientWidth);
+            }
+        });
+        // The call-pocket mini-map: fixed beside the cue, in the lower half, behind the shot.
+        if (visible(hud.mini)) {
+            const r = hud.mini.getBoundingClientRect(), c = S.world.balls[0];
+            const clash = ['cam', 'pill', 'gauge', 'lock', 'spin', 'hint', 'replace', 'toast'].filter(n => hud[n] && visible(hud[n]) && hit(hud.mini, hud[n]));
+            ok('the mini-map clears the other overlays and stays on the table', !clash.length && r.left >= vr.left && r.right <= vr.right && r.top >= vr.top && r.bottom <= vr.bottom, clash.join());
+            ok('it sits in the lower half, beside the cue, not over the shot', r.top >= vr.top + vr.height / 2 - 1, (r.top - vr.top).toFixed(0) + ' of ' + vr.height.toFixed(0));
+            const q = pcProject(poolView(), [c.x, c.y, S.cfg.ballR]);
+            if (q) {
+                const k = vr.width / S.W, cx = vr.left + q[0] * k, cy = vr.top + q[1] * k, cr = S.cfg.ballR * q[2] * k;
+                ok('the hint steps aside: the card carries its line', !visible(hud.hint) && !!hud.minicap.textContent);
+            ok('…and not over the cue ball', cx - cr >= r.right || cx + cr <= r.left || cy + cr <= r.top || cy - cr >= r.bottom, [cx - cr, r.right].map(v => v.toFixed(0)).join(' vs '));
+            }
+        }
+        // The tournament's screens and dialogs.
+        const pu = hud.pu;
+        if (Q.get('tour') && pu) {
+            const er = hud.el.getBoundingClientRect();
+            const inside = (el, box) => { const r = el.getBoundingClientRect(); return r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1; };
+            if (!pu.screen.hidden) {
+                const sc = pu.screen, inn = sc.firstElementChild, r = sc.getBoundingClientRect();
+                ok('the tournament screen covers the panel', Math.abs(r.left - er.left) < 1 && Math.abs(r.right - er.right) < 1 && Math.abs(r.top - er.top) < 1 && Math.abs(r.bottom - er.bottom) < 1);
+                ok('the screen holds its content (only its body scrolls)', inn.scrollHeight <= inn.clientHeight + 1 && inn.scrollWidth <= inn.clientWidth + 1, inn.scrollWidth + 'x' + inn.scrollHeight + ' in ' + inn.clientWidth + 'x' + inn.clientHeight);
+                sc.querySelectorAll('.pu-primary').forEach(b => { if (visible(b)) ok('the primary button is on the screen', inside(b, r)); });
+                const body = sc.querySelector('.pu-body');
+                if (body) ok('the body does not scroll sideways', body.scrollWidth <= body.clientWidth + 1, body.scrollWidth + ' in ' + body.clientWidth);
+                sc.querySelectorAll('.pu-tree').forEach(tr => {
+                    const box = tr.parentElement;
+                    ok('the bracket fits its box', tr.offsetWidth <= box.clientWidth + 1 && tr.offsetHeight <= box.clientHeight + 1, tr.offsetWidth + 'x' + tr.offsetHeight + ' in ' + box.clientWidth + 'x' + box.clientHeight);
+                    const cards = Array.from(tr.querySelectorAll('.pu-tr-card, .pu-tr-champ'));
+                    const clash = cards.filter((a, i) => cards.some((b, j) => j > i && hit(a, b)));
+                    ok('no two bracket cards overlap', !clash.length, clash.length);
+                    const rows = Array.from(tr.querySelectorAll('.pu-tr-row')).filter(x => x.scrollHeight > x.clientHeight + 1);
+                    ok('every bracket card holds both of its lines', !rows.length, rows.length);
+                });
+                const cut = Array.from(sc.querySelectorAll('.pu-kicker, .pu-title, .pu-pill, .pu-chip, .pu-primary > span, .pu-mname, .pu-vs-name, .pu-won-n, .pu-run-t, .pu-cab-name, .pu-recent-t > span, .pu-recent-c, .pu-tabs button, .pu-seg button, .pu-legend > span, .pu-tr-head, .pu-out-t, .pu-tree:not(.is-mini) .pu-tr-name, .pu-tr-champ-n, .pu-breaks'))
+                    .filter(visible).filter(el => el.scrollWidth > el.clientWidth + 1);
+                ok('no tournament label is cut off', !cut.length, cut.map(e => e.className + ' "' + e.textContent + '"').join(', '));
+            }
+            if (!pu.dialog.hidden) {
+                const d = pu.dialog.querySelector('.pu-dlg');
+                ok('the dialog sits inside the panel', inside(d, er));
+                ok('the dialog holds its content', d.scrollHeight <= d.clientHeight + 1);
+                const cut = Array.from(d.querySelectorAll('.pu-kicker, .pu-dlg-title, .pu-dlg-score > span, .pu-primary, .pu-btn')).filter(visible).filter(el => el.scrollWidth > el.clientWidth + 1);
+                ok('no dialog label is cut off', !cut.length, cut.map(e => e.className + ' "' + e.textContent + '"').join(', '));
+            }
+            if (Q.get('tour') === 'match') ok('the tournament header shows in place of the title, and Bracket / Pause replace the mode and Reset', visible(hud.tourhead) && !visible(hud.mode) && !visible(hud.reset) && (visible(hud.handoff) || (visible(hud.bracket) && visible(hud.pause))));
+        }
+        if (Q.has('placed')) ok('the Move cue ball button shows once the ball is placed', visible(hud.replace));
+        if (Q.has('narrow') && hud.layout === 'compact') ok('the narrow column gives the HUD 316 px, as the widget does', Math.abs(hud.el.getBoundingClientRect().width - 316) < 1, hud.el.getBoundingClientRect().width);
+        const card = getComputedStyle(hud.el).getPropertyValue('--pool-card').trim();
+        ok('--pool-card resolves', card && !/var\(/.test(card), card);
+        const t = phThemeTokens(hud);
+        ok('the canvas bridge hands the renderer a hex accent', /^#[0-9a-f]{6}$/.test(t.accent), t.accent);
+        if (widget.classList.contains('retro-theme')) ok('in Cyberpunk the felt accent is the user\'s accent', t.accent === (userPreferences.cyberAccent || '').toLowerCase(), t.accent + ' vs ' + userPreferences.cyberAccent);
+        ok('canvas backing store is its CSS size × dpr', canvas.width === Math.round(S.W * S.dpr) && S.W === canvas.clientWidth, canvas.width + ' for ' + S.W);
+        return out;
+    };
+    // For ad-hoc DevTools drives: the controller's state.
+    window.__pool = { S, get world() { return S.world; }, get frame() { return S.frame; }, get phase() { return S.phase; }, get aim() { return S.aim; },
+        get power() { return S.power; }, get director() { return S.director; }, get hud() { return S.hud; }, view: poolView };
+})();
+</script>
+</body>
+</html>

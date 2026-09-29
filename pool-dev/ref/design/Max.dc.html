@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>8-Ball Pool full view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&amp;family=Sora:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#07090A}
+a{color:#F0B44C}a:hover{color:#F6C978}
+.pm-btn{cursor:pointer;transition:background .15s ease,transform .1s ease}
+.pm-btn:hover{background:#242C31 !important}
+.pm-btn:active{transform:translateY(1px)}
+.pm-btn:focus-visible,.pm-shoot:focus-visible{outline:2px solid #F0B44C;outline-offset:2px}
+.pm-shoot{cursor:pointer;transition:filter .15s ease,transform .1s ease}
+.pm-shoot:hover{filter:brightness(1.07)}
+.pm-shoot:active{transform:translateY(1px)}
+.pm-rng:focus-within .pm-thumb{box-shadow:0 0 0 4px rgba(240,180,76,.35),0 2px 6px rgba(0,0,0,.5) !important}
+</style>
+</helmet>
+<div style="width: 1280px; height: 800px; box-sizing: border-box; padding: 24px; display: flex; flex-direction: column; gap: 16px; background: radial-gradient(ellipse 70% 50% at 50% 0%, #162022 0%, #0B0E10 70%); border-radius: 20px; font-family: 'Sora', system-ui, sans-serif; color: #ECE8DF">
+
+<div style="height: 64px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 24px">
+<div style="display: flex; align-items: center; gap: 12px">
+<svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#141516" stroke="#2C3337" stroke-width="1"></circle><circle cx="12" cy="11.4" r="4.8" fill="#F3EEE2"></circle><text x="12" y="13.9" text-anchor="middle" font-family="Chakra Petch, sans-serif" font-size="7" font-weight="700" fill="#141516">8</text><circle cx="8" cy="6.6" r="1.6" fill="#FFFFFF" fill-opacity="0.35"></circle></svg>
+<div style="font-family: 'Chakra Petch', sans-serif; font-size: 24px; font-weight: 600; letter-spacing: 0.01em">8-Ball Pool</div>
+</div>
+
+<div style="display: flex; align-items: stretch; gap: 12px; height: 64px">
+<div style="box-sizing: border-box; width: 220px; padding: 10px 14px; border-radius: 14px; background: #161C1F; border: 1px solid rgba(240, 180, 76, 0.45); box-shadow: 0 0 28px rgba(240, 180, 76, 0.12); display: flex; align-items: center; gap: 12px">
+<div style="width: 38px; height: 38px; border-radius: 50%; background: #F0B44C; color: #1B1406; display: flex; align-items: center; justify-content: center; font-family: 'Chakra Petch', sans-serif; font-size: 14px; font-weight: 700; flex-shrink: 0">P1</div>
+<div style="display: flex; flex-direction: column; gap: 5px; flex-grow: 1; min-width: 0">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+<span style="font-size: 14px; font-weight: 600">Player 1</span>
+<span style="font-size: 11px; color: #9CA5A8">478W · 68L</span>
+</div>
+<div style="display: flex; gap: 4px">
+<sc-for list="{{p1Group}}" as="g" hint-placeholder-count="7">
+<div style="width: 14px; height: 14px; border-radius: 50%; background: {{g.bg}}; opacity: {{g.op}}"></div>
+</sc-for>
+</div>
+</div>
+</div>
+<div style="width: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px">
+<div style="font-family: 'Chakra Petch', sans-serif; font-size: 30px; font-weight: 700; letter-spacing: 0.02em; line-height: 1">0–0</div>
+<div style="font-size: 10px; font-weight: 600; letter-spacing: 0.14em; color: #8E979A">FRAMES</div>
+</div>
+<div style="box-sizing: border-box; width: 220px; padding: 10px 14px; border-radius: 14px; background: #161C1F; border: 1px solid rgba(255, 255, 255, 0.06); display: flex; flex-direction: row-reverse; align-items: center; gap: 12px">
+<div style="width: 38px; height: 38px; border-radius: 50%; background: #2A3438; color: #B9CCDA; display: flex; align-items: center; justify-content: center; flex-shrink: 0">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"></path></svg>
+</div>
+<div style="display: flex; flex-direction: column; gap: 5px; flex-grow: 1; min-width: 0; align-items: flex-end">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; width: 100%">
+<span style="font-size: 11px; color: #9CA5A8">68W · 478L</span>
+<span style="font-size: 14px; font-weight: 600">{{oppName}}</span>
+</div>
+<div style="display: flex; gap: 4px">
+<sc-for list="{{p2Group}}" as="g" hint-placeholder-count="7">
+<div style="width: 14px; height: 14px; border-radius: 50%; background: {{g.bg}}; opacity: {{g.op}}"></div>
+</sc-for>
+</div>
+</div>
+</div>
+</div>
+
+<div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px">
+<div style="display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 18px; background: #1A2024; border: 1px solid rgba(240, 180, 76, 0.28); color: #F0B44C">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: 700; color: #F4E3BF">478</span>
+</div>
+<button type="button" class="pm-btn" onClick="{{toggleMode}}" style="height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; font-family: 'Sora', sans-serif; font-size: 12px; font-weight: 600">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"></circle><path d="M3.5 19c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8"></path><circle cx="17" cy="9" r="2.6"></circle><path d="M16 14.3c2.4.1 4 1.6 4.5 4.2"></path></svg>{{modeLabel}}</button>
+<button type="button" class="pm-btn" onClick="{{reset}}" aria-label="Reset rack" title="Reset rack" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; padding: 0">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path></svg></button>
+<a href="Main.dc.html" class="pm-btn" aria-label="Exit full view" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #1C2327; border: 1px solid rgba(255, 255, 255, 0.07); color: #ECE8DF">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"></path></svg>
+</a>
+</div>
+</div>
+
+<div style="position: relative; width: 1232px; height: 672px; border-radius: 18px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.06); box-sizing: border-box; flex-shrink: 0">
+<div style="position: absolute; left: -1px; top: -1px">
+<dc-import name="Table" camera="{{camera}}" aim="{{aim}}" power="{{power}}" striking="{{striking}}" lean="{{lean}}" width="1232" height="672" hint-size="1232px,672px"></dc-import>
+</div>
+<div aria-label="Table: move to aim, press and drag to add power, release to shoot" onMouseMove="{{onMove}}" onMouseDown="{{onDown}}" onMouseUp="{{onUp}}" onMouseLeave="{{onLeave}}" style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; cursor: {{cursor}}; user-select: none"></div>
+<div style="position: absolute; right: 20px; top: 226px; width: 10px; height: 220px; border-radius: 5px; background: rgba(8, 10, 11, 0.7); border: 1px solid rgba(255, 255, 255, 0.12); overflow: hidden; opacity: {{gaugeOp}}; pointer-events: none">
+<div style="position: absolute; left: 0; bottom: 0; width: 100%; height: {{powerPct}}%; background: {{powerColor}}; box-shadow: 0 0 12px {{powerColor}}"></div>
+</div>
+<div style="position: absolute; left: 16px; top: 16px; display: flex; gap: 3px; padding: 4px; border-radius: 13px; background: rgba(8, 10, 11, 0.66); border: 1px solid rgba(255, 255, 255, 0.10); backdrop-filter: blur(10px)">
+<button type="button" class="pm-shoot" onClick="{{set2D}}" aria-pressed="{{is2d}}" style="display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border: 0; border-radius: 9px; background: {{c2dBg}}; color: {{c2dFg}}; font-family: 'Chakra Petch', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.08em">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M4 12h16M12 4v16"></path></svg>2D TOP-DOWN</button>
+<button type="button" class="pm-shoot" onClick="{{set3D}}" aria-pressed="{{is3d}}" style="display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border: 0; border-radius: 9px; background: {{c3dBg}}; color: {{c3dFg}}; font-family: 'Chakra Petch', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.08em">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg>3D AIM</button>
+</div>
+<div style="position: absolute; right: 16px; top: 16px; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 17px; background: rgba(8, 10, 11, 0.66); border: 1px solid rgba(255, 255, 255, 0.10); backdrop-filter: blur(10px); font-size: 12px; font-weight: 500; pointer-events: none">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #F0B44C; box-shadow: 0 0 8px #F0B44C"></span>Your shot · Solids</div>
+<sc-if value="{{show3d}}" hint-placeholder-val="{{true}}">
+<div style="position: absolute; left: 16px; top: 150px; width: 48px; height: 360px; box-sizing: border-box; padding: 10px 0; display: flex; flex-direction: column; align-items: center; gap: 6px; border-radius: 24px; background: rgba(8, 10, 11, 0.66); border: 1px solid rgba(255, 255, 255, 0.10); backdrop-filter: blur(8px)">
+<label for="pm-lean" style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">LEAN</label>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 13px; font-weight: 600; color: #ECE8DF; font-variant-numeric: tabular-nums">{{leanLabel}}</span>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9CA5A8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"></path></svg>
+<div class="pm-rng" style="position: relative; width: 28px; flex-grow: 1">
+<div style="position: absolute; left: 12px; top: 0; width: 4px; height: 100%; border-radius: 2px; background: #283034"></div>
+<div style="position: absolute; left: 12px; bottom: 0; width: 4px; height: {{leanPct}}%; border-radius: 2px; background: #F0B44C"></div>
+<div class="pm-thumb" style="position: absolute; left: 5px; bottom: calc({{leanPct}}% - 9px); width: 18px; height: 18px; border-radius: 50%; background: #F4F0E6; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5)"></div>
+<input id="pm-lean" type="range" min="0" max="100" step="1" value="{{lean}}" onChange="{{onLean}}" aria-valuetext="{{leanLabel}} camera pitch" style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; cursor: ns-resize; writing-mode: vertical-lr; direction: rtl">
+</div>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9CA5A8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+</div>
+</sc-if>
+<button type="button" class="pm-shoot" onClick="{{cycleSpin}}" aria-label="Cue ball spin: {{spinLabel}}. Change spin" style="position: absolute; left: 16px; bottom: 16px; box-sizing: border-box; display: flex; align-items: center; gap: 12px; height: 72px; padding: 0 18px 0 6px; border-radius: 36px; background: rgba(8, 10, 11, 0.66); border: 1px solid rgba(255, 255, 255, 0.10); backdrop-filter: blur(10px); color: #ECE8DF; text-align: left">
+<span style="position: relative; width: 60px; height: 60px; border-radius: 50%; flex-shrink: 0; background: radial-gradient(circle at 35% 30%, #FFFFFF 0%, #EDE7DA 45%, #BDB6A6 100%); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 6px 14px rgba(0, 0, 0, 0.35)">
+<span style="position: absolute; left: 50%; top: 50%; width: 1px; height: 44px; margin: -22px 0 0 0; background: rgba(20, 25, 27, 0.18)"></span>
+<span style="position: absolute; left: 50%; top: 50%; width: 44px; height: 1px; margin: 0 0 0 -22px; background: rgba(20, 25, 27, 0.18)"></span>
+<span style="position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; border: 1px dashed rgba(20, 25, 27, 0.2); box-sizing: border-box"></span>
+<span style="position: absolute; left: {{spinL}}%; top: {{spinT}}%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #D2352B; box-shadow: 0 0 0 3px rgba(210, 53, 43, 0.25)"></span>
+</span>
+<span style="display: flex; flex-direction: column; gap: 3px">
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">SPIN</span>
+<span style="font-size: 16px; font-weight: 600">{{spinLabel}}</span>
+</span>
+</button>
+<div style="pointer-events: none; position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 17px; background: rgba(8, 10, 11, 0.66); border: 1px solid rgba(255, 255, 255, 0.10); backdrop-filter: blur(10px)">
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 13px; font-weight: 600; color: {{hintColor}}">{{hint}}</span>
+</div>
+</div>
+
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"camera":{"editor":"enum","options":["3d","2d"],"default":"3d"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  componentWillUnmount() { clearTimeout(this._strike); }
+  renderVals() {
+    const VW = 1232, VH = 672;
+    const s = this.state || {};
+    const camera = s.camera ?? (this.props.camera === '2d' ? '2d' : '3d');
+    const aim = s.aim ?? -6.8;
+    const power = s.power ?? 0;
+    const spin = s.spin ?? 0;
+    const vsCpu = s.vsCpu ?? true;
+    const striking = !!s.striking;
+    const dragging = !!s.dragging;
+    const lean = s.lean ?? 35;
+    this._aimLive = aim;
+    const wrap = (v) => { const x = ((v + 180) % 360 + 360) % 360 - 180; return Math.round(x * 10) / 10; };
+    const local = (e) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      const k = r.width / VW || 1;
+      return [(e.clientX - r.left) / k, (e.clientY - r.top) / k];
+    };
+    const spins = [
+      { label: 'Center', x: 0, y: 0 }, { label: 'Follow', x: 0, y: -0.55 },
+      { label: 'Draw', x: 0, y: 0.55 }, { label: 'Left', x: -0.55, y: 0 }, { label: 'Right', x: 0.55, y: 0 }
+    ];
+    const sp = spins[spin % spins.length];
+    const IV = '#F3EEE2';
+    const hi = 'radial-gradient(circle at 35% 30%, rgba(255,255,255,0.75) 0%, rgba(255,255,255,0) 48%)';
+    const solid = (c, on) => ({ bg: hi + ', ' + c, op: on ? 1 : 0.2 });
+    const stripe = (c, on) => ({ bg: hi + ', linear-gradient(180deg, ' + IV + ' 0%, ' + IV + ' 28%, ' + c + ' 28%, ' + c + ' 72%, ' + IV + ' 72%, ' + IV + ' 100%)', op: on ? 1 : 0.2 });
+    const powerColor = power >= 85 ? '#EC6A3D' : '#F0B44C';
+    return {
+      camera, aim, power, striking,
+      lean, show3d: camera === '3d',
+      leanPct: lean,
+      leanLabel: Math.round(19.5 + 28.5 * lean / 100 - Math.atan(0.34 / 1.1) * 180 / Math.PI) + '°',
+      onLean: (e) => this.setState({ lean: Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)) }),
+      is2d: camera === '2d' ? 'true' : 'false',
+      is3d: camera === '3d' ? 'true' : 'false',
+      c2dBg: camera === '2d' ? '#F0B44C' : 'transparent', c2dFg: camera === '2d' ? '#1B1406' : '#C9CFCF',
+      c3dBg: camera === '3d' ? '#F0B44C' : 'transparent', c3dFg: camera === '3d' ? '#1B1406' : '#C9CFCF',
+      set2D: () => { this._lx = null; this.setState({ camera: '2d' }); },
+      set3D: () => { this._lx = null; this.setState({ camera: '3d' }); },
+      cursor: dragging ? 'grabbing' : 'crosshair',
+      // Mouse: move = aim, press + drag = lock aim and add power, release = shoot.
+      onMove: (e) => {
+        const p = local(e);
+        if (this._drag) {
+          const pw = Math.max(0, Math.min(100, Math.round(Math.hypot(p[0] - this._drag[0], p[1] - this._drag[1]) / 1.4)));
+          this._pw = pw;
+          this.setState({ power: pw });
+          return;
+        }
+        if (camera === '2d') {
+          const k = Math.min((VW - 16) / 1096, (VH - 16) / 596);
+          const cx = VW / 2 - 160 * k, cy = VH / 2 + 70 * k;
+          if (Math.hypot(p[0] - cx, p[1] - cy) > 4) this.setState({ aim: wrap(Math.atan2(p[1] - cy, p[0] - cx) * 180 / Math.PI) });
+        } else {
+          if (this._lx != null && p[0] !== this._lx) {
+            const na = wrap(this._aimLive - (p[0] - this._lx) * 0.3);
+            this._aimLive = na;
+            this.setState({ aim: na });
+          }
+          this._lx = p[0];
+        }
+      },
+      onDown: (e) => { this._drag = local(e); this._pw = 0; this.setState({ dragging: true, power: 0 }); },
+      onUp: () => {
+        if (!this._drag) return;
+        this._drag = null;
+        if ((this._pw || 0) >= 3) {
+          this.setState({ dragging: false, striking: true });
+          clearTimeout(this._strike);
+          this._strike = setTimeout(() => this.setState({ striking: false, power: 0 }), 260);
+        } else {
+          this.setState({ dragging: false, power: 0 });
+        }
+      },
+      onLeave: () => {
+        this._lx = null;
+        if (this._drag) { this._drag = null; this.setState({ dragging: false, power: 0 }); }
+      },
+      powerPct: power, powerColor,
+      gaugeOp: dragging ? 1 : 0.45,
+      hint: dragging ? 'Release to shoot · ' + power + '%' : 'Press and drag for power',
+      hintColor: dragging ? powerColor : '#C9CFCF',
+      spinLabel: sp.label, spinL: 50 + sp.x * 50, spinT: 50 + sp.y * 50,
+      cycleSpin: () => this.setState({ spin: (spin + 1) % spins.length }),
+      reset: () => { this._drag = null; this.setState({ aim: -6.8, power: 0, spin: 0, lean: 35, striking: false, dragging: false }); },
+      toggleMode: () => this.setState({ vsCpu: !vsCpu }),
+      modeLabel: vsCpu ? 'Vs CPU' : '2 Players',
+      oppName: vsCpu ? 'CPU' : 'Player 2',
+      p1Group: [
+        solid('#E9B825', true), solid('#2457C5', false), solid('#D2352B', true), solid('#6A3FA0', true),
+        solid('#EE7A2E', false), solid('#1F8A4C', true), solid('#8C2A20', true)
+      ],
+      p2Group: [
+        stripe('#E9B825', true), stripe('#2457C5', false), stripe('#D2352B', true), stripe('#6A3FA0', true),
+        stripe('#EE7A2E', false), stripe('#1F8A4C', false), stripe('#8C2A20', true)
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

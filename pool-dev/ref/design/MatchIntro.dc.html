@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Match intro</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&amp;family=Sora:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#07090A}
+.mi-btn{cursor:pointer;transition:background .15s ease}
+.mi-btn:hover{background:#242C31 !important}
+.mi-btn:focus-visible,.mi-pri:focus-visible{outline:2px solid #F0B44C;outline-offset:2px}
+.mi-pri{cursor:pointer;transition:filter .15s ease,transform .1s ease}
+.mi-pri:hover{filter:brightness(1.07)}
+.mi-pri:active{transform:translateY(1px)}
+</style>
+</helmet>
+<div style="position: relative; width: 400px; height: 640px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 12px; background: radial-gradient(ellipse 90% 55% at 50% 42%, #173026 0%, #0E1113 70%); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 20px; font-family: 'Sora', system-ui, sans-serif; color: #ECE8DF; overflow: hidden">
+
+<div style="height: 44px; display: flex; align-items: center; gap: 10px">
+<a href="BracketCompact.dc.html" class="mi-btn" aria-label="Back to bracket" style="width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #1C2327; border: 1px solid rgba(255, 255, 255, 0.07); color: #ECE8DF">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg></a>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">CITY OPEN · MATCH 3 OF 5</span>
+</div>
+
+<div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 8px">
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.2em; color: #F0B44C">SEMI-FINAL</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 15px; font-weight: 600; color: #C9CFCF">Race to 2</span>
+</div>
+
+<div style="width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr); align-items: center">
+<div style="display: flex; flex-direction: column; align-items: flex-start; gap: 10px">
+<div style="width: 64px; height: 64px; border-radius: 50%; background: #F0B44C; color: #1B1406; display: flex; align-items: center; justify-content: center; font-family: 'Chakra Petch', sans-serif; font-size: 26px; font-weight: 700; box-shadow: 0 0 0 6px rgba(240, 180, 76, 0.12)">A</div>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 32px; font-weight: 700; line-height: 1">Ayesha</span>
+<span style="font-size: 12px; color: #9CA5A8">Seed 1 · bye in QF</span>
+</div>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 14px; font-weight: 700; letter-spacing: 0.1em; color: #7E878A; text-align: center">VS</span>
+<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 10px; text-align: right">
+<div style="width: 64px; height: 64px; border-radius: 50%; background: #2A3438; color: #ECE8DF; display: flex; align-items: center; justify-content: center; font-family: 'Chakra Petch', sans-serif; font-size: 26px; font-weight: 700; box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.05)">B</div>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 32px; font-weight: 700; line-height: 1">Bilal</span>
+<span style="font-size: 12px; color: #9CA5A8">Seed 4 · beat Zara 1–0</span>
+</div>
+</div>
+
+<div style="display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 16px; border-radius: 22px; background: rgba(8, 10, 11, 0.66); border: 1px solid rgba(255, 255, 255, 0.10)">
+<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="#F3EEE2"></circle><circle cx="8.8" cy="8.6" r="2" fill="#FFFFFF" fill-opacity="0.8"></circle></svg>
+<span style="font-size: 13px"><strong style="font-weight: 600">Bilal breaks</strong><span style="color: #9CA5A8"> · breaks alternate after</span></span>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="text-align: center; font-size: 12px; color: #9CA5A8">Ayesha and Bilal, take the seat when it's your shot.</span>
+<a href="MatchLive.dc.html" class="mi-pri" style="height: 52px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #F0B44C; color: #1B1406; font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: 0.1em; text-decoration: none; box-shadow: 0 6px 18px rgba(240, 180, 76, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.35)">READY</a>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":640}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

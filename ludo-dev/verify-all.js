@@ -20,6 +20,22 @@ const SUITES = [
     // Same contract again for the Cyberpunk HUD theme: CSS + two JS modules
     // under cyber-dev/, spliced by sentinel and asserted byte-identical.
     ['Cyberpunk HUD',  '../cyber-dev/cyber-verify.js'],
+    // Pool v2 (POOL_V2_PLAN.md): the pool-dev/ modules and pool-theme.css, spliced
+    // by sentinel and asserted byte-identical, plus the match (pool-game.js) headless.
+    // The same contract in a real browser is pool-dev/host-run.js.
+    ['Pool',           '../pool-dev/pool-verify.js'],
+    // The v2 physics (pool-physics.js).
+    ['Pool physics',   '../pool-dev/physics-verify.js'],
+    // The v2 rules (pool-rules.js) on top of that physics.
+    ['Pool rules',     '../pool-dev/rules-verify.js'],
+    // The v2 camera and renderer (pool-camera.js, pool-render.js), headless via the rasterizer.
+    ['Pool render',    '../pool-dev/render-verify.js'],
+    // The v2 HUD (pool-hud.js view model + pool-theme.css contract); its DOM is audited in Chrome by snapshot.js --check.
+    ['Pool HUD',       '../pool-dev/hud-verify.js'],
+    // The v2 tournament model (pool-tour.js): brackets, seeding, byes, breaks, saves, the cabinet.
+    ['Pool tournament', '../pool-dev/tour-verify.js'],
+    // The sync bot (github-actions-bot, its own repo beside this one): the gameModeBests merge the tier boards need.
+    ['Sync bot',       '../pool-dev/sync-verify.js'],
 ];
 
 const results = [];

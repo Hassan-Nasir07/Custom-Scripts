@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tournament setup</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&amp;family=Sora:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#07090A}
+.ts-btn{cursor:pointer;transition:background .15s ease}
+.ts-btn:hover{background:#242C31 !important}
+.ts-btn:focus-visible,.ts-pri:focus-visible,.ts-seg:focus-visible,.ts-in:focus-visible,.ts-sel:focus-visible,.ts-tog:focus-visible{outline:2px solid #F0B44C;outline-offset:2px}
+.ts-btn:disabled{opacity:.35;cursor:default}
+.ts-pri{cursor:pointer;transition:filter .15s ease,transform .1s ease}
+.ts-pri:hover{filter:brightness(1.07)}
+.ts-pri:active{transform:translateY(1px)}
+.ts-seg{cursor:pointer}
+.ts-in::placeholder{color:#7E878A}
+.ts-in:focus{border-color:rgba(240,180,76,.6) !important;outline:none}
+.ts-list::-webkit-scrollbar{width:6px}.ts-list::-webkit-scrollbar-thumb{background:#2E373B;border-radius:3px}
+</style>
+</helmet>
+<div style="width: 400px; height: 640px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 12px; background: #0E1113; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 20px; font-family: 'Sora', system-ui, sans-serif; color: #ECE8DF">
+
+<div style="height: 44px; display: flex; align-items: center; gap: 10px">
+<a href="Main.dc.html" class="ts-btn" aria-label="Back" style="width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #1C2327; border: 1px solid rgba(255, 255, 255, 0.07); color: #ECE8DF">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg></a>
+<div style="display: flex; flex-direction: column; gap: 1px">
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">TOURNAMENT · HUMANS ONLY</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 18px; font-weight: 600; line-height: 1.1">New tournament</span>
+</div>
+</div>
+
+<div style="flex-grow: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px">
+
+<div style="height: 44px; display: flex; align-items: center; justify-content: space-between">
+<span style="display: flex; flex-direction: column; gap: 1px">
+<span id="ts-count-l" style="font-size: 13px; font-weight: 600">Contestants</span>
+<span style="font-size: 11px; color: #9CA5A8">{{bracketNote}}</span>
+</span>
+<div role="group" aria-labelledby="ts-count-l" style="display: flex; align-items: center; gap: 4px; padding: 0; border-radius: 12px; background: #161C1F; border: 1px solid rgba(255, 255, 255, 0.06)">
+<button type="button" class="ts-btn" onClick="{{dec}}" disabled="{{decOff}}" aria-label="Fewer contestants" style="width: 44px; height: 42px; border: 0; border-radius: 11px; background: transparent; color: #ECE8DF; display: flex; align-items: center; justify-content: center; padding: 0">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"></path></svg></button>
+<span aria-live="polite" style="width: 30px; text-align: center; font-family: 'Chakra Petch', sans-serif; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums">{{n}}</span>
+<button type="button" class="ts-btn" onClick="{{inc}}" disabled="{{incOff}}" aria-label="More contestants" style="width: 44px; height: 42px; border: 0; border-radius: 11px; background: transparent; color: #ECE8DF; display: flex; align-items: center; justify-content: center; padding: 0">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+</div>
+</div>
+
+<div style="position: relative">
+<div class="ts-list" style="height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px">
+<sc-for list="{{players}}" as="p" hint-placeholder-count="6">
+<div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0">
+<label for="{{p.id}}" style="width: 26px; flex-shrink: 0; font-family: 'Chakra Petch', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: #9CA5A8; text-align: center">{{p.seed}}</label>
+<div style="position: relative; flex-grow: 1; min-width: 0">
+<input id="{{p.id}}" class="ts-in" type="text" value="{{p.name}}" onChange="{{p.edit}}" placeholder="Player name" aria-label="{{p.aria}}" maxlength="16" style="width: 100%; height: 44px; box-sizing: border-box; padding: 0 {{p.padR}}px 0 12px; border-radius: 12px; background: #161C1F; border: 1px solid {{p.border}}; color: #ECE8DF; font-family: 'Sora', sans-serif; font-size: 13px; font-weight: {{p.weight}}">
+<span aria-hidden="true" style="position: absolute; right: 10px; top: 12px; display: {{p.you}}; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: 10px; background: rgba(240, 180, 76, 0.14); border: 1px solid rgba(240, 180, 76, 0.55); color: #F0B44C; font-family: 'Chakra Petch', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; pointer-events: none">
+<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4.5 4.2-7 8-7s7 2.5 8 7"></path></svg>YOU</span>
+</div>
+</div>
+</sc-for>
+</div>
+<div style="position: absolute; left: 0; right: 10px; bottom: 0; height: 24px; background: linear-gradient(180deg, rgba(14, 17, 19, 0) 0%, #0E1113 100%); pointer-events: none"></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">FRAMES PER ROUND · RACE TO</span>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{races}}" as="r" hint-placeholder-count="3">
+<label style="position: relative; display: block">
+<span style="position: absolute; left: 12px; top: 6px; font-size: 10px; font-weight: 600; color: #9CA5A8; pointer-events: none">{{r.label}}</span>
+<select class="ts-sel" aria-label="{{r.aria}}" value="{{r.value}}" onChange="{{r.set}}" style="appearance: none; -webkit-appearance: none; width: 100%; height: 48px; box-sizing: border-box; padding: 18px 28px 0 12px; border-radius: 12px; background: #161C1F; border: 1px solid rgba(255, 255, 255, 0.08); color: #ECE8DF; font-family: 'Chakra Petch', sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">
+<option value="1">1</option>
+<option value="2">2</option>
+<option value="3">3</option>
+<option value="4">4</option>
+<option value="5">5</option>
+</select>
+<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9CA5A8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="position: absolute; right: 10px; top: 18px; pointer-events: none"><path d="M6 9l6 6 6-6"></path></svg>
+</label>
+</sc-for>
+</div>
+</div>
+
+<sc-for list="{{segs}}" as="g" hint-placeholder-count="3">
+<div role="radiogroup" aria-label="{{g.label}}" style="height: 44px; display: flex; align-items: center; gap: 10px">
+<span style="width: 84px; flex-shrink: 0; font-size: 12px; font-weight: 600; color: #C9CFCF">{{g.label}}</span>
+<div style="flex-grow: 1; height: 44px; box-sizing: border-box; padding: 3px; display: grid; grid-template-columns: {{g.cols}}; gap: 3px; border-radius: 12px; background: #161C1F; border: 1px solid rgba(255, 255, 255, 0.06)">
+<sc-for list="{{g.opts}}" as="o" hint-placeholder-count="3">
+<button type="button" role="radio" aria-checked="{{o.checked}}" class="ts-seg" onClick="{{o.pick}}" style="border: 0; border-radius: 9px; background: {{o.bg}}; color: {{o.fg}}; font-family: 'Sora', sans-serif; font-size: 12px; font-weight: 600; padding: 0">{{o.label}}</button>
+</sc-for>
+</div>
+</div>
+</sc-for>
+
+<div style="height: 44px; display: flex; align-items: center; justify-content: space-between">
+<span style="display: flex; flex-direction: column; gap: 1px">
+<span id="ts-shuf" style="font-size: 12px; font-weight: 600; color: #C9CFCF">Shuffle seeds</span>
+<span style="font-size: 11px; color: #9CA5A8">Off keeps the list order as seeding</span>
+</span>
+<button type="button" role="switch" aria-checked="{{shuffleA}}" aria-labelledby="ts-shuf" class="ts-tog" onClick="{{toggleShuffle}}" style="width: 52px; height: 44px; border: 0; padding: 0; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center">
+<span style="position: relative; width: 44px; height: 26px; border-radius: 13px; background: {{togBg}}; transition: background .15s ease">
+<span style="position: absolute; top: 3px; left: {{togX}}px; width: 20px; height: 20px; border-radius: 50%; background: #F3EEE2; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); transition: left .15s ease"></span>
+</span>
+</button>
+</div>
+</div>
+
+<a href="BracketCompact.dc.html" class="ts-pri" style="height: 52px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 12px; background: #F0B44C; color: #1B1406; font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: 0.08em; text-decoration: none; box-shadow: 0 6px 18px rgba(240, 180, 76, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.35)">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h5v5H3M3 14h5v5H3M8 7.5h4v9H8M12 12h4M16 9h5v6h-5z"></path></svg>START TOURNAMENT</a>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.state || {};
+    // Slot 1 is the signed-in portal user, prefilled from their profile name.
+    const you = this.props.userName || 'Han';
+    const pool = [you, 'Ayesha', 'Hamza', 'Sana', 'Bilal', 'Zara', 'Omar', 'Hira', 'Faisal', 'Maryam', 'Ali', 'Noor', 'Saad', 'Iqra', 'Danish', 'Rabia'];
+    const names = s.names ?? pool.slice();
+    const n = s.n ?? 6;
+    const sizes = n <= 4 ? 4 : n <= 8 ? 8 : 16;
+    const byes = sizes - n;
+    const roundNames = sizes === 4 ? ['Semi', 'Final'] : sizes === 8 ? ['Quarter', 'Semi', 'Final'] : ['Round 1', 'Quarter', 'Semi', 'Final'];
+    const raceDefault = sizes === 4 ? [2, 3] : sizes === 8 ? [1, 2, 3] : [1, 1, 2, 3];
+    const race = s.race && s.race.length === roundNames.length ? s.race : raceDefault;
+    const shown = roundNames.length > 3 ? [0, roundNames.length - 2, roundNames.length - 1] : roundNames.map((x, i) => i);
+    const clock = s.clock ?? '30s', guide = s.guide ?? 'Full', call = s.call ?? '8 only';
+    const shuffle = s.shuffle ?? false;
+    const seg = (label, opts, cur, key) => ({
+      label, cols: 'repeat(' + opts.length + ', minmax(0, 1fr))', opts: opts.map((o) => ({
+        label: o, checked: o === cur ? 'true' : 'false',
+        bg: o === cur ? '#F0B44C' : 'transparent', fg: o === cur ? '#1B1406' : '#C9CFCF',
+        pick: () => this.setState({ [key]: o })
+      }))
+    });
+    return {
+      n, decOff: n <= 3, incOff: n >= 16,
+      dec: () => this.setState({ n: Math.max(3, n - 1) }),
+      inc: () => this.setState({ n: Math.min(16, n + 1) }),
+      bracketNote: 'Bracket of ' + sizes + (byes ? ' · ' + byes + (byes === 1 ? ' bye' : ' byes') + ' to top seeds' : ''),
+      players: names.slice(0, n).map((nm, i) => ({
+        id: 'ts-p' + i, seed: String(i + 1).padStart(2, '0'), name: nm, aria: i === 0 ? 'Player 1 name (you)' : 'Player ' + (i + 1) + ' name',
+        you: i === 0 ? 'flex' : 'none', padR: i === 0 ? 70 : 12, weight: i === 0 ? 600 : 400,
+        border: i === 0 ? 'rgba(240, 180, 76, 0.35)' : 'rgba(255, 255, 255, 0.08)',
+        edit: (e) => { const next = names.slice(); next[i] = e.target.value; this.setState({ names: next }); }
+      })),
+      races: shown.map((ri) => ({
+        label: roundNames[ri], aria: roundNames[ri] + ', race to', value: String(race[ri]),
+        set: (e) => { const next = race.slice(); next[ri] = parseInt(e.target.value, 10) || 1; this.setState({ race: next }); }
+      })),
+      segs: [
+        seg('Shot clock', ['30s', '45s', 'Off'], clock, 'clock'),
+        seg('Guideline', ['Full', 'Short', 'Off'], guide, 'guide'),
+        seg('Call pocket', ['8 only', 'Every shot'], call, 'call')
+      ],
+      shuffleA: shuffle ? 'true' : 'false', togBg: shuffle ? '#F0B44C' : '#2E373B', togX: shuffle ? 21 : 3,
+      toggleShuffle: () => this.setState({ shuffle: !shuffle })
+    };
+  }
+}
+</script>
+</body>
+</html>

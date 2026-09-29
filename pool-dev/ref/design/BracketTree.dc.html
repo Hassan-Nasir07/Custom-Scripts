@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tournament bracket tree</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&amp;family=Sora:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1113}
+</style>
+</helmet>
+<div role="img" aria-label="{{label}}" style="position: relative; width: {{w}}px; height: {{h}}px; font-family: 'Sora', system-ui, sans-serif; color: #ECE8DF">
+<sc-for list="{{heads}}" as="hd" hint-placeholder-count="3">
+<div style="position: absolute; left: {{hd.l}}px; top: 0; width: {{hd.w}}px; height: 20px; display: flex; align-items: center; font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: {{hd.color}}; white-space: nowrap">{{hd.label}}</div>
+</sc-for>
+<svg width="{{w}}" height="{{h}}" viewBox="0 0 {{w}} {{h}}" style="position: absolute; left: 0; top: 0; display: block">
+<path d="{{lines}}" fill="none" stroke="#2E373B" stroke-width="{{lw}}"></path>
+<path d="{{hiLines}}" fill="none" stroke="#F0B44C" stroke-width="{{lw}}" stroke-linecap="round"></path>
+</svg>
+<sc-for list="{{cards}}" as="c" hint-placeholder-count="7">
+<div style="position: absolute; left: {{c.l}}px; top: {{c.t}}px; width: {{c.w}}px; height: {{c.h}}px; box-sizing: border-box; border-radius: {{c.rad}}px; background: {{c.bg}}; border: 1px solid {{c.border}}; box-shadow: {{c.glow}}; display: flex; flex-direction: column">
+<div style="height: 50%; display: flex; align-items: center; gap: 6px; padding: 0 {{c.pad}}px; border-bottom: 1px solid rgba(255, 255, 255, 0.05)">
+<span style="display: {{c.seedDisp}}; width: 14px; font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 600; color: #7E878A">{{c.aSeed}}</span>
+<span style="flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: {{c.fs}}px; font-weight: {{c.aW}}; color: {{c.aC}}; font-style: {{c.aI}}">{{c.a}}</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: {{c.fs}}px; font-weight: 700; color: {{c.aC}}">{{c.sa}}</span>
+</div>
+<div style="height: 50%; display: flex; align-items: center; gap: 6px; padding: 0 {{c.pad}}px">
+<span style="display: {{c.seedDisp}}; width: 14px; font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 600; color: #7E878A">{{c.bSeed}}</span>
+<span style="flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: {{c.fs}}px; font-weight: {{c.bW}}; color: {{c.bC}}; font-style: {{c.bI}}">{{c.b}}</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: {{c.fs}}px; font-weight: 700; color: {{c.bC}}">{{c.sb}}</span>
+</div>
+<span style="position: absolute; right: 8px; top: -9px; display: {{c.chipDisp}}; align-items: center; gap: 4px; height: 18px; padding: 0 7px; border-radius: 9px; background: {{c.chipBg}}; border: 1px solid {{c.chipBorder}}; color: {{c.chipFg}}; font-family: 'Chakra Petch', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.12em">{{c.chip}}</span>
+</div>
+</sc-for>
+<div style="position: absolute; left: {{champ.l}}px; top: {{champ.t}}px; width: {{champ.w}}px; height: {{champ.h}}px; box-sizing: border-box; border-radius: {{champ.rad}}px; background: {{champ.bg}}; border: 1px solid {{champ.border}}; box-shadow: {{champ.glow}}; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: {{champ.gap}}px; text-align: center">
+<svg width="{{champ.icon}}" height="{{champ.icon}}" viewBox="0 0 24 24" fill="none" stroke="{{champ.iconC}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>
+<span style="display: {{champ.labelDisp}}; font-family: 'Chakra Petch', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">CHAMPION</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: {{champ.fs}}px; font-weight: 700; color: {{champ.nameC}}">{{champ.name}}</span>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"scenario":{"editor":"enum","options":["city-sf","city-sf1","city-final","office8","office16"],"default":"office8"},"width":{"editor":"int","default":900},"height":{"editor":"int","default":520},"mini":{"editor":"boolean","default":false},"$preview":{"width":900,"height":520}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const W = parseFloat(this.props.width ?? 900) || 900;
+    const H = parseFloat(this.props.height ?? 520) || 520;
+    const mini = this.props.mini === true || this.props.mini === 'true';
+    const sc = this.props.scenario || 'office8';
+    const M = (a, sa, b, sb, st, seeds) => ({ a, sa, b, sb, st: st || '', seeds: seeds || ['', ''] });
+    let rounds, names, races, hi = [], champ = '';
+    if (sc.indexOf('city') === 0) {
+      names = ['Quarter-final', 'Semi-final', 'Final']; races = [1, 2, 3];
+      const qf = [M('Ayesha', '', 'Bye', '', 'BYE', ['1', '']), M('Bilal', 1, 'Zara', 0, 'DONE', ['4', '5']), M('Sana', 1, 'Usman', 0, 'DONE', ['3', '6']), M('Hamza', '', 'Bye', '', 'BYE', ['2', ''])];
+      if (sc === 'city-sf') {
+        rounds = [qf, [M('Ayesha', 0, 'Bilal', 0, 'NEXT', ['1', '4']), M('Sana', 0, 'Hamza', 0, '', ['3', '2'])], [M('Winner SF1', '', 'Winner SF2', '')]];
+        hi = ['0:0'];
+      } else if (sc === 'city-sf1') {
+        rounds = [qf, [M('Ayesha', 2, 'Bilal', 1, 'DONE', ['1', '4']), M('Sana', 0, 'Hamza', 0, 'NEXT', ['3', '2'])], [M('Ayesha', '', 'Winner SF2', '', '', ['1', ''])]];
+        hi = ['0:0', '1:0', '2:0'];
+      } else {
+        rounds = [qf, [M('Ayesha', 2, 'Bilal', 1, 'DONE', ['1', '4']), M('Sana', 2, 'Hamza', 0, 'DONE', ['3', '2'])], [M('Ayesha', 3, 'Sana', 1, 'DONE', ['1', '3'])]];
+        hi = ['0:0', '1:0', '2:0', 'champ']; champ = 'Ayesha';
+      }
+    } else if (sc === 'office16') {
+      names = ['Round of 16', 'Quarter-final', 'Semi-final', 'Final']; races = [1, 1, 2, 3];
+      rounds = [
+        [M('Zara', 1, 'Rabia', 0, 'DONE', ['1', '16']), M('Omar', 0, 'Danish', 1, 'DONE', ['8', '9']), M('Hira', 1, 'Iqra', 0, 'DONE', ['5', '12']), M('Usman', 0, 'Saad', 1, 'DONE', ['4', '13']),
+         M('Bilal', 1, 'Noor', 0, 'DONE', ['3', '14']), M('Ayesha', 0, 'Ali', 0, 'LIVE', ['6', '11']), M('Hamza', 0, 'Maryam', 0, 'NEXT', ['7', '10']), M('Sana', 0, 'Faisal', 0, '', ['2', '15'])],
+        [M('Zara', 0, 'Danish', 0, '', ['1', '9']), M('Hira', 0, 'Saad', 0, '', ['5', '13']), M('Bilal', '', 'Winner R16-6', '', '', ['3', '']), M('Winner R16-7', '', 'Winner R16-8', '')],
+        [M('Winner QF1', '', 'Winner QF2', ''), M('Winner QF3', '', 'Winner QF4', '')],
+        [M('Winner SF1', '', 'Winner SF2', '')]
+      ];
+      hi = ['0:0'];
+    } else {
+      names = ['Quarter-final', 'Semi-final', 'Final']; races = [1, 2, 3];
+      rounds = [
+        [M('Zara', 1, 'Omar', 0, 'DONE', ['1', '8']), M('Usman', 0, 'Hira', 1, 'DONE', ['4', '5']), M('Bilal', 1, 'Ayesha', 0, 'DONE', ['3', '6']), M('Sana', 1, 'Hamza', 0, 'DONE', ['2', '7'])],
+        [M('Zara', 1, 'Hira', 1, 'LIVE', ['1', '5']), M('Bilal', 0, 'Sana', 0, 'NEXT', ['3', '2'])],
+        [M('Winner SF1', '', 'Winner SF2', '')]
+      ];
+      hi = ['0:0', '1:0'];
+    }
+    const fx = (v) => Math.round(v * 10) / 10;
+    const cols = rounds.length, n0 = rounds[0].length;
+    const hdr = mini ? 0 : 30, champW = mini ? 78 : 188, gap = mini ? 16 : 40;
+    const cardW = (W - champW - cols * gap) / cols;
+    const slotH = (H - hdr) / n0;
+    const cardH = mini ? Math.min(40, slotH - 6) : Math.min(64, slotH - 12);
+    const pos = (r, j) => { const cy = hdr + slotH * (j + 0.5) * Math.pow(2, r); return { x: r * (cardW + gap), y: cy - cardH / 2, cy: cy }; };
+    const isHi = (k) => hi.indexOf(k) >= 0;
+    const AMB = '#F0B44C', HOT = '#EC6A3D';
+    const cards = [];
+    let lines = '', hiLines = '';
+    rounds.forEach((round, r) => round.forEach((m, j) => {
+      const p = pos(r, j);
+      const done = m.st === 'DONE', bye = m.st === 'BYE';
+      const aWin = (done && Number(m.sa) > Number(m.sb)) || bye, bWin = done && Number(m.sb) > Number(m.sa);
+      const tbdA = String(m.a).indexOf('Winner') === 0, tbdB = String(m.b).indexOf('Winner') === 0 || m.b === 'Bye';
+      const chipMap = {
+        LIVE: { bg: 'rgba(236, 106, 61, 0.16)', border: 'rgba(236, 106, 61, 0.7)', fg: '#F6A585' },
+        NEXT: { bg: AMB, border: AMB, fg: '#1B1406' },
+        DONE: { bg: '#161C1F', border: 'rgba(255, 255, 255, 0.14)', fg: '#9CA5A8' },
+        BYE: { bg: '#1C2327', border: 'rgba(255, 255, 255, 0.10)', fg: '#9CA5A8' }
+      };
+      const ch = chipMap[m.st];
+      const k = r + ':' + j;
+      const showScore = done || m.st === 'LIVE';
+      cards.push({
+        l: fx(p.x), t: fx(p.y), w: fx(cardW), h: fx(cardH), rad: mini ? 8 : 10, pad: mini ? 7 : 10,
+        bg: m.st === 'NEXT' ? 'rgba(240, 180, 76, 0.08)' : '#161C1F',
+        border: m.st === 'NEXT' ? 'rgba(240, 180, 76, 0.75)' : m.st === 'LIVE' ? 'rgba(236, 106, 61, 0.55)' : isHi(k) ? 'rgba(240, 180, 76, 0.45)' : 'rgba(255, 255, 255, 0.07)',
+        glow: m.st === 'NEXT' ? '0 0 22px rgba(240, 180, 76, 0.16)' : 'none',
+        fs: mini ? 11 : 13, seedDisp: mini ? 'none' : 'block', aSeed: m.seeds[0], bSeed: m.seeds[1],
+        a: m.a, b: m.b, sa: showScore ? String(m.sa) : '', sb: showScore ? String(m.sb) : '',
+        aW: aWin ? 700 : 500, bW: bWin ? 700 : 500,
+        aC: tbdA ? '#7E878A' : (done && !aWin) ? '#8E979A' : aWin && isHi(k) ? '#F4E3BF' : '#ECE8DF',
+        bC: tbdB ? '#7E878A' : (done && !bWin) ? '#8E979A' : '#ECE8DF',
+        aI: tbdA ? 'italic' : 'normal', bI: tbdB ? 'italic' : 'normal',
+        chipDisp: ch && !mini ? 'flex' : 'none', chip: m.st, chipBg: ch ? ch.bg : 'transparent', chipBorder: ch ? ch.border : 'transparent', chipFg: ch ? ch.fg : '#9CA5A8'
+      });
+      if (r > 0) {
+        [2 * j, 2 * j + 1].forEach((fj) => {
+          const f = pos(r - 1, fj);
+          const x1 = f.x + cardW, mx = x1 + gap / 2;
+          const d = 'M' + fx(x1) + ' ' + fx(f.cy) + 'H' + fx(mx) + 'V' + fx(p.cy) + 'H' + fx(p.x);
+          if (isHi((r - 1) + ':' + fj) && isHi(k)) hiLines += d; else lines += d;
+        });
+      }
+    }));
+    const fp = pos(cols - 1, 0);
+    const chH = mini ? cardH : Math.max(cardH, 104);
+    const chX = cols * (cardW + gap);
+    const cd = 'M' + fx(fp.x + cardW) + ' ' + fx(fp.cy) + 'H' + fx(chX);
+    if (isHi('champ')) hiLines += cd; else lines += cd;
+    const heads = mini ? [] : rounds.map((round, r) => ({
+      l: fx(r * (cardW + gap)), w: fx(cardW), color: '#9CA5A8',
+      label: names[r].toUpperCase() + ' · RACE TO ' + races[r]
+    })).concat([{ l: fx(chX), w: fx(champW), color: '#9CA5A8', label: 'CHAMPION' }]);
+    return {
+      w: W, h: H, label: 'Tournament bracket', heads, cards, lines, hiLines, lw: mini ? 1.25 : 1.5,
+      champ: {
+        l: fx(chX), t: fx(fp.cy - chH / 2), w: fx(champW), h: fx(chH), rad: mini ? 8 : 14,
+        bg: champ ? 'rgba(240, 180, 76, 0.10)' : '#161C1F',
+        border: champ ? 'rgba(240, 180, 76, 0.75)' : 'rgba(255, 255, 255, 0.07)',
+        glow: champ ? '0 0 30px rgba(240, 180, 76, 0.18)' : 'none',
+        icon: mini ? 14 : 26, iconC: champ ? AMB : '#5A6468', gap: mini ? 2 : 6,
+        labelDisp: mini ? 'none' : 'block', fs: mini ? 11 : 16,
+        name: champ || 'TBD', nameC: champ ? '#F4E3BF' : '#7E878A'
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

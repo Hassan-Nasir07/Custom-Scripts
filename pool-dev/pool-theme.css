@@ -558,3 +558,65 @@
             .pool-hud .ph-ready-short { display: none; }
             .pool-hud .ph-handoff.is-tight .ph-ready-long { display: none; }
             .pool-hud .ph-handoff.is-tight .ph-ready-short { display: inline; }
+
+            /* ── The Game mode sheet (InMatch.dc.html, ModeSheet) ─────────── */
+            /* A bottom sheet over the whole panel: the modes, then the CPU's
+               difficulty (Adaptive carries a chip with the tier it plays now), or
+               the 2 Players explainer. */
+            .pool-hud { position: relative; }
+            .pool-hud .ph-sheet-scrim {
+                position: absolute; inset: 0; z-index: 8; border-radius: var(--pool-radius);
+                background: rgba(7, 9, 10, 0.6); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+            }
+            .pool-hud .ph-sheet {
+                position: absolute; left: 0; right: 0; bottom: 0; z-index: 9; box-sizing: border-box; padding: 16px;
+                display: flex; flex-direction: column; gap: 12px; border-radius: 20px;
+                background: var(--pool-overlay-strong); border-top: 1px solid var(--pool-overlay-line);
+                box-shadow: 0 -18px 40px rgba(0, 0, 0, 0.5); color: var(--pool-overlay-text);
+            }
+            .pool-hud .ph-sheet-head { height: 44px; display: flex; align-items: center; justify-content: space-between; }
+            .pool-hud .ph-sheet-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 18px; }
+            .pool-hud .ph-sheet-head .ph-btn { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
+            .pool-hud .ph-sheet-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+            .pool-hud .ph-sheet-mode {
+                height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 0;
+                border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-overlay-line); background: transparent;
+                color: var(--pool-overlay-text); font-size: 12px; font-weight: 600; cursor: pointer;
+            }
+            .pool-hud .ph-sheet-mode[aria-checked="true"] { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.12); }
+            .pool-hud .ph-sheet-mode:hover { background: rgba(var(--pool-accent-rgb), 0.08); }
+            .pool-hud .ph-sheet-l { font-size: 10px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); margin-bottom: 8px; }
+            .pool-hud .ph-sheet-diffs { display: flex; flex-direction: column; gap: 4px; }
+            .pool-hud .ph-sheet-diff {
+                height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 12px; box-sizing: border-box;
+                border-radius: var(--pool-radius-sm); border: 1px solid transparent; background: transparent;
+                color: var(--pool-overlay-text); text-align: left; cursor: pointer;
+            }
+            .pool-hud .ph-sheet-diff:hover { background: rgba(var(--pool-accent-rgb), 0.06); }
+            .pool-hud .ph-sheet-diff[aria-checked="true"] { border-color: rgba(var(--pool-accent-rgb), 0.45); background: rgba(var(--pool-accent-rgb), 0.08); }
+            .pool-hud .ph-sheet-radio {
+                width: 18px; height: 18px; flex-shrink: 0; box-sizing: border-box; border-radius: 50%;
+                border: 2px solid var(--pool-overlay-muted); display: flex; align-items: center; justify-content: center;
+            }
+            .pool-hud .ph-sheet-radio span { width: 8px; height: 8px; border-radius: 50%; background: var(--pool-accent); opacity: 0; }
+            .pool-hud .ph-sheet-diff[aria-checked="true"] .ph-sheet-radio { border-color: var(--pool-accent); }
+            .pool-hud .ph-sheet-diff[aria-checked="true"] .ph-sheet-radio span { opacity: 1; }
+            .pool-hud .ph-sheet-dt { display: flex; flex-direction: column; gap: 1px; flex-grow: 1; min-width: 0; }
+            .pool-hud .ph-sheet-dn { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+            .pool-hud .ph-sheet-dd { font-size: 11px; color: var(--pool-overlay-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-sheet-chip {
+                display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; white-space: nowrap;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.45); color: var(--pool-accent); font-size: 8px; letter-spacing: 0.12em;
+            }
+            .pool-hud .ph-sheet-note { font-size: 11px; color: var(--pool-overlay-muted); padding: 6px 12px 0; }
+            .pool-hud .ph-sheet-pvp {
+                padding: 14px; border-radius: var(--pool-radius); border: 1px solid var(--pool-overlay-line);
+                display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--pool-overlay-text);
+            }
+            .pool-hud .ph-sheet-pvp .ph-primary { height: 48px; font-size: 14px; }
+            .pool-hud[data-layout="max"] .ph-sheet { left: 50%; right: auto; width: 520px; transform: translateX(-50%); bottom: 24px; }
+            .pool-hud[data-layout="max"] .ph-sheet-scrim { border-radius: 20px; }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .ph-sheet { padding: 12px; gap: 10px; }
+                .pool-hud .ph-sheet-diff { gap: 10px; padding: 0 10px; }
+            }

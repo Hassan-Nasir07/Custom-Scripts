@@ -129,8 +129,14 @@ ok('ludoRender sets an unrotated scale transform',
 head('Difficulty control and dice audit');
 ok('ludoDifficulty default in userPreferences', has("ludoDifficulty: 'adaptive'"));
 ok('difficulty select in the settings modal', has('data-pref="ludoDifficulty"'));
+// Counted inside Ludo's own select: Pool's CPU select offers the same values.
+const ludoDiffSelect = (/<select class="settings-select" data-pref="ludoDifficulty">[\s\S]*?<\/select>/.exec(src) || [''])[0];
 ok('all four choices offered',
-   (src.match(/<option value="(adaptive|easy|normal|hard)"/g) || []).length === 4);
+   (ludoDiffSelect.match(/<option value="(adaptive|easy|normal|hard)"/g) || []).length === 4);
+const poolDiffSelect = (/<select class="settings-select" data-pref="poolDifficulty">[\s\S]*?<\/select>/.exec(src) || [''])[0];
+ok('Pool CPU: adaptive and the four tiers, and it is a string pref too',
+   (poolDiffSelect.match(/<option value="(adaptive|easy|normal|hard|pro)"/g) || []).length === 5 &&
+   src.match(/numericPrefs = \[[^\]]*\]/)[0].indexOf('poolDifficulty') === -1);
 // It is a string pref, so it must NOT be in the list that parseInts selects —
 // 'hard' through parseInt is NaN, which would silently fall back to adaptive.
 ok('difficulty is not parsed as a number',

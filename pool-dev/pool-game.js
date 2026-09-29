@@ -41,6 +41,9 @@
     let poolGamesWon = 0;                    // all-time wins, as stored by savePoolHighScore
     let poolRecord = null;                   // { p1Wins, p1Losses, p2Wins, p2Losses }
     let poolMaximized = false;
+    // The CPU's tier for this frame: locked when the frame starts (adaptive or
+    // pinned, userPreferences.poolDifficulty), so it cannot shift mid-frame.
+    let poolCpuTier = 'normal';
 
     // Everything else about the panel and the match lives in one object, so
     // a reset is a reassignment rather than thirty lines of lets.
@@ -52,6 +55,8 @@
         drops: [], down: new Set(), drag: null, strikeT: 0, shot: null,
         toast: null, toastMs: 0, fouled: 0, handoff: 0, result: null, placed: false, clockLeft: POOL_CLOCK_S,
         cpu: null, wins: 0,
+        // Your record against the CPU (adaptive difficulty reads it), and the Game mode sheet.
+        cpuRec: null, sheet: { open: false, mode: 'cpu' },
         // Table settings: guide length (full | short | off) and call every shot. Fixed for
         // quick matches today; tournaments (Phase 7) and the pro tier (Phase 6) set them.
         guideMode: 'full', callEvery: false,
@@ -64,9 +69,30 @@
         const me = typeof lbDisplayName === 'string' && lbDisplayName.trim() ? lbDisplayName.trim().slice(0, 16) : '';
         return poolMode === 'cpu' ? { 1: me || 'You', 2: 'CPU' } : { 1: me || 'Player 1', 2: 'Player 2' };
     }
+    // The picked difficulty: 'adaptive' (the default) or a pinned tier.
+    const poolDifficulty = () => (PA_TIERS[userPreferences.poolDifficulty] ? userPreferences.poolDifficulty : 'adaptive');
+    function poolLoadCpuRecord() {
+        let r = null;
+        try { r = JSON.parse(localStorage.getItem('poolCpuRecord') || 'null'); } catch (_) {}
+        return { wins: (r && parseInt(r.wins, 10)) || 0, losses: (r && parseInt(r.losses, 10)) || 0 };
+    }
+    function poolSaveCpuRecord(r) { try { localStorage.setItem('poolCpuRecord', JSON.stringify(r)); } catch (_) {} }
+    const poolCpuRec = () => poolS.cpuRec || (poolS.cpuRec = poolLoadCpuRecord());
+    // Locks the tier for the frame; pro calls every shot, for both seats.
+    function poolLockTier() {
+        const S = poolS;
+        poolCpuTier = paTierFor(poolDifficulty(), poolCpuRec());
+        S.frame.callEvery = S.callEvery || (poolMode === 'cpu' && !!PA_TIERS[poolCpuTier].callEvery);
+    }
+    // Nothing has been hit yet in this frame, so a new difficulty can apply to it.
+    const poolFrameFresh = () => !!poolS.frame && poolS.frame.isBreak && poolS.phase !== 'moving' && poolS.phase !== 'strike';
+
     function poolRecordText(seat) {
         const r = poolRecord || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
-        if (poolMode === 'cpu' && seat === 2) return 'CPU · Normal';
+        if (poolMode === 'cpu' && seat === 2) {
+            const label = PA_TIERS[poolCpuTier].label;
+            return poolDifficulty() === 'adaptive' ? 'Adaptive · ' + label : label;
+        }
         return seat === 1 ? r.p1Wins + 'W · ' + r.p1Losses + 'L' : r.p2Wins + 'W · ' + r.p2Losses + 'L';
     }
     function poolWins() {
@@ -90,6 +116,7 @@
         S.world = ppRack(ppCreateWorld(), S.rng);
         S.breaker = breaker === 2 ? 2 : 1;
         S.frame = prNewFrame({ breaker: S.breaker, callEvery: S.callEvery });
+        poolLockTier();
         S.rackId++;
         // Inside the kitchen, not on its line, so a press on the ball never rounds past it.
         S.world.balls[0].x = S.world.table.headX - 80; S.world.balls[0].y = 0;
@@ -133,6 +160,11 @@
             savePoolRecord(poolRecord);
             awardGameXP('pool', { won: false });
         }
+        if (poolMode === 'cpu') {
+            const rec = poolCpuRec();
+            if (w === 1) rec.wins++; else rec.losses++;
+            poolSaveCpuRecord(rec);
+        }
         S.frames[w - 1]++;
         poolRefreshScoreBtn();
     }
@@ -150,6 +182,14 @@
         updateXPDisplay();
     }
 
+    // What the frame-over dialog says about the next frame's CPU, when adaptive.
+    function poolAdaptiveNote() {
+        if (poolMode !== 'cpu' || poolDifficulty() !== 'adaptive') return '';
+        const now = poolCpuTier, next = paAdaptiveTier(poolCpuRec()), label = PA_TIERS[next].label;
+        const d = PA_TIER_NAMES.indexOf(next) - PA_TIER_NAMES.indexOf(now);
+        return d > 0 ? 'Adaptive steps up to ' + label + ' next frame' : d < 0 ? 'Adaptive eases to ' + label + ' next frame' : 'Adaptive stays at ' + label;
+    }
+
     function poolShowToast(t) { poolS.toast = t; poolS.toastMs = t && t.kind !== 'foul' ? POOL_TOAST_MS : 0; }
 
     // Applies a verdict (a judged shot or a timeout) and sets up the next turn.
@@ -165,7 +205,7 @@
                 recordLabel: (poolMode === 'cpu' ? poolNames()[1] : poolNames()[w]).toUpperCase() + ' · RECORD',
                 record: poolRecordText(poolMode === 'cpu' ? 1 : w),
                 delta: poolMode === 'cpu' ? (you ? '+1 WIN' : '+1 LOSS') : '+1 WIN',
-                note: '',
+                note: poolAdaptiveNote(),
             };
             S.phase = 'over'; S.toast = null;
             return;
@@ -215,7 +255,7 @@
         S.guide = pgGuide(S.world, { angle: S.aim, speed: poolSpeedOf(p), tipX: t.x, tipY: t.y });
     }
     // A human may act: not in the hand-off, not while the CPU plays.
-    const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over';
+    const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over' && !poolS.sheet.open;
 
     // ── The CPU's turn ────────────────────────────────────────────────
     // Wait a beat, place the ball if it has it in hand, think (time-sliced),
@@ -227,7 +267,7 @@
         c.t += dt;
         if (S.phase === 'bih') {
             if (c.t < 550) return;
-            const p = paPlace(S.world, S.frame, S.rng);
+            const p = paPlace(S.world, S.frame, S.rng, poolCpuTier);
             prPlaceCue(S.world, p[0], p[1]);
             S.phase = 'aim'; S.placed = true; poolAimAtNearest();
             S.cpu = { stage: 'wait', t: 0 };
@@ -237,7 +277,7 @@
         if (c.stage === 'wait') {
             if (c.t < 350) return;
             S.tip = { x: 0, y: 0 }; S.spinOpen = false;
-            c.job = paPlan(S.world, S.frame, { rng: S.rng });
+            c.job = paPlan(S.world, S.frame, { rng: S.rng, tier: poolCpuTier });
             c.stage = 'think'; c.t = 0;
         } else if (c.stage === 'think') {
             if (!c.job.step(3)) return;
@@ -363,8 +403,16 @@
             result: S.result,
             canReplace: !!S.frame.ballInHand && S.placed && poolCanAct(),
             cpuTurn,
-            secondaryLabel: 'Change mode',
+            sheet: { open: S.sheet.open, mode: S.sheet.mode, note: poolSheetNote() },
+            difficulty: poolDifficulty(), adaptiveTier: paAdaptiveTier(poolCpuRec()),
         }));
+    }
+
+    // Under the difficulty list: when the pick cannot apply to the frame being played.
+    function poolSheetNote() {
+        if (poolMode !== 'cpu' || poolFrameFresh() || poolS.phase === 'over') return '';
+        const next = paTierFor(poolDifficulty(), poolCpuRec());
+        return next !== poolCpuTier ? PA_TIERS[next].label + ' from the next frame; this one stays ' + PA_TIERS[poolCpuTier].label : '';
     }
 
     function poolLoop(ms) {
@@ -485,6 +533,8 @@
         if (!S.attached || typeof currentGame !== 'undefined' && currentGame !== 'pool') return;
         // The spin picker takes its own keys (arrows move the tip, Esc closes it).
         if (e.target && e.target.closest && e.target.closest('.ph-spinpop')) return;
+        // Esc closes the Game mode sheet first, and nothing else sees it.
+        if (e.key === 'Escape' && S.sheet.open) { S.sheet.open = false; e.preventDefault(); e.stopImmediatePropagation(); return; }
         if (e.key === 'Escape' && S.drag && S.drag.kind === 'power') {
             // Cancel the stroke, and nothing else: not the Max modal, not a reset.
             S.drag = null; S.power = 0;
@@ -513,7 +563,20 @@
         tipStep: d => { if (poolCanAct()) poolS.tip = phClampTip(poolS.tip.x + d.x, poolS.tip.y + d.y); },
         spinToggle: () => { poolS.spinOpen = !poolS.spinOpen && poolCanAct(); },
         spinClose: () => { poolS.spinOpen = false; },
-        mode: () => togglePoolMode(),
+        // The footer's mode button and the frame-over dialog's second button open the Game mode sheet.
+        mode: () => { const S = poolS; S.sheet = { open: !S.sheet.open, mode: poolMode }; S.spinOpen = false; },
+        sheetTab: m => { poolS.sheet.mode = m === 'pvp' ? 'pvp' : 'cpu'; },
+        sheetClose: () => { poolS.sheet.open = false; },
+        // A difficulty: remembered (the same setting as ⚙️), in force now if nothing has
+        // been hit yet, else from the next frame. From 2 Players it switches to Vs CPU.
+        difficulty: d => {
+            const S = poolS;
+            userPreferences.poolDifficulty = PA_TIERS[d] ? d : 'adaptive';
+            savePreferences();
+            if (poolMode !== 'cpu') { togglePoolMode(); S.sheet.open = false; return; }
+            if (poolFrameFresh()) { poolLockTier(); S.sheet.open = false; }
+        },
+        startPvp: () => { if (poolMode !== 'pvp') togglePoolMode(); poolS.sheet.open = false; },
         reset: () => resetPoolGame(),
         max: () => togglePoolMaximize(),
         call: i => { if (poolCanAct()) poolS.called = i; },
@@ -522,7 +585,7 @@
         // carries on from where it was once the ball is down, so this never buys time back.
         replace: () => { const S = poolS; if (S.phase === 'aim' && S.frame.ballInHand && poolCanAct() && !S.drag) { S.phase = 'bih'; S.placed = false; S.power = 0; } },
         primary: () => poolNewFrame(3 - poolS.breaker),
-        secondary: () => togglePoolMode(),
+        secondary: () => { poolS.sheet = { open: true, mode: poolMode }; },
     };
 
     function poolBuild(root) {
@@ -544,6 +607,7 @@
         poolGamesWon = loadPoolHighScore();
         loadPoolWinsByMode();   // seeds the per-mode split on first run
         poolRecord = loadPoolRecord();
+        poolS.cpuRec = poolLoadCpuRecord();
         if (!S.cfg) S.cfg = ppCreateWorld().cfg;
         if (!S.hudC || !root.contains(S.hudC.el)) poolBuild(root);
         // A frame in progress survives switching to another game and back.

@@ -4,7 +4,7 @@
 > deviation in the **Decision log** at the bottom. Attach this file as context in later
 > sessions.
 >
-> Status: `IN PROGRESS`, Phases 0–5 done (**v2 is in the userscript**), Phase 6 next · Last updated: 2026-09-29 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
+> Status: `IN PROGRESS`, Phases 0–5 done (**v2 is in the userscript**), Phase 6 done, Phase 7 next · Last updated: 2026-09-29 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
 
 ## Context
 
@@ -936,22 +936,56 @@ in `pool-dev/v1/` for `baseline-check.js`.
 - [x] Two settings on `poolS` for later phases: `guideMode` (full / short / off) and `callEvery`
 - [x] The user's test in the widget: "The testing passed" (2026-09-29)
 
-### Phase 6: CPU v2
-- [ ] Candidates, cloned-world evaluation, position scoring, safeties, time slicing, four
-      tiers, pinnable difficulty in ⚙️, pocket calling for the CPU.
-- [ ] Call-every-shot in the input flow (every shot needs a pocket tap first). The rule
-      itself landed in `prJudge` in Phase 2 (`state.callEvery`).
-- [ ] `balance-check.js`: calibrate the tiers against the Phase 0 baseline, with
-      hard ≥ today's CPU and pro above it. Record the measured win rates in the Decision
-      log. Measure against the same four human models as `baseline-check.js`; the bar is
-      hard ≥ 61.4% vs skilled and ≥ 72.3% vs casual.
-- [ ] The first two tuning targets come straight from the baseline. Both fall out of
-      evaluating shots on the real `step()` over the whole table:
-  - reject any line where the cue ball scratches (74% of today's fouls)
-  - reject any line where the 8 drops before the group is clear (58% of the CPU's
-    self-inflicted losses)
+### Phase 6: CPU v2 — done 2026-09-29
+- [x] `pool-ai.js` replaces the stand-in: one planner, four tiers (`PA_TIERS`). Candidates
+      from geometry (direct pots, one-rail banks, one-rail kicks, two-ball combos), each with
+      a make probability for the tier's own aim error; the best played out on a cloned world
+      and judged by `prJudge` (a line that scratches, fouls or drops the 8 early is never
+      hit); position scored on the next shot (pro: the next two); the top three replayed with
+      the tier's noise so a line that fouls when a little off is marked down; safeties and
+      escapes (full and half-ball hits, one-rail kicks) when no pot is likely enough; then
+      the tier's execution noise. Time-sliced in 3 ms steps.
+- [x] **The throw and squirt correction.** The planner steps a copy to the first contact,
+      reads the object ball's real departure and turns the cue by the error over the cut's
+      gain. Median departure error ~1.8° → ~0.02°; 192 of 199 candidate lines pot on the real
+      physics, against 162 without it. (The first version had the sign wrong and made it
+      worse; the measurement caught it.)
+- [x] Four tiers, **adaptive by default**, locked when a frame starts (`poolCpuTier`), from
+      a new vs-CPU record (`poolCpuRecord`): under 5 frames Normal, under 35% Easy, over 65%
+      Hard, never Pro. Pinnable in ⚙️ (*Pool CPU*, `userPreferences.poolDifficulty`) and in
+      the Game mode sheet.
+- [x] **Pro calls every shot, both seats**: `frame.callEvery` for the frame; the CPU names the
+      pocket its line targets, and your shots need a pocket tap (the Phase 4 input flow).
+- [x] **The Game mode sheet** (ModeSheet): the footer's mode button and the frame-over
+      dialog's *Change difficulty* open it. Vs CPU with the difficulty list (Adaptive carries
+      a *NOW NORMAL* chip), or 2 Players with *START 2-PLAYER FRAME*. A difficulty picked
+      before the break applies at once; after it, from the next frame, and the sheet says so.
+      Tournament joins it in Phase 7.
+- [x] The CPU card reads *Adaptive · Normal* (or the pinned tier); the frame-over dialog's note
+      says what adaptive does next (*Adaptive steps up to Hard next frame*).
+- [x] `balance-check.js` (the Phase 0 method: the human model is the hard planner's shot
+      selection with the profile's noise; seat 1 always breaks). 40 frames per cell, CPU
+      wins over decided frames, Wilson 95%:
 
-  Target: CPU foul rate under 5% per visit on hard and under 2% on pro, from 13.4% today.
+      | tier | vs mirror | vs skilled | vs casual | vs novice | pots / visit | fouls / visit | ms / shot |
+      |---|---|---|---|---|---|---|---|
+      | easy | 0.0% [0–9] | 10.0% [4–23] | 52.5% [37–67] | 82.5% [68–91] | 33.0% | 15.5% | 12 |
+      | normal | 12.5% [5–26] | 40.0% [26–55] | 85.0% [71–93] | 92.5% [80–97] | 47.2% | 8.8% | 64 |
+      | hard | 15.0% [7–29] | 80.0% [65–90] | 97.5% [87–100] | 97.5% [87–100] | 59.4% | 6.0% | 101 |
+      | pro | 65.0% [50–78] | 92.5% [80–97] | 97.5% [87–100] | 100.0% [91–100] | 75.2% | 4.5% | 135 |
+      | v1 today | 53.4% | 61.4% | 72.3% | 75.1% | ~65% | 13.4% | – |
+
+      Hard beats v1 against skilled and casual (the Phase 0 bar), pro beats hard, and the
+      tiers step up evenly. **The foul targets are not met**: hard averages 6.0% a visit
+      (target under 5%; 4.6% against skilled, more against casual players, whose messier
+      tables leave more snookers to escape) and pro 4.5% (target under 2%), mostly *hit the
+      wrong ball first* on escapes. Both are far under v1's 13.4%. Carried to Phase 9.
+- [x] Tests: `pool-verify.js` (the tiers, the straight pot for every tier, the throw
+      correction, hard's legal and pot rates, placement, time slicing, adaptive, the lock,
+      pro's calls, the sheet, the record), `hud-verify.js` (+8: the sheet), `host-run.js`
+      (the sheet and the ⚙️ pin by real mouse), `snapshot.js` (+9 sheet and pro scenes),
+      `integration-verify.js` (Pool CPU select, scoped apart from Ludo's)
+- [x] The user's test in the widget: "verified the changes and they're good" (2026-09-29).
 
 ### Phase 7: tournament (humans only)
 - [ ] Pure bracket model and tests: sizes 3–16, bye placement, seeding order, advancement,
@@ -977,6 +1011,9 @@ in `pool-dev/v1/` for `baseline-check.js`.
       state needs.
 
 ### Phase 9: polish and verification
+- [ ] CPU fouls to the Phase 6 targets (hard under 5%, pro under 2% a visit; measured 6.0%
+      and 4.5%): escapes and kicks are where they come from, so replay pro's escapes for
+      risk too and widen the kick search (two rails, swerve).
 - [ ] Performance: under 4ms per frame for the compact panel in 3D on the office laptops,
       and FPS cap respected (`getFrameInterval`).
 - [ ] Accessibility: every control is a real button or input with an `aria-label`;
@@ -1080,6 +1117,10 @@ carries over and what would be new:
 | 2026-09-29 | **Light-mode fixes outside pool are in this phase** (the header score buttons, ⚙️, Ludo's Max, the timers and XP card, the prayer labels) | The user's call: "fix all the light mode issues". Found by `host-run.js`'s contrast audit; each fix keeps the hue and deepens it, or restores a light rule that never matched. Cyberpunk and dark mode are untouched (every rule is scoped to not-Cyberpunk inside the light media query) |
 | 2026-09-29 | **Revised: spin is free, anywhere inside the miscue ring**, with the five presets kept as quick picks | The user's test: v1 let you set any amount of spin, and five fixed spots were a step back. The physics always took any tip; only the control changes. The small ball on the SPIN control is draggable (the user's ask), and a click opens a bigger face for precise placement, because a 34 px ball is coarse under a mouse |
 | 2026-09-29 | **Revised: `pool-table.html` runs the widget's controller**, not its own loop | The user asked for the prototype to be kept alongside the widget. Loading `pool-game.js` on host stand-ins does that by construction, and the scenes need no production API because `poolS` is one object they can set. This replaces the earlier row that kept the prototype's own loop |
+| 2026-09-29 | **Revised: hard gets 0.2° of aim noise on direct pots**, not zero | With the planner checking every line on the real physics and correcting for throw, zero noise means hard never misses: measured, it won every frame against every human model, level with pro. The plan's intent was *hard at least as strong as today's CPU*, so hard is calibrated to that: 80.0% [65–90] against skilled and 97.5% [87–100] against casual, against v1's 61.4% and 72.3%. Pro keeps zero noise |
+| 2026-09-29 | **Adaptive never climbs to pro** | Pro makes you call every shot. That is a rule change, so it should be chosen, not handed to a player for winning |
+| 2026-09-29 | **A noisy replay stage (`robust`) for normal and hard** | The plan's *whether a scratch or foul risk remains*: the top three lines (pots and safeties) are replayed with the tier's own noise and marked down if they foul or lose the frame when a little off. Hard's fouls fell from 9% to under 5% against skilled players |
+| 2026-09-29 | **The Game mode sheet ships in Phase 6 with Vs CPU and 2 Players**; Tournament joins in Phase 7 | *Change difficulty* needs somewhere to go. The *NOW* chip rides on Adaptive's name line, not the far right, so the description is not cut off at 316 px |
 
 ---
 

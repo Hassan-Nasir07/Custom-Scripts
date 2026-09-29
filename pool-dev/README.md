@@ -13,7 +13,7 @@ Work is tracked in [`POOL_V2_PLAN.md`](../POOL_V2_PLAN.md).
 ```
 node pool-dev/reinsert.js                 # splice both blocks into the userscript
 node pool-dev/reinsert.js --check         # exit 1 if either copy differs
-node pool-dev/pool-verify.js              # the splice, the host wiring, the match headless, the stand-in CPU
+node pool-dev/pool-verify.js              # the splice, the host wiring, the match headless, the CPU and its tiers
 node pool-dev/host-run.js [dir]           # the REAL userscript in Chrome: boot, play, Max, themes, awards
 node pool-dev/host-run.js --open          # the same fake portal in a visible Chrome, to play by hand
 node pool-dev/physics-verify.js 2000      # the v2 physics, with a 2000-shot fuzz
@@ -24,7 +24,8 @@ node pool-dev/snapshot.js [dir] [scene]   # real-Chrome PNGs of the prototype, e
 node pool-dev/snapshot.js --check [dir]   # …plus an in-browser layout and theme audit per scene
 start pool-dev/pool-table.html            # the widget's own controller on host stand-ins, plus design scenes
 start pool-dev/pool-harness.html          # shoot and tune the v2 physics live
-node pool-dev/v1/baseline-check.js 1000 1 # v1's CPU vs scripted humans: the bar for Phase 6
+node pool-dev/balance-check.js 40         # the v2 CPU tiers vs scripted humans, beside v1's numbers
+node pool-dev/v1/baseline-check.js 1000 1 # v1's CPU vs scripted humans: the bar the tiers are measured against
 node ludo-dev/verify-all.js               # every suite, pool included
 ```
 
@@ -47,7 +48,7 @@ The engine block is these seven, in this order (`load.js` `FILES`):
 | `pool-camera.js` | chase, broadcast, survey and 2D poses, projection, near-plane clipping, unprojection, and the director that eases between them. Pure |
 | `pool-render.js` | the table, 3D pocket shafts, rolling balls, shadows, cue, physics-true guides, rings, ball in hand, pocket drops. Canvas only |
 | `pool-hud.js` | `phModel` (pure view model), `phBuild` (compact or Max DOM), `phRender`, and the canvas theme bridge `phThemeTokens` |
-| `pool-ai.js` | the **stand-in CPU** until Phase 6: direct pots checked on a cloned world with the real physics and rules, execution noise, time-sliced |
+| `pool-ai.js` | the CPU: four tiers on one planner (direct pots, banks, kicks, combos, safeties), every line checked on a cloned world with the real physics and rules, aim corrected for throw, position scored, noisy replays for risk, adaptive difficulty, time-sliced |
 | `pool-game.js` | the controller: the match, input, the loop, the CPU's turn, XP and records, Max, theme, lifecycle. What the host calls |
 
 The rest:
@@ -57,13 +58,14 @@ The rest:
 | `pool-theme.css` | the `--pool-*` tokens for Glassmorphic dark/light and Cyberpunk, the HUD's component CSS, and the Max frame; the theme block |
 | `load.js` | evaluates the modules as they sit in the userscript: `physics()` … `ai()` for the pure layers, `game(opts)` for everything against a stubbed host |
 | `reinsert.js` | mechanical splice of both blocks |
-| `pool-verify.js` | the splice contract, the host wiring, the match headless (frames, clock, ball in hand, XP, the one-award guard), the stand-in CPU |
+| `pool-verify.js` | the splice contract, the host wiring, the match headless (frames, clock, ball in hand, XP, the one-award guard), the CPU and its tiers, the Game mode sheet |
+| `balance-check.js` | the tiers against v1's four scripted human models (the same method as `v1/baseline-check.js`); `POOL_TIER_TUNE` tries tier settings without editing `pool-ai.js` |
 | `host-run.js` | serves a stand-in portal page over DevTools, runs the real userscript in it, and plays and audits pool inside the widget; in light mode it also audits text contrast (3:1) across the whole widget, every game, ⚙️ and Max |
 | `physics-verify.js` | `pool-physics.js` against real ball behaviour, plus a fuzz for the invariants |
 | `rules-verify.js` | one case per rule row, the rules on real shots, and a fuzz of whole frames |
 | `render-verify.js` | the cameras against the design's own projection, unprojection, the director, the clipper, the guides, rasterizer frames |
 | `hud-verify.js` | the HUD's view model against every design state, and the theme contract |
-| `pool-table.html` | the prototype: `pool-game.js` itself (and the stand-in CPU) on stand-ins for the host (the storage helpers copied from it, `toggleGameMaxModal`'s build path), in a host-like panel, with the themes, the 316 px column, and scenes that set design states straight onto `poolS` for `snapshot.js`. It cannot drift from the widget |
+| `pool-table.html` | the prototype: `pool-game.js` itself (and the CPU) on stand-ins for the host (the storage helpers copied from it, `toggleGameMaxModal`'s build path), in a host-like panel, with the themes, the 316 px column, and scenes that set design states straight onto `poolS` for `snapshot.js`. It cannot drift from the widget |
 | `snapshot.js` | drives `pool-table.html` in headless Chrome and saves each scene as a PNG; `--check` runs the page's HUD audit. `narrow:` scenes use the widget's 316 px column |
 | `pool-harness.html` | a live table on the real physics: shoot with a drag, set spin, tune every constant |
 | `v1/` | the v1 engine (`pool-core.js`, `pool-ui.js`) and its loader, frozen when v2 replaced it. `baseline-check.js` still measures v1's CPU, and `preview.js` still draws it |
@@ -100,14 +102,39 @@ its height (they land on the design's pixels at 368), below 360 px the camera to
 its *AUTO* suffix and the card tag *BALL IN HAND* reads *IN HAND*, and the panel stops
 growing at 420 px. Max is the design's fixed 1280 × 800, scaled to fit the window.
 
-## pool-ai.js (stand-in)
+## pool-ai.js
 
-For every legal ball × pocket it aims at the ghost ball, ranks by cut and distance, then
-plays the best eight out on a cloned world at three speeds and judges each with `prJudge`.
-Anything that fouls, scratches or drops the 8 early is dropped; among the rest, a pot that
-leaves more follow-up pots wins. Execution noise is 0.2° aim and 3% power. Measured on 30
-self-play frames: pots on 52% of visits, fouls on 6.3%, 26 ms of thinking per shot spread
-over frames in 3 ms steps. Without noise it pots 78%. Phase 6 replaces it with the four tiers.
+One planner, four tiers (`PA_TIERS`). For a shot it:
+
+1. lists candidates from geometry: every legal ball × pocket as a direct pot (ghost
+   ball), and for the tiers that play them one-rail banks, one-rail kicks and two-ball
+   combos. Each gets `p`, its make probability for the tier's own aim error (the cue's
+   error times the cut's gain, `d / (2R cos cut)`, against the pocket's angular
+   tolerance), and `rank`, the same for a steady player, which orders them
+2. plays the best `top` out on a cloned world and judges each with `prJudge`, after
+   correcting the aim for throw and squirt: it steps a copy to the first contact, reads
+   the object ball's real departure and turns the cue by the error over the gain (this
+   takes the median departure error from ~1.8° to ~0.02°)
+3. tries the best `keep` survivors with the tier's spins and speeds and scores where the
+   cue ball stops: the best next shot's rank (pro: the best two)
+4. replays the top three with the tier's noise (`robust`) and marks down lines that foul
+   or lose the frame when a little off
+5. when no pot is likely enough (`safeBelow`), or none works, plays a safety or an escape
+   (full and half-ball hits, one-rail kicks), also replayed for risk
+6. adds the tier's execution noise
+
+| tier | top · keep | spins | extra lines | aim σ (direct / other) | power σ | notes |
+|---|---|---|---|---|---|---|
+| easy | 4 · 1 | stun | – | 1.2° / 1.8° | 12% | no position, no safeties |
+| normal | 10 · 3 | stun, follow, draw | banks | 0.5° / 0.8° | 6% | 1-ball position |
+| hard | 20 · 4 | + left, right | banks, kicks, combos | 0.2° / 0.4° | 2% | 1-ball position; calibrated to beat v1 |
+| pro | 24 · 5 | + the four diagonals | banks, kicks, combos | 0 / 0.15° | 0.25% | 2-ball position; calls every shot, both seats |
+
+Adaptive (`paAdaptiveTier`) follows your record against the CPU (`poolCpuRecord`): under
+5 frames Normal, under 35% Easy, over 65% Hard, and never Pro, which changes the rules for
+you. A pin (`userPreferences.poolDifficulty`, in ⚙️ and the Game mode sheet) wins. The tier
+is locked when a frame starts (`poolCpuTier`); a new pick applies at once only before
+the break. `balance-check.js` has the measured win rates.
 
 ## pool-camera.js and pool-render.js
 

@@ -111,7 +111,7 @@ function game(opts) {
     };
     const src = FILES.map(read).join('\n');
     const names = [...src.matchAll(PREFIX)].map(m => m[1]);
-    const lets = ['poolMode', 'poolGamesWon', 'poolRecord', 'poolMaximized'];
+    const lets = ['poolMode', 'poolGamesWon', 'poolRecord', 'poolMaximized', 'poolCpuTier'];
     const factory = new Function(...HOST_PARAMS, hostStorageHelpers() + '\n' + src + `
         return {
             ${names.join(', ')},

@@ -7,8 +7,9 @@
 //   3  the host calls pool the way pool-game.js expects, and nothing else
 //   4  the match, headless: frames, turns, the shot clock, ball in hand, XP,
 //      records and the one-award-per-rack guard (pool-game.js on a stubbed host)
-//   5  the stand-in CPU (pool-ai.js): it plans real pots, places legally and
-//      keeps its thinking inside the frame budget
+//   5  the CPU (pool-ai.js): the tiers, real pots, the throw correction, legal
+//      placement, adaptive difficulty, the frame budget
+//   6  the tiers in the match: the lock, pro's calls, the Game mode sheet, the record
 // The DOM half of pool-game.js (the panel, input, Max, theme) needs a browser:
 // host-run.js drives the real userscript in Chrome.
 const fs   = require('fs');
@@ -269,11 +270,17 @@ function playFrame(P, maxTicks) {
     ok('the shot camera comes from ⚙️ (userPreferences.poolShotCam)', P.poolCamInput().shotCam === '3d' && P.poolCamInput().camera === '2d');
 }
 
-// ── 5. The stand-in CPU ───────────────────────────────────────────────
-head('The stand-in CPU (pool-ai.js)');
+// ── 5. The CPU (pool-ai.js) ───────────────────────────────────────────
+head('The CPU (pool-ai.js)');
 {
     const P = L.ai();
-    // A straight pot: the planner finds it and it goes in on the real physics.
+    ok('four tiers, easy to pro, each with its design description', P.PA_TIER_NAMES.join() === 'easy,normal,hard,pro' &&
+       P.PA_TIER_NAMES.every(t => P.PA_TIERS[t].label && P.PA_TIERS[t].desc));
+    ok('only pro calls every shot', P.PA_TIER_NAMES.filter(t => P.PA_TIERS[t].callEvery).join() === 'pro');
+    ok('the tiers search more, and miss less, as they go up',
+       P.PA_TIER_NAMES.every((t, i, a) => !i || (P.PA_TIERS[t].top >= P.PA_TIERS[a[i - 1]].top && P.PA_TIERS[t].aim <= P.PA_TIERS[a[i - 1]].aim && P.PA_TIERS[t].spins.length >= P.PA_TIERS[a[i - 1]].spins.length)));
+
+    // A straight pot: planned and in, for every tier, noise-free.
     const w = P.ppCreateWorld();
     w.balls = [P.ppMakeBall(0, -200, 0), P.ppMakeBall(3, 200, 0)];
     for (let id = 1; id <= 15; id++) if (id !== 3) w.balls.push(Object.assign(P.ppMakeBall(id, 0, 0), { state: 'pocketed' }));
@@ -282,46 +289,143 @@ head('The stand-in CPU (pool-ai.js)');
     const pk = w.table.pockets[2];
     const d = Math.hypot(pk.x - 200, pk.y), ux = (pk.x - 200) / d, uy = pk.y / d;
     w.balls[0].x = 200 - ux * 300; w.balls[0].y = -uy * 300;
-    const job = P.paPlan(w, st, { noise: false });
-    job.step();
-    const w2 = P.ppCloneWorld(w); P.ppStrike(w2, job.shot); P.ppSimulate(w2);
-    const v = P.prJudge(st, w2, job.shot.call);
-    ok('a straight pot is planned and goes in', v.continues && !v.foul && w2.balls.find(b => b.id === 3).pocket === 2);
+    const straight = P.PA_TIER_NAMES.every(t => {
+        const job = P.paPlan(w, st, { noise: false, tier: t }); job.step();
+        const r = P.paTrial(w, st, 1, job.shot);
+        return r.v.continues && !r.v.foul && r.w.balls.find(b => b.id === 3).pocket === 2;
+    });
+    ok('a straight pot is planned and goes in, every tier', straight);
 
-    // Mid-frame tables: noise-free plans are nearly always legal, usually pots.
+    // Throw and squirt: the correction takes a cut's departure error to nearly nothing.
+    let raw = [], fixed = [];
+    for (let k = 0; k < 12; k++) {
+        const rng = P.ppRandom(900 + k), w3 = P.ppRack(P.ppCreateWorld(), rng);
+        w3.balls[0].x = w3.table.headX - 60;
+        P.ppStrike(w3, { angle: 0, speed: w3.cfg.maxSpeed * 0.96, tipX: 0, tipY: 0 }); P.ppSimulate(w3);
+        if (w3.balls[0].state === 'pocketed') P.prPlaceCue(w3, -300, 0);
+        const s3 = Object.assign(P.prNewFrame({ breaker: 1 }), { isBreak: false, ballInHand: null });
+        const c = P.paCandidates(w3, s3, 1, w3.balls[0].x, w3.balls[0].y, 'hard', true).find(x => x.cut > 20 * Math.PI / 180);
+        if (!c) continue;
+        const shot = { angle: c.angle, speed: c.speed, tipX: 0, tipY: 0, call: -1 };
+        const d0 = P.paDeparture(w3, shot, c.ball), d1 = P.paDeparture(w3, P.paRefine(w3, c, shot, 2, 14), c.ball);
+        if (d0 !== null && d1 !== null) { raw.push(Math.abs(P.paAngDiff(d0, c.want))); fixed.push(Math.abs(P.paAngDiff(d1, c.want))); }
+    }
+    const med = a => a.slice().sort((x, y) => x - y)[a.length >> 1] * 180 / Math.PI;
+    ok('the aim correction takes out throw: the median departure error drops below 0.1°', raw.length >= 6 && med(fixed) < 0.1 && med(fixed) < med(raw) / 5,
+       raw.length + ' cuts, ' + med(raw).toFixed(2) + '° → ' + med(fixed).toFixed(3) + '°');
+
+    // Mid-frame, noise-free, hard: legal nearly always, and it pots.
     let legal = 0, pots = 0, n = 0, placeOk = 0, kitchenOk = 0, sliced = true, worst = 0;
-    for (let k = 0; k < 24; k++) {
+    for (let k = 0; k < 16; k++) {
         const rng = P.ppRandom(500 + k);
         const w3 = P.ppRack(P.ppCreateWorld(), rng);
         let s3 = P.prNewFrame({ breaker: 1 });
         w3.balls[0].x = w3.table.headX - 60;
-        const b = P.paPlan(w3, s3, { rng }); b.step();
+        const b = P.paPlan(w3, s3, { rng, tier: 'hard' }); b.step();
         P.ppStrike(w3, b.shot); P.ppSimulate(w3);
         const vb = P.prJudge(s3, w3, -1);
         if (vb.respot8) P.prSpotBall(w3, 8);
         s3 = vb.next;
         if (s3.over) continue;
         if (s3.ballInHand) {
-            const p = P.paPlace(w3, s3, rng);
+            const p = P.paPlace(w3, s3, rng, 'hard');
             if (!P.prCanPlace(w3, p[0], p[1], s3.ballInHand)) placeOk++;
             if (s3.ballInHand !== 'kitchen' || p[0] <= w3.table.headX) kitchenOk++;
             P.prPlaceCue(w3, p[0], p[1]);
         } else { placeOk++; kitchenOk++; }
-        const j = P.paPlan(w3, s3, { noise: false });
+        const j = P.paPlan(w3, s3, { noise: false, tier: 'hard' });
         let steps = 0;
-        const t0 = process.hrtime.bigint();
-        while (!j.step(3)) { steps++; if (steps > 200) break; }
-        const ms = Number(process.hrtime.bigint() - t0) / 1e6 / Math.max(1, steps + 1);
-        worst = Math.max(worst, ms);
-        if (steps > 200) sliced = false;
-        const w4 = P.ppCloneWorld(w3); P.ppStrike(w4, j.shot); P.ppSimulate(w4);
-        const v4 = P.prJudge(s3, w4, j.shot.call);
-        n++; if (!v4.foul) legal++; if (v4.continues) pots++;
+        while (true) {
+            const t0 = process.hrtime.bigint();
+            const done = j.step(3);
+            worst = Math.max(worst, Number(process.hrtime.bigint() - t0) / 1e6);
+            if (done) break;
+            if (++steps > 400) { sliced = false; break; }
+        }
+        const r4 = P.paTrial(w3, s3, s3.turn, j.shot);
+        n++; if (!r4.v.foul) legal++; if (r4.v.continues) pots++;
     }
-    ok('ball in hand: the CPU always picks a legal spot, behind the string on the break', placeOk === 24 && kitchenOk === 24, placeOk + '/' + kitchenOk);
-    ok('noise-free plans after the break are legal ≥ 90% of the time', legal / n >= 0.9, legal + '/' + n);
-    ok('…and pot ≥ 60% of the time', pots / n >= 0.6, pots + '/' + n);
-    ok('thinking is time-sliced: each step stays near its 3 ms budget', sliced && worst < 15, worst.toFixed(1) + ' ms per step at worst');
+    ok('ball in hand: the CPU always picks a legal spot, behind the string on the break', placeOk === 16 && kitchenOk === 16, placeOk + '/' + kitchenOk);
+    ok('hard, noise-free: legal ≥ 90% of the time after the break', legal / n >= 0.9, legal + '/' + n);
+    ok('…and it pots ≥ 75% of the time', pots / n >= 0.75, pots + '/' + n);
+    ok('thinking is time-sliced: no step runs far past its 3 ms budget (one trial is ~3–6 ms)', sliced && worst < 25, worst.toFixed(1) + ' ms at worst');
+
+    // Adaptive: eased off when you struggle, pushed when you win, never to pro; a pin wins.
+    const rec = (w, l) => ({ wins: w, losses: l });
+    ok('adaptive waits for 5 frames, then follows your win rate', P.paAdaptiveTier(rec(4, 0)) === 'normal' && P.paAdaptiveTier(rec(1, 9)) === 'easy' &&
+       P.paAdaptiveTier(rec(5, 5)) === 'normal' && P.paAdaptiveTier(rec(9, 1)) === 'hard');
+    ok('adaptive never climbs to pro, however well you play', P.paAdaptiveTier(rec(100, 0)) === 'hard');
+    ok('a pinned tier wins over the record; anything else is adaptive', P.paTierFor('pro', rec(0, 50)) === 'pro' && P.paTierFor('easy', rec(50, 0)) === 'easy' &&
+       P.paTierFor('adaptive', rec(9, 1)) === 'hard' && P.paTierFor('bogus', rec(0, 0)) === 'normal');
+}
+
+// ── 6. Tiers in the match (pool-game.js) ──────────────────────────────
+head('Tiers in the match');
+{
+    const P = L.game({ seed: 21 });
+    const S = P.poolS;
+    P.poolNewFrame(1);
+    ok('a new frame locks the tier: adaptive with no record plays Normal', P.poolCpuTier === 'normal' && P.poolRecordText(2) === 'Adaptive · Normal');
+    P.host.userPreferences.poolDifficulty = 'hard';
+    P.poolNewFrame(1);
+    ok('a pinned tier is locked in at the next frame', P.poolRecordText(2) === 'Hard');
+    P.host.userPreferences.poolDifficulty = 'pro';
+    ok('…and changing the pin mid-frame does not change this frame', P.poolRecordText(2) === 'Hard');
+    P.poolNewFrame(1);
+    ok('pro calls every shot, for you too', S.frame.callEvery === true && P.poolRecordText(2) === 'Pro');
+    P.host.userPreferences.poolDifficulty = 'adaptive';
+    P.poolNewFrame(1);
+    ok('adaptive shows on the CPU card with the tier it plays', P.poolRecordText(2) === 'Adaptive · Normal' && S.frame.callEvery === false);
+
+    // The Game mode sheet: the footer's mode button opens it, and it takes the table.
+    P.poolOn.mode();
+    ok('the mode button opens the Game mode sheet on the current mode', S.sheet.open && S.sheet.mode === 'cpu' && !P.poolCanAct());
+    P.poolOn.sheetTab('pvp');
+    ok('the tabs switch the sheet, not the match', S.sheet.mode === 'pvp' && P.poolMode === 'cpu');
+    P.poolOn.sheetTab('cpu');
+    P.poolOn.difficulty('easy');
+    ok('picking a difficulty before the break applies it at once and closes the sheet',
+       !S.sheet.open && P.host.userPreferences.poolDifficulty === 'easy' && P.poolRecordText(2) === 'Easy' && P.log.saves > 0);
+    // After the break, a new pick waits for the next frame, and the sheet says so.
+    S.frame.isBreak = false;
+    P.poolOn.mode(); P.poolOn.difficulty('hard');
+    ok('after the break, a new pick waits for the next frame, and the sheet says so',
+       S.sheet.open && P.poolRecordText(2) === 'Easy' && /Hard from the next frame/.test(P.poolSheetNote()), P.poolSheetNote());
+    let stopped = 0;
+    S.attached = true;                          // keys only count while the panel is up
+    P.poolOnKey({ key: 'Escape', preventDefault() {}, stopImmediatePropagation() { stopped++; }, target: {} });
+    S.attached = false;
+    ok('Esc closes the sheet, and nothing else sees it', !S.sheet.open && stopped === 1);
+    P.poolOn.mode(); P.poolOn.startPvp();
+    ok('START 2-PLAYER FRAME switches to 2 Players on a fresh rack', P.poolMode === 'pvp' && !S.sheet.open && S.frame.isBreak);
+    P.poolOn.mode(); P.poolOn.difficulty('normal');
+    ok('a difficulty picked from 2 Players switches back to Vs CPU', P.poolMode === 'cpu' && !S.sheet.open && P.poolRecordText(2) === 'Normal');
+
+    // The record behind adaptive: frames against the CPU only.
+    P.host.userPreferences.poolDifficulty = 'adaptive';
+    P.poolNewFrame(1);
+    for (let i = 0; i < 8; i++) { P.poolNewFrame(1); P.poolEndFrame({ winner: 1 }); }
+    const cpuRec = JSON.parse(P.store.poolCpuRecord);
+    ok('frames against the CPU go into the adaptive record', cpuRec.wins === 8 && cpuRec.losses === 0);
+    P.poolNewFrame(1);
+    ok('…and a strong record moves adaptive up at the next frame', P.poolRecordText(2) === 'Adaptive · Hard');
+    ok('the frame-over note says what adaptive will do next', P.poolAdaptiveNote() === 'Adaptive stays at Hard');
+    P.togglePoolMode();
+    P.poolNewFrame(1); P.poolEndFrame({ winner: 2 });
+    ok('2 Players frames stay out of it', JSON.parse(P.store.poolCpuRecord).losses === 0);
+
+    // The CPU calls its pocket when every shot must be called.
+    const Q = L.game({ seed: 22, prefs: { poolDifficulty: 'pro' } });
+    const T = Q.poolS;
+    Q.poolNewFrame(2);                          // the CPU breaks; then play until it must call
+    let calls = 0, asked = 0;
+    for (let i = 0; i < 20000 && T.phase !== 'over' && asked < 3; i++) {
+        if (T.frame.turn === 1) { human(Q, T); }
+        const before = T.phase;
+        Q.poolTick(16);
+        if (before === 'aim' && T.phase === 'strike' && T.frame.turn === 2 && !T.frame.isBreak && T.frame.callEvery) { asked++; if (T.called >= 0 && T.shot && T.shot.call === T.called) calls++; }
+    }
+    ok('pro: the CPU names its pocket on every shot it takes', asked > 0 && calls === asked, calls + '/' + asked);
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

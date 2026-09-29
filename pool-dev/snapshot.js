@@ -47,6 +47,12 @@ const SCENES = {
     'loss': 'scene=loss',
     'light:main-3d': 'scene=mid&camera=3d',
     'max-3d': 'scene=mid&camera=3d&max=1',
+    'sheet-cpu': 'scene=mid&camera=3d&sheet=cpu&diff=hard',
+    'sheet-pvp': 'scene=mid&camera=3d&sheet=pvp',
+    'max-sheet': 'scene=mid&camera=3d&max=1&sheet=cpu',
+    'cyber-sheet-cpu': 'scene=mid&camera=3d&theme=cyber&sheet=cpu',
+    'light:sheet-cpu': 'scene=mid&camera=3d&sheet=cpu&diff=pro',
+    'pro-call': 'scene=mid&camera=3d&diff=pro',
     'spin-open': 'scene=mid&camera=3d&spinopen=1&tipx=0.22&tipy=0.3',
     'spin-free': 'scene=mid&camera=3d&tipx=-0.35&tipy=-0.4',
     'max-spin-open': 'scene=mid&camera=3d&max=1&spinopen=1&tipx=-0.3&tipy=0.25',
@@ -68,7 +74,7 @@ const picks = ARGS.slice(1);
 // The widget's narrow column (350 wide on screens up to 1400 px, so 316 for the HUD):
 // the same states again, derived so they cannot drift from the originals.
 ['main-3d', 'main-2d', 'power', 'bih', 'bih-break', 'foul-handoff', 'call-3d', 'clock-hot', 'win', 'bih-placed',
-    'cyber-main-3d', 'cyber-call-3d', 'cyber-foul', 'light:main-3d', 'break-stay3d', 'spin-open', 'cyber-spin-open'].forEach(n => { SCENES['narrow:' + n] = SCENES[n] + '&narrow=1'; });
+    'cyber-main-3d', 'cyber-call-3d', 'cyber-foul', 'light:main-3d', 'break-stay3d', 'spin-open', 'cyber-spin-open', 'sheet-cpu', 'cyber-sheet-cpu', 'sheet-pvp'].forEach(n => { SCENES['narrow:' + n] = SCENES[n] + '&narrow=1'; });
 
 const list = (picks.length ? picks : Object.keys(SCENES)).map(s => [SCENES[s] ? s : s.replace(/[^\w=-]+/g, '_'), SCENES[s] || s]);
 const page = 'file:///' + path.join(__dirname, 'pool-table.html').replace(/\\/g, '/').replace(/ /g, '%20');

@@ -48,6 +48,14 @@
         if (Math.abs(t.x) > PH_TIP_DEAD) parts.push((t.x > 0 ? 'Right ' : 'Left ') + pct(t.x));
         return parts.join(' · ') || 'Center ball';
     }
+    // The Game mode sheet's difficulty list (InMatch.dc.html, ModeSheet), in order.
+    const PH_DIFFS = [
+        { key: 'adaptive', name: 'Adaptive', desc: 'Matches your form, frame by frame' },
+        { key: 'easy', name: 'Easy', desc: 'Takes simple pots · misses often' },
+        { key: 'normal', name: 'Normal', desc: 'Solid potting · little position play' },
+        { key: 'hard', name: 'Hard', desc: 'Plays position · rarely leaves a shot' },
+        { key: 'pro', name: 'Pro', desc: 'Hardly misses · call every shot' },
+    ];
     const PH_CLOCK_HOT = 5;          // seconds left when the clock goes hot
     const PH_POWER_HOT = 85;         // % at which the gauge goes hot
     const PH_BIH_NOTE = { overlap: 'Overlaps a ball', kitchen: 'Behind the head string only', outside: 'Keep it on the felt' };
@@ -81,6 +89,9 @@
     //   bih: { valid, reason, placed, sx, sy, sr } | null,
     //   canReplace,                  the shooter placed the cue ball and may pick it up again
     //   cpuTurn,                     the CPU is at the table: its own hint, no human controls
+    //   sheet: { open, mode, note }, the Game mode sheet: which tab, and a line under the list
+    //   difficulty,                  the picked CPU difficulty ('adaptive' or a tier)
+    //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
     //   secondaryLabel,              the frame-over dialog's second button, when the default does not apply
     //   result: { win, title, reason, recordLabel, record, delta, note } | null,
     // }
@@ -93,6 +104,8 @@
         const aiming = g.phase === 'aim' || g.phase === 'strike';
         const callNeeded = aiming && st.callRequired && !(g.called >= 0);
         const max = g.layout === 'max';
+        const sheetOpen = !!(g.sheet && g.sheet.open);
+        const sheetMode = (g.sheet && g.sheet.mode) || (g.mode === 'pvp' ? 'pvp' : 'cpu');
         const onTable = new Set(g.world.balls.filter(b => b.state !== 'pocketed').map(b => b.id));
 
         const cards = [1, 2].map(seat => {
@@ -168,7 +181,7 @@
             pill: { show: !toast && !over, text: pill },
             toast: toast ? { show: true, foul: toast.kind === 'foul', title: toast.title, sub: toast.sub } : { show: false },
             lean: {
-                show: is3d && !over && !(aiming && st.callRequired) && !moving,
+                show: is3d && !over && !(aiming && st.callRequired) && !moving && !sheetOpen,
                 value: lean,
                 // The pitch the camera actually looks down at, as the design labels it.
                 label: Math.round(19.5 + 28.5 * lean / 100 - Math.atan(0.34 / 1.1) * 180 / Math.PI) + '°',
@@ -179,12 +192,12 @@
                 live: !!g.dragging || (!!g.cpuTurn && (g.power || 0) > 0), hot: (g.power || 0) >= PH_POWER_HOT, locked: callNeeded,
             },
             spin: {
-                show: !bih && !over && !toast && !moving, label: phSpinLabel(spin), readout: phSpinReadout(spin), x: spin.x, y: spin.y,
+                show: !bih && !over && !toast && !moving && !sheetOpen, label: phSpinLabel(spin), readout: phSpinReadout(spin), x: spin.x, y: spin.y,
                 // The big picker: only while you are the one aiming.
-                open: !!g.spinOpen && aiming && !g.cpuTurn && !g.handoff && !toast && !g.dragging,
+                open: !!g.spinOpen && aiming && !g.cpuTurn && !g.handoff && !toast && !g.dragging && !sheetOpen,
                 preset: PH_SPINS.findIndex(p => Math.abs(p.x - spin.x) < 1e-6 && Math.abs(p.y - spin.y) < 1e-6),
             },
-            hint: { show: !!hint && !over && !toast, text: hint ? hint.text : '', tone: hint ? hint.tone : '' },
+            hint: { show: !!hint && !over && !toast && !sheetOpen, text: hint ? hint.text : '', tone: hint ? hint.tone : '' },
             bihNote: note ? { show: true, text: note.text, x: note.x, y: note.y } : { show: false },
             // Back to placing: only before the shot, and never mid-stroke.
             replace: { show: !!g.canReplace && g.phase === 'aim' && !g.dragging && !g.handoff && !over },
@@ -198,6 +211,12 @@
                 ready: (g.names[g.handoff] || '').toUpperCase() + "'S READY",
             } : { show: false },
             cursor: bih ? 'placing' : g.dragging ? 'dragging' : '',
+            sheet: sheetOpen ? {
+                show: true, mode: sheetMode,
+                diffs: PH_DIFFS.map(d => ({ key: d.key, name: d.name, desc: d.desc, checked: (g.difficulty || 'adaptive') === d.key })),
+                chip: 'NOW ' + String(g.adaptiveTier || 'normal').toUpperCase(),
+                note: (g.sheet && g.sheet.note) || '',
+            } : { show: false },
         };
     }
 
@@ -219,6 +238,7 @@
         exit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"></path></svg>',
         swap: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13l-3-3M20 16H7l3 3"></path></svg>',
         hand: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v7.5a6.5 6.5 0 0 1-6.5 6.5h-.6a6 6 0 0 1-4.6-2.2L3.6 15a1.6 1.6 0 0 1 2.4-2l2 2"></path></svg>',
+        close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
         cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
     };
 
@@ -274,6 +294,28 @@
             '</div></div>';
     }
 
+    // The Game mode sheet (InMatch.dc.html's ModeSheet): Vs CPU with the difficulty
+    // list, or 2 Players with its explainer. Tournament joins it in Phase 7.
+    function phSheetHTML() {
+        const diffs = PH_DIFFS.map(d => '<button type="button" role="radio" class="ph-sheet-diff" data-ph-diff="' + d.key + '" aria-checked="false">' +
+            '<span class="ph-sheet-radio"><span></span></span><span class="ph-sheet-dt"><span class="ph-sheet-dn"><span>' + d.name + '</span>' +
+            // The NOW chip rides on the name line, so the description keeps the full width.
+            (d.key === 'adaptive' ? '<span class="ph-sheet-chip ph-label" data-ph="sheetchip"></span>' : '') +
+            '</span><span class="ph-sheet-dd">' + d.desc + '</span></span></button>').join('');
+        return '<div class="ph-sheet-scrim" data-ph="sheetscrim" hidden></div>' +
+            '<div class="ph-sheet" role="dialog" aria-label="Game mode" data-ph="sheet" hidden>' +
+            '<div class="ph-sheet-head"><span class="ph-sheet-title">Game mode</span><button type="button" class="ph-btn is-icon" data-ph="sheetx" aria-label="Close">' + PH_ICON.close + '</button></div>' +
+            '<div class="ph-sheet-modes" role="radiogroup" aria-label="Mode">' +
+            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="cpu" aria-checked="false">' + PH_ICON.chip + '<span>Vs CPU</span></button>' +
+            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="pvp" aria-checked="false">' + PH_ICON.people + '<span>2 Players</span></button></div>' +
+            '<div class="ph-sheet-cpu" data-ph="sheetcpu"><div class="ph-sheet-l ph-label">CPU DIFFICULTY</div>' +
+            '<div class="ph-sheet-diffs" role="radiogroup" aria-label="CPU difficulty">' + diffs + '</div>' +
+            '<div class="ph-sheet-note" data-ph="sheetnote" hidden></div></div>' +
+            '<div class="ph-sheet-pvp" data-ph="sheetpvp" hidden><span>Hot-seat on this computer. Hand the panel over after each turn; the game tells you whose shot it is.</span>' +
+            '<button type="button" class="ph-primary ph-label" data-ph="sheetstart">START 2-PLAYER FRAME</button></div>' +
+            '</div>';
+    }
+
     function phHandoffHTML() {
         return '<div class="ph-handoff" data-ph="handoff" hidden><span class="ph-handoff-icon">' + PH_ICON.swap + '</span>' +
             '<span class="ph-handoff-text"><span class="ph-handoff-to" data-ph="hot"></span><span class="ph-handoff-from" data-ph="hof"></span></span>' +
@@ -289,17 +331,17 @@
         if (max) {
             html = '<div class="ph-top"><div class="ph-title">' + (o.title || '8-Ball Pool') + '</div><div class="ph-cards">' + cards + '</div>' +
                 '<div class="ph-actions"><span class="ph-trophy">' + PH_ICON.cup + '<span class="ph-num" data-ph="trophies">0</span></span>' +
-                '<button type="button" class="ph-btn" data-ph="mode">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
+                '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="reset" aria-label="Reset rack" title="Reset rack">' + PH_ICON.reset + '</button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="max" aria-label="Exit full view" title="Exit full view">' + PH_ICON.exit + '</button></div></div>' +
-                phViewHTML(true) + phHandoffHTML();
+                phViewHTML(true) + phHandoffHTML() + phSheetHTML();
         } else {
             html = '<div class="ph-cards">' + cards + '</div>' + phViewHTML(false) +
                 '<div class="ph-foot" data-ph="foot">' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn" data-ph="reset">' + PH_ICON.reset + '<span>Reset</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="max">' + PH_ICON.max + '<span>Max</span></button></div>' +
-                phHandoffHTML();
+                phHandoffHTML() + phSheetHTML();
         }
         const el = document.createElement('div');
         el.className = 'pool-hud';
@@ -314,7 +356,8 @@
             'lean', 'leanv', 'leanf', 'leant', 'leani', 'gauge', 'gaugef', 'lock', 'spin', 'spind', 'spinv', 'spinball', 'spinpop', 'spinr', 'spinbig', 'spinbigd',
             'hint', 'hintt', 'bihnote', 'replace',
             'mini', 'scrim', 'dialog', 'dlgi', 'dlgk', 'dlgt', 'dlgr', 'dlgrec', 'dlgrl', 'dlgrv', 'dlgd', 'dlgn', 'dlgnt', 'dlgp', 'dlgs',
-            'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready'].forEach(n => { hud[n] = ref(n); });
+            'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
+            'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
@@ -387,6 +430,15 @@
         hud.dlgp.addEventListener('click', () => fire('primary'));
         hud.dlgs.addEventListener('click', () => fire('secondary'));
         hud.miniButtons.forEach(b => b.addEventListener('click', () => fire('call', +b.getAttribute('data-ph-call'))));
+        // The Game mode sheet.
+        hud.modeButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-mode]'));
+        hud.diffButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-diff]'));
+        hud.modeButtons.forEach(b => b.addEventListener('click', () => fire('sheetTab', b.getAttribute('data-ph-mode'))));
+        hud.diffButtons.forEach(b => b.addEventListener('click', () => fire('difficulty', b.getAttribute('data-ph-diff'))));
+        hud.sheetx.addEventListener('click', () => fire('sheetClose'));
+        hud.sheetscrim.addEventListener('click', () => fire('sheetClose'));
+        hud.sheetstart.addEventListener('click', () => fire('startPvp'));
+        hud.sheet.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('sheetClose'); hud.mode.focus(); e.preventDefault(); e.stopPropagation(); } });
         return hud;
     }
 
@@ -537,6 +589,17 @@
 
         if (hud.foot) s('foot.show', vm.foot.show, v => phShow(hud.foot, v));
         s('foot.mode', vm.foot.modeLabel, v => { hud.model.textContent = v; });
+        const sh = vm.sheet;
+        s('sheet.show', sh.show, v => { phShow(hud.sheet, v); phShow(hud.sheetscrim, v); hud.mode.setAttribute('aria-expanded', v ? 'true' : 'false'); });
+        if (sh.show) {
+            s('sheet.mode', sh.mode, v => {
+                hud.modeButtons.forEach(b => b.setAttribute('aria-checked', b.getAttribute('data-ph-mode') === v ? 'true' : 'false'));
+                phShow(hud.sheetcpu, v === 'cpu'); phShow(hud.sheetpvp, v === 'pvp');
+            });
+            s('sheet.diff', sh.diffs.map(d => d.checked ? 1 : 0).join(''), () => hud.diffButtons.forEach((b, i) => b.setAttribute('aria-checked', sh.diffs[i].checked ? 'true' : 'false')));
+            s('sheet.chip', sh.chip, v => { hud.sheetchip.textContent = v; });
+            s('sheet.note', sh.note, v => { hud.sheetnote.textContent = v; phShow(hud.sheetnote, !!v); });
+        }
         s('ho.show', vm.handoff.show, v => phShow(hud.handoff, v));
         if (vm.handoff.show) {
             s('ho.to', vm.handoff.to, v => { hud.hot.textContent = v; });

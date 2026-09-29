@@ -280,6 +280,9 @@
         // While the balls run: 'overhead' eases up to the broadcast view; '3d' stands up
         // and stays in 3D, the whole table in view (POOL_V2_PLAN.md, gap decision 9).
         poolShotCam: 'overhead',
+        // 'adaptive' | 'easy' | 'normal' | 'hard' | 'pro'. Adaptive follows your record against
+        // the CPU but never climbs to pro, which makes you call every shot too. Locked per frame.
+        poolDifficulty: 'adaptive',
         gameFps: 60, // 30 or 60 — half or full vsync
         // Ludo rule toggles — flat, not nested: .toggle-switch writes
         // userPreferences[data-pref] directly. ludoRules() reads them live (mid-match).
@@ -4341,6 +4344,14 @@
         if (Math.abs(t.x) > PH_TIP_DEAD) parts.push((t.x > 0 ? 'Right ' : 'Left ') + pct(t.x));
         return parts.join(' · ') || 'Center ball';
     }
+    // The Game mode sheet's difficulty list (InMatch.dc.html, ModeSheet), in order.
+    const PH_DIFFS = [
+        { key: 'adaptive', name: 'Adaptive', desc: 'Matches your form, frame by frame' },
+        { key: 'easy', name: 'Easy', desc: 'Takes simple pots · misses often' },
+        { key: 'normal', name: 'Normal', desc: 'Solid potting · little position play' },
+        { key: 'hard', name: 'Hard', desc: 'Plays position · rarely leaves a shot' },
+        { key: 'pro', name: 'Pro', desc: 'Hardly misses · call every shot' },
+    ];
     const PH_CLOCK_HOT = 5;          // seconds left when the clock goes hot
     const PH_POWER_HOT = 85;         // % at which the gauge goes hot
     const PH_BIH_NOTE = { overlap: 'Overlaps a ball', kitchen: 'Behind the head string only', outside: 'Keep it on the felt' };
@@ -4374,6 +4385,9 @@
     //   bih: { valid, reason, placed, sx, sy, sr } | null,
     //   canReplace,                  the shooter placed the cue ball and may pick it up again
     //   cpuTurn,                     the CPU is at the table: its own hint, no human controls
+    //   sheet: { open, mode, note }, the Game mode sheet: which tab, and a line under the list
+    //   difficulty,                  the picked CPU difficulty ('adaptive' or a tier)
+    //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
     //   secondaryLabel,              the frame-over dialog's second button, when the default does not apply
     //   result: { win, title, reason, recordLabel, record, delta, note } | null,
     // }
@@ -4386,6 +4400,8 @@
         const aiming = g.phase === 'aim' || g.phase === 'strike';
         const callNeeded = aiming && st.callRequired && !(g.called >= 0);
         const max = g.layout === 'max';
+        const sheetOpen = !!(g.sheet && g.sheet.open);
+        const sheetMode = (g.sheet && g.sheet.mode) || (g.mode === 'pvp' ? 'pvp' : 'cpu');
         const onTable = new Set(g.world.balls.filter(b => b.state !== 'pocketed').map(b => b.id));
 
         const cards = [1, 2].map(seat => {
@@ -4461,7 +4477,7 @@
             pill: { show: !toast && !over, text: pill },
             toast: toast ? { show: true, foul: toast.kind === 'foul', title: toast.title, sub: toast.sub } : { show: false },
             lean: {
-                show: is3d && !over && !(aiming && st.callRequired) && !moving,
+                show: is3d && !over && !(aiming && st.callRequired) && !moving && !sheetOpen,
                 value: lean,
                 // The pitch the camera actually looks down at, as the design labels it.
                 label: Math.round(19.5 + 28.5 * lean / 100 - Math.atan(0.34 / 1.1) * 180 / Math.PI) + '°',
@@ -4472,12 +4488,12 @@
                 live: !!g.dragging || (!!g.cpuTurn && (g.power || 0) > 0), hot: (g.power || 0) >= PH_POWER_HOT, locked: callNeeded,
             },
             spin: {
-                show: !bih && !over && !toast && !moving, label: phSpinLabel(spin), readout: phSpinReadout(spin), x: spin.x, y: spin.y,
+                show: !bih && !over && !toast && !moving && !sheetOpen, label: phSpinLabel(spin), readout: phSpinReadout(spin), x: spin.x, y: spin.y,
                 // The big picker: only while you are the one aiming.
-                open: !!g.spinOpen && aiming && !g.cpuTurn && !g.handoff && !toast && !g.dragging,
+                open: !!g.spinOpen && aiming && !g.cpuTurn && !g.handoff && !toast && !g.dragging && !sheetOpen,
                 preset: PH_SPINS.findIndex(p => Math.abs(p.x - spin.x) < 1e-6 && Math.abs(p.y - spin.y) < 1e-6),
             },
-            hint: { show: !!hint && !over && !toast, text: hint ? hint.text : '', tone: hint ? hint.tone : '' },
+            hint: { show: !!hint && !over && !toast && !sheetOpen, text: hint ? hint.text : '', tone: hint ? hint.tone : '' },
             bihNote: note ? { show: true, text: note.text, x: note.x, y: note.y } : { show: false },
             // Back to placing: only before the shot, and never mid-stroke.
             replace: { show: !!g.canReplace && g.phase === 'aim' && !g.dragging && !g.handoff && !over },
@@ -4491,6 +4507,12 @@
                 ready: (g.names[g.handoff] || '').toUpperCase() + "'S READY",
             } : { show: false },
             cursor: bih ? 'placing' : g.dragging ? 'dragging' : '',
+            sheet: sheetOpen ? {
+                show: true, mode: sheetMode,
+                diffs: PH_DIFFS.map(d => ({ key: d.key, name: d.name, desc: d.desc, checked: (g.difficulty || 'adaptive') === d.key })),
+                chip: 'NOW ' + String(g.adaptiveTier || 'normal').toUpperCase(),
+                note: (g.sheet && g.sheet.note) || '',
+            } : { show: false },
         };
     }
 
@@ -4512,6 +4534,7 @@
         exit: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"></path></svg>',
         swap: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13l-3-3M20 16H7l3 3"></path></svg>',
         hand: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V11M14 10.5V6a1.5 1.5 0 0 1 3 0v7.5a6.5 6.5 0 0 1-6.5 6.5h-.6a6 6 0 0 1-4.6-2.2L3.6 15a1.6 1.6 0 0 1 2.4-2l2 2"></path></svg>',
+        close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
         cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
     };
 
@@ -4567,6 +4590,28 @@
             '</div></div>';
     }
 
+    // The Game mode sheet (InMatch.dc.html's ModeSheet): Vs CPU with the difficulty
+    // list, or 2 Players with its explainer. Tournament joins it in Phase 7.
+    function phSheetHTML() {
+        const diffs = PH_DIFFS.map(d => '<button type="button" role="radio" class="ph-sheet-diff" data-ph-diff="' + d.key + '" aria-checked="false">' +
+            '<span class="ph-sheet-radio"><span></span></span><span class="ph-sheet-dt"><span class="ph-sheet-dn"><span>' + d.name + '</span>' +
+            // The NOW chip rides on the name line, so the description keeps the full width.
+            (d.key === 'adaptive' ? '<span class="ph-sheet-chip ph-label" data-ph="sheetchip"></span>' : '') +
+            '</span><span class="ph-sheet-dd">' + d.desc + '</span></span></button>').join('');
+        return '<div class="ph-sheet-scrim" data-ph="sheetscrim" hidden></div>' +
+            '<div class="ph-sheet" role="dialog" aria-label="Game mode" data-ph="sheet" hidden>' +
+            '<div class="ph-sheet-head"><span class="ph-sheet-title">Game mode</span><button type="button" class="ph-btn is-icon" data-ph="sheetx" aria-label="Close">' + PH_ICON.close + '</button></div>' +
+            '<div class="ph-sheet-modes" role="radiogroup" aria-label="Mode">' +
+            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="cpu" aria-checked="false">' + PH_ICON.chip + '<span>Vs CPU</span></button>' +
+            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="pvp" aria-checked="false">' + PH_ICON.people + '<span>2 Players</span></button></div>' +
+            '<div class="ph-sheet-cpu" data-ph="sheetcpu"><div class="ph-sheet-l ph-label">CPU DIFFICULTY</div>' +
+            '<div class="ph-sheet-diffs" role="radiogroup" aria-label="CPU difficulty">' + diffs + '</div>' +
+            '<div class="ph-sheet-note" data-ph="sheetnote" hidden></div></div>' +
+            '<div class="ph-sheet-pvp" data-ph="sheetpvp" hidden><span>Hot-seat on this computer. Hand the panel over after each turn; the game tells you whose shot it is.</span>' +
+            '<button type="button" class="ph-primary ph-label" data-ph="sheetstart">START 2-PLAYER FRAME</button></div>' +
+            '</div>';
+    }
+
     function phHandoffHTML() {
         return '<div class="ph-handoff" data-ph="handoff" hidden><span class="ph-handoff-icon">' + PH_ICON.swap + '</span>' +
             '<span class="ph-handoff-text"><span class="ph-handoff-to" data-ph="hot"></span><span class="ph-handoff-from" data-ph="hof"></span></span>' +
@@ -4582,17 +4627,17 @@
         if (max) {
             html = '<div class="ph-top"><div class="ph-title">' + (o.title || '8-Ball Pool') + '</div><div class="ph-cards">' + cards + '</div>' +
                 '<div class="ph-actions"><span class="ph-trophy">' + PH_ICON.cup + '<span class="ph-num" data-ph="trophies">0</span></span>' +
-                '<button type="button" class="ph-btn" data-ph="mode">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
+                '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="reset" aria-label="Reset rack" title="Reset rack">' + PH_ICON.reset + '</button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="max" aria-label="Exit full view" title="Exit full view">' + PH_ICON.exit + '</button></div></div>' +
-                phViewHTML(true) + phHandoffHTML();
+                phViewHTML(true) + phHandoffHTML() + phSheetHTML();
         } else {
             html = '<div class="ph-cards">' + cards + '</div>' + phViewHTML(false) +
                 '<div class="ph-foot" data-ph="foot">' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn" data-ph="reset">' + PH_ICON.reset + '<span>Reset</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="max">' + PH_ICON.max + '<span>Max</span></button></div>' +
-                phHandoffHTML();
+                phHandoffHTML() + phSheetHTML();
         }
         const el = document.createElement('div');
         el.className = 'pool-hud';
@@ -4607,7 +4652,8 @@
             'lean', 'leanv', 'leanf', 'leant', 'leani', 'gauge', 'gaugef', 'lock', 'spin', 'spind', 'spinv', 'spinball', 'spinpop', 'spinr', 'spinbig', 'spinbigd',
             'hint', 'hintt', 'bihnote', 'replace',
             'mini', 'scrim', 'dialog', 'dlgi', 'dlgk', 'dlgt', 'dlgr', 'dlgrec', 'dlgrl', 'dlgrv', 'dlgd', 'dlgn', 'dlgnt', 'dlgp', 'dlgs',
-            'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready'].forEach(n => { hud[n] = ref(n); });
+            'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
+            'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
@@ -4680,6 +4726,15 @@
         hud.dlgp.addEventListener('click', () => fire('primary'));
         hud.dlgs.addEventListener('click', () => fire('secondary'));
         hud.miniButtons.forEach(b => b.addEventListener('click', () => fire('call', +b.getAttribute('data-ph-call'))));
+        // The Game mode sheet.
+        hud.modeButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-mode]'));
+        hud.diffButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-diff]'));
+        hud.modeButtons.forEach(b => b.addEventListener('click', () => fire('sheetTab', b.getAttribute('data-ph-mode'))));
+        hud.diffButtons.forEach(b => b.addEventListener('click', () => fire('difficulty', b.getAttribute('data-ph-diff'))));
+        hud.sheetx.addEventListener('click', () => fire('sheetClose'));
+        hud.sheetscrim.addEventListener('click', () => fire('sheetClose'));
+        hud.sheetstart.addEventListener('click', () => fire('startPvp'));
+        hud.sheet.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('sheetClose'); hud.mode.focus(); e.preventDefault(); e.stopPropagation(); } });
         return hud;
     }
 
@@ -4830,6 +4885,17 @@
 
         if (hud.foot) s('foot.show', vm.foot.show, v => phShow(hud.foot, v));
         s('foot.mode', vm.foot.modeLabel, v => { hud.model.textContent = v; });
+        const sh = vm.sheet;
+        s('sheet.show', sh.show, v => { phShow(hud.sheet, v); phShow(hud.sheetscrim, v); hud.mode.setAttribute('aria-expanded', v ? 'true' : 'false'); });
+        if (sh.show) {
+            s('sheet.mode', sh.mode, v => {
+                hud.modeButtons.forEach(b => b.setAttribute('aria-checked', b.getAttribute('data-ph-mode') === v ? 'true' : 'false'));
+                phShow(hud.sheetcpu, v === 'cpu'); phShow(hud.sheetpvp, v === 'pvp');
+            });
+            s('sheet.diff', sh.diffs.map(d => d.checked ? 1 : 0).join(''), () => hud.diffButtons.forEach((b, i) => b.setAttribute('aria-checked', sh.diffs[i].checked ? 'true' : 'false')));
+            s('sheet.chip', sh.chip, v => { hud.sheetchip.textContent = v; });
+            s('sheet.note', sh.note, v => { hud.sheetnote.textContent = v; phShow(hud.sheetnote, !!v); });
+        }
         s('ho.show', vm.handoff.show, v => phShow(hud.handoff, v));
         if (vm.handoff.show) {
             s('ho.to', vm.handoff.to, v => { hud.hot.textContent = v; });
@@ -4884,33 +4950,76 @@
     function phThemeChanged(hud) { if (hud) hud.theme = null; }
 
     // ═══════════════════════════════════════════════════════════════════
-    // 8-BALL POOL — CPU (v2 stand-in)
+    // 8-BALL POOL — CPU (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // A deliberately plain opponent so Vs CPU plays on the new engine until
-    // the Phase 6 CPU (four tiers, position play, safeties) replaces it:
-    //   - direct pots only: every legal ball × pocket, aimed at the ghost
-    //     ball, ranked by cut angle and distance
-    //   - the best few are played out on a cloned world with the real
-    //     physics and judged by prJudge, so a line that scratches, fouls or
-    //     drops the 8 early is thrown away before it is ever hit
-    //   - execution noise (aim 0.5°, power 6%), so it misses like a decent
-    //     club player rather than never
-    // Pure. paPlan() returns a job; job.step(ms) does as much work as the
-    // budget allows (each trial is one full shot, about 3 ms), so the
-    // controller spreads the thinking over animation frames.
+    // Four tiers on one planner (POOL_V2_PLAN.md, CPU):
+    //   1  candidates, from geometry: direct pots (ghost ball), one-rail banks,
+    //      one-rail kicks and two-ball combos, each with a make probability
+    //      for the tier's own aim error, and the best few safeties
+    //   2  the best candidates are played out on a cloned world with the real
+    //      physics and judged by prJudge, so a line that scratches, fouls or
+    //      drops the 8 early is thrown away before it is ever hit. First the
+    //      aim is corrected for throw and squirt: the planner steps a copy to
+    //      the first contact, reads the object ball's real departure and moves
+    //      the cue by the error over the cut's gain
+    //   3  the survivors are tried with the tier's spins and speeds and scored
+    //      on where the cue ball stops: the make probability of the best next
+    //      shot (pro: the best two)
+    //   4  when no pot is likely enough, a safety: a legal hit that leaves the
+    //      opponent the least
+    //   5  execution noise per tier
+    // Pure and time-sliced: paPlan() returns a job; job.step(ms) works until
+    // the budget is spent (each full trial is one shot to rest, about 3 ms).
 
-    const PA_MAX_CUT = 78 * Math.PI / 180;
-    const PA_TRIALS = 8;                       // candidates played out on the real physics
-    const PA_SPEEDS = [900, 1500, 2300];       // u/s tried per candidate, softest first
-    const PA_AIM_SIGMA = 0.2 * Math.PI / 180;
-    const PA_POWER_SIGMA = 0.03;
-    const PA_PLACE_BACK = 120;                 // ball in hand: this far behind the ghost ball
+    const PA_DEG = Math.PI / 180;
+    // Tip offsets, in R (follow +y, right +x).
+    const PA_TIPS = {
+        stun: { x: 0, y: 0 }, follow: { x: 0, y: 0.35 }, draw: { x: 0, y: -0.45 },
+        left: { x: -0.3, y: 0 }, right: { x: 0.3, y: 0 },
+        followLeft: { x: -0.25, y: 0.3 }, followRight: { x: 0.25, y: 0.3 },
+        drawLeft: { x: -0.25, y: -0.35 }, drawRight: { x: 0.25, y: -0.35 },
+    };
+    // The tiers. aim is σ in degrees on direct pots; aimAlt on banks, kicks and
+    // combos; power is σ as a fraction. top = candidates played out; keep = how
+    // many survivors get the spin × speed search; refine = aim corrections.
+    // safeBelow: take a safety when the best pot's make probability is under it.
+    // robust: the top three finished lines are replayed this many times with the
+    // tier's own noise, and a line that fouls or loses the frame when missed is
+    // marked down (a zero-noise tier needs none: it plays what it verified).
+    const PA_TIERS = {
+        easy:   { label: 'Easy',   desc: 'Takes simple pots · misses often',     top: 4,  keep: 1, refine: 0, spins: ['stun'], speeds: [1],
+                  position: 0, bank: false, kick: false, combo: false, safeBelow: 0,    aim: 1.2, aimAlt: 1.8, power: 0.12 },
+        normal: { label: 'Normal', desc: 'Solid potting · little position play', top: 10, keep: 3, refine: 1, spins: ['stun', 'follow', 'draw'], speeds: [1, 1.4],
+                  position: 1, bank: true,  kick: false, combo: false, safeBelow: 0.25, aim: 0.5, aimAlt: 0.8, power: 0.06, robust: 2 },
+        hard:   { label: 'Hard',   desc: 'Plays position · rarely leaves a shot', top: 20, keep: 4, refine: 2, spins: ['stun', 'follow', 'draw', 'left', 'right'], speeds: [1, 1.4],
+                  position: 1, bank: true,  kick: true,  combo: true,  safeBelow: 0.4,  aim: 0.2, aimAlt: 0.4, power: 0.02, robust: 3 },
+        pro:    { label: 'Pro',    desc: 'Hardly misses · call every shot',      top: 24, keep: 5, refine: 2,
+                  spins: ['stun', 'follow', 'draw', 'left', 'right', 'followLeft', 'followRight', 'drawLeft', 'drawRight'], speeds: [1, 1.4],
+                  position: 2, bank: true,  kick: true,  combo: true,  safeBelow: 0.5,  aim: 0,   aimAlt: 0.15, power: 0.0025, callEvery: true },
+    };
+    const PA_TIER_NAMES = ['easy', 'normal', 'hard', 'pro'];
+    // A zero-noise tier's make probability still allows a hair of error: the
+    // physics the planner verified on is the physics it plays, so this is small.
+    const PA_SIGMA_FLOOR = 0.02 * PA_DEG;
+    // Candidates are ORDERED as a steady club player would rate them, so every
+    // tier tries the easy lines first; DECISIONS use the tier's own error.
+    const PA_SIGMA_RANK = 0.35 * PA_DEG;
+    const PA_MAX_CUT = 78 * PA_DEG;
+    const PA_PLACE_BACK = [110, 170];         // ball in hand: this far behind the ghost ball
 
     // Standard normal from a uniform rng (Box–Muller).
     function paGauss(rng) {
         const u = Math.max(1e-12, rng()), v = rng();
         return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
     }
+    // erf, Abramowitz and Stegun 7.1.26 (|error| < 1.5e-7).
+    function paErf(x) {
+        const s = x < 0 ? -1 : 1; x = Math.abs(x);
+        const t = 1 / (1 + 0.3275911 * x);
+        const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+        return s * y;
+    }
+    const paAngDiff = (a, b) => { let d = a - b; d -= 2 * Math.PI * Math.round(d / (2 * Math.PI)); return d; };
 
     // Is the straight path from (ax, ay) to (bx, by) clear of every ball but
     // the ones in `skip`? A ball blocks when its centre comes within `gap`.
@@ -4924,7 +5033,7 @@
         return true;
     }
 
-    // The balls the shooter may legally hit first.
+    // The balls the shooter may legally hit first, and the ones that count when potted.
     function paTargets(world, frame, seat) {
         const on = world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed');
         const st = prStatusFrom(frame, seat, on.map(b => b.id));
@@ -4932,130 +5041,440 @@
         return on.filter(b => b.id !== 8 && (!st.group || prGroupOf(b.id) === st.group));
     }
 
-    // Every direct pot from (cx, cy): target × pocket, with its ghost-ball
-    // aim, best first. `from` lets ball-in-hand ask about a spot it has not
-    // placed yet.
-    function paCandidates(world, frame, seat, cx, cy) {
-        const R = world.cfg.ballR, out = [];
-        for (const b of paTargets(world, frame, seat)) {
-            world.table.pockets.forEach((p, pi) => {
-                const tx = p.x - b.x, ty = p.y - b.y, tl = Math.hypot(tx, ty);
-                const gx = b.x - tx / tl * 2 * R, gy = b.y - ty / tl * 2 * R;
-                const ax = gx - cx, ay = gy - cy, al = Math.hypot(ax, ay);
-                if (al < 1) return;
-                const cut = Math.acos(Math.max(-1, Math.min(1, (ax * tx + ay * ty) / (al * tl))));
-                if (cut > PA_MAX_CUT) return;
-                if (!paClear(world.balls, cx, cy, gx, gy, [0, b.id], 2 * R - 0.5)) return;
-                if (!paClear(world.balls, b.x, b.y, p.x, p.y, [0, b.id], 2 * R - 0.5)) return;
-                // Straighter and shorter is easier; a thin cut over a long way is a guess.
-                const score = Math.cos(cut) * Math.cos(cut) / (1 + (al + tl) / 600);
-                out.push({ ball: b.id, pocket: pi, angle: Math.atan2(ay, ax), score });
-            });
-        }
-        return out.sort((a, b) => b.score - a.score);
+    // Where to send a ball into pocket p: between the mouth and the hole's centre.
+    function paAimPoint(p) {
+        const mx = (p.mouth[0] + p.mouth[2]) / 2, my = (p.mouth[1] + p.mouth[3]) / 2;
+        return { x: (mx + p.x) / 2, y: (my + p.y) / 2 };
+    }
+    // How far off line a ball arriving along (dx, dy) can be and still drop.
+    // Corners forgive more than sides, and both less as the approach flattens.
+    function paPocketTol(p, dx, dy) {
+        const nx = p.kind === 'corner' ? p.sx / Math.SQRT2 : 0, ny = p.kind === 'corner' ? p.sy / Math.SQRT2 : p.sy;
+        const c = Math.max(0, (dx * nx + dy * ny) / (Math.hypot(dx, dy) || 1));
+        return p.kind === 'corner' ? 11 * (0.55 + 0.45 * c) : Math.max(0, 15 * (c - 0.25) / 0.75);
+    }
+    // Make probability of a cut: the cue's aim error, amplified by the cut's
+    // gain (dθ_object / dθ_cue = d / (2R cos cut)), against the pocket's
+    // angular tolerance seen from the object ball.
+    function paMakeProb(dcg, cut, lop, tol, sigma, R) {
+        if (tol <= 0) return 0;
+        const gain = dcg / (2 * R * Math.max(0.15, Math.cos(cut)));
+        const s = Math.max(sigma, PA_SIGMA_FLOOR) * gain;
+        const p = paErf((tol / Math.max(lop, 1)) / (Math.SQRT2 * s));
+        return p * (1 - 0.08 * Math.min(1, (dcg + lop) / 1400));
     }
 
-    // Plays a shot out on a copy of the table and scores it for the shooter.
+    // A reasonable base speed for a pot: the object ball reaches the pocket
+    // with a little pace left, the cue ball having rolled to the contact.
+    function paBaseSpeed(cfg, dcg, cut, lop) {
+        const a = cfg.muRoll * cfg.gravity;
+        const vObj = 1.4 * Math.sqrt(200 * 200 + 2 * a * lop);
+        const vc = vObj / Math.max(0.2, Math.cos(cut));
+        return Math.max(450, Math.min(cfg.maxSpeed * 0.85, 1.4 * Math.sqrt(vc * vc + 2 * a * dcg)));
+    }
+
+    // Every pot from (cx, cy), best first: direct, and for the tiers that
+    // play them, one-rail banks, one-rail kicks and two-ball combos.
+    function paCandidates(world, frame, seat, cx, cy, tier, directOnly) {
+        const T = directOnly ? Object.assign({}, PA_TIERS[tier] || PA_TIERS.normal, { bank: false, kick: false, combo: false }) : (PA_TIERS[tier] || PA_TIERS.normal);
+        const R = world.cfg.ballR, t = world.table, cfg = world.cfg, out = [];
+        const targets = paTargets(world, frame, seat);
+        const sigma = T.aim * PA_DEG, sigmaAlt = T.aimAlt * PA_DEG;
+        const gap = 2 * R - 0.5;
+        // p: the tier's make probability (decides); rank: a steady player's (orders).
+        const odds = (dcg, cut, lop, tol, sig, k) => ({ p: k * paMakeProb(dcg, cut, lop, tol, sig, R), rank: k * paMakeProb(dcg, cut, lop, tol, Math.max(sig, PA_SIGMA_RANK), R) });
+        const push = (c) => { if (c.rank > 0.01) out.push(c); };
+        const direct = (b, p, pi, fromX, fromY, kind, extra) => {
+            const ap = paAimPoint(p);
+            const tx = ap.x - b.x, ty = ap.y - b.y, tl = Math.hypot(tx, ty);
+            const gx = b.x - tx / tl * 2 * R, gy = b.y - ty / tl * 2 * R;
+            const ax = gx - fromX, ay = gy - fromY, al = Math.hypot(ax, ay);
+            if (al < 1) return null;
+            const cut = Math.acos(Math.max(-1, Math.min(1, (ax * tx + ay * ty) / (al * tl))));
+            if (cut > PA_MAX_CUT) return null;
+            if (!paClear(world.balls, fromX, fromY, gx, gy, [0, b.id].concat(extra || []), gap)) return null;
+            if (!paClear(world.balls, b.x, b.y, ap.x, ap.y, [0, b.id].concat(extra || []), gap)) return null;
+            return { kind: kind || 'direct', ball: b.id, pocket: pi, angle: Math.atan2(ay, ax), gx, gy, dcg: al, cut, lop: tl,
+                want: Math.atan2(ty, tx), tol: paPocketTol(p, tx, ty) };
+        };
+        // Cushion lines for a ball's centre: x = ±(HL − R), y = ±(HW − R).
+        const rails = [{ axis: 'x', v: t.halfLength - R }, { axis: 'x', v: -(t.halfLength - R) }, { axis: 'y', v: t.halfWidth - R }, { axis: 'y', v: -(t.halfWidth - R) }];
+        const mirror = (x, y, r) => (r.axis === 'x' ? { x: 2 * r.v - x, y } : { x, y: 2 * r.v - y });
+        const railHit = (ax, ay, bx, by, r) => {
+            // Where the line from a to b's mirror crosses the rail line, if it does between them.
+            const m = mirror(bx, by, r);
+            const da = r.axis === 'x' ? r.v - ax : r.v - ay, dm = r.axis === 'x' ? m.x - ax : m.y - ay;
+            if (Math.abs(dm) < 1e-9 || da / dm <= 0 || da / dm >= 1) return null;
+            const k = da / dm, hx = ax + (m.x - ax) * k, hy = ay + (m.y - ay) * k;
+            // Keep clear of the pockets: a bank off a jaw is a guess.
+            if (r.axis === 'x' ? Math.abs(hy) > t.halfWidth - 50 : Math.abs(hx) > t.halfLength - 50 || Math.abs(hx) < 45) return null;
+            return { x: hx, y: hy, m };
+        };
+
+        for (const b of targets) {
+            t.pockets.forEach((p, pi) => {
+                const d = direct(b, p, pi, cx, cy);
+                if (d) { Object.assign(d, odds(d.dcg, d.cut, d.lop, d.tol, sigma, 1)); d.speed = paBaseSpeed(cfg, d.dcg, d.cut, d.lop); push(d); }
+                if (T.bank) rails.forEach(r => {
+                    // Object ball off one rail into the pocket: aim it at the pocket's mirror.
+                    const ap = paAimPoint(p), h = railHit(b.x, b.y, ap.x, ap.y, r);
+                    if (!h) return;
+                    if (!paClear(world.balls, b.x, b.y, h.x, h.y, [0, b.id], gap) || !paClear(world.balls, h.x, h.y, ap.x, ap.y, [0, b.id], gap)) return;
+                    const tx = h.x - b.x, ty = h.y - b.y, tl = Math.hypot(tx, ty);
+                    const gx = b.x - tx / tl * 2 * R, gy = b.y - ty / tl * 2 * R;
+                    const ax = gx - cx, ay = gy - cy, al = Math.hypot(ax, ay);
+                    const cut = Math.acos(Math.max(-1, Math.min(1, (ax * tx + ay * ty) / (al * tl))));
+                    if (cut > 60 * PA_DEG || !paClear(world.balls, cx, cy, gx, gy, [0, b.id], gap)) return;
+                    const lop = tl + Math.hypot(ap.x - h.x, ap.y - h.y);
+                    const tol = paPocketTol(p, ap.x - h.x, ap.y - h.y) * 0.7;
+                    push({ kind: 'bank', ball: b.id, pocket: pi, angle: Math.atan2(ay, ax), gx, gy, dcg: al, cut, lop, want: Math.atan2(ty, tx), tol,
+                        ...odds(al, cut, lop, tol, sigmaAlt, 0.75), speed: paBaseSpeed(cfg, al, cut, tl + (lop - tl) / 0.64) });
+                });
+                if (T.kick) rails.forEach(r => {
+                    // Cue ball off one rail onto the ghost ball.
+                    const ap = paAimPoint(p);
+                    const tx = ap.x - b.x, ty = ap.y - b.y, tl = Math.hypot(tx, ty);
+                    const gx = b.x - tx / tl * 2 * R, gy = b.y - ty / tl * 2 * R;
+                    if (!paClear(world.balls, b.x, b.y, ap.x, ap.y, [0, b.id], gap)) return;
+                    const h = railHit(cx, cy, gx, gy, r);
+                    if (!h || !paClear(world.balls, cx, cy, h.x, h.y, [0], gap) || !paClear(world.balls, h.x, h.y, gx, gy, [0, b.id], gap)) return;
+                    const ix = gx - h.x, iy = gy - h.y, il = Math.hypot(ix, iy);
+                    const cut = Math.acos(Math.max(-1, Math.min(1, (ix * tx + iy * ty) / (il * tl))));
+                    if (cut > 50 * PA_DEG) return;
+                    const dcg = Math.hypot(h.x - cx, h.y - cy) + il;
+                    push({ kind: 'kick', ball: b.id, pocket: pi, angle: Math.atan2(h.y - cy, h.x - cx), gx, gy, dcg, cut, lop: tl, want: Math.atan2(ty, tx),
+                        tol: paPocketTol(p, tx, ty), ...odds(dcg, cut, tl, paPocketTol(p, tx, ty), sigmaAlt, 0.55), speed: paBaseSpeed(cfg, dcg / 0.8, cut, tl) });
+                });
+                if (T.combo) targets.forEach(a => {
+                    // Cue ball → a → b into the pocket. The first ball hit is a, so a must be legal (it is).
+                    if (a === b) return;
+                    const ap = paAimPoint(p);
+                    const tx = ap.x - b.x, ty = ap.y - b.y, tl = Math.hypot(tx, ty);
+                    const gbx = b.x - tx / tl * 2 * R, gby = b.y - ty / tl * 2 * R;       // where a must hit b
+                    const ux = gbx - a.x, uy = gby - a.y, ul = Math.hypot(ux, uy);
+                    if (ul < 1 || ul > 350) return;
+                    const cutB = Math.acos(Math.max(-1, Math.min(1, (ux * tx + uy * ty) / (ul * tl))));
+                    if (cutB > 35 * PA_DEG) return;
+                    const gx = a.x - ux / ul * 2 * R, gy = a.y - uy / ul * 2 * R;
+                    const ax = gx - cx, ay = gy - cy, al = Math.hypot(ax, ay);
+                    const cutA = Math.acos(Math.max(-1, Math.min(1, (ax * ux + ay * uy) / (al * ul))));
+                    if (cutA > 45 * PA_DEG) return;
+                    if (!paClear(world.balls, cx, cy, gx, gy, [0, a.id], gap) || !paClear(world.balls, a.x, a.y, gbx, gby, [0, a.id, b.id], gap) ||
+                        !paClear(world.balls, b.x, b.y, ap.x, ap.y, [0, a.id, b.id], gap)) return;
+                    const oB = odds(ul, cutB, tl, paPocketTol(p, tx, ty), sigmaAlt, 1), oA = odds(al, cutA, ul, 2 * R * 0.35, sigmaAlt, 1);
+                    push({ kind: 'combo', ball: a.id, pots: b.id, pocket: pi, angle: Math.atan2(ay, ax), gx, gy, dcg: al, cut: cutA, lop: ul, want: Math.atan2(uy, ux),
+                        tol: 2 * R * 0.35, p: 0.8 * oA.p * oB.p, rank: 0.8 * oA.rank * oB.rank, speed: paBaseSpeed(cfg, al, cutA, (ul + tl) / Math.max(0.3, Math.cos(cutB))) });
+                });
+            });
+        }
+        return out.sort((a, b) => b.rank - a.rank);
+    }
+
+    // The best pots left for `seat` from where the cue ball is, as make
+    // probabilities (direct only, so it is cheap): what position is worth.
+    function paNextShots(world, frame, seat, tier) {
+        const cue = world.balls.find(b => b.id === 0);
+        if (!cue || cue.state === 'pocketed') return [];
+        // Ranked as a steady player would see them: for a zero-noise tier every p is
+        // near 1, and position is about leaving an easy shot, not merely a possible one.
+        return paCandidates(world, frame, seat, cue.x, cue.y, tier === 'pro' ? 'hard' : tier, true).map(c => c.rank);
+    }
+
+    // Steps a copy to the cue ball's first contact and returns the angle the
+    // first object ball actually left at, or null.
+    function paDeparture(world, shot, ballId) {
+        const w = ppCloneWorld(world);
+        ppStrike(w, shot);
+        const t0 = w.t;
+        for (let i = 0; i < 360 && w.t - t0 < 4; i++) {
+            ppStep(w, 1 / 60);
+            if (w.log.some(e => e.type === 'ball' && (e.a === 0 || e.b === 0))) {
+                const hit = w.log.find(e => e.type === 'ball' && (e.a === 0 || e.b === 0));
+                const other = hit.a === 0 ? hit.b : hit.a;
+                if (other !== ballId) return null;
+                const b = w.balls.find(o => o.id === ballId);
+                return Math.hypot(b.vx, b.vy) > 1 ? Math.atan2(b.vy, b.vx) : null;
+            }
+            if (ppSettled(w)) return null;
+        }
+        return null;
+    }
+    // Corrects the aim for throw and squirt: the object ball's departure
+    // error, divided by the cut's gain, moves the cue.
+    function paRefine(world, cand, shot, n, R) {
+        if (cand.kind === 'kick') return shot;
+        let s = shot;
+        const gain = cand.dcg / (2 * R * Math.max(0.15, Math.cos(cand.cut)));
+        for (let i = 0; i < n; i++) {
+            const dep = paDeparture(world, s, cand.ball);
+            if (dep === null) break;
+            const err = paAngDiff(dep, cand.want);
+            if (Math.abs(err) < 0.05 * PA_DEG) break;
+            // Turning the cue one way sends the object ball the other: dθ_object = −gain · dθ_cue.
+            s = Object.assign({}, s, { angle: s.angle + err / gain });
+        }
+        return s;
+    }
+
+    // Plays a shot to rest on a copy and judges it for the shooter.
     function paTrial(world, frame, seat, shot) {
         const w = ppCloneWorld(world);
         ppStrike(w, shot);
         ppSimulate(w);
-        const v = prJudge(frame, w, shot.call);
-        if (v.frameOver) return { v, score: v.winner === seat ? 1e6 : -1e6 };
-        if (v.foul) return { v, score: -1000 };
-        // A pot that keeps the table: more follow-up pots from where the cue
-        // ball stopped is better position. Cheap: geometry only, no trials.
-        const cue = w.balls.find(b => b.id === 0);
-        const next = v.continues && cue ? paCandidates(w, v.next, seat, cue.x, cue.y).length : 0;
-        return { v, score: (v.continues ? 1000 : 0) + Math.min(next, 5) * 20 - shot.speed / 1000 };
+        return { w, v: prJudge(frame, w, shot.call) };
+    }
+    // How good a judged shot is for the shooter. `p` is the make probability
+    // of the line it was aimed on; position is the next shot's.
+    function paScore(r, seat, tier, p) {
+        const v = r.v, T = PA_TIERS[tier];
+        if (v.frameOver) return v.winner === seat ? 1e6 : -1e6;
+        if (v.foul) return -1000;
+        if (!v.continues) return -500;
+        let pos = 0;
+        if (T.position) {
+            const next = paNextShots(r.w, v.next, seat, tier).sort((a, b) => b - a);
+            pos = (next[0] || 0) + (T.position > 1 ? 0.5 * (next[1] || 0) : 0);
+        }
+        return 1000 * p + 300 * pos;
+    }
+    // A safety's worth: the opponent's best chance after it, as low as possible.
+    function paSafetyScore(r, seat) {
+        const v = r.v;
+        if (v.frameOver) return v.winner === seat ? 1e6 : -1e6;
+        if (v.foul) return -1000;
+        if (v.continues) return 600;          // a pot on a safety is a bonus
+        const opp = 3 - seat;
+        const best = Math.max(0, ...paNextShots(r.w, v.next, opp, 'normal'));
+        return 400 * (1 - best);
     }
 
-    // opts: { rng, noise: bool }. The job's shot is { angle, speed, tipX, tipY, call }.
+    // opts: { tier, rng, noise (default true), aimDeg / powerFrac (override the
+    // tier's execution noise, for the balance check's human models) }.
+    // The job's shot is { angle, speed, tipX, tipY, call }, and job.plan says
+    // what it is ('break' | 'pot' | 'safety' | 'fallback').
     function paPlan(world, frame, opts) {
-        const o = opts || {}, seat = frame.turn, cfg = world.cfg;
+        const o = opts || {}, seat = frame.turn, cfg = world.cfg, R = cfg.ballR;
+        const tier = PA_TIERS[o.tier] ? o.tier : 'normal', T = PA_TIERS[tier];
         const cue = world.balls.find(b => b.id === 0);
         const st = prStatus(frame, world, seat);
-        const job = { done: false, shot: null, tried: 0 };
-        const finish = shot => {
-            let s = Object.assign({ tipX: 0, tipY: 0, call: -1 }, shot);
+        const job = { done: false, shot: null, tried: 0, plan: '', tier };
+        let lineKind = 'direct';
+        const finish = (shot, plan) => {
+            const s = Object.assign({ tipX: 0, tipY: 0, call: -1 }, shot);
             if (o.noise !== false && o.rng) {
-                s.angle += paGauss(o.rng) * PA_AIM_SIGMA;
-                s.speed = Math.max(200, Math.min(cfg.maxSpeed, s.speed * (1 + paGauss(o.rng) * PA_POWER_SIGMA)));
+                const aim = (o.aimDeg !== undefined ? o.aimDeg : lineKind === 'direct' ? T.aim : T.aimAlt) * PA_DEG;
+                const pw = o.powerFrac !== undefined ? o.powerFrac : T.power;
+                s.angle += paGauss(o.rng) * aim;
+                s.speed = Math.max(150, Math.min(cfg.maxSpeed, s.speed * (1 + paGauss(o.rng) * pw)));
             }
-            job.shot = s; job.done = true;
+            job.shot = s; job.plan = plan; job.done = true;
         };
 
-        // The break: full power at the head ball, never called.
+        // The break: near full power at the head ball, never called.
         if (frame.isBreak) {
-            const apex = world.balls.filter(b => b.id !== 0).sort((a, b) => a.x - b.x)[0];
-            job.step = () => { finish({ angle: Math.atan2(apex.y - cue.y, apex.x - cue.x), speed: cfg.maxSpeed * 0.96 }); return true; };
+            const apex = world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed').sort((a, b) => a.x - b.x)[0];
+            job.step = () => {
+                finish({ angle: Math.atan2(apex.y - cue.y, apex.x - cue.x), speed: cfg.maxSpeed * (tier === 'easy' ? 0.82 : 0.96) }, 'break');
+                return true;
+            };
             return job;
         }
 
-        const cands = paCandidates(world, frame, seat, cue.x, cue.y).slice(0, PA_TRIALS);
-        const queue = [];
-        cands.forEach(c => PA_SPEEDS.forEach(speed => queue.push({ angle: c.angle, speed, call: st.callRequired ? c.pocket : -1 })));
-        // No clean pot in sight: roll a legal ball full, at a few speeds, and
-        // take whichever is not a foul.
-        if (!queue.length) {
-            paTargets(world, frame, seat)
-                .sort((a, b) => Math.hypot(a.x - cue.x, a.y - cue.y) - Math.hypot(b.x - cue.x, b.y - cue.y))
-                .slice(0, 3)
-                .forEach(b => [1100, 1800].forEach(speed => {
-                    const near = world.table.pockets.reduce((m, p, i) => (Math.hypot(p.x - b.x, p.y - b.y) < Math.hypot(world.table.pockets[m].x - b.x, world.table.pockets[m].y - b.y) ? i : m), 0);
-                    queue.push({ angle: Math.atan2(b.y - cue.y, b.x - cue.x), speed, call: st.callRequired ? near : -1 });
+        const cands = paCandidates(world, frame, seat, cue.x, cue.y, tier).slice(0, T.top);
+        const call = c => (st.callRequired ? c.pocket : -1);
+        const stageA = cands.map(c => ({ c }));
+        const good = [], variants = [], safeties = [], scored = [], robustQ = [], safeScored = [], safeQ = [];
+        let stage = 'A', bestPot = null, bestSafe = null;
+
+        // Safety lines: each legal ball, full and half-ball either side, soft; and
+        // one-rail kicks at it, for when the direct way is blocked.
+        const makeSafeties = () => {
+            const tg = paTargets(world, frame, seat)
+                .sort((a, b) => Math.hypot(a.x - cue.x, a.y - cue.y) - Math.hypot(b.x - cue.x, b.y - cue.y)).slice(0, 3);
+            tg.forEach(b => {
+                const base = Math.atan2(b.y - cue.y, b.x - cue.x), dist = Math.hypot(b.x - cue.x, b.y - cue.y);
+                const half = Math.asin(Math.min(1, R / Math.max(dist, 2 * R)));
+                [0, half, -half].forEach(off => [0.45, 0.7].forEach(k => {
+                    if (!paClear(world.balls, cue.x, cue.y, b.x, b.y, [0, b.id], 2 * R - 0.5)) return;
+                    safeties.push({ angle: base + off, speed: Math.max(500, Math.min(1900, k * 1.4 * Math.sqrt(2 * cfg.muRoll * cfg.gravity * (dist + 400)))), call: -1 });
                 }));
-        }
-        let best = null;
+                const t = world.table;
+                [['x', t.halfLength - R], ['x', -(t.halfLength - R)], ['y', t.halfWidth - R], ['y', -(t.halfWidth - R)]].forEach(([axis, v]) => {
+                    const m = axis === 'x' ? { x: 2 * v - b.x, y: b.y } : { x: b.x, y: 2 * v - b.y };
+                    const da = axis === 'x' ? v - cue.x : v - cue.y, dm = axis === 'x' ? m.x - cue.x : m.y - cue.y;
+                    if (Math.abs(dm) < 1e-9 || da / dm <= 0 || da / dm >= 1) return;
+                    const k = da / dm, hx = cue.x + (m.x - cue.x) * k, hy = cue.y + (m.y - cue.y) * k;
+                    if (!paClear(world.balls, cue.x, cue.y, hx, hy, [0], 2 * R - 0.5) || !paClear(world.balls, hx, hy, b.x, b.y, [0, b.id], 2 * R - 0.5)) return;
+                    const ang = Math.atan2(hy - cue.y, hx - cue.x), len = Math.hypot(hx - cue.x, hy - cue.y) + Math.hypot(b.x - hx, b.y - hy);
+                    [1.1, 1.5].forEach(q => safeties.push({ angle: ang, speed: Math.min(2400, q * 1.4 * Math.sqrt(2 * cfg.muRoll * cfg.gravity * (len / 0.8 + 300))), call: -1 }));
+                });
+            });
+        };
+
         const now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
         job.step = budgetMs => {
             if (job.done) return true;
             const t0 = now();
-            while (queue.length) {
-                const shot = queue.shift();
-                const r = paTrial(world, frame, seat, shot);
-                job.tried++;
-                if (!best || r.score > best.score) best = Object.assign({ shot }, r);
-                if (budgetMs !== undefined && now() - t0 >= budgetMs) break;
+            const spent = () => budgetMs !== undefined && now() - t0 >= budgetMs;
+            while (!spent()) {
+                if (stage === 'A') {
+                    // Stage A: does the line pot, cleanly, with stun at its base speed?
+                    const item = stageA.shift();
+                    if (!item) {
+                        stage = 'B';
+                        good.sort((a, b) => b.c.rank - a.c.rank).slice(0, T.keep).forEach(g => T.spins.forEach(sp => T.speeds.forEach(k => variants.push({ c: g.c, base: g.shot, sp, k }))));
+                        continue;
+                    }
+                    const c = item.c;
+                    let shot = { angle: c.angle, speed: c.speed, tipX: 0, tipY: 0, call: call(c) };
+                    shot = paRefine(world, c, shot, T.refine, R);
+                    const r = paTrial(world, frame, seat, shot);
+                    job.tried++;
+                    if (r.v.frameOver && r.v.winner === seat) { lineKind = c.kind; finish(shot, 'pot'); return true; }
+                    if (!r.v.foul && r.v.continues && !r.v.frameOver) good.push({ c, shot, r });
+                } else if (stage === 'B') {
+                    // Stage B: the survivors, with the tier's spins and speeds, for position.
+                    const item = variants.shift();
+                    if (!item) {
+                        // Robustness: the best three lines, replayed with the tier's noise.
+                        if (T.robust && o.rng && o.noise !== false && scored.length) {
+                            scored.sort((a, b) => b.score - a.score).slice(0, 3).forEach(e => { e.bad = 0; e.n = 0; for (let i = 0; i < T.robust; i++) robustQ.push(e); });
+                            stage = 'R';
+                            continue;
+                        }
+                        // No pot at all: every tier looks for a legal escape. A pot the tier is
+                        // unlikely to make: the tiers that play safe look for a safety.
+                        const needSafe = !bestPot || bestPot.score <= 0 || (T.safeBelow > 0 && bestPot.c.p < T.safeBelow);
+                        if (needSafe) { makeSafeties(); stage = 'S'; } else stage = 'done';
+                        continue;
+                    }
+                    const tip = PA_TIPS[item.sp];
+                    // From stage A's corrected aim; spin changes throw and squirt, so one more correction.
+                    let shot = { angle: item.base.angle, speed: Math.min(cfg.maxSpeed * 0.9, item.c.speed * item.k), tipX: tip.x, tipY: tip.y, call: call(item.c) };
+                    shot = paRefine(world, item.c, shot, Math.min(1, T.refine), R);
+                    const r = paTrial(world, frame, seat, shot);
+                    job.tried++;
+                    const score = paScore(r, seat, tier, item.c.p);
+                    scored.push({ c: item.c, shot, score });
+                    if (!bestPot || score > bestPot.score) bestPot = { c: item.c, shot, score };
+                } else if (stage === 'R') {
+                    const e = robustQ.shift();
+                    if (!e) {
+                        // Marked down by how often the line fouls or loses the frame when missed.
+                        scored.slice(0, 3).forEach(x => { if (x.n) x.score -= 900 * x.bad / x.n; });
+                        bestPot = scored.slice(0, 3).reduce((m, x) => (!m || x.score > m.score ? x : m), null);
+                        const needSafe = !bestPot || bestPot.score <= 0 || (T.safeBelow > 0 && bestPot.c.p < T.safeBelow);
+                        if (needSafe) { makeSafeties(); stage = 'S'; } else stage = 'done';
+                        continue;
+                    }
+                    const aim = (e.c.kind === 'direct' ? T.aim : T.aimAlt) * PA_DEG;
+                    const shot = Object.assign({}, e.shot, { angle: e.shot.angle + paGauss(o.rng) * aim, speed: e.shot.speed * (1 + paGauss(o.rng) * T.power) });
+                    const r = paTrial(world, frame, seat, shot);
+                    job.tried++;
+                    e.n++;
+                    if (r.v.foul || (r.v.frameOver && r.v.winner !== seat)) e.bad += r.v.frameOver ? 2 : 1;
+                } else if (stage === 'S') {
+                    const shot = safeties.shift();
+                    if (!shot) {
+                        // The best three safeties, replayed with the tier's noise: a safety or
+                        // an escape that fouls when it is a little off is no safety.
+                        if (T.robust && o.rng && o.noise !== false && safeScored.length) {
+                            safeScored.sort((a, b) => b.score - a.score).slice(0, 3).forEach(e => { e.bad = 0; e.n = 0; for (let i = 0; i < T.robust; i++) safeQ.push(e); });
+                            stage = 'SR';
+                        } else stage = 'done';
+                        continue;
+                    }
+                    const r = paTrial(world, frame, seat, shot);
+                    job.tried++;
+                    const score = paSafetyScore(r, seat);
+                    safeScored.push({ shot, score });
+                    if (!bestSafe || score > bestSafe.score) bestSafe = { shot, score };
+                } else if (stage === 'SR') {
+                    const e = safeQ.shift();
+                    if (!e) {
+                        safeScored.slice(0, 3).forEach(x => { if (x.n) x.score -= 1200 * x.bad / x.n; });
+                        bestSafe = safeScored.slice(0, 3).reduce((m, x) => (!m || x.score > m.score ? x : m), null);
+                        stage = 'done';
+                        continue;
+                    }
+                    const shot = Object.assign({}, e.shot, { angle: e.shot.angle + paGauss(o.rng) * T.aimAlt * PA_DEG, speed: e.shot.speed * (1 + paGauss(o.rng) * T.power) });
+                    const r = paTrial(world, frame, seat, shot);
+                    job.tried++;
+                    e.n++;
+                    if (r.v.foul || (r.v.frameOver && r.v.winner !== seat)) e.bad += r.v.frameOver ? 2 : 1;
+                } else {
+                    // Choose. A likely pot; else a safety that leaves little; else the
+                    // best pot anyway; else a legal survivor from stage A; else a roll.
+                    const potOk = bestPot && bestPot.score > 0;
+                    if (potOk && (bestPot.c.p >= T.safeBelow || !bestSafe || bestSafe.score < 250)) { lineKind = bestPot.c.kind; finish(bestPot.shot, 'pot'); }
+                    else if (bestSafe && bestSafe.score > 0) { lineKind = 'safety'; finish(bestSafe.shot, 'safety'); }
+                    else if (potOk) { lineKind = bestPot.c.kind; finish(bestPot.shot, 'pot'); }
+                    else if (good.length) { lineKind = good[0].c.kind; finish(good[0].shot, 'pot'); }
+                    else {
+                        // Nothing clean at all: roll a legal ball, the nearest, softly.
+                        const b = paTargets(world, frame, seat).sort((x, y) => Math.hypot(x.x - cue.x, x.y - cue.y) - Math.hypot(y.x - cue.x, y.y - cue.y))[0];
+                        const near = b ? world.table.pockets.reduce((m, p, i) => (Math.hypot(p.x - b.x, p.y - b.y) < Math.hypot(world.table.pockets[m].x - b.x, world.table.pockets[m].y - b.y) ? i : m), 0) : -1;
+                        lineKind = 'safety';
+                        finish(b ? { angle: Math.atan2(b.y - cue.y, b.x - cue.x), speed: 1200, call: st.callRequired ? near : -1 } : { angle: 0, speed: 1200 }, 'fallback');
+                    }
+                    return true;
+                }
             }
-            if (queue.length) return false;
-            // Nothing even legal: a soft roll at the nearest legal ball is the least bad.
-            if (!best) {
-                const b = paTargets(world, frame, seat)[0];
-                finish(b ? { angle: Math.atan2(b.y - cue.y, b.x - cue.x), speed: 1200 } : { angle: 0, speed: 1200 });
-            } else finish(best.shot);
-            return true;
+            return false;
         };
         return job;
     }
 
-    // Where to put the cue ball with ball in hand: straight behind the ghost
-    // ball of the easiest pot, or, on the break, in the middle of the kitchen.
-    function paPlace(world, frame, rng) {
+    // Where to put the cue ball with ball in hand: behind the ghost ball of
+    // the easiest pot, straight or at a slight angle; on the break, in the
+    // middle of the kitchen.
+    function paPlace(world, frame, rng, tier) {
         const t = world.table, R = world.cfg.ballR, zone = frame.ballInHand;
         if (zone === 'kitchen') {
             const y = rng ? (rng() - 0.5) * 120 : 0;
             return [t.headX - 60, y];
         }
-        const seat = frame.turn;
-        const spots = [];
-        for (const b of paTargets(world, frame, seat)) {
+        const T = PA_TIERS[tier] || PA_TIERS.normal;
+        const sigma = T.aim * PA_DEG;
+        let best = null;
+        for (const b of paTargets(world, frame, frame.turn)) {
             t.pockets.forEach(p => {
-                const tx = p.x - b.x, ty = p.y - b.y, tl = Math.hypot(tx, ty);
-                const ux = tx / tl, uy = ty / tl;
+                const ap = paAimPoint(p);
+                const tx = ap.x - b.x, ty = ap.y - b.y, tl = Math.hypot(tx, ty), ux = tx / tl, uy = ty / tl;
                 const gx = b.x - ux * 2 * R, gy = b.y - uy * 2 * R;
-                const x = gx - ux * PA_PLACE_BACK, y = gy - uy * PA_PLACE_BACK;
-                if (prCanPlace(world, x, y, zone)) return;
-                if (!paClear(world.balls, x, y, gx, gy, [0, b.id], 2 * R - 0.5)) return;
-                if (!paClear(world.balls, b.x, b.y, p.x, p.y, [0, b.id], 2 * R - 0.5)) return;
-                spots.push({ x, y, score: 1 / (1 + tl / 600) });
+                if (!paClear(world.balls, b.x, b.y, ap.x, ap.y, [0, b.id], 2 * R - 0.5)) return;
+                const tol = paPocketTol(p, tx, ty);
+                PA_PLACE_BACK.forEach(D => [0, 12, -12].forEach(deg => {
+                    const a = Math.atan2(uy, ux) + deg * PA_DEG;
+                    const x = gx - Math.cos(a) * D, y = gy - Math.sin(a) * D;
+                    if (prCanPlace(world, x, y, zone)) return;
+                    if (!paClear(world.balls, x, y, gx, gy, [0, b.id], 2 * R - 0.5)) return;
+                    // A slight angle is worth a little: the cue ball can be steered after it.
+                    const score = paMakeProb(D, Math.abs(deg) * PA_DEG, tl, tol, sigma, R) + (deg ? 0.02 : 0);
+                    if (!best || score > best.score) best = { x, y, score };
+                }));
             });
         }
-        spots.sort((a, b) => b.score - a.score);
-        if (spots.length) return [spots[0].x, spots[0].y];
+        if (best) return [best.x, best.y];
         // Nowhere clean: the first free spot on a coarse grid.
         for (let x = -400; x <= 400; x += 50) for (let y = -200; y <= 200; y += 50) if (!prCanPlace(world, x, y, zone)) return [x, y];
         return [t.headX - 60, 0];
+    }
+
+    // Adaptive difficulty from your record against the CPU, as Ludo does it:
+    // eased off when you struggle, pushed when you win. It never climbs to pro
+    // by itself, because pro changes the rules for you too (every shot is
+    // called); pro is only ever picked. A pinned tier wins over all of it.
+    function paAdaptiveTier(rec) {
+        const wins = (rec && rec.wins) || 0, losses = (rec && rec.losses) || 0, games = wins + losses;
+        if (games < 5) return 'normal';
+        const rate = wins / games;
+        if (rate < 0.35) return 'easy';
+        if (rate <= 0.65) return 'normal';
+        return 'hard';
+    }
+    function paTierFor(pref, rec) {
+        return PA_TIERS[pref] ? pref : paAdaptiveTier(rec);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -5101,6 +5520,9 @@
     let poolGamesWon = 0;                    // all-time wins, as stored by savePoolHighScore
     let poolRecord = null;                   // { p1Wins, p1Losses, p2Wins, p2Losses }
     let poolMaximized = false;
+    // The CPU's tier for this frame: locked when the frame starts (adaptive or
+    // pinned, userPreferences.poolDifficulty), so it cannot shift mid-frame.
+    let poolCpuTier = 'normal';
 
     // Everything else about the panel and the match lives in one object, so
     // a reset is a reassignment rather than thirty lines of lets.
@@ -5112,6 +5534,8 @@
         drops: [], down: new Set(), drag: null, strikeT: 0, shot: null,
         toast: null, toastMs: 0, fouled: 0, handoff: 0, result: null, placed: false, clockLeft: POOL_CLOCK_S,
         cpu: null, wins: 0,
+        // Your record against the CPU (adaptive difficulty reads it), and the Game mode sheet.
+        cpuRec: null, sheet: { open: false, mode: 'cpu' },
         // Table settings: guide length (full | short | off) and call every shot. Fixed for
         // quick matches today; tournaments (Phase 7) and the pro tier (Phase 6) set them.
         guideMode: 'full', callEvery: false,
@@ -5124,9 +5548,30 @@
         const me = typeof lbDisplayName === 'string' && lbDisplayName.trim() ? lbDisplayName.trim().slice(0, 16) : '';
         return poolMode === 'cpu' ? { 1: me || 'You', 2: 'CPU' } : { 1: me || 'Player 1', 2: 'Player 2' };
     }
+    // The picked difficulty: 'adaptive' (the default) or a pinned tier.
+    const poolDifficulty = () => (PA_TIERS[userPreferences.poolDifficulty] ? userPreferences.poolDifficulty : 'adaptive');
+    function poolLoadCpuRecord() {
+        let r = null;
+        try { r = JSON.parse(localStorage.getItem('poolCpuRecord') || 'null'); } catch (_) {}
+        return { wins: (r && parseInt(r.wins, 10)) || 0, losses: (r && parseInt(r.losses, 10)) || 0 };
+    }
+    function poolSaveCpuRecord(r) { try { localStorage.setItem('poolCpuRecord', JSON.stringify(r)); } catch (_) {} }
+    const poolCpuRec = () => poolS.cpuRec || (poolS.cpuRec = poolLoadCpuRecord());
+    // Locks the tier for the frame; pro calls every shot, for both seats.
+    function poolLockTier() {
+        const S = poolS;
+        poolCpuTier = paTierFor(poolDifficulty(), poolCpuRec());
+        S.frame.callEvery = S.callEvery || (poolMode === 'cpu' && !!PA_TIERS[poolCpuTier].callEvery);
+    }
+    // Nothing has been hit yet in this frame, so a new difficulty can apply to it.
+    const poolFrameFresh = () => !!poolS.frame && poolS.frame.isBreak && poolS.phase !== 'moving' && poolS.phase !== 'strike';
+
     function poolRecordText(seat) {
         const r = poolRecord || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
-        if (poolMode === 'cpu' && seat === 2) return 'CPU · Normal';
+        if (poolMode === 'cpu' && seat === 2) {
+            const label = PA_TIERS[poolCpuTier].label;
+            return poolDifficulty() === 'adaptive' ? 'Adaptive · ' + label : label;
+        }
         return seat === 1 ? r.p1Wins + 'W · ' + r.p1Losses + 'L' : r.p2Wins + 'W · ' + r.p2Losses + 'L';
     }
     function poolWins() {
@@ -5150,6 +5595,7 @@
         S.world = ppRack(ppCreateWorld(), S.rng);
         S.breaker = breaker === 2 ? 2 : 1;
         S.frame = prNewFrame({ breaker: S.breaker, callEvery: S.callEvery });
+        poolLockTier();
         S.rackId++;
         // Inside the kitchen, not on its line, so a press on the ball never rounds past it.
         S.world.balls[0].x = S.world.table.headX - 80; S.world.balls[0].y = 0;
@@ -5193,6 +5639,11 @@
             savePoolRecord(poolRecord);
             awardGameXP('pool', { won: false });
         }
+        if (poolMode === 'cpu') {
+            const rec = poolCpuRec();
+            if (w === 1) rec.wins++; else rec.losses++;
+            poolSaveCpuRecord(rec);
+        }
         S.frames[w - 1]++;
         poolRefreshScoreBtn();
     }
@@ -5210,6 +5661,14 @@
         updateXPDisplay();
     }
 
+    // What the frame-over dialog says about the next frame's CPU, when adaptive.
+    function poolAdaptiveNote() {
+        if (poolMode !== 'cpu' || poolDifficulty() !== 'adaptive') return '';
+        const now = poolCpuTier, next = paAdaptiveTier(poolCpuRec()), label = PA_TIERS[next].label;
+        const d = PA_TIER_NAMES.indexOf(next) - PA_TIER_NAMES.indexOf(now);
+        return d > 0 ? 'Adaptive steps up to ' + label + ' next frame' : d < 0 ? 'Adaptive eases to ' + label + ' next frame' : 'Adaptive stays at ' + label;
+    }
+
     function poolShowToast(t) { poolS.toast = t; poolS.toastMs = t && t.kind !== 'foul' ? POOL_TOAST_MS : 0; }
 
     // Applies a verdict (a judged shot or a timeout) and sets up the next turn.
@@ -5225,7 +5684,7 @@
                 recordLabel: (poolMode === 'cpu' ? poolNames()[1] : poolNames()[w]).toUpperCase() + ' · RECORD',
                 record: poolRecordText(poolMode === 'cpu' ? 1 : w),
                 delta: poolMode === 'cpu' ? (you ? '+1 WIN' : '+1 LOSS') : '+1 WIN',
-                note: '',
+                note: poolAdaptiveNote(),
             };
             S.phase = 'over'; S.toast = null;
             return;
@@ -5275,7 +5734,7 @@
         S.guide = pgGuide(S.world, { angle: S.aim, speed: poolSpeedOf(p), tipX: t.x, tipY: t.y });
     }
     // A human may act: not in the hand-off, not while the CPU plays.
-    const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over';
+    const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over' && !poolS.sheet.open;
 
     // ── The CPU's turn ────────────────────────────────────────────────
     // Wait a beat, place the ball if it has it in hand, think (time-sliced),
@@ -5287,7 +5746,7 @@
         c.t += dt;
         if (S.phase === 'bih') {
             if (c.t < 550) return;
-            const p = paPlace(S.world, S.frame, S.rng);
+            const p = paPlace(S.world, S.frame, S.rng, poolCpuTier);
             prPlaceCue(S.world, p[0], p[1]);
             S.phase = 'aim'; S.placed = true; poolAimAtNearest();
             S.cpu = { stage: 'wait', t: 0 };
@@ -5297,7 +5756,7 @@
         if (c.stage === 'wait') {
             if (c.t < 350) return;
             S.tip = { x: 0, y: 0 }; S.spinOpen = false;
-            c.job = paPlan(S.world, S.frame, { rng: S.rng });
+            c.job = paPlan(S.world, S.frame, { rng: S.rng, tier: poolCpuTier });
             c.stage = 'think'; c.t = 0;
         } else if (c.stage === 'think') {
             if (!c.job.step(3)) return;
@@ -5423,8 +5882,16 @@
             result: S.result,
             canReplace: !!S.frame.ballInHand && S.placed && poolCanAct(),
             cpuTurn,
-            secondaryLabel: 'Change mode',
+            sheet: { open: S.sheet.open, mode: S.sheet.mode, note: poolSheetNote() },
+            difficulty: poolDifficulty(), adaptiveTier: paAdaptiveTier(poolCpuRec()),
         }));
+    }
+
+    // Under the difficulty list: when the pick cannot apply to the frame being played.
+    function poolSheetNote() {
+        if (poolMode !== 'cpu' || poolFrameFresh() || poolS.phase === 'over') return '';
+        const next = paTierFor(poolDifficulty(), poolCpuRec());
+        return next !== poolCpuTier ? PA_TIERS[next].label + ' from the next frame; this one stays ' + PA_TIERS[poolCpuTier].label : '';
     }
 
     function poolLoop(ms) {
@@ -5545,6 +6012,8 @@
         if (!S.attached || typeof currentGame !== 'undefined' && currentGame !== 'pool') return;
         // The spin picker takes its own keys (arrows move the tip, Esc closes it).
         if (e.target && e.target.closest && e.target.closest('.ph-spinpop')) return;
+        // Esc closes the Game mode sheet first, and nothing else sees it.
+        if (e.key === 'Escape' && S.sheet.open) { S.sheet.open = false; e.preventDefault(); e.stopImmediatePropagation(); return; }
         if (e.key === 'Escape' && S.drag && S.drag.kind === 'power') {
             // Cancel the stroke, and nothing else: not the Max modal, not a reset.
             S.drag = null; S.power = 0;
@@ -5573,7 +6042,20 @@
         tipStep: d => { if (poolCanAct()) poolS.tip = phClampTip(poolS.tip.x + d.x, poolS.tip.y + d.y); },
         spinToggle: () => { poolS.spinOpen = !poolS.spinOpen && poolCanAct(); },
         spinClose: () => { poolS.spinOpen = false; },
-        mode: () => togglePoolMode(),
+        // The footer's mode button and the frame-over dialog's second button open the Game mode sheet.
+        mode: () => { const S = poolS; S.sheet = { open: !S.sheet.open, mode: poolMode }; S.spinOpen = false; },
+        sheetTab: m => { poolS.sheet.mode = m === 'pvp' ? 'pvp' : 'cpu'; },
+        sheetClose: () => { poolS.sheet.open = false; },
+        // A difficulty: remembered (the same setting as ⚙️), in force now if nothing has
+        // been hit yet, else from the next frame. From 2 Players it switches to Vs CPU.
+        difficulty: d => {
+            const S = poolS;
+            userPreferences.poolDifficulty = PA_TIERS[d] ? d : 'adaptive';
+            savePreferences();
+            if (poolMode !== 'cpu') { togglePoolMode(); S.sheet.open = false; return; }
+            if (poolFrameFresh()) { poolLockTier(); S.sheet.open = false; }
+        },
+        startPvp: () => { if (poolMode !== 'pvp') togglePoolMode(); poolS.sheet.open = false; },
         reset: () => resetPoolGame(),
         max: () => togglePoolMaximize(),
         call: i => { if (poolCanAct()) poolS.called = i; },
@@ -5582,7 +6064,7 @@
         // carries on from where it was once the ball is down, so this never buys time back.
         replace: () => { const S = poolS; if (S.phase === 'aim' && S.frame.ballInHand && poolCanAct() && !S.drag) { S.phase = 'bih'; S.placed = false; S.power = 0; } },
         primary: () => poolNewFrame(3 - poolS.breaker),
-        secondary: () => togglePoolMode(),
+        secondary: () => { poolS.sheet = { open: true, mode: poolMode }; },
     };
 
     function poolBuild(root) {
@@ -5604,6 +6086,7 @@
         poolGamesWon = loadPoolHighScore();
         loadPoolWinsByMode();   // seeds the per-mode split on first run
         poolRecord = loadPoolRecord();
+        poolS.cpuRec = poolLoadCpuRecord();
         if (!S.cfg) S.cfg = ppCreateWorld().cfg;
         if (!S.hudC || !root.contains(S.hudC.el)) poolBuild(root);
         // A frame in progress survives switching to another game and back.
@@ -16732,6 +17215,68 @@
             .pool-hud .ph-ready-short { display: none; }
             .pool-hud .ph-handoff.is-tight .ph-ready-long { display: none; }
             .pool-hud .ph-handoff.is-tight .ph-ready-short { display: inline; }
+
+            /* ── The Game mode sheet (InMatch.dc.html, ModeSheet) ─────────── */
+            /* A bottom sheet over the whole panel: the modes, then the CPU's
+               difficulty (Adaptive carries a chip with the tier it plays now), or
+               the 2 Players explainer. */
+            .pool-hud { position: relative; }
+            .pool-hud .ph-sheet-scrim {
+                position: absolute; inset: 0; z-index: 8; border-radius: var(--pool-radius);
+                background: rgba(7, 9, 10, 0.6); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+            }
+            .pool-hud .ph-sheet {
+                position: absolute; left: 0; right: 0; bottom: 0; z-index: 9; box-sizing: border-box; padding: 16px;
+                display: flex; flex-direction: column; gap: 12px; border-radius: 20px;
+                background: var(--pool-overlay-strong); border-top: 1px solid var(--pool-overlay-line);
+                box-shadow: 0 -18px 40px rgba(0, 0, 0, 0.5); color: var(--pool-overlay-text);
+            }
+            .pool-hud .ph-sheet-head { height: 44px; display: flex; align-items: center; justify-content: space-between; }
+            .pool-hud .ph-sheet-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 18px; }
+            .pool-hud .ph-sheet-head .ph-btn { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
+            .pool-hud .ph-sheet-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+            .pool-hud .ph-sheet-mode {
+                height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 0;
+                border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-overlay-line); background: transparent;
+                color: var(--pool-overlay-text); font-size: 12px; font-weight: 600; cursor: pointer;
+            }
+            .pool-hud .ph-sheet-mode[aria-checked="true"] { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.12); }
+            .pool-hud .ph-sheet-mode:hover { background: rgba(var(--pool-accent-rgb), 0.08); }
+            .pool-hud .ph-sheet-l { font-size: 10px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); margin-bottom: 8px; }
+            .pool-hud .ph-sheet-diffs { display: flex; flex-direction: column; gap: 4px; }
+            .pool-hud .ph-sheet-diff {
+                height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 12px; box-sizing: border-box;
+                border-radius: var(--pool-radius-sm); border: 1px solid transparent; background: transparent;
+                color: var(--pool-overlay-text); text-align: left; cursor: pointer;
+            }
+            .pool-hud .ph-sheet-diff:hover { background: rgba(var(--pool-accent-rgb), 0.06); }
+            .pool-hud .ph-sheet-diff[aria-checked="true"] { border-color: rgba(var(--pool-accent-rgb), 0.45); background: rgba(var(--pool-accent-rgb), 0.08); }
+            .pool-hud .ph-sheet-radio {
+                width: 18px; height: 18px; flex-shrink: 0; box-sizing: border-box; border-radius: 50%;
+                border: 2px solid var(--pool-overlay-muted); display: flex; align-items: center; justify-content: center;
+            }
+            .pool-hud .ph-sheet-radio span { width: 8px; height: 8px; border-radius: 50%; background: var(--pool-accent); opacity: 0; }
+            .pool-hud .ph-sheet-diff[aria-checked="true"] .ph-sheet-radio { border-color: var(--pool-accent); }
+            .pool-hud .ph-sheet-diff[aria-checked="true"] .ph-sheet-radio span { opacity: 1; }
+            .pool-hud .ph-sheet-dt { display: flex; flex-direction: column; gap: 1px; flex-grow: 1; min-width: 0; }
+            .pool-hud .ph-sheet-dn { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+            .pool-hud .ph-sheet-dd { font-size: 11px; color: var(--pool-overlay-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-sheet-chip {
+                display: inline-flex; align-items: center; height: 16px; padding: 0 6px; border-radius: 8px; white-space: nowrap;
+                border: 1px solid rgba(var(--pool-accent-rgb), 0.45); color: var(--pool-accent); font-size: 8px; letter-spacing: 0.12em;
+            }
+            .pool-hud .ph-sheet-note { font-size: 11px; color: var(--pool-overlay-muted); padding: 6px 12px 0; }
+            .pool-hud .ph-sheet-pvp {
+                padding: 14px; border-radius: var(--pool-radius); border: 1px solid var(--pool-overlay-line);
+                display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--pool-overlay-text);
+            }
+            .pool-hud .ph-sheet-pvp .ph-primary { height: 48px; font-size: 14px; }
+            .pool-hud[data-layout="max"] .ph-sheet { left: 50%; right: auto; width: 520px; transform: translateX(-50%); bottom: 24px; }
+            .pool-hud[data-layout="max"] .ph-sheet-scrim { border-radius: 20px; }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .ph-sheet { padding: 12px; gap: 10px; }
+                .pool-hud .ph-sheet-diff { gap: 10px; padding: 0 10px; }
+            }
             /* ═══ END POOL THEME ═══ */
 
             /* Borderless PiP Window - Hide Browser Chrome */
@@ -19355,6 +19900,16 @@
                 <select class="settings-select" data-pref="poolShotCam">
                     <option value="overhead" ${userPreferences.poolShotCam !== '3d' ? 'selected' : ''}>Overhead — rise to the top view</option>
                     <option value="3d" ${userPreferences.poolShotCam === '3d' ? 'selected' : ''}>Stay 3D — stand up, whole table</option>
+                </select>
+            </div>
+            <div class="settings-option">
+                <span class="settings-option-label"><span class="rt-emo">🎱</span> Pool CPU</span>
+                <select class="settings-select" data-pref="poolDifficulty">
+                    <option value="adaptive" ${userPreferences.poolDifficulty === 'adaptive' || !userPreferences.poolDifficulty ? 'selected' : ''}>Adaptive — matches your form</option>
+                    <option value="easy" ${userPreferences.poolDifficulty === 'easy' ? 'selected' : ''}>Easy — simple pots, misses often</option>
+                    <option value="normal" ${userPreferences.poolDifficulty === 'normal' ? 'selected' : ''}>Normal — solid, little position</option>
+                    <option value="hard" ${userPreferences.poolDifficulty === 'hard' ? 'selected' : ''}>Hard — plays position</option>
+                    <option value="pro" ${userPreferences.poolDifficulty === 'pro' ? 'selected' : ''}>Pro — hardly misses, call every shot</option>
                 </select>
             </div>
             <div class="settings-option">

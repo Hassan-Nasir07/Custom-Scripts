@@ -28,7 +28,7 @@ function page() {
     // Test-only window onto the closure: pool's state and the host helpers the checks call.
     const probe = `
     window.__probe = {
-        S: poolS, get mode() { return poolMode; }, get maximized() { return poolMaximized; },
+        S: poolS, get mode() { return poolMode; }, get maximized() { return poolMaximized; }, get tier() { return poolCpuTier; },
         get currentGame() { return currentGame; }, get prefs() { return userPreferences; },
         applyPreferences, poolEndFrame, poolNewFrame, resetPoolGame, prCanPlace, phThemeTokens, pcProject, pcView,
         toggleSettingsModal: typeof toggleSettingsModal === 'function' ? toggleSettingsModal : null,
@@ -418,6 +418,35 @@ async function main() {
     await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
 
     // ── Switching games, settings, awards ─────────────────────────────
+    // ── The Game mode sheet, by mouse ─────────────────────────────────
+    head('Game mode sheet');
+    const pre = await ev(`(() => { const S = window.__probe.S, m = document.querySelector('#pool-root [data-ph=mode]'), b = m.getBoundingClientRect();
+        const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return { phase: S.phase, sheet: S.sheet.open, handoff: S.handoff, footHidden: !!m.closest('[hidden]'), top: top && (top.className || top.tagName), maxed: window.__probe.maximized }; })()`);
+    const clicked = await click('#pool-root [data-ph=mode]');
+    const sh1 = await ev(`(() => { const S = window.__probe.S, h = document.querySelector('#pool-root [data-ph=sheet]');
+        return { open: S.sheet.open, shown: !!h && !h.closest('[hidden]'), tab: S.sheet.mode, rows: [...document.querySelectorAll('#pool-root [data-ph-diff] .ph-sheet-dn > span:first-child')].map(b => b.textContent) }; })()`);
+    ok('the footer Vs CPU button opens the Game mode sheet on Vs CPU', sh1.open && sh1.shown && sh1.tab === 'cpu' && sh1.rows.join() === 'Adaptive,Easy,Normal,Hard,Pro', { sh1, pre, clicked });
+    await report('sheet open, compact');
+    await shot('host-sheet', '.snake-game-container');
+    const tier0 = await ev('window.__probe.tier');
+    await click('#pool-root [data-ph-diff="pro"]');
+    const sh2 = await ev(`(() => ({ tier: window.__probe.tier, open: window.__probe.S.sheet.open, pref: window.__probe.prefs.poolDifficulty,
+        note: document.querySelector('#pool-root [data-ph=sheetnote]').closest('[hidden]') ? '' : document.querySelector('#pool-root [data-ph=sheetnote]').textContent }))()`);
+    ok('mid-frame, a pick is remembered for the next frame and the sheet says so', sh2.pref === 'pro' && sh2.tier === tier0 && sh2.open && /Pro from the next frame/.test(sh2.note), sh2);
+    await key('Escape');
+    ok('Esc closes the sheet', !(await ev('window.__probe.S.sheet.open')));
+    await click('#pool-root [data-ph=mode]');
+    await click('#pool-root [data-ph-mode="pvp"]');
+    await click('#pool-root [data-ph=sheetstart]');
+    const sh3 = await ev('(() => ({ mode: window.__probe.mode, open: window.__probe.S.sheet.open, fresh: window.__probe.S.frame.isBreak }))()');
+    ok('2 Players → START 2-PLAYER FRAME: a fresh 2-player rack', sh3.mode === 'pvp' && !sh3.open && sh3.fresh, sh3);
+    await click('#pool-root [data-ph=mode]');
+    await click('#pool-root [data-ph-mode="cpu"]');          // the sheet opens on 2 Players; switch the tab first
+    await click('#pool-root [data-ph-diff="adaptive"]');
+    const sh4 = await ev('(() => ({ mode: window.__probe.mode, open: window.__probe.S.sheet.open, tier: window.__probe.tier, rec: document.querySelector(".ph-card[data-seat=\'2\'] [data-ph=rec]").textContent }))()');
+    ok('a difficulty from 2 Players switches back to Vs CPU, adaptive', sh4.mode === 'cpu' && !sh4.open && /^Adaptive · /.test(sh4.rec), sh4);
+
     head('Around the panel');
     const keep = await ev('window.__probe.S.rackId');
     await ev("window.switchGame('snake')");
@@ -432,6 +461,8 @@ async function main() {
         await sleep(400);
         const sel = await ev(`(() => { const s = document.querySelector('select[data-pref="poolShotCam"]'); if (!s) return null; s.value = '3d'; s.dispatchEvent(new Event('change', { bubbles: true })); return [...s.options].map(o => o.value); })()`);
         ok('⚙️ has the Pool Shot Camera select, and it sets userPreferences.poolShotCam', sel && sel.join() === 'overhead,3d' && (await ev('window.__probe.prefs.poolShotCam')) === '3d', sel);
+        const dsel = await ev(`(() => { const s = document.querySelector('select[data-pref="poolDifficulty"]'); if (!s) return null; s.value = 'hard'; s.dispatchEvent(new Event('change', { bubbles: true })); return [...s.options].map(o => o.value); })()`);
+        ok('⚙️ has the Pool CPU pin, and it sets userPreferences.poolDifficulty', dsel && dsel.join() === 'adaptive,easy,normal,hard,pro' && (await ev('window.__probe.prefs.poolDifficulty')) === 'hard', dsel);
         await ev('window.__probe.toggleSettingsModal()');
         await sleep(300);
     } else ok('⚙️ settings modal reachable', false, 'toggleSettingsModal not found');

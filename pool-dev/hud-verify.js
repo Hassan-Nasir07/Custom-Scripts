@@ -128,6 +128,21 @@ const vm = o => P.phModel(game(o));
     ok('initials: two words give two letters, one word its first two', P.phInitials('Player 1', 1) === 'P1' && P.phInitials('Ayesha Khan', 1) === 'AK' && P.phInitials('Bilal', 2) === 'BI' && P.phInitials('', 2) === 'P2');
     ok('spin presets cycle through all five', [0, 1, 2, 3, 4, 5].map(i => vm({ spin: i }).spin.label).join() === 'Center,Follow,Draw,Left,Right,Center');
     ok('spin presets sit inside the miscue circle', P.PH_SPINS.every(s => Math.hypot(s.x, s.y) <= P.ppCreateWorld().cfg.maxTip));
+    // The Game mode sheet (InMatch.dc.html's ModeSheet).
+    ok('the sheet is closed until asked for', !vm({}).sheet.show);
+    const sh = vm({ sheet: { open: true, mode: 'cpu' }, difficulty: 'hard', adaptiveTier: 'normal' });
+    ok('Vs CPU: the five difficulties in the design\'s order and words', sh.sheet.show && sh.sheet.mode === 'cpu' &&
+       sh.sheet.diffs.map(d => d.name).join() === 'Adaptive,Easy,Normal,Hard,Pro' && sh.sheet.diffs[4].desc === 'Hardly misses · call every shot' &&
+       sh.sheet.diffs[0].desc === 'Matches your form, frame by frame');
+    ok('the picked difficulty is checked, and the Adaptive chip names the tier it plays now',
+       sh.sheet.diffs.filter(d => d.checked).map(d => d.key).join() === 'hard' && sh.sheet.chip === 'NOW NORMAL');
+    ok('no pick yet means Adaptive', vm({ sheet: { open: true } }).sheet.diffs[0].checked);
+    ok('with the sheet up, the lean, spin, picker and hint step aside', !sh.lean.show && !sh.spin.show && !sh.hint.show && !vm({ sheet: { open: true }, spinOpen: true }).spin.open);
+    ok('the sheet opens on 2 Players when that is the mode', vm({ mode: 'pvp', sheet: { open: true } }).sheet.mode === 'pvp');
+    ok('a note under the list passes through', vm({ sheet: { open: true, note: 'Hard from the next frame; this one stays Normal' } }).sheet.note === 'Hard from the next frame; this one stays Normal');
+    ok('frame over vs the CPU: the second button is Change difficulty, as designed',
+       vm({ phase: 'over', result: { win: true, title: 'You win' } }).dialog.secondary === 'Change difficulty');
+
     // Free spin: any tip inside the ring, clamped to it, named by where it is.
     ok('the picker\'s limit is the physics\' miscue radius', P.PH_TIP_MAX === P.ppCreateWorld().cfg.maxTip);
     const far = P.phClampTip(3, 4);

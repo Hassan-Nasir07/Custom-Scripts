@@ -72,6 +72,7 @@
         </fieldset>
         <fieldset><legend>Match</legend>
             <label>Mode <select id="mode"><option value="cpu">Vs CPU</option><option value="pvp">2 Players</option></select></label>
+            <label>CPU <select id="diff"><option value="adaptive">Adaptive</option><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option><option value="pro">Pro</option></select></label>
             <label><input id="every" type="checkbox"> Call every shot</label>
         </fieldset>
         <fieldset><legend>Table</legend>
@@ -86,7 +87,7 @@
             <div id="xplog">No frames finished yet.</div>
         </fieldset>
         <div class="hint">
-            This page runs the widget's own controller (pool-game.js) and the stand-in CPU, on stand-ins for the host.
+            This page runs the widget's own controller (pool-game.js) and CPU (pool-ai.js), on stand-ins for the host. The CPU select is the same setting as ⚙️ Pool CPU.
             3D: move the mouse sideways to aim (Shift for fine); it keeps aiming past the table's edge. 2D: point to aim.
             Press, then pull back or push forward along the shot line for power, and release. Return to the start or press Esc to cancel.
             Spin: drag the red dot on SPIN, or click SPIN for the big picker (letting go confirms).
@@ -205,6 +206,7 @@ function toggleGameMaxModal(cfg) {
     if (Q.has('lean')) userPreferences.poolLean = +Q.get('lean'); else if (still) userPreferences.poolLean = 35;
     if (Q.has('shotcam')) userPreferences.poolShotCam = Q.get('shotcam'); else if (still) userPreferences.poolShotCam = 'overhead';
     if (Q.has('felt')) userPreferences.poolTableColor = Q.get('felt'); else if (still) userPreferences.poolTableColor = 'green';
+    if (Q.has('diff')) userPreferences.poolDifficulty = Q.get('diff'); else if (still) userPreferences.poolDifficulty = 'adaptive';
     // As the host's applyPreferences does, then pool's hook.
     function applyTheme(save) {
         const cyber = userPreferences.displayTheme === 'retro-futuristic';
@@ -257,6 +259,8 @@ function toggleGameMaxModal(cfg) {
     if (Q.has('spin')) { const p = PH_SPINS[+Q.get('spin') % PH_SPINS.length]; S.tip = { x: p.x, y: p.y }; }
     if (Q.has('tipx') || Q.has('tipy')) S.tip = phClampTip(+Q.get('tipx') || 0, +Q.get('tipy') || 0);
     if (Q.has('spinopen')) S.spinOpen = true;
+    // ?sheet=cpu|pvp opens the Game mode sheet on that tab.
+    if (Q.get('sheet')) S.sheet = { open: true, mode: Q.get('sheet') === 'pvp' ? 'pvp' : 'cpu' };
     if (Q.has('max')) togglePoolMaximize();
     if (Q.has('placed') && S.phase === 'bih') { S.placed = true; S.phase = 'aim'; poolAimAtNearest(); }
     if (sc === 'foul') {
@@ -299,6 +303,8 @@ function toggleGameMaxModal(cfg) {
     $('shape').onchange = e => { userPreferences.cyberPanelShape = e.target.value; applyTheme(true); };
     $('narrow').checked = Q.has('narrow'); $('narrow').onchange = e => setNarrow(e.target.checked);
     $('mode').value = poolMode; $('mode').onchange = e => { if (e.target.value !== poolMode) togglePoolMode(); };
+    $('diff').value = userPreferences.poolDifficulty || 'adaptive';
+    $('diff').onchange = e => { userPreferences.poolDifficulty = e.target.value; savePreferences(); if (poolFrameFresh()) poolLockTier(); };
     $('every').checked = S.callEvery; $('every').onchange = e => { S.callEvery = e.target.checked; S.frame.callEvery = S.callEvery; };
     $('shotcam').value = userPreferences.poolShotCam; $('shotcam').onchange = e => { userPreferences.poolShotCam = e.target.value; savePreferences(); };
     $('guides').value = S.guideMode; $('guides').onchange = e => { S.guideMode = e.target.value; };
@@ -332,7 +338,7 @@ function toggleGameMaxModal(cfg) {
          ['gauge', 'hint'], ['lock', 'pill'], ['gauge', 'pill'], ['spinpop', 'spin'], ['spinpop', 'hint'], ['spinpop', 'pill'], ['spinpop', 'cam']].forEach(([a, b]) => {
             if (hud[a] && hud[b] && visible(hud[a]) && visible(hud[b])) ok(a + ' and ' + b + ' do not overlap', !hit(hud[a], hud[b]));
         });
-        const clipped = Array.from(hud.el.querySelectorAll('.ph-name, .ph-tag, .ph-hint span, .ph-pill span, .ph-cam span, .ph-frames-n, .ph-toast-title, .ph-dialog-title, .ph-btn span, .ph-replace span, .ph-spinpop-read, .ph-spinpop-chips .ph-btn, .ph-spin-v, .ph-handoff-to, .ph-handoff-from, .ph-handoff .ph-primary'))
+        const clipped = Array.from(hud.el.querySelectorAll('.ph-name, .ph-tag, .ph-hint span, .ph-pill span, .ph-cam span, .ph-frames-n, .ph-toast-title, .ph-dialog-title, .ph-btn span, .ph-replace span, .ph-spinpop-read, .ph-spinpop-chips .ph-btn, .ph-spin-v, .ph-handoff-to, .ph-handoff-from, .ph-handoff .ph-primary, .ph-sheet-dn, .ph-sheet-dd, .ph-sheet-chip, .ph-sheet-mode span, .ph-sheet-title'))
             .filter(visible).filter(el => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).display !== 'inline');
         ok('no label is cut off', !clipped.length, clipped.map(e => e.className + ' "' + e.textContent + '"').join(', '));
         if (Q.has('spinopen')) {
@@ -342,6 +348,12 @@ function toggleGameMaxModal(cfg) {
             ok('the picker dot sits where the tip strikes', Math.abs(d.left + d.width / 2 - ex) < 1 && Math.abs(d.top + d.height / 2 - ey) < 1, [d.left + d.width / 2 - ex, d.top + d.height / 2 - ey].map(v => v.toFixed(2)).join());
         }
         if (visible(hud.handoff)) { const h = hud.handoff; ok('the hand-off strip holds its content', h.scrollHeight <= h.clientHeight + 1 && h.scrollWidth <= h.clientWidth + 1, h.scrollWidth + 'x' + h.scrollHeight + ' in ' + h.clientWidth + 'x' + h.clientHeight); }
+        if (Q.get('sheet')) {
+            const sh = hud.sheet, er = hud.el.getBoundingClientRect(), r = sh.getBoundingClientRect();
+            ok('the Game mode sheet is open on the ' + Q.get('sheet') + ' tab', visible(sh) && hud.modeButtons.some(b => b.getAttribute('aria-checked') === 'true' && b.getAttribute('data-ph-mode') === Q.get('sheet')));
+            ok('the sheet fits inside the panel and holds its content', r.top >= er.top - 1 && r.bottom <= er.bottom + 1 && r.left >= er.left - 1 && r.right <= er.right + 1 && sh.scrollHeight <= sh.clientHeight + 1,
+               [r.top - er.top, er.bottom - r.bottom, sh.scrollHeight, sh.clientHeight].map(v => v.toFixed ? v.toFixed(0) : v).join());
+        }
         if (Q.has('placed')) ok('the Move cue ball button shows once the ball is placed', visible(hud.replace));
         if (Q.has('narrow') && hud.layout === 'compact') ok('the narrow column gives the HUD 316 px, as the widget does', Math.abs(hud.el.getBoundingClientRect().width - 316) < 1, hud.el.getBoundingClientRect().width);
         const card = getComputedStyle(hud.el).getPropertyValue('--pool-card').trim();

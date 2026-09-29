@@ -260,10 +260,11 @@
 
             .pool-hud .ph-toast {
                 left: 10px; right: 10px; top: 10px; box-sizing: border-box; min-height: 60px; padding: 10px 14px;
-                display: flex; align-items: center; gap: 12px; border-radius: var(--pool-radius);
+                display: flex; flex-direction: column; justify-content: center; gap: 10px; border-radius: var(--pool-radius);
                 background: var(--pool-overlay-strong); border-color: rgba(var(--pool-accent-rgb), 0.6);
                 box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
             }
+            .pool-hud .ph-toast-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
             .pool-hud .ph-toast.is-foul { border-color: rgba(var(--pool-hot-rgb), 0.7); background: var(--pool-hot-edge) left top / 4px 100% no-repeat, var(--pool-overlay-strong); }
             .pool-hud .ph-toast-icon { width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.16); color: var(--pool-accent); }
             .pool-hud .ph-toast.is-foul .ph-toast-icon { background: rgba(var(--pool-hot-rgb), 0.16); color: var(--pool-hot); }
@@ -271,6 +272,14 @@
             .pool-hud .ph-toast-title { font-size: 13px; font-weight: 600; color: var(--pool-accent); }
             .pool-hud .ph-toast.is-foul .ph-toast-title { color: var(--pool-hot); }
             .pool-hud .ph-toast-sub { font-size: 12px; }
+            /* Snooker's choice after a foul: a row of 44 px buttons, the first primary. */
+            .pool-hud .ph-toast-acts { display: flex; gap: 6px; pointer-events: auto; min-width: 0; }
+            .pool-hud .ph-toast-acts button { height: 44px; padding: 0 12px; flex-shrink: 0; white-space: nowrap; font-family: var(--pool-body); font-size: 12px; font-weight: 600; letter-spacing: 0; }
+            .pool-hud .ph-toast-acts button.is-grow { flex-grow: 1; flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-toast-acts .ph-btn { color: var(--pool-overlay-text); background: rgba(255, 255, 255, 0.06); border-color: var(--pool-overlay-line); }
+            .pool-hud .ph-act-s { display: none; }
+            .pool-hud .ph-toast-acts.is-tight .ph-act-l { display: none; }
+            .pool-hud .ph-toast-acts.is-tight .ph-act-s { display: inline; }
 
             .pool-hud .ph-lean {
                 left: 10px; top: 60px; width: 40px; height: min(288px, calc(100% - 124px)); box-sizing: border-box; padding: 10px 0;
@@ -1038,3 +1047,134 @@
                 .pool-hud .pu-tabs button { font-size: 10px; }
                 .pool-hud .ph-sheet-mode { font-size: 11px; }
             }
+
+            /* ── Snooker (POOL_V2_PLAN.md, Snooker: the snk* artboards) ───── */
+            /* The same HUD with data-game="snooker": a tighter rhythm so the tracker row fits,
+               cards with a score and a third line, the tracker, the colour chips, the frame's
+               stats in the dialog, and the concede question. The balls' colours are materials,
+               set inline from the renderer's; everything else reads --pool-* only. */
+            .pool-hud:not([data-game="snooker"]) .ph-l3, .pool-hud:not([data-game="snooker"]) .ph-score { display: none; }
+            .pool-hud[data-game="snooker"] .ph-tag, .pool-hud[data-game="snooker"] .ph-group, .pool-hud[data-game="snooker"] .ph-open { display: none !important; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] { gap: 8px; }
+            .pool-hud[data-game="snooker"] .ph-cards { grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr); gap: 6px; }
+            .pool-hud[data-game="snooker"] .ph-frames-n { font-size: 20px; }
+            .pool-hud[data-game="snooker"] .ph-foot, .pool-hud[data-game="snooker"] .ph-handoff { height: 48px; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-card {
+                display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto auto;
+                column-gap: 8px; row-gap: 3px; align-content: center; justify-items: start;
+            }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-card[data-seat="2"] { grid-template-columns: auto minmax(0, 1fr); justify-items: end; text-align: right; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-card-top { grid-column: 1; grid-row: 1; min-width: 0; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-rec { grid-column: 1; grid-row: 2; font-size: 10px; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-l3 { grid-column: 1; grid-row: 3; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-card[data-seat="2"] :is(.ph-card-top, .ph-rec, .ph-l3) { grid-column: 2; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-score { grid-column: 2; grid-row: 1 / 4; align-self: center; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-card[data-seat="2"] .ph-score { grid-column: 1; }
+            .pool-hud .ph-l3 { min-height: 11px; font-size: 9px; color: var(--pool-accent-ink); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-l3.is-hot { color: var(--pool-hot-ink); }
+            .pool-hud .ph-l3-short { display: none; }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .ph-l3-long { display: none; }
+                .pool-hud .ph-l3-short { display: inline; }
+            }
+            .pool-hud .ph-score { font-size: 28px; font-weight: 700; line-height: 1; }
+            .pool-hud .ph-card.is-active .ph-score { color: var(--pool-accent-ink); }
+            .retro-theme .pool-hud .ph-l3 { font-family: var(--pool-num); letter-spacing: 0.08em; font-size: 10px; }
+
+            /* The tracker row (20 px): reds, the colours (the ball on ringed), points left. */
+            .pool-hud .ph-track { height: 20px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 4px; min-width: 0; }
+            .pool-hud .ph-track-reds { display: flex; align-items: center; gap: 5px; font-size: 10px; letter-spacing: 0.12em; white-space: nowrap; }
+            .pool-hud .ph-track-red { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+            .pool-hud .ph-track-red.is-down { opacity: 0.22; }
+            .pool-hud .ph-track-dots { display: flex; align-items: center; gap: 4px; }
+            .pool-hud .ph-track-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; transition: opacity 0.25s ease; }
+            .pool-hud .ph-track-dot.is-down { opacity: 0.22; }
+            .pool-hud .ph-track-dot.is-on { box-shadow: 0 0 0 1.5px var(--pool-card-line), 0 0 0 3px var(--pool-accent); }
+            .pool-hud .ph-track-gap { flex-grow: 1; }
+            .pool-hud .ph-track-snk {
+                display: flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; white-space: nowrap;
+                background: rgba(var(--pool-hot-rgb), 0.16); border: 1px solid rgba(var(--pool-hot-rgb), 0.7); color: var(--pool-hot-ink); font-size: 9px; letter-spacing: 0.1em;
+            }
+            /* Concede keeps the drawn 20 px look with a 44 px target (an invisible pad above and below). */
+            .pool-hud .ph-track-concede {
+                position: relative; height: 20px; padding: 0 8px; border-radius: 10px; cursor: pointer; flex-shrink: 0;
+                background: var(--pool-control); border: 1px solid var(--pool-control-line); color: var(--pool-text); font-size: 11px; font-weight: 600;
+            }
+            .pool-hud .ph-track-concede::after { content: ''; position: absolute; left: 0; right: 0; top: -12px; bottom: -12px; }
+            .pool-hud .ph-track-concede:hover { background: var(--pool-hover); color: var(--pool-hover-text); }
+            .pool-hud .ph-track-rem { font-size: 10px; letter-spacing: 0.12em; color: var(--pool-muted); white-space: nowrap; }
+            .pool-hud .ph-track > * { flex-shrink: 0; }
+            .pool-hud .ph-track > .ph-track-gap { flex-shrink: 1; }
+            /* With SNOOKERS REQ. and Concede in the row, the reds count keeps its dot and number
+               ("● × 2"); in the widget's column the colour dots give way too. Max has the room. */
+            .pool-hud[data-layout="compact"] .ph-track.is-snk { gap: 6px; padding: 0 2px; }
+            .pool-hud[data-layout="compact"] .ph-track.is-snk .ph-track-word { display: none; }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .ph-track.is-snk .ph-track-dots { display: none; }
+                .pool-hud .ph-track { gap: 6px; padding: 0 2px; }
+            }
+
+            /* The colour chips (160 px card, bottom right): 44 px rows, 30 px balls with their value. */
+            .pool-hud .ph-chips {
+                right: 10px; bottom: 10px; width: 160px; box-sizing: border-box; padding: 8px 8px 10px; border-radius: var(--pool-radius);
+                display: flex; flex-direction: column; gap: 4px; pointer-events: auto;
+            }
+            .pool-hud .ph-chips.is-set, .pool-hud .ph-chips.is-power { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .ph-chips.is-hot { border-color: rgba(var(--pool-hot-rgb), 0.6); }
+            .pool-hud .ph-chips-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 44px; }
+            .pool-hud .ph-chip { height: 44px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+            .pool-hud .ph-chip span {
+                width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                font-family: var(--pool-num); font-size: 14px; font-weight: 700; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+            }
+            .pool-hud .ph-chip[aria-checked="true"] span { box-shadow: 0 0 0 2px var(--pool-overlay-strong), 0 0 0 4px var(--pool-accent); }
+            .pool-hud .ph-chip:disabled { cursor: default; }
+            .pool-hud .ph-chip:disabled span { opacity: 0.22; }
+            .pool-hud .ph-chips-cap { text-align: center; font-size: 12px; font-weight: 600; color: var(--pool-overlay-text); white-space: nowrap; }
+            .pool-hud .ph-chips.is-set .ph-chips-cap, .pool-hud .ph-chips.is-power .ph-chips-cap { color: var(--pool-accent-lite); }
+            .pool-hud .ph-chips.is-hot .ph-chips-cap { color: var(--pool-hot-lite); }
+            /* While the chips hold the corner: the gauge and padlock step up over them, and
+               Move cue ball goes bottom left. */
+            .pool-hud[data-layout="compact"] .ph-view.is-nominating .ph-gauge { bottom: 146px; height: min(140px, calc(100% - 290px)); }
+            .pool-hud[data-layout="compact"] .ph-view.is-nominating .ph-lock { bottom: calc(150px + min(140px, calc(100% - 290px))); }
+            .pool-hud[data-layout="compact"] .ph-view.is-nominating .ph-replace { right: auto; left: 10px; bottom: 62px; }
+
+            /* The frame-over dialog: tighter, with SCORE and HIGH BREAK two up. */
+            .pool-hud[data-game="snooker"] .ph-dialog { padding: 16px; gap: 10px; }
+            .pool-hud .ph-dialog-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+            .pool-hud .ph-dialog-stat { padding: 8px 12px; border-radius: var(--pool-radius-sm); background: rgba(255, 255, 255, 0.06); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            .pool-hud .ph-dialog-stat-l { font-size: 9px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); }
+            /* A long name under HIGH BREAK wraps rather than being cut; the widget's column takes it smaller. */
+            .pool-hud .ph-dialog-stat-v { font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
+            @container pool-hud (max-width: 359px) { .pool-hud .ph-dialog-stat-v { font-size: 15px; } }
+
+            /* Concede the frame? (SnkConcede): an alert dialog, CONCEDE hot. */
+            .pool-hud .ph-dialog.is-alert { width: min(300px, calc(100% - 32px)); padding: 20px; gap: 14px; border-color: rgba(var(--pool-hot-rgb), 0.55); background: var(--pool-hot-edge) left top / 4px 100% no-repeat, var(--pool-overlay-strong); }
+            .pool-hud .ph-dialog.is-alert .ph-dialog-icon { background: rgba(var(--pool-hot-rgb), 0.16); color: var(--pool-hot); }
+            .pool-hud .ph-cdlg-t { display: flex; flex-direction: column; gap: 6px; }
+            .pool-hud .ph-cdlg-t .ph-dialog-title { font-size: 22px; line-height: 1.15; }
+            .pool-hud .ph-primary.is-hot { background: var(--pool-hot-fill); color: #ffffff; font-size: 14px; }
+
+            /* Max (SnkMaxRed / SnkMaxNominate / SnkMaxOver). */
+            .pool-max-frame.is-snooker { padding: 12px 24px 16px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] { gap: 8px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-frames { width: 80px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-frames-n { font-size: 28px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-card { width: 250px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-card-top { flex-direction: column; align-items: flex-start; gap: 3px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-card[data-seat="2"] .ph-card-top { flex-direction: column; align-items: flex-end; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-card-body { gap: 3px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-l3 { font-size: 10px; min-height: 12px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-score { font-size: 34px; }
+            .pool-hud[data-layout="max"] .ph-track { justify-content: center; gap: 16px; }
+            .pool-hud[data-layout="max"] .ph-track-gap { display: none; }
+            .pool-hud[data-layout="max"] .ph-track-reds, .pool-hud[data-layout="max"] .ph-track-rem { font-size: 11px; }
+            .pool-hud[data-layout="max"] .ph-track-red { width: 10px; height: 10px; }
+            .pool-hud[data-layout="max"] .ph-track-dots { gap: 6px; }
+            .pool-hud[data-layout="max"] .ph-track-dot { width: 11px; height: 11px; }
+            .pool-hud[data-layout="max"] .ph-chips { right: 16px; bottom: 16px; width: 212px; padding: 12px 12px 14px; gap: 6px; }
+            .pool-hud[data-layout="max"] .ph-chips-grid { grid-auto-rows: 58px; }
+            .pool-hud[data-layout="max"] .ph-chip { height: 58px; }
+            .pool-hud[data-layout="max"] .ph-chip span { width: 42px; height: 42px; font-size: 18px; }
+            .pool-hud[data-layout="max"] .ph-chips-cap { font-size: 14px; }
+            .pool-hud[data-layout="max"] .ph-view.is-nominating .ph-replace { right: auto; left: 16px; bottom: 100px; }

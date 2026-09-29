@@ -110,9 +110,60 @@ const SCENES = {
     'light:tour-bracket-sf': 'tour=bracket&n=8&played=5&tab=1',
     'light:tour-match': 'tour=match&n=8&played=4&tframe=1&camera=3d',
     'light:tour-champion': 'tour=champion&n=6',
+    // Snooker's table (POOL_V2_PLAN.md, Snooker, S1): the real camera and renderer on it,
+    // through pool-table.html's ?look=snooker view (the HUD joins it in S3).
+    'snooker-break-d': 'look=snooker&layout=break',
+    'snooker-break-10': 'look=snooker&layout=break&reds=10',
+    'snooker-break-6': 'look=snooker&layout=break&reds=6',
+    'snooker-mid-3d': 'look=snooker&layout=mid&camera=3d',
+    'snooker-mid-3d-lean0': 'look=snooker&layout=mid&camera=3d&lean=0',
+    'snooker-mid-3d-lean100': 'look=snooker&layout=mid&camera=3d&lean=100',
+    'snooker-mid-2d': 'look=snooker&layout=mid&camera=2d',
+    'snooker-nominate-pink': 'look=snooker&layout=nominate&camera=3d&ring=6',
+    'snooker-late-3d': 'look=snooker&layout=late&camera=3d',
+    'snooker-colours-3d': 'look=snooker&layout=colours&camera=3d&ring=2',
+    'snooker-black-d': 'look=snooker&layout=black',
+    'snooker-mid-red-felt': 'look=snooker&layout=mid&camera=2d&felt=red',
+    'max-snooker-mid-3d': 'look=snooker&layout=mid&camera=3d&max=1',
+    'max-snooker-mid-2d': 'look=snooker&layout=mid&camera=2d&max=1',
+    'max-snooker-break-d': 'look=snooker&layout=break&max=1',
+    'cyber-snooker-mid-3d': 'look=snooker&layout=mid&camera=3d&theme=cyber&shape=chamfered',
+    'light:snooker-nominate-pink': 'look=snooker&layout=nominate&camera=3d&ring=6',
+    // Snooker in the widget's HUD (S3): InMatch.dc.html's and Max.dc.html's snk* states,
+    // set straight onto the real controller (pool-table.html's snooker scenes).
+    'snk-break': 'game=snooker&camera=3d',
+    'snk-red': 'game=snooker&scene=red&camera=3d',
+    'snk-red-2d': 'game=snooker&scene=red&camera=2d',
+    'snk-nominate': 'game=snooker&scene=nominate&camera=3d',
+    'snk-nominate-pink': 'game=snooker&scene=nominatePink&camera=3d',
+    'snk-nominate-power': 'game=snooker&scene=nominatePink&camera=3d&power=62',
+    'snk-nominate-2d': 'game=snooker&scene=nominate&camera=2d',
+    'snk-foul': 'game=snooker&scene=foul&camera=3d',
+    'snk-foul-handoff': 'game=snooker&scene=foulHand&camera=3d',
+    'snk-free': 'game=snooker&scene=free&camera=3d',
+    'snk-free-nominate': 'game=snooker&scene=freeNom&camera=3d',
+    'snk-snookers': 'game=snooker&scene=snookers&camera=3d',
+    'snk-concede': 'game=snooker&scene=concede&camera=3d',
+    'snk-colours': 'game=snooker&scene=colours&camera=3d',
+    'snk-century': 'game=snooker&scene=century&camera=3d',
+    'snk-respot': 'game=snooker&scene=respot&camera=3d',
+    'snk-win': 'game=snooker&scene=win&camera=3d',
+    'snk-loss': 'game=snooker&scene=loss&camera=3d',
+    'snk-sheet': 'game=snooker&scene=red&camera=3d&sheet=cpu',
+    'snk-pvp': 'game=snooker&scene=red&camera=3d&mode=pvp',
+    'max-snk-red': 'game=snooker&scene=red&camera=3d&mode=pvp&max=1',
+    'max-snk-nominate': 'game=snooker&scene=nominate&camera=3d&mode=pvp&max=1',
+    'max-snk-win': 'game=snooker&scene=win&camera=3d&max=1',
+    'max-snk-foul': 'game=snooker&scene=foul&camera=3d&max=1',
+    'cyber-snk-nominate': 'game=snooker&scene=nominatePink&camera=3d&theme=cyber&shape=chamfered',
+    'cyber-snk-foul': 'game=snooker&scene=free&camera=3d&theme=cyber&shape=notched',
+    'cyber-snk-concede': 'game=snooker&scene=concede&camera=3d&theme=cyber&shape=rounded',
+    'light:snk-red': 'game=snooker&scene=red&camera=3d',
+    'light:snk-free': 'game=snooker&scene=free&camera=3d',
+    'light:snk-win': 'game=snooker&scene=win&camera=3d',
 };
 
-const CHROME = 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
+const CHROME = require('./browser').browserPath();     // Chrome, else Edge, or POOL_BROWSER
 const CHECK = process.argv.includes('--check');         // also run the page's HUD audit on each scene
 const ARGS = process.argv.slice(2).filter(a => a !== '--check');
 const outDir = ARGS[0] || path.join(os.tmpdir(), 'pool-snapshots');
@@ -121,7 +172,9 @@ const picks = ARGS.slice(1);
 // the same states again, derived so they cannot drift from the originals.
 ['main-3d', 'main-2d', 'power', 'bih', 'bih-break', 'foul-handoff', 'call-3d', 'clock-hot', 'win', 'bih-placed',
     'cyber-main-3d', 'cyber-call-3d', 'cyber-foul', 'light:main-3d', 'break-stay3d', 'spin-open', 'cyber-spin-open', 'sheet-cpu', 'cyber-sheet-cpu', 'sheet-pvp',
-    'tracker-swap', 'open-potted', 'open-potted-4', 'call-3d-power', 'call-3d-replace', 'sheet-tour-saved', 'tour-setup', 'tour-bracket-sf', 'tour-bracket-16', 'tour-intro', 'tour-match', 'tour-result', 'tour-champion', 'tour-cabinet', 'tour-resume', 'tour-pause'].forEach(n => { SCENES['narrow:' + n] = SCENES[n] + '&narrow=1'; });
+    'tracker-swap', 'open-potted', 'open-potted-4', 'call-3d-power', 'call-3d-replace', 'sheet-tour-saved', 'tour-setup', 'tour-bracket-sf', 'tour-bracket-16', 'tour-intro', 'tour-match', 'tour-result', 'tour-champion', 'tour-cabinet', 'tour-resume', 'tour-pause',
+    'snooker-break-d', 'snooker-mid-3d', 'snooker-mid-2d',
+    'snk-break', 'snk-red', 'snk-nominate', 'snk-foul', 'snk-foul-handoff', 'snk-free', 'snk-snookers', 'snk-concede', 'snk-win', 'snk-respot'].forEach(n => { SCENES['narrow:' + n] = SCENES[n] + '&narrow=1'; });
 
 const list = (picks.length ? picks : Object.keys(SCENES)).map(s => [SCENES[s] ? s : s.replace(/[^\w=-]+/g, '_'), SCENES[s] || s]);
 const page = 'file:///' + path.join(__dirname, 'pool-table.html').replace(/\\/g, '/').replace(/ /g, '%20');

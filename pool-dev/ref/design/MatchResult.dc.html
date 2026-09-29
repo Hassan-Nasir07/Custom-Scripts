@@ -22,7 +22,7 @@ body{margin:0;background:#07090A}
 <div style="height: 36px; display: flex; align-items: center; justify-content: space-between">
 <div style="display: flex; flex-direction: column; gap: 1px">
 <span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">CITY OPEN</span>
-<span style="font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: 600; line-height: 1.1">Semi-final · race to 2</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: 600; line-height: 1.1">{{roundTitle}}</span>
 </div>
 <span style="display: flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 15px; background: #1A2024; border: 1px solid rgba(255, 255, 255, 0.08); font-family: 'Chakra Petch', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; color: #C9CFCF">MATCH 3 OF 5</span>
 </div>
@@ -36,6 +36,7 @@ body{margin:0;background:#07090A}
 </div>
 <span style="font-family: 'Chakra Petch', sans-serif; font-size: 36px; font-weight: 700; letter-spacing: 0.02em">2–1</span>
 </div>
+<sc-if value="{{isPool}}" hint-placeholder-val="{{true}}">
 <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
 <div style="padding: 8px 10px; border-radius: 10px; background: #1C2327; display: flex; flex-direction: column; gap: 2px">
 <span style="font-family: 'Chakra Petch', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">FRAME 1</span>
@@ -50,6 +51,23 @@ body{margin:0;background:#07090A}
 <span style="font-size: 13px; font-weight: 600">Ayesha</span>
 </div>
 </div>
+</sc-if>
+<sc-if value="{{isSnk}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<sc-for list="{{frameRows}}" as="f" hint-placeholder-count="3">
+<div style="height: 28px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 8px; background: #1C2327">
+<span style="width: 58px; font-family: 'Chakra Petch', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">{{f.label}}</span>
+<span style="flex-grow: 1; font-size: 13px; font-weight: {{f.w}}; color: {{f.c}}">{{f.winner}}</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: {{f.c}}">{{f.pts}}</span>
+</div>
+</sc-for>
+<div style="height: 28px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(240, 180, 76, 0.35)">
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; color: #F0B44C">HIGH BREAK</span>
+<span style="flex-grow: 1; font-size: 13px; font-weight: 600">Ayesha · frame 3</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 14px; font-weight: 700; color: #F4E3BF">61</span>
+</div>
+</div>
+</sc-if>
 </div>
 
 <div style="height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: 12px; background: #161C1F; border: 1px solid rgba(255, 255, 255, 0.06)">
@@ -61,19 +79,28 @@ body{margin:0;background:#07090A}
 <div style="display: flex; flex-direction: column; gap: 8px; flex-grow: 1">
 <span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">AYESHA ADVANCES TO THE FINAL</span>
 <div style="box-sizing: border-box; padding: 10px; border-radius: 14px; background: #121719; border: 1px solid rgba(255, 255, 255, 0.05)">
-<dc-import name="BracketTree" scenario="city-sf1" mini="true" width="346" height="160" hint-size="346px,160px"></dc-import>
+<dc-import name="BracketTree" scenario="city-sf1" mini="true" width="346" height="{{treeH}}" hint-size="346px,160px"></dc-import>
 </div>
 </div>
 
-<a href="BracketCompact.dc.html" class="mr-pri" style="height: 52px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; border-radius: 12px; background: #F0B44C; color: #1B1406; text-decoration: none; box-shadow: 0 6px 18px rgba(240, 180, 76, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.35)">
+<a href="{{bracketHref}}" class="mr-pri" style="height: 52px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; border-radius: 12px; background: #F0B44C; color: #1B1406; text-decoration: none; box-shadow: 0 6px 18px rgba(240, 180, 76, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.35)">
 <span style="font-family: 'Chakra Petch', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0.1em">CONTINUE</span>
 <span style="font-size: 11px; font-weight: 600; color: #3A2A0C">Next: Sana vs Hamza · Semi-final 2</span>
 </a>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":640}}'>
+<script type="text/x-dc" data-dc-script data-props='{"game":{"editor":"enum","options":["pool","snooker"],"default":"pool"},"$preview":{"width":400,"height":640}}'>
 class Component extends DCLogic {
-  renderVals() { return {}; }
+  renderVals() {
+    const snk = this.props.game === 'snooker';
+    const fr = (label, winner, pts, lost) => ({ label, winner, pts, w: lost ? 500 : 600, c: lost ? '#9CA5A8' : '#ECE8DF' });
+    return {
+      isPool: !snk, isSnk: snk, treeH: snk ? 112 : 160,
+      roundTitle: snk ? 'Semi-final · best of 3' : 'Semi-final · race to 2',
+      bracketHref: snk ? 'SnkBracket.dc.html' : 'BracketCompact.dc.html',
+      frameRows: [fr('FRAME 1', 'Ayesha', '74–32'), fr('FRAME 2', 'Bilal', '66–51', true), fr('FRAME 3', 'Ayesha', '88–12')]
+    };
+  }
 }
 </script>
 </body>

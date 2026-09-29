@@ -8,7 +8,9 @@ verbatim copy of the nine modules below (the *engine* block) and of `pool-theme.
 **Edit the files here, never the copy in the userscript.** Editing the copy is how they
 drift, and the drift is silent until the next reinsert refuses to run.
 
-Work is tracked in [`POOL_V2_PLAN.md`](../POOL_V2_PLAN.md).
+Work is tracked in [`POOL_V2_PLAN.md`](../POOL_V2_PLAN.md). **Snooker** (its *Snooker* section,
+Phases S0–S7) is being built on the same engine: one controller, HUD and renderer for both
+games, with what differs in one profile per game (`POOL_GAMES` in `pool-game.js`).
 
 ```
 node pool-dev/reinsert.js                 # splice both blocks into the userscript
@@ -21,20 +23,25 @@ node pool-dev/rules-verify.js 300         # the v2 rules, with 300 whole frames
 node pool-dev/render-verify.js            # the v2 camera and renderer
 node pool-dev/hud-verify.js               # the v2 HUD view model and theme contract
 node pool-dev/tour-verify.js              # the tournament model: brackets, seeding, byes, breaks, saves, the cabinet
+node pool-dev/snooker-verify.js           # snooker; first, pool's fingerprints from main (pool unchanged)
+node pool-dev/pool-fingerprint.js         # print pool's fingerprints: table, breaks, shots, verdicts, CPU, draw calls, frames
 node pool-dev/sync-verify.js              # the sync bot's script from github-actions-bot/, run headless
 node pool-dev/snapshot.js [dir] [scene]   # real-Chrome PNGs of the prototype, every scene by default
 node pool-dev/snapshot.js --check [dir]   # …plus an in-browser layout and theme audit per scene
 node pool-dev/theme-verify.js [--quick]   # every state × theme, shape and preset: layout, WCAG AA text contrast, live theme switch
 node pool-dev/perf-check.js               # frame cost (3D and 2D, the 316 px column) and the FPS cap, in Chrome
 start pool-dev/pool-table.html            # the widget's own controller on host stand-ins, plus design scenes
-start pool-dev/pool-harness.html          # shoot and tune the v2 physics live
+start pool-dev/pool-harness.html          # shoot and tune the v2 physics live (?preset=snooker for snooker's table)
+start "" "pool-dev/pool-table.html?game=snooker"   # snooker in the widget's own controller and HUD (Vs CPU or 2 Players)
+start "" "pool-dev/pool-table.html?look=snooker"   # snooker's table alone, the design's stills (S1)
 node pool-dev/balance-check.js 40         # the v2 CPU tiers vs scripted humans, beside v1's numbers
 node pool-dev/v1/baseline-check.js 1000 1 # v1's CPU vs scripted humans: the bar the tiers are measured against
 node ludo-dev/verify-all.js               # every suite, pool included
 ```
 
 Everything needs Node 14+ because the userscript uses `??` and optional chaining;
-`host-run.js` and `snapshot.js` need Node 22 (global `WebSocket` and `fetch`). The
+`host-run.js` and `snapshot.js` need Node 22 (global `WebSocket` and `fetch`). The browser
+tools find Chrome, else Edge (`browser.js`; `POOL_BROWSER` overrides). The
 default `node` here is 10, so use a newer one:
 
 ```
@@ -43,12 +50,13 @@ default `node` here is 10, so use a newer one:
 
 ## Files
 
-The engine block is these nine, in this order (`load.js` `FILES`):
+The engine block is these ten, in this order (`load.js` `FILES`):
 
 | file | what it is |
 |---|---|
 | `pool-physics.js` | the physics: table geometry, sliding/rolling ball model, cue strike, collisions, stepping. Pure and deterministic |
 | `pool-rules.js` | WPA 8-ball judged from the physics event log, seat-aware copy, cue-ball placement and the ball-in-hand clamp. Pure except the table helpers |
+| `pool-snooker.js` | snooker's table (POOL_V2_PLAN.md, *Snooker*): `PS_TABLE` at true scale on the design's pockets (`ppBuildRoundedTable`'s arc colliders), the ball ids and values, the spots and markings, `psCreateWorld`, `psRack` for 15 / 10 / 6 reds. **The rules** (S2), pure as pool's are: `psNewFrame`, `psJudge` (a verdict and the next frame from the physics log), `psApplySpots`, `psChoose` (play / put back / free ball), `psTimeout`, `psConcede`, `psStatus` (the ball on, nominations, points remaining, snookers required), `psSnookered`, `psSpotPositions`, and the copy (`psText`, `psChoiceText`, `psChoiceNotice`) |
 | `pool-tour.js` | the tournament model: brackets for 3–16 players (byes to the top seeds, the standard seeding order, a reproducible shuffle), advancement, who breaks, frame recording, save validation and the trophy cabinet. Pure |
 | `pool-camera.js` | chase, broadcast, survey and 2D poses, projection, near-plane clipping, unprojection, and the director that eases between them. Pure |
 | `pool-render.js` | the table, 3D pocket shafts, rolling balls, shadows, cue, physics-true guides, rings, ball in hand, pocket drops. Canvas only |
@@ -67,14 +75,17 @@ The rest:
 | `pool-verify.js` | the splice contract, the host wiring, the match headless (frames, clock, ball in hand, XP, the one-award guard), the CPU and its tiers, the Game mode sheet, tournaments in the match (setup to champion, pause, leave, reload and resume, corrupt saves) |
 | `balance-check.js` | the tiers against v1's four scripted human models (the same method as `v1/baseline-check.js`); `POOL_TIER_TUNE` tries tier settings without editing `pool-ai.js` |
 | `host-run.js` | serves a stand-in portal page over DevTools, runs the real userscript in it, and plays and audits pool inside the widget; in light mode it also audits text contrast (3:1) across the whole widget, every game, ⚙️ and Max |
+| `snooker-verify.js` | snooker. §0: pool's fingerprints, taken on `main` before any snooker code, must match exactly. §1 the table; §2–6 the rules: a row per ruling, the snookered test, real shots, a scripted 147 and a free-ball 155, and whole frames fuzzed with invariants |
+| `pool-fingerprint.js` | digests of what pool does: `ppBuildTable`, 20 seeded breaks, 50 shots and their verdicts, the four tiers' plans on 10 positions, the draw calls of 12 scenes (a recording canvas, so no browser), and three whole frames through the controller with their XP and records |
+| `browser.js` | the Chromium the browser tools drive: Chrome, else Edge, or `POOL_BROWSER` |
 | `tour-verify.js` | `pool-tour.js`: every size from 3 to 16, bye placement, seeding, advancement, breaks, the shuffle, validation, the cabinet |
 | `physics-verify.js` | `pool-physics.js` against real ball behaviour, plus a fuzz for the invariants |
 | `rules-verify.js` | one case per rule row, the rules on real shots, and a fuzz of whole frames |
 | `render-verify.js` | the cameras against the design's own projection, unprojection, the director, the clipper, the guides, rasterizer frames |
 | `hud-verify.js` | the HUD's view model against every design state, and the theme contract |
-| `pool-table.html` | the prototype: `pool-game.js` itself (and the CPU) on stand-ins for the host (the storage helpers copied from it, `toggleGameMaxModal`'s build path), in a host-like panel, with the themes, the 316 px column, and scenes that set design states straight onto `poolS` for `snapshot.js`. It cannot drift from the widget |
+| `pool-table.html` | the prototype: `pool-game.js` itself (and the CPU) on stand-ins for the host (the storage helpers copied from it, `toggleGameMaxModal`'s build path), in a host-like panel, with the themes, the 316 px column, and scenes that set design states straight onto `poolS` for `snapshot.js`. It cannot drift from the widget. *Game* switches through `poolSetVariant` as ⚙️ Cue Game does; `?game=snooker&scene=…` sets the snk* states (red, nominate, foul, free, snookers, concede, colours, century, respot, win, loss) |
 | `snapshot.js` | drives `pool-table.html` in headless Chrome and saves each scene as a PNG; `--check` runs the page's HUD audit. `narrow:` scenes use the widget's 316 px column |
-| `pool-harness.html` | a live table on the real physics: shoot with a drag, set spin, tune every constant |
+| `pool-harness.html` | a live table on the real physics: shoot with a drag, set spin, tune every constant. *Preset* picks pool's table or snooker's (`?preset=snooker`: its knobs, *Reds*, a break-off, and *Acceptance*, the pocket windows) |
 | `v1/` | the v1 engine (`pool-core.js`, `pool-ui.js`) and its loader, frozen when v2 replaced it. `baseline-check.js` still measures v1's CPU, and `preview.js` still draws it |
 
 ## pool-game.js
@@ -89,6 +100,25 @@ The host calls six things, and reads four:
 | `togglePoolMaximize()` | the Max view through `toggleGameMaxModal`'s `cfg.build` hook |
 | `poolOnThemeChange()` | from `applyPreferences` (theme, colour pickers, glass options) and pool's own `prefers-color-scheme` listener |
 | reads `poolMode`, `poolGamesWon`, `poolRecord`, `poolMaximized` | the leaderboard, the achievement check, tests |
+
+**Games.** Everything the controller asks of a game is in its profile in `POOL_GAMES`: the
+table and rack, the rules (`newFrame`, `status`, `judge`, `apply`, `timeout`, `text`, `legal`,
+placement), the CPU, the storage keys, what a frame pays (`frameXP`, `potXP`) and how it is
+filed (`fileResult`, `wins`), and its name. `poolRules()` is the profile of `poolS.game`, and
+`poolUseGame(game)` switches the table config, camera and cache to it. Nothing outside
+`POOL_GAMES` names a game's rules, CPU or storage (`pool-verify.js`, *Game seam*). The HUD
+gets the shooter's status from the controller, and the renderer and HUD dots get ball
+colours from `pgBallLook(game, id)`; sizes drawn round a ball scale by R/14, so pool's are
+unchanged.
+
+Snooker's profile (S3) adds what only it has: `prime` (the balls touching the cue ball, before
+the strike), `choose` / `choices` / `choiceNotice` (the choice after a foul, phase `'choice'`),
+`concede`, `resultText` (the dialog's sentence, score and high break), `keys.frame` (the quick
+frame kept for a reload), `rackPref`, `aimClear` and its aim steps. `poolSetVariant(game)`
+parks the frame on the table (`poolSnapshotTable`) and restores the other game's; each game keeps
+its own tournament state. The HUD's snooker parts (`phSnookerModel`) are the score and third
+line on the cards, the tracker row, the colour chips, the toast's choice buttons, the dialog's
+stats and the concede question, all built for pool too and hidden there.
 
 The match lives in one object, `poolS`. A frame is recorded once per rack (`rackId` against
 `awardedRack`): Reset or a new frame is a new rack, and a finished rack cannot pay twice.

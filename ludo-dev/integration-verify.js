@@ -107,7 +107,7 @@ ok('rotation select in the settings modal', has('data-pref="ludoRotation"'));
 ok('all four orientations offered',
    (src.match(/<option value="[0-3]"[^>]*>Blue /g) || []).length === 4);
 ok('the select is stored as a number, not a string',
-   /numericPrefs = \['gameFps', 'ludoRotation'\]/.test(src));
+   /numericPrefs = \['gameFps', 'ludoRotation'[^\]]*\]/.test(src));
 ok('coordinates rotate, not the model',
    has('function ludoRotateGrid(gr, gc)') && has('function ludoPointXY(r, c)') &&
    /ludoPointXY[\s\S]{0,120}?ludoRotateGrid\(r, c\)/.test(src));

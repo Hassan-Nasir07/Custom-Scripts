@@ -35,12 +35,17 @@
         return { OX: cfg.halfLength + cfg.railWidth, OY: cfg.halfWidth + cfg.railWidth };
     }
 
+    // The rail top the wide shots fit: the table's own when it sets one (snooker), else
+    // R + 2, which is pool's 16 at R = 14.
+    const pcRailTop = cfg => (cfg.railZ !== undefined ? cfg.railZ : cfg.ballR + 2);
+
     // A perspective pose is an eye, a point it looks at, an up hint and a
     // focal length; poses of that kind blend by lerping all four.
     function pcChase(cue, aim, lean, W, H, cfg) {
         const R = cfg ? cfg.ballR : 14;
         const lt = Math.max(0, Math.min(100, lean)) / 100;
         const phi = (19.5 + 28.5 * lt) * Math.PI / 180;
+        // The same at every ball size: the design frames snooker's small balls from pool's distances.
         const dist = 110 + 310 * lt;
         const F = 1.1 * H;
         const pitch = phi - Math.atan(0.34 / 1.1);
@@ -56,7 +61,7 @@
     // cut to and from 2D barely moves anything.
     function pcBroadcast(W, H, cfg) {
         const { OX, OY } = pcTableExtent(cfg);
-        const F = 4 * H, top = cfg.ballR + 2;     // fit the rail top
+        const F = 4 * H, top = pcRailTop(cfg);    // fit the rail top
         const h = top + F * Math.max(OX / (W / 2 - PC_MARGIN), OY / (H / 2 - PC_MARGIN));
         return { kind: 'persp', eye: [0, 0, h], target: [0, 0, 0], up: [0, 1, 0], F, W, H };
     }
@@ -73,7 +78,7 @@
 
     function pcSurvey(aim, W, H, cfg) {
         const { OX, OY } = pcTableExtent(cfg);
-        const top = cfg.ballR + 2, F = 1.1 * H, m = PC_SURVEY_MARGIN;
+        const top = pcRailTop(cfg), F = 1.1 * H, m = PC_SURVEY_MARGIN;
         const cx = W / 2, cy = (m.top + H - m.bottom) / 2;     // the middle of the clear box
         const corners = [];
         [top, PC_APRON_Z].forEach(z => [[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(([a, b]) => corners.push([a * OX, b * OY, z])));

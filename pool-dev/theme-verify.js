@@ -13,7 +13,7 @@
 const { spawn } = require('child_process');
 const fs = require('fs'), os = require('os'), path = require('path');
 
-const CHROME = 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
+const CHROME = require('./browser').browserPath();     // Chrome, else Edge, or POOL_BROWSER
 const QUICK = process.argv.includes('--quick');
 const page = 'file:///' + path.join(__dirname, 'pool-table.html').replace(/\\/g, '/').replace(/ /g, '%20');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -26,11 +26,17 @@ const STATES = [
     'tour=setup&n=6', 'tour=bracket&n=8&played=5&tab=1', 'tour=bracket&n=16&played=9&tab=1', 'tour=intro&n=8&played=4',
     'tour=match&n=8&played=4&tframe=1&camera=3d', 'tour=result&n=8&played=5', 'tour=champion&n=6', 'tour=cabinet', 'tour=cabinet&empty=1',
     'tour=resume&n=8&played=4&tframe=1', 'tour=abandon&n=8&played=4', 'tour=pause&n=8&played=4&camera=3d',
+    // Snooker (S3): the snk* states in the same HUD.
+    'game=snooker&camera=3d', 'game=snooker&scene=red&camera=3d', 'game=snooker&scene=nominatePink&camera=3d', 'game=snooker&scene=foul&camera=3d',
+    'game=snooker&scene=free&camera=3d', 'game=snooker&scene=concede&camera=3d', 'game=snooker&scene=century&camera=3d', 'game=snooker&scene=respot&camera=3d',
+    'game=snooker&scene=win&camera=3d', 'game=snooker&scene=loss&camera=3d', 'game=snooker&scene=red&camera=3d&sheet=cpu',
 ];
 const MAX = ['scene=mid&camera=3d&max=1', 'scene=mid&camera=3d&max=1&sheet=cpu', 'scene=win&max=1', 'scene=eight&camera=3d&aim=-20&lean=55&max=1',
-    'tour=bracket&n=8&played=5&max=1', 'tour=champion&n=8&max=1', 'tour=match&n=8&played=4&tframe=1&camera=3d&max=1', 'tour=setup&n=6&max=1'];
+    'tour=bracket&n=8&played=5&max=1', 'tour=champion&n=8&max=1', 'tour=match&n=8&played=4&tframe=1&camera=3d&max=1', 'tour=setup&n=6&max=1',
+    'game=snooker&scene=nominate&camera=3d&mode=pvp&max=1', 'game=snooker&scene=win&camera=3d&max=1'];
 const CYBER_STATES = ['scene=mid&camera=3d', 'scene=win', 'scene=mid&camera=3d&sheet=cpu', 'scene=eight&camera=3d&aim=-20&lean=55', 'scene=foul&mode=pvp',
-    'tour=bracket&n=8&played=5&tab=1', 'tour=champion&n=6', 'tour=setup&n=6', 'scene=mid&camera=3d&max=1', 'tour=bracket&n=8&played=5&max=1'];
+    'tour=bracket&n=8&played=5&tab=1', 'tour=champion&n=6', 'tour=setup&n=6', 'scene=mid&camera=3d&max=1', 'tour=bracket&n=8&played=5&max=1',
+    'game=snooker&scene=nominatePink&camera=3d', 'game=snooker&scene=free&camera=3d', 'game=snooker&scene=concede&camera=3d', 'game=snooker&scene=win&camera=3d'];
 const SHAPES = ['notched', 'chamfered', 'stepped', 'rounded'];
 const PALETTES = ['yellowCyan', 'bladeAmber', 'magentaNoir', 'acidGreen', 'ghostMono', 'violetHaze'];
 

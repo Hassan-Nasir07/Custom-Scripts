@@ -7,6 +7,11 @@
     // toast, lean, power gauge, spin, hint, ball-in-hand chip, move-cue-ball
     // button, pocket
     // mini-map, frame-over dialog) and the footer or the seat hand-off.
+    // Snooker (the snk* artboards) is the same HUD with its own parts: a score and a
+    // third line on each card, the tracker row (reds, colours, points remaining, snookers
+    // required, Concede), the colour chips, the choice after a foul in the toast, the
+    // frame's score and high break in the dialog, and the concede question
+    // (phSnookerModel).
     //
     // Three layers, so the logic can be tested without a browser:
     //   phModel(game)      pure: game snapshot → view model (every string,
@@ -56,9 +61,22 @@
         { key: 'hard', name: 'Hard', desc: 'Plays position · rarely leaves a shot' },
         { key: 'pro', name: 'Pro', desc: 'Hardly misses · call every shot' },
     ];
+    // Snooker's list (InMatch.dc.html, snkMode): the same tiers, snooker's words.
+    const PH_SNK_DIFFS = [
+        { key: 'adaptive', name: 'Adaptive', desc: 'Matches your form, frame by frame' },
+        { key: 'easy', name: 'Easy', desc: 'Pots the simple ones · leaves chances' },
+        { key: 'normal', name: 'Normal', desc: 'Builds small breaks · plays some safe' },
+        { key: 'hard', name: 'Hard', desc: 'Plays position and safety · regular 50s' },
+        { key: 'pro', name: 'Pro', desc: 'Hardly misses · centuries' },
+    ];
+    // Snooker's colours, by id (= value), for the tracker and the chips.
+    const PH_SNK = [[2, 'yellow'], [3, 'green'], [4, 'brown'], [5, 'blue'], [6, 'pink'], [7, 'black']].map(([id, name]) => ({ id, name }));
+    const phSnkName = id => { const c = PH_SNK.find(b => b.id === id); return c ? c.name : 'red'; };
+    const phCap = s => s.charAt(0).toUpperCase() + s.slice(1);
+    const PH_SNK_SHORT = { 'YOUR CHOICE': 'CHOICE', 'BALL IN HAND': 'IN HAND', CHOOSING: 'CHOOSING' };
     const PH_CLOCK_HOT = 5;          // seconds left when the clock goes hot
     const PH_POWER_HOT = 85;         // % at which the gauge goes hot
-    const PH_BIH_NOTE = { overlap: 'Overlaps a ball', kitchen: 'Behind the head string only', outside: 'Keep it on the felt' };
+    const PH_BIH_NOTE = { overlap: 'Overlaps a ball', kitchen: 'Behind the head string only', outside: 'Keep it on the felt', D: 'Inside the D only' };
 
     const phWins = (name) => (name === 'You' ? 'You win' : name + ' wins');
 
@@ -76,7 +94,11 @@
     // game = {
     //   layout: 'compact' | 'max', mode: 'cpu' | 'pvp' | 'tour',
     //   names: { 1, 2 }, records: { 1, 2 }, frames: [a, b], trophies,
+    //   game: 'pool' | 'snooker',    which game's balls and words (pool when absent)
+    //   title,                       the game's name, for the Max header
     //   frame,                       the rules state (pool-rules.js)
+    //   status,                      the shooter's position, from the game's rules
+    //                                (poolRules().status: pool's prStatus)
     //   world,                       the physics world, for the trackers
     //   phase: 'aim' | 'strike' | 'moving' | 'bih' | 'over',
     //   camera: '3d' | '2d', lean, power, dragging, called,
@@ -91,6 +113,7 @@
     //   cpuTurn,                     the CPU is at the table: its own hint, no human controls
     //   sheet: { open, mode, note }, the Game mode sheet: which tab, and a line under the list
     //   difficulty,                  the picked CPU difficulty ('adaptive' or a tier)
+    //   diffs,                       the difficulty list for this game (PH_DIFFS when absent)
     //   pots: { 1: [ids], 2: [ids] } the object balls each seat has potted this frame, shown
     //                                on its card while the table is open
     //   tour: { kicker, title, frame } | null   a tournament match: the header strip, and
@@ -98,10 +121,14 @@
     //   tourSheet: { saved, name }   the sheet's Tournament tab: resume, or set one up
     //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
     //   secondaryLabel,              the frame-over dialog's second button, when the default does not apply
-    //   result: { win, title, reason, recordLabel, record, delta, note } | null,
+    //   result: { win, title, reason, recordLabel, record, delta, note, stats? } | null,
+    //   Snooker also:
+    //   nom,                         the colour nominated for this shot, or -1
+    //   choice: { chooser, cpu, options: [{ id, label, short }] } | null   after a foul
+    //   confirm,                     the concede question is open
     // }
     function phModel(g) {
-        const st = prStatusFrom(g.frame, g.frame.turn, g.world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed').map(b => b.id));
+        const st = g.status;
         const over = g.phase === 'over';
         const bih = g.phase === 'bih';
         const moving = g.phase === 'moving';
@@ -126,7 +153,7 @@
                 else if (active && clockLeft !== null) tag = Math.ceil(clockLeft) + 's';
                 else if (active) tag = 'TO SHOOT';
             }
-            const group = g.frame.groups[seat];
+            const group = g.frame.groups ? g.frame.groups[seat] : null;
             const ids = group === 'solids' ? [1, 2, 3, 4, 5, 6, 7] : group === 'stripes' ? [9, 10, 11, 12, 13, 14, 15] : [];
             return {
                 seat, name: g.names[seat], rec: g.records[seat] || '',
@@ -145,7 +172,7 @@
 
         // The pill names what the shooter is on: state only. What to do about it (call a
         // pocket) is the hint's, or in 3D the call card's, so it is never said twice.
-        const shooterGroup = g.frame.groups[g.frame.turn];
+        const shooterGroup = g.frame.groups ? g.frame.groups[g.frame.turn] : null;
         let pill;
         if (bih) pill = g.frame.ballInHand === 'kitchen' ? 'Break · kitchen only' : 'Ball in hand';
         else if (g.frame.isBreak) pill = 'Break';
@@ -187,8 +214,9 @@
         const note = bih && g.bih && g.bih.valid === false && g.bih.sx !== undefined
             ? { text: PH_BIH_NOTE[g.bih.reason] || PH_BIH_NOTE.overlap, x: g.bih.sx, y: g.bih.sy + (g.bih.sr || 5) + 26 } : null;
 
-        return {
+        const vm = {
             layout: max ? 'max' : 'compact',
+            game: g.game || 'pool', title: g.title || '8-Ball Pool',
             cards,
             frames: (g.frames ? g.frames[0] : 0) + '–' + (g.frames ? g.frames[1] : 0),
             trophies: g.trophies || 0,
@@ -198,7 +226,7 @@
                 label3d: max ? '3D AIM' : '3D',
             },
             pill: { show: !toast && !over, text: pill },
-            toast: toast ? { show: true, foul: toast.kind === 'foul', title: toast.title, sub: toast.sub } : { show: false },
+            toast: toast ? { show: true, foul: toast.kind === 'foul', title: toast.title, sub: toast.sub, icon: toast.icon || '', choices: [], chooser: '' } : { show: false, choices: [] },
             lean: {
                 show: is3d && !over && !(aiming && st.callRequired) && !moving && !sheetOpen,
                 value: lean,
@@ -233,13 +261,86 @@
             cursor: bih ? 'placing' : g.dragging ? 'dragging' : '',
             sheet: sheetOpen ? {
                 show: true, mode: sheetMode,
-                diffs: PH_DIFFS.map(d => ({ key: d.key, name: d.name, desc: d.desc, checked: (g.difficulty || 'adaptive') === d.key })),
+                diffs: (g.diffs || PH_DIFFS).map(d => ({ key: d.key, name: d.name, desc: d.desc, checked: (g.difficulty || 'adaptive') === d.key })),
                 chip: 'NOW ' + String(g.adaptiveTier || 'normal').toUpperCase(),
                 note: (g.sheet && g.sheet.note) || '',
                 tour: g.tourSheet && g.tourSheet.saved ? { saved: true, cta: 'RESUME ' + String(g.tourSheet.name || 'TOURNAMENT').toUpperCase(), sub: g.tourSheet.where || '' }
                     : { saved: false, cta: 'SET UP TOURNAMENT', sub: '' },
             } : { show: false },
+            // Snooker's parts; hidden for pool.
+            track: { show: false }, chips: { show: false }, concede: { show: false },
         };
+        return vm.game === 'snooker' ? phSnookerModel(g, vm) : vm;
+    }
+
+    // Snooker's HUD (the snk* artboards) over the shared model: the same cards, pill, toast
+    // and dialog, with a score and a third line on each card, the tracker row, the colour
+    // chips while a colour is to be nominated, the choice after a foul, and Concede.
+    function phSnookerModel(g, vm) {
+        const st = g.status, on = st.on || {}, f = g.frame;
+        const over = g.phase === 'over', bih = g.phase === 'bih', aiming = g.phase === 'aim' || g.phase === 'strike';
+        const max = g.layout === 'max', sheetOpen = !!(g.sheet && g.sheet.open), toast = g.toast || null, ch = g.choice || null;
+        const nom = g.nom >= 0 ? g.nom : -1, seat = f.turn;
+        vm.cards.forEach((c, i) => {
+            const s = i + 1;
+            let tag = '', hot = false;
+            if (!over) {
+                if (g.fouled === s) { tag = 'FOUL'; hot = true; }
+                else if (ch && ch.chooser === s) tag = ch.cpu ? 'CHOOSING' : 'YOUR CHOICE';
+                else if (c.active && bih) tag = f.isBreak ? 'TO BREAK' : 'BALL IN HAND';
+                else if (c.active && c.hot) { tag = Math.ceil(g.clock.left) + 's'; hot = true; }
+                else if (c.active && st.brk > 0) tag = 'BREAK ' + st.brk;
+            }
+            Object.assign(c, { tag, tagShort: '', tagHot: hot, score: String(st.scores ? st.scores[s] : 0), open: false, group: [], potted: [] });
+        });
+        // The tracker: reds, the six colours (the ball on ringed), and what is left to score.
+        const need = !over && seat ? (st.snookersRequired || {})[seat] || 0 : 0;
+        const ringId = over ? -1 : st.phase === 'clearance' || st.respotBlack ? st.next : nom;
+        const left = (st.colours || []).filter(c => !c.down).map(c => phSnkName(c.id));
+        vm.track = {
+            show: true, reds: st.redsLeft || 0,
+            dots: (st.colours || []).map(c => ({ id: c.id, down: c.down, on: c.id === ringId && !c.down })),
+            snookers: need,
+            concede: need > 0 && !g.cpuTurn && !g.handoff && (g.phase === 'aim' || g.phase === 'bih') && !g.confirm,
+            rem: need ? st.remaining + ' LEFT' : (over ? 0 : st.remaining) + ' REMAINING',
+            aria: 'Reds left ' + (st.redsLeft || 0) + ', colours ' + (left.length ? left.join(', ') : 'none') + ', ' + (over ? 0 : st.remaining) + ' points remaining' +
+                (need ? '; ' + g.names[seat] + ' needs ' + need + (need > 1 ? ' snookers' : ' snooker') : ''),
+        };
+        // The pill: what the shooter is on.
+        let pill;
+        if (bih) pill = f.isBreak ? 'Break-off · in the D' : st.respotBlack ? 'Re-spotted black' : 'Ball in hand · the D';
+        else if (st.freeBall) pill = nom >= 0 ? 'Free ball · ' + phCap(phSnkName(nom)) : 'Free ball';
+        else if (st.phase === 'colour') pill = nom >= 0 ? 'On the ' + phSnkName(nom) : 'Nominate a colour';
+        else if (st.phase === 'reds') pill = 'On a red';
+        else pill = 'On the ' + phSnkName(st.next);
+        if (max && !bih) { const who = g.names[seat]; pill = (who === 'You' ? 'Your shot' : who + "'s shot") + ' · ' + pill; }
+        vm.pill = { show: !toast && !over, text: pill };
+        // The chips: while a colour is to be nominated (the gauge padlocks until one is).
+        const chips = aiming && !!on.needsNomination && !g.cpuTurn && !g.handoff && !toast && !sheetOpen && !vm.spin.open && !g.confirm;
+        const pw = Math.round(g.power || 0);
+        vm.chips = chips ? {
+            show: true, label: st.freeBall ? 'Nominate the free ball' : 'Nominate a colour',
+            items: PH_SNK.map(b => ({ id: b.id, name: b.name, live: (on.nominable || []).indexOf(b.id) >= 0, checked: nom === b.id })),
+            caption: nom < 0 ? 'Tap a colour' : g.dragging ? 'Release · ' + pw + '%' : 'Drag to shoot',
+            tone: nom < 0 ? '' : g.dragging ? (pw >= PH_POWER_HOT ? 'hot' : 'power') : 'set',
+        } : { show: false };
+        vm.gauge = Object.assign({}, vm.gauge, { locked: aiming && !!on.needsNomination && nom < 0 });
+        // The hint: the D, and none while the chips carry the caption.
+        if (bih && !(g.bih && (g.bih.placed || g.bih.valid === false))) vm.hint = Object.assign({}, vm.hint, { text: 'Place the cue ball in the D', tone: '' });
+        if (chips) vm.hint = Object.assign({}, vm.hint, { show: false });
+        // The choice after a foul: its buttons for a human chooser, once the seat is taken.
+        if (vm.toast.show && ch) {
+            const who = g.names[ch.chooser];
+            vm.toast.chooser = who + ', choose how play continues';
+            vm.toast.choices = !ch.cpu && !g.handoff ? ch.options.map((o, i) => ({ id: o.id, label: o.label, short: o.short, primary: i === 0 })) : [];
+            if (g.handoff) vm.toast.sub = who + ' chooses how play continues';
+        }
+        // While the choice is open the lean slider steps aside for the toast's buttons.
+        if (g.phase === 'choice') vm.lean = Object.assign({}, vm.lean, { show: false });
+        // Concede, confirmed.
+        const other = 3 - seat;
+        vm.concede = g.confirm && seat ? { show: true, text: phWins(g.names[other]) + ' ' + st.scores[other] + '–' + st.scores[seat] } : { show: false };
+        return vm;
     }
 
     // ── DOM ───────────────────────────────────────────────────────────
@@ -264,16 +365,28 @@
         pause: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5v14M15 5v14"></path></svg>',
         close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
         cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
+        flag: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"></path><path d="M5 4h12l-2.5 4L17 12H5"></path></svg>',
     };
 
     function phCardHTML(seat, max) {
         const top = '<div class="ph-card-top"><span class="ph-name" data-ph="name"></span>' +
             (max ? '<span class="ph-rec" data-ph="rec"></span>' : '<span class="ph-tag ph-label" data-ph="tag"></span>') + '</div>';
         const group = '<div class="ph-group" data-ph="group" role="img"></div><div class="ph-open" data-ph="open" role="img" aria-label="Open table"><span class="ph-open-l" data-ph="openl">Open table</span><span class="ph-open-balls" data-ph="openb"></span></div>';
+        // Snooker's third line (its tag, or BREAK 34) and its score; hidden for pool.
+        const l3 = '<span class="ph-l3 ph-label" data-ph="l3"></span>', score = '<span class="ph-score ph-num" data-ph="score"></span>';
         const body = max
-            ? '<div class="ph-avatar" data-ph="avatar"></div><div class="ph-card-body">' + top + group + '</div>'
-            : top + '<div class="ph-rec" data-ph="rec"></div>' + group;
+            ? '<div class="ph-avatar" data-ph="avatar"></div><div class="ph-card-body">' + top + l3 + group + '</div>' + score
+            : top + '<div class="ph-rec" data-ph="rec"></div>' + l3 + group + score;
         return '<div class="ph-card" data-seat="' + seat + '">' + body + '<div class="ph-clock" data-ph="clock"></div></div>';
+    }
+    // Snooker's tracker row: REDS × n, the six colours, and what is left to score, with
+    // SNOOKERS REQ. n and Concede when the player at the table needs them.
+    function phTrackHTML() {
+        return '<div class="ph-track" data-ph="track" hidden><span class="ph-track-reds ph-label"><i class="ph-track-red" data-ph="trred"></i><span data-ph="trreds"></span></span>' +
+            '<span class="ph-track-dots" role="img" data-ph="trdots"></span><span class="ph-track-gap"></span>' +
+            '<span class="ph-track-snk ph-label" data-ph="trsnk" hidden></span>' +
+            '<button type="button" class="ph-track-concede" data-ph="trconcede" hidden>Concede</button>' +
+            '<span class="ph-track-rem ph-label" data-ph="trrem"></span></div>';
     }
 
     function phViewHTML(max) {
@@ -284,8 +397,9 @@
             '<div class="ph-cam ph-glass" data-ph="cam"><button type="button" class="ph-label" data-ph="cam2d" aria-pressed="false">' + PH_ICON.d2 + '<span data-ph="cam2dl">2D</span></button>' +
             '<button type="button" class="ph-label" data-ph="cam3d" aria-pressed="true">' + PH_ICON.d3 + '<span data-ph="cam3dl">3D</span></button></div>' +
             '<div class="ph-pill ph-glass" data-ph="pill"><span class="ph-pill-dot"></span><span data-ph="pillt"></span></div>' +
-            '<div class="ph-toast ph-glass" role="status" data-ph="toast" hidden><span class="ph-toast-icon" data-ph="toasti"></span>' +
+            '<div class="ph-toast ph-glass" role="status" data-ph="toast" hidden><div class="ph-toast-row"><span class="ph-toast-icon" data-ph="toasti"></span>' +
             '<span class="ph-toast-text"><span class="ph-toast-title" data-ph="toastt"></span><span class="ph-toast-sub" data-ph="toasts"></span></span></div>' +
+            '<div class="ph-toast-acts" role="group" data-ph="toastacts" hidden></div></div>' +
             '<div class="ph-lean ph-glass" data-ph="lean"><label class="ph-lean-l ph-label" for="ph-lean-' + (max ? 'm' : 'c') + '">LEAN</label>' +
             '<span class="ph-lean-v ph-num" data-ph="leanv"></span><span class="ph-lean-chev">' + PH_ICON.up + '</span>' +
             '<div class="ph-rng"><div class="ph-rng-track"></div><div class="ph-rng-fill" data-ph="leanf"></div><div class="ph-rng-thumb" data-ph="leant"></div>' +
@@ -307,14 +421,25 @@
             '<button type="button" class="ph-replace ph-glass" data-ph="replace" hidden>' + PH_ICON.hand + '<span>Move cue ball</span></button>' +
             '<div class="ph-mini ph-glass" data-ph="mini" hidden><span class="ph-mini-cap" data-ph="minicap"></span>' +
             '<div class="ph-mini-pad"><div class="ph-mini-table"></div>' + mini + '</div></div>' +
+            // Snooker's colour chips: a 3 × 2 grid, each ball carrying its value.
+            '<div class="ph-chips ph-glass" role="group" data-ph="chips" hidden><div class="ph-chips-grid" role="radiogroup" data-ph="chipgrid">' +
+            PH_SNK.map(b => '<button type="button" role="radio" class="ph-chip" data-ph-nom="' + b.id + '" aria-checked="false" aria-label="' + phCap(b.name) + ', ' + b.id + ' points"><span>' + b.id + '</span></button>').join('') +
+            '</div><span class="ph-chips-cap" data-ph="chipcap"></span></div>' +
             '<div class="ph-scrim" data-ph="scrim" hidden><div class="ph-dialog" role="dialog" aria-label="Frame over" data-ph="dialog">' +
             '<div class="ph-dialog-head"><span class="ph-dialog-icon" data-ph="dlgi"></span><span style="display:flex;flex-direction:column;gap:2px">' +
             '<span class="ph-dialog-kicker ph-label" data-ph="dlgk"></span><span class="ph-dialog-title" data-ph="dlgt"></span></span></div>' +
             '<div class="ph-dialog-reason" data-ph="dlgr"></div>' +
+            '<div class="ph-dialog-stats" data-ph="dlgstats" hidden></div>' +
             '<div class="ph-dialog-rec" data-ph="dlgrec"><span style="display:flex;flex-direction:column;gap:2px"><span class="ph-dialog-rec-l ph-label" data-ph="dlgrl"></span>' +
             '<span class="ph-dialog-rec-v ph-num" data-ph="dlgrv"></span></span><span class="ph-dialog-delta ph-label" data-ph="dlgd"></span></div>' +
             '<div class="ph-dialog-note" data-ph="dlgn">' + PH_ICON.chip + '<span data-ph="dlgnt"></span></div>' +
             '<div class="ph-dialog-actions"><button type="button" class="ph-primary ph-label" data-ph="dlgp"></button><button type="button" class="ph-btn" data-ph="dlgs"></button></div>' +
+            '</div></div>' +
+            // Snooker: Concede the frame? (SnkConcede)
+            '<div class="ph-scrim" data-ph="cscrim" hidden><div class="ph-dialog is-alert" role="alertdialog" aria-label="Concede the frame" data-ph="cdlg">' +
+            '<span class="ph-dialog-icon">' + PH_ICON.flag + '</span>' +
+            '<span class="ph-cdlg-t"><span class="ph-dialog-title">Concede the frame?</span><span class="ph-dialog-reason" data-ph="cdlgt"></span></span>' +
+            '<div class="ph-dialog-actions"><button type="button" class="ph-primary ph-label is-hot" data-ph="cdlgy">CONCEDE</button><button type="button" class="ph-btn" data-ph="cdlgn">Keep playing</button></div>' +
             '</div></div>' +
             '</div></div>';
     }
@@ -372,9 +497,9 @@
                 '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="pause" aria-label="Pause" title="Pause" hidden>' + PH_ICON.pause + '</button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="max" aria-label="Exit full view" title="Exit full view">' + PH_ICON.exit + '</button></div></div>' +
-                phViewHTML(true) + phHandoffHTML() + phSheetHTML();
+                phTrackHTML() + phViewHTML(true) + phHandoffHTML() + phSheetHTML();
         } else {
-            html = phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' + phViewHTML(false) +
+            html = phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' + phTrackHTML() + phViewHTML(false) +
                 '<div class="ph-foot" data-ph="foot">' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn" data-ph="reset">' + PH_ICON.reset + '<span>Reset</span></button>' +
@@ -398,12 +523,13 @@
             'mini', 'minicap', 'scrim', 'dialog', 'dlgi', 'dlgk', 'dlgt', 'dlgr', 'dlgrec', 'dlgrl', 'dlgrv', 'dlgd', 'dlgn', 'dlgnt', 'dlgp', 'dlgs',
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
             'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart',
-            'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy'].forEach(n => { hud[n] = ref(n); });
+            'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy',
+            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'chips', 'chipgrid', 'chipcap', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
             const r = n => q('[data-ph="' + n + '"]', c);
-            return { el: c, name: r('name'), tag: r('tag'), rec: r('rec'), group: r('group'), open: r('open'), openl: r('openl'), openb: r('openb'), clock: r('clock'), avatar: r('avatar'), dots: [] };
+            return { el: c, name: r('name'), tag: r('tag'), rec: r('rec'), group: r('group'), open: r('open'), openl: r('openl'), openb: r('openb'), clock: r('clock'), avatar: r('avatar'), l3: r('l3'), score: r('score'), dots: [] };
         });
         hud.miniButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-call]'));
 
@@ -471,6 +597,20 @@
         hud.dlgp.addEventListener('click', () => fire('primary'));
         hud.dlgs.addEventListener('click', () => fire('secondary'));
         hud.miniButtons.forEach(b => b.addEventListener('click', () => fire('call', +b.getAttribute('data-ph-call'))));
+        // Snooker: the chips, the choice after a foul, Concede and its question.
+        hud.chipButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-nom]'));
+        hud.chipButtons.forEach(b => {
+            // The balls' colours are materials, the same in every theme.
+            const id = +b.getAttribute('data-ph-nom'), s = b.firstChild;
+            s.style.background = phDotStyle(id, 'snooker');
+            s.style.color = phInkOn(pgBallLook('snooker', id).colour);
+            b.addEventListener('click', () => fire('nominate', id));
+        });
+        hud.toastacts.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-ph-choose]'); if (b) fire('choose', b.getAttribute('data-ph-choose')); });
+        hud.trconcede.addEventListener('click', () => fire('concede'));
+        hud.cdlgy.addEventListener('click', () => fire('concedeYes'));
+        hud.cdlgn.addEventListener('click', () => fire('concedeNo'));
+        hud.cdlg.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('concedeNo'); e.preventDefault(); e.stopPropagation(); } });
         // The Game mode sheet.
         hud.modeButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-mode]'));
         hud.diffButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-diff]'));
@@ -497,20 +637,42 @@
     }
     const phShow = (el, on) => { if (el) el.hidden = !on; };
 
-    function phDotStyle(id) {
-        const c = PG_BALL_COLOURS[id > 8 ? id - 8 : id];
+    // Dark or light ink on a ball's colour: whichever reads better (WCAG relative luminance).
+    function phInkOn(hex) {
+        const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
+        if (!m) return '#ffffff';
+        const lin = v => { const c = parseInt(v, 16) / 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+        const L = 0.2126 * lin(m[1]) + 0.7152 * lin(m[2]) + 0.0722 * lin(m[3]);
+        return (L + 0.05) / 0.05 > 1.05 / (L + 0.05) ? '#101214' : '#ffffff';
+    }
+    function phDotStyle(id, game) {
+        const look = pgBallLook(game, id), c = look.colour;
         const hi = 'radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0) 48%)';
-        return id > 8
+        return look.stripe
             ? hi + ', linear-gradient(180deg, ' + PG_IVORY + ' 0%, ' + PG_IVORY + ' 28%, ' + c + ' 28%, ' + c + ' 72%, ' + PG_IVORY + ' 72%, ' + PG_IVORY + ' 100%)'
             : hi + ', ' + c;
     }
 
     function phRender(hud, vm) {
         const s = (k, v, f) => phSet(hud, k, v, f);
+        s('game', vm.game, v => hud.el.setAttribute('data-game', v));
         vm.cards.forEach((c, i) => {
             const r = hud.cards[i], k = 'c' + i + '.';
             s(k + 'name', c.name, v => { r.name.textContent = v; });
             s(k + 'rec', c.rec, v => { r.rec.textContent = v; });
+            if (r.score) s(k + 'score', c.score || '', v => { r.score.textContent = v; });
+            if (r.l3) {
+                // The widget's column shows the short form (YOUR CHOICE → CHOICE) where there is one.
+                s(k + 'l3', vm.game === 'snooker' ? c.tag : '', v => {
+                    const sh = PH_SNK_SHORT[v];
+                    r.l3.textContent = '';
+                    if (!sh) { r.l3.textContent = v; return; }
+                    const long = document.createElement('span'), short = document.createElement('span');
+                    long.className = 'ph-l3-long'; long.textContent = v; short.className = 'ph-l3-short'; short.textContent = sh;
+                    r.l3.append(long, short);
+                });
+                s(k + 'l3hot', !!c.tagHot, v => r.l3.classList.toggle('is-hot', v));
+            }
             if (r.tag) {
                 s(k + 'tag', c.tag + '|' + c.tagShort, () => {
                     r.tag.textContent = '';
@@ -539,7 +701,7 @@
             // drawn potted or not at once, and the per-dot cache starts over: the old frame's
             // values would otherwise match and skip the update, leaving a potted ball lit.
             s(k + 'ids', ids, () => {
-                r.group.innerHTML = c.group.map(d => '<i class="ph-dot' + (d.down ? ' is-down' : '') + '" style="background:' + phDotStyle(d.id) + '"></i>').join('');
+                r.group.innerHTML = c.group.map(d => '<i class="ph-dot' + (d.down ? ' is-down' : '') + '" style="background:' + phDotStyle(d.id, vm.game) + '"></i>').join('');
                 r.dots = Array.prototype.slice.call(r.group.children);
                 for (let j = 0; j < 7; j++) delete hud.last[k + 'down' + j];
                 c.group.forEach((d, j) => { hud.last[k + 'down' + j] = d.down; });
@@ -551,7 +713,7 @@
                 v => r.group.setAttribute('aria-label', v));
             s(k + 'openLabel', c.potted.length ? 'Open table; potted ' + c.potted.join(', ') : 'Open table', v => r.open.setAttribute('aria-label', v));
             s(k + 'openl', c.potted.length ? (c.potted.length > 3 ? '' : 'Potted') : 'Open table', v => { r.openl.textContent = v; phShow(r.openl, !!v); });
-            s(k + 'openb', c.potted.join(), () => { r.openb.innerHTML = c.potted.map(id => '<i class="ph-dot" style="background:' + phDotStyle(id) + '"></i>').join(''); });
+            s(k + 'openb', c.potted.join(), () => { r.openb.innerHTML = c.potted.map(id => '<i class="ph-dot" style="background:' + phDotStyle(id, vm.game) + '"></i>').join(''); });
             c.group.forEach((d, j) => s(k + 'down' + j, d.down, v => r.dots[j] && r.dots[j].classList.toggle('is-down', v)));
         });
         s('frames', vm.frames, v => { hud.frames.textContent = v; });
@@ -575,10 +737,59 @@
 
         s('toast.show', vm.toast.show, v => phShow(hud.toast, v));
         if (vm.toast.show) {
-            s('toast.foul', vm.toast.foul, v => { hud.toast.classList.toggle('is-foul', v); hud.toasti.innerHTML = v ? PH_ICON.warn : PH_ICON.info; });
+            s('toast.foul', vm.toast.foul + '|' + (vm.toast.icon || ''), () => {
+                hud.toast.classList.toggle('is-foul', vm.toast.foul);
+                hud.toasti.innerHTML = vm.toast.foul ? PH_ICON.warn : vm.toast.icon === 'trophy' ? PH_ICON.cup : PH_ICON.info;
+            });
             s('toast.title', vm.toast.title, v => { hud.toastt.textContent = v; });
             s('toast.sub', vm.toast.sub || '', v => { hud.toasts.textContent = v; });
         }
+        // The choice after a foul (snooker): 44 px buttons, the first primary. A long label
+        // ("Make Ayesha play again") falls back to its short form when the row would overflow.
+        const acts = vm.toast.show ? vm.toast.choices || [] : [];
+        s('toast.acts', acts.map(a => a.id + ':' + a.label).join('|') + '|' + (vm.toast.chooser || ''), () => {
+            hud.toastacts.innerHTML = acts.map(a => '<button type="button" data-ph-choose="' + a.id + '" class="' + (a.primary ? 'ph-primary' : 'ph-btn') + (a.label.length > 12 ? ' is-grow' : '') + '">' +
+                '<span class="ph-act-l">' + a.label + '</span><span class="ph-act-s">' + (a.short || a.label) + '</span></button>').join('');
+            hud.toastacts.setAttribute('aria-label', vm.toast.chooser || 'Choose how play continues');
+            phShow(hud.toastacts, acts.length > 0);
+            delete hud.last['toast.fit'];
+        });
+        if (acts.length) s('toast.fit', hud.el.clientWidth, () => {
+            hud.toastacts.classList.remove('is-tight');
+            if (hud.toastacts.scrollWidth > hud.toastacts.clientWidth + 1) hud.toastacts.classList.add('is-tight');
+        });
+
+        // Snooker's tracker row.
+        const tr = vm.track;
+        s('track.show', !!tr.show, v => phShow(hud.track, v));
+        if (tr.show) {
+            s('track.reds', tr.reds, v => { hud.trreds.innerHTML = '<span class="ph-track-word">REDS </span>× ' + v; hud.trreds.setAttribute('aria-hidden', 'true'); hud.trred.classList.toggle('is-down', !v); });
+            s('track.redc', 1, () => { hud.trred.style.background = phDotStyle(8, 'snooker'); });
+            s('track.dots', tr.dots.map(d => d.id + (d.down ? 'd' : '') + (d.on ? 'o' : '')).join(), () => {
+                hud.trdots.innerHTML = tr.dots.map(d => '<i class="ph-track-dot' + (d.down ? ' is-down' : '') + (d.on ? ' is-on' : '') + '" style="background:' + phDotStyle(d.id, 'snooker') + '"></i>').join('');
+            });
+            s('track.aria', tr.aria, v => hud.trdots.setAttribute('aria-label', v));
+            s('track.snk', tr.snookers, v => { phShow(hud.trsnk, v > 0); hud.trsnk.textContent = 'SNOOKERS REQ. ' + v; hud.track.classList.toggle('is-snk', v > 0); });
+            s('track.concede', !!tr.concede, v => phShow(hud.trconcede, v));
+            s('track.rem', tr.rem, v => { hud.trrem.textContent = v; });
+        }
+        // Snooker's colour chips.
+        const ch = vm.chips;
+        s('chips.show', !!ch.show, v => { phShow(hud.chips, v); hud.view.classList.toggle('is-nominating', v); });
+        if (ch.show) {
+            s('chips.label', ch.label, v => { hud.chips.setAttribute('aria-label', v); hud.chipgrid.setAttribute('aria-label', v); });
+            s('chips.state', ch.items.map(it => (it.live ? 1 : 0) + '' + (it.checked ? 1 : 0)).join(''), () => hud.chipButtons.forEach((b, i) => {
+                const it = ch.items[i];
+                b.disabled = !it.live;
+                b.setAttribute('aria-checked', it.checked ? 'true' : 'false');
+            }));
+            s('chips.cap', ch.caption, v => { hud.chipcap.textContent = v; });
+            s('chips.tone', ch.tone || '', v => { hud.chips.className = 'ph-chips ph-glass' + (v ? ' is-' + v : ''); });
+        }
+        // Concede the frame?
+        const cq = vm.concede;
+        s('concede.show', !!cq.show, v => phShow(hud.cscrim, v));
+        if (cq.show) s('concede.text', cq.text, v => { hud.cdlgt.textContent = v; });
 
         s('lean.show', vm.lean.show, v => phShow(hud.lean, v));
         s('lean.value', vm.lean.value, v => {
@@ -640,6 +851,12 @@
             s('dlg.kicker', d.kicker, v => { hud.dlgk.textContent = v; });
             s('dlg.title', d.title, v => { hud.dlgt.textContent = v; });
             s('dlg.reason', d.reason || '', v => { hud.dlgr.textContent = v; });
+            // Snooker: SCORE 72–41 and HIGH BREAK 58 · You, two up.
+            s('dlg.stats', JSON.stringify(d.stats || null), () => {
+                const st = d.stats || [];
+                hud.dlgstats.innerHTML = st.map(x => '<div class="ph-dialog-stat"><span class="ph-dialog-stat-l ph-label">' + x.label + '</span><span class="ph-dialog-stat-v ph-num">' + x.value + '</span></div>').join('');
+                phShow(hud.dlgstats, st.length > 0);
+            });
             s('dlg.rec', !!d.record, v => phShow(hud.dlgrec, v));
             s('dlg.recl', d.recordLabel || '', v => { hud.dlgrl.textContent = v; });
             s('dlg.recv', d.record || '', v => { hud.dlgrv.textContent = v; });
@@ -652,6 +869,7 @@
         if (hud.foot) s('foot.show', vm.foot.show, v => phShow(hud.foot, v));
         // In a tournament match: Bracket / Pause in place of the mode and Reset.
         s('foot.tour', vm.foot.tour, v => { phShow(hud.mode, !v); phShow(hud.reset, !v); phShow(hud.bracket, v); phShow(hud.pause, v); if (hud.trophy) phShow(hud.trophy, !v); });
+        s('title', vm.title, v => { if (hud.title) hud.title.textContent = v; });
         s('tour.show', vm.tour.show, v => { phShow(hud.tourhead, v); if (hud.title) phShow(hud.title, !v); });
         if (vm.tour.show) {
             s('tour.k', vm.tour.kicker, v => { hud.tourk.textContent = v; });
@@ -666,6 +884,14 @@
                 hud.modeButtons.forEach(b => b.setAttribute('aria-checked', b.getAttribute('data-ph-mode') === v ? 'true' : 'false'));
                 phShow(hud.sheetcpu, v === 'cpu'); phShow(hud.sheetpvp, v === 'pvp'); phShow(hud.sheettour, v === 'tour');
             });
+            // The list is built once; its words follow the game being played.
+            s('sheet.words', sh.diffs.map(d => d.name + '|' + d.desc).join(';'), () => hud.diffButtons.forEach((b, i) => {
+                const d = sh.diffs[i];
+                if (!d) return;
+                const n = b.querySelector('.ph-sheet-dn > span'), dd = b.querySelector('.ph-sheet-dd');
+                if (n) n.textContent = d.name;
+                if (dd) dd.textContent = d.desc;
+            }));
             s('sheet.diff', sh.diffs.map(d => d.checked ? 1 : 0).join(''), () => hud.diffButtons.forEach((b, i) => b.setAttribute('aria-checked', sh.diffs[i].checked ? 'true' : 'false')));
             s('sheet.chip', sh.chip, v => { hud.sheetchip.textContent = v; });
             s('sheet.note', sh.note, v => { hud.sheetnote.textContent = v; phShow(hud.sheetnote, !!v); });

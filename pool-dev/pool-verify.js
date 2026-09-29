@@ -10,6 +10,8 @@
 //   5  the CPU (pool-ai.js): the tiers, real pots, the throw correction, legal
 //      placement, adaptive difficulty, the frame budget
 //   6  the tiers in the match: the lock, pro's calls, the Game mode sheet, the record
+//  10  snooker in the controller (POOL_V2_PLAN.md, Snooker, S3): the switch, nomination,
+//      the choice after a foul, the D, concede, one award per rack, parking, a reload
 // The DOM half of pool-game.js (the panel, input, Max, theme) needs a browser:
 // host-run.js drives the real userscript in Chrome.
 const fs   = require('fs');
@@ -34,7 +36,7 @@ BLOCKS.forEach(b => {
     ok(b.name + ': sentinels appear exactly once each', host.split(b.open).length === 2 && host.split(b.close).length === 2);
     ok(b.name + ': the userscript copy is byte-identical to pool-dev/', trim(hostBlock(host, b)) === trim(devBlock(b, '\n')));
 });
-ok('the engine is spliced in dependency order', FILES.join() === 'pool-physics.js,pool-rules.js,pool-tour.js,pool-camera.js,pool-render.js,pool-hud.js,pool-tour-ui.js,pool-ai.js,pool-game.js');
+ok('the engine is spliced in dependency order', FILES.join() === 'pool-physics.js,pool-rules.js,pool-snooker.js,pool-tour.js,pool-camera.js,pool-render.js,pool-hud.js,pool-tour-ui.js,pool-ai.js,pool-game.js');
 ok('userscript has one line ending throughout', eolOf(host) === '\n' ? host.indexOf('\r') === -1 : host.split('\r\n').length === host.split('\n').length);
 ok('the theme CSS is safe inside the template literal', templateProblem(devBlock(BLOCKS[1], '\n')) === null);
 ok('the pool theme follows the Cyberpunk theme, as pool-table.html loads them',
@@ -87,6 +89,53 @@ ok('togglePoolMaximize uses the build hook on #pool-root', /canvasId: 'pool-root
 ok('the leaderboard reads poolMode and poolCpuTier, declared by pool-game.js', /let poolMode = 'cpu';/.test(block) && /let poolCpuTier = /.test(block) &&
    /if \(game === 'pool'\)\s+return poolMode === 'pvp' \? 'pvp'\s+: poolMode === 'cpu' && LB_BOARDS\.pool\.modes\[poolCpuTier\] \? poolCpuTier : 'cpu';/.test(src));
 ok('the achievement check still finds poolGamesWon', /let poolGamesWon = 0;/.test(block) && /typeof poolGamesWon === 'number' && poolGamesWon >= 100/.test(src));
+
+// ── 3b. The game seam (POOL_V2_PLAN.md, Snooker, Phase S0) ─────────────
+// Pool and snooker share the controller, HUD and renderer. What differs is one profile per
+// game in POOL_GAMES; nothing else may name a game's rules, CPU, rack or storage, or the
+// second game would have to be threaded through by hand. pool-fingerprint.js
+// (snooker-verify.js §0) proves pool itself plays, judges, plans and draws as before.
+head('Game seam');
+{
+    const rd = f => fs.readFileSync(require('path').join(__dirname, f), 'utf8').replace(/\r\n/g, '\n');
+    const gameSrc = noComments(rd('pool-game.js'));
+    const a = gameSrc.indexOf('    const POOL_GAMES = {'), b = gameSrc.indexOf('    const poolRules = ');
+    const outside = a > 0 && b > a ? gameSrc.slice(0, a) + gameSrc.slice(b) : gameSrc;
+    const named = (outside.match(/\b(?:pr|pa|ps)[A-Z]\w*|\bP[AS]_\w*|\bPG_BALL_COLOURS\b|\bppRack\b|\bPOOL_(?:TOUR|CAB)_KEY\b|'(?:pool|snooker)(?:WinsByTier|CpuRecord|Frame|Record|WinsByMode)'|userPreferences\.(?:poolDifficulty|snooker\w+)/g) || []);
+    ok('pool-game.js: POOL_GAMES is the one place a game\'s rules, CPU, rack and storage are named', a > 0 && b > a && !named.length, [...new Set(named)].join(', '));
+    const hudSrc = noComments(rd('pool-hud.js'));
+    const rulesCalls = hudSrc.match(/\bp[rs][A-Z]\w*\(/g) || [];
+    ok('pool-hud.js: the HUD takes the shooter\'s status from the controller, and calls no rules', !rulesCalls.length, rulesCalls.join(', '));
+    const renderSrc = noComments(rd('pool-render.js'));
+    ok('pool-render.js: ball colours only through pgBallLook', (renderSrc.match(/PG_BALL_COLOURS/g) || []).length === 2 && !/PG_BALL_COLOURS/.test(hudSrc));
+    const P = L.game({ seed: 3 }), R = P.POOL_GAMES.pool;
+    const need = ['id', 'title', 'icon', 'lb', 'xpType', 'diffPref', 'diffs', 'keys', 'world', 'rack', 'cueHome', 'newFrame', 'status', 'judge', 'apply', 'timeout', 'text',
+        'legal', 'canPlace', 'clampPlace', 'placeCue', 'tracksPot', 'ballCount', 'validFrame', 'tourDefaults', 'cpu', 'frameXP', 'fileResult', 'wins'];
+    ok('the pool profile has every part the controller asks for', need.every(k => R[k] !== undefined), need.filter(k => R[k] === undefined).join(', '));
+    const SN = P.POOL_GAMES.snooker;
+    ok('the snooker profile has every part the pool profile has, and its own choice, concede and reload parts',
+       need.every(k => SN[k] !== undefined) && ['choose', 'choices', 'choiceNotice', 'concede', 'resultText', 'prime', 'rackPref'].every(k => SN[k]) && SN.keys.frame === 'snookerFrame' && !R.keys.frame,
+       need.filter(k => SN[k] === undefined).join(', '));
+    ok('pool\'s storage keys are the ones the host and old saves use',
+       R.keys.cpuRec === 'poolCpuRecord' && R.keys.byTier === 'poolWinsByTier' && R.keys.tour === 'poolTournament' && R.keys.cab === 'poolTrophyCabinet' && R.xpType === 'pool' && R.lb === 'pool');
+    ok('poolRules() is pool by default, and for an unknown game', P.poolRules() === R && (P.poolS.game = 'nope', P.poolRules() === R));
+    P.poolS.game = 'pool';
+    let looks = true;
+    for (let id = 0; id < 16; id++) {
+        const l = P.pgBallLook('pool', id);
+        if (id === 0 ? !l.cue : l.colour !== P.PG_BALL_COLOURS[id > 8 ? id - 8 : id] || l.stripe !== (id > 8) || !l.number) looks = false;
+    }
+    ok('pgBallLook(\'pool\') is pool\'s balls: the cue, eight colours, stripes above 8, every one numbered', looks);
+    ok('an unknown game draws pool\'s balls', P.pgBallLook('nope', 9).stripe === true);
+    const cfg = P.ppCreateWorld().cfg;
+    ok('sizes drawn round a ball scale by R/14, which is exactly 1 at pool\'s R', P.pgK(cfg) === 1 && cfg.ballR === 14);
+    ok('rail and nose heights: pool\'s 16 and 10 unless a table sets its own', P.pgRailZ(cfg) === 16 && P.pgNoseZ(cfg) === 10 && P.pcRailTop(cfg) === 16 &&
+       P.pgRailZ(Object.assign({}, cfg, { railZ: 8.4 })) === 8.4 && P.pcRailTop(Object.assign({}, cfg, { railZ: 8.4 })) === 8.4);
+    ok('pool\'s table has no marks of its own: the renderer draws its two spots', !P.ppCreateWorld().table.marks &&
+       JSON.stringify(P.pgMarks(P.ppCreateWorld().table).spots.map(s => [s.x, s.y, s.r])) === JSON.stringify([[250, 0, 3], [-250, 0, 3]]));
+    P.poolUseGame('pool');
+    ok('poolUseGame sets the game and its table config, and drops the camera and cache', P.poolS.game === 'pool' && P.poolS.cfg.ballR === 14 && P.poolS.director === null);
+}
 
 // ── 4. The match, headless ────────────────────────────────────────────
 head('The match (pool-game.js)');
@@ -703,6 +752,182 @@ head('Keys (pool-game.js)');
     ok('with the mouse over the table, ← turns the aim 0.1°', Math.abs((S.aim - a0) / (Math.PI / 180) - 0.1) < 1e-9);
     ['ArrowUp', 'Enter', ' ', 'q', ']'].forEach(k => key(k));
     ok('no key sets power, shoots or calls a pocket', S.power === 0 && S.phase === 'aim' && S.called === -1);
+}
+
+// ── 10. Snooker in the controller (S3) ─────────────────────────────────
+head('Snooker in the controller (pool-game.js)');
+// Seat 1 (and seat 2 in 2 Players) plays the stand-in CPU's shots through the strike path the
+// input uses; a choice after a foul takes the free ball when there is one.
+function snkHuman(P, S) {
+    if (S.phase === 'choice' && !S.handoff && !P.poolCpuTurn()) P.poolOn.choose(S.frame.pending.options.indexOf('free') >= 0 ? 'free' : 'play');
+    if (S.phase === 'bih' && P.poolCanAct()) { const p = P.psCpuPlace(S.world, S.frame, S.rng); P.prPlaceCue(S.world, p[0], p[1]); S.placed = true; S.phase = 'aim'; }
+    if (S.phase === 'aim' && P.poolCanAct()) {
+        const job = P.psCpuPlan(S.world, S.frame, { rng: S.rng, tier: 'pro' });
+        while (!job.step(1e9));
+        if (job.shot.nominate >= 0) P.poolOn.nominate(job.shot.nominate);
+        S.shot = job.shot; S.phase = 'strike'; S.strikeT = 0;
+    }
+}
+function snkFrame(P, maxTicks) {
+    const S = P.poolS;
+    let n = 0;
+    while (S.phase !== 'over' && n++ < (maxTicks || 400000)) {
+        if (S.handoff) P.poolOn.ready();
+        if (S.frame.turn === 1 || P.poolMode === 'pvp') snkHuman(P, S);
+        P.poolTick(16);
+    }
+    return S;
+}
+// A table set by hand on the controller: [id, x, y] balls, the rest of 6 reds down.
+function snkTable(P, cue, balls, frame) {
+    const S = P.poolS, w = P.psCreateWorld();
+    w.balls = [P.ppMakeBall(0, cue[0], cue[1])];
+    [2, 3, 4, 5, 6, 7].concat([8, 9, 10, 11, 12, 13]).forEach(id => {
+        const b = balls.find(q => q[0] === id);
+        w.balls.push(Object.assign(P.ppMakeBall(id, b ? b[1] : 0, b ? b[2] : 0), b ? {} : { state: 'pocketed' }));
+    });
+    S.world = w;
+    Object.assign(S.frame, { isBreak: false, ballInHand: null }, frame);
+    S.phase = 'aim'; S.placed = false; S.nom = -1;
+    return w;
+}
+const COLOURS = [2, 3, 4, 5, 6, 7].map(id => [id].concat([[-293.5, -81.8], [-293.5, 81.8], [-293.5, 0], [0, 0], [250, 0], [409.2, 0]][id - 2]));
+{
+    const P = L.game({ seed: 71, prefs: { snookerReds: 6 } }), S = P.poolS;
+    P.poolNewFrame(1);
+    const poolBalls = JSON.stringify(S.world.balls.map(b => [b.id, b.x, b.y]));
+    P.poolSetVariant('snooker');
+    ok('⚙️ Cue Game → snooker: its table (6 reds from ⚙️, so 13 balls), ball in hand in the D, the 45 s clock, its title',
+       S.game === 'snooker' && S.world.balls.length === 13 && S.phase === 'bih' && S.frame.ballInHand === 'D' && S.clockTotal === 45 && P.poolTitle() === '🔴 Snooker' &&
+       P.prCanPlace(S.world, S.world.balls[0].x, S.world.balls[0].y, 'D') === null);
+    ok('the Game mode sheet lists snooker\'s words, and the CPU is snooker\'s', P.poolRules().diffs[3].desc === 'Plays position and safety · regular 50s' && P.poolRules().cpu.tiers.hard.label === 'Hard');
+    P.poolSetVariant('pool');
+    ok('switching back brings pool\'s frame back exactly as it was left', S.game === 'pool' && JSON.stringify(S.world.balls.map(b => [b.id, b.x, b.y])) === poolBalls && S.world.balls.length === 16);
+    P.poolSetVariant('snooker');
+
+    // Nomination: the padlock until a colour is tapped, only colours that may be nominated.
+    snkTable(P, [-100, 0], COLOURS.concat([[8, 300, 40]]), { phase: 'colour' });
+    let st = P.poolRules().status(S.frame, S.world);
+    ok('after a red: a colour must be nominated, and the gauge is padlocked', st.needsNomination && st.nominable.join() === '2,3,4,5,6,7');
+    P.poolOn.nominate(8);
+    ok('a red cannot be nominated', S.nom === -1);
+    P.poolOn.nominate(6);
+    st = P.poolRules().status(S.frame, S.world);
+    ok('tapping the pink nominates it; the padlock opens', S.nom === 6 && !st.needsNomination && st.on.ids.join() === '6');
+    P.poolOn.nominate(7);
+    ok('…and another colour may be tapped before the stroke', S.nom === 7);
+
+    // A foul by you against the CPU: it chooses, after a beat, and says what it chose.
+    snkTable(P, [-100, 0], COLOURS.concat([[8, 300, 40], [9, 320, -60]]), { phase: 'reds', turn: 1 });
+    S.world.log = [{ type: 'strike', t: 0, ball: 0 }, { type: 'ball', t: 0.1, a: 0, b: 5 }];
+    P.poolSettle();
+    ok('your foul: the CPU is the chooser (CHOOSING), the table waits for it', S.phase === 'choice' && S.frame.pending.chooser === 2 && S.toast && S.toast.title === 'Foul · 5 to CPU' && !P.poolCanAct());
+    for (let i = 0; i < 60 && S.phase === 'choice'; i++) P.poolTick(16);
+    ok('…it chooses after its beat, and a notice says so', S.phase !== 'choice' && S.frame.turn === 2 && !S.frame.pending && S.toast && /^CPU (plays on|takes the free ball)$/.test(S.toast.title), S.toast && S.toast.title);
+
+    // In-off: ball in hand in the D, the cue ball there.
+    snkTable(P, [440, 190], COLOURS.concat([[8, 300, 40]]), { phase: 'reds', turn: 1 });
+    S.world.log = [];
+    P.ppStrike(S.world, { angle: Math.PI / 4, speed: 500 });
+    P.ppSimulate(S.world, 30);
+    P.poolSettle();
+    ok('a cue ball in-off: the CPU\'s choice waits, the ball is in hand in the D', S.frame.ballInHand === 'D' && S.phase === 'choice');
+    for (let i = 0; i < 60 && S.phase === 'choice'; i++) P.poolTick(16);
+    const c = S.world.balls[0];
+    ok('…then whoever plays places it in the D', S.phase === 'bih' && c.state !== 'pocketed' && P.prCanPlace(S.world, c.x, c.y, 'D') === null);
+}
+{
+    // 2 Players: the hand-off first, then the choice; put back hands the table back.
+    const P = L.game({ seed: 72, prefs: { snookerReds: 6 } }), S = P.poolS;
+    P.poolSetVariant('snooker');
+    P.poolSetMode('pvp');
+    P.poolNewFrame(1);
+    snkTable(P, [-30, 0], COLOURS.concat([[8, 290, 2], [9, 306, -4], [10, 322, 7]]), { phase: 'reds', turn: 1 });
+    S.world.log = [{ type: 'strike', t: 0, ball: 0 }];
+    P.poolSettle();
+    ok('2 Players, a miss that leaves you snookered: the hand-off to the chooser comes first', S.phase === 'choice' && S.handoff === 2 && S.frame.pending.options.join() === 'play,back,free');
+    P.poolOn.choose('play');
+    ok('…no choice is taken before the seat is', S.phase === 'choice');
+    P.poolOn.ready();
+    ok('…READY keeps the foul toast and the FOUL tag while the choice is open', S.toast && S.toast.kind === 'foul' && S.fouled === 1 && !S.handoff);
+    P.poolOn.choose('back');
+    ok('Put back: the offender plays again, and takes the seat back', S.frame.turn === 1 && S.handoff === 1 && S.phase === 'aim' && !S.frame.freeBall && !S.toast);
+    P.poolOn.ready();
+    snkTable(P, [-30, 0], COLOURS.concat([[8, 290, 2], [9, 306, -4], [10, 322, 7]]), { phase: 'reds', turn: 1 });
+    S.world.log = [{ type: 'strike', t: 0, ball: 0 }];
+    P.poolSettle(); P.poolOn.ready();
+    P.poolOn.choose('free');
+    const st = P.poolRules().status(S.frame, S.world);
+    ok('Free ball: the chooser plays, nominating the free ball first', S.frame.turn === 2 && S.frame.freeBall && st.needsNomination && st.nominable.length === 6);
+    // Concede, confirmed.
+    snkTable(P, [100, -150], COLOURS.concat([[8, 330, 40]]), { phase: 'reds', turn: 1, scores: { 1: 10, 2: 70 } });
+    S.handoff = 0;
+    ok('snookers required for the player at the table (60 behind, 35 left: 7)', P.poolRules().status(S.frame, S.world).snookersRequired[1] === 7);
+    P.poolOn.concede();
+    ok('Concede asks first, and the table waits', S.confirm && !P.poolCanAct());
+    P.poolOn.concedeNo();
+    ok('Keep playing closes it', !S.confirm && P.poolCanAct());
+    P.poolOn.concede(); P.poolOn.concedeYes();
+    ok('CONCEDE ends the frame for the other player, the dialog says so with the score',
+       S.phase === 'over' && S.result && S.result.reason === 'Player 1 conceded.' && S.result.stats[0].value === '10–70' && S.frames[1] === 1);
+}
+{
+    // Whole frames against the stand-in CPU and in 2 Players, 6 reds: one award each, filed
+    // where snooker files them, and no XP yet (S6).
+    const store = {};
+    let frames = 0, bad = 0, awards = 0;
+    for (let k = 0; k < 2; k++) {
+        const P = L.game({ seed: 80 + k, store, prefs: { snookerReds: 6 } });
+        P.poolSetVariant('snooker');
+        if (k === 1) P.poolSetMode('pvp');
+        P.poolNewFrame(1);
+        const S = snkFrame(P);
+        if (S.phase === 'over') frames++; else bad++;
+        P.poolEndFrame({ winner: S.frame.winner });
+        awards += P.log.xp.length;
+    }
+    const rec = JSON.parse(store.snookerRecord || 'null'), byMode = JSON.parse(store.snookerWinsByMode || 'null');
+    ok('a frame against the CPU and a 2 Players frame, 6 reds, play to the end through the controller', frames === 2 && !bad, frames + ' of 2');
+    ok('each is filed once, in snooker\'s own records (the second award of a rack is refused)', rec && rec.p1Wins + rec.p1Losses === 2 && byMode && !store.poolRecord, JSON.stringify(rec));
+    ok('no XP for snooker before Phase S6, and pool\'s counts are untouched', awards === 0 && !store.poolGamesWon);
+    ok('a decided frame leaves no saved frame behind', !store.snookerFrame);
+}
+{
+    // A reload: the saved frame at every shot boundary, and back as it was.
+    const store = {};
+    const P = L.game({ seed: 90, store, prefs: { snookerReds: 6 } }), S = P.poolS;
+    P.poolSetVariant('snooker');
+    P.poolNewFrame(1);
+    snkHuman(P, S);
+    for (let i = 0; i < 4000 && (S.phase === 'strike' || S.phase === 'moving'); i++) P.poolTick(16);
+    const saved = store.snookerFrame && JSON.parse(store.snookerFrame);
+    ok('a snooker frame is saved at the shot boundary', !!saved && saved.game === 'snooker' && saved.balls.length === 13 && saved.frame.shots === 1);
+    const Q = L.game({ seed: 91, store, prefs: { snookerReds: 6 } });
+    Q.poolUseGame('snooker');
+    const back = Q.poolRestoreTable(Q.poolLoadSaved());
+    ok('…and a reload brings it back: the balls, the score, whose turn', back && JSON.stringify(Q.poolS.world.balls.map(b => [b.id, b.x, b.y, b.state])) === JSON.stringify(S.world.balls.map(b => [b.id, b.x, b.y, b.state])) &&
+       Q.poolS.frame.turn === S.frame.turn && JSON.stringify(Q.poolS.frame.scores) === JSON.stringify(S.frame.scores));
+    ok('pool keeps no such save', (() => { const G = L.game({ seed: 92, store: {} }); G.poolNewFrame(1); G.poolSaveFrame(); return !Object.keys(G.store).some(k => /Frame$/.test(k)); })());
+    // Switching mid-shot: the shot is run to rest and judged, then parked.
+    for (let i = 0; i < 4000 && S.phase !== 'moving'; i++) { if (S.frame.turn === 1) snkHuman(P, S); P.poolTick(16); }
+    const shots = S.frame.shots;
+    P.poolSetVariant('pool');
+    ok('switching mid-shot: the shot is run to rest and judged, then parked', S.game === 'pool' && P.poolS.parked.snooker && P.poolS.parked.snooker.frame.shots === shots + 1);
+    P.poolSetVariant('snooker');
+    ok('…and it is there when snooker comes back', S.game === 'snooker' && S.frame.shots === shots + 1 && !P.poolS.parked.snooker);
+    // Reds from ⚙️: a fresh frame re-racks; once play has started it waits.
+    P.poolNewFrame(1);
+    P.host.userPreferences.snookerReds = 10; P.poolOnPrefChange('snookerReds');
+    ok('⚙️ Snooker Reds re-racks a fresh frame (10 reds, 17 balls)', S.world.balls.length === 17 && S.frame.reds === 10);
+    S.frame.isBreak = false;
+    P.host.userPreferences.snookerReds = 15; P.poolOnPrefChange('snookerReds');
+    ok('…and leaves a frame in play alone', S.world.balls.length === 17);
+    // The clock: 45 s, and out of time is a foul with the choice.
+    P.poolSetMode('pvp');
+    snkTable(P, [-100, 0], COLOURS.concat([[8, 300, 40]]), { phase: 'reds', turn: 1 });
+    S.handoff = 0; S.clockLeft = 0.01;
+    P.poolTick(16);
+    ok('out of time: a foul (4), the choice to the other player', S.phase === 'choice' && S.frame.pending && S.frame.scores[2] >= 4 && S.toast && /Out of time/.test(S.toast.sub));
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

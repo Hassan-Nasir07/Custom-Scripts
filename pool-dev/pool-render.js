@@ -25,6 +25,12 @@
     const PG_RAIL_Z = 16;              // rail top
     const PG_NOSE_Z = 10;              // cushion nose height
     const PG_POCKET_FLOOR = -64;
+    // Pool's heights, unless the table sets its own (snooker's smaller balls sit under a
+    // lower rail). Sizes drawn around a ball (cue, shadow, rings) scale by pgK: R over
+    // pool's 14, so pool draws exactly as it always has.
+    const pgRailZ = cfg => (cfg.railZ !== undefined ? cfg.railZ : PG_RAIL_Z);
+    const pgNoseZ = cfg => (cfg.noseZ !== undefined ? cfg.noseZ : PG_NOSE_Z);
+    const pgK = cfg => cfg.ballR / 14;
 
     const PG_FELTS = {
         green:     { felt: ['#2E8F70', '#1D6E55', '#114534'], cushion: '#185F4B', jaw: '#0F4234', nose: '#0E3B2F' },
@@ -33,6 +39,21 @@
         lightgrey: { felt: ['#A3AEB8', '#86929D', '#59636D'], cushion: '#707C87', jaw: '#56606A', nose: '#4C565F' },
     };
     const PG_BALL_COLOURS = { 1: '#E9B825', 2: '#2457C5', 3: '#D2352B', 4: '#6A3FA0', 5: '#EE7A2E', 6: '#1F8A4C', 7: '#8C2A20', 8: '#141516' };
+    // What each game's balls look like, by id: { cue } for the cue ball, else
+    // { colour, stripe, number }. The renderer and the HUD's dots both read it.
+    // Snooker's balls are plain: a colour's id is its value (yellow 2 … black 7), reds are 8
+    // upward (pool-snooker.js). The design's colours.
+    const PG_SNOOKER_COLOURS = { 2: '#E8C21E', 3: '#1F7A3F', 4: '#6B3F22', 5: '#1F4FB5', 6: '#E88FA8', 7: '#121314' };
+    const PG_SNOOKER_RED = '#B3202A';
+    const PG_LOOKS = {
+        pool: id => (id === 0 ? { cue: true } : { colour: PG_BALL_COLOURS[id > 8 ? id - 8 : id], stripe: id > 8, number: true }),
+        snooker: id => (id === 0 ? { cue: true } : { colour: id >= 8 ? PG_SNOOKER_RED : PG_SNOOKER_COLOURS[id] || PG_SNOOKER_RED, stripe: false, number: false }),
+    };
+    const pgLookCache = {};
+    function pgBallLook(game, id) {
+        const g = PG_LOOKS[game] ? game : 'pool', key = g + '|' + id;
+        return pgLookCache[key] || (pgLookCache[key] = PG_LOOKS[g](id));
+    }
     const PG_IVORY = '#F3EEE2';
     const PG_GUIDE = '#F4F1E8';
     const PG_THEME = { accent: '#f093fb', hot: '#ff5d73', font: 'Inter, system-ui, sans-serif' };
@@ -114,12 +135,16 @@
     }
 
     // ── Layers 1–4: the table ─────────────────────────────────────────
-    // The cushion quads, from the physics config so they match the colliders:
-    // [nose start, nose end, rail end, rail start], nose at z = 10, rail at 16.
+    // The six cushions, from the physics config so they match the colliders. Each is
+    // { top, nose: [a, b], ends: [[p, q], …] }: its top face, the nose edge (its face drops to
+    // the felt), and the end edges whose faces are drawn in the jaw colour. Pool's are quads,
+    // [nose start, nose end, rail end, rail start] with a straight jaw at each end; nose at
+    // z = 10, rail at 16.
     function pgCushions(cfg) {
+        if (cfg.pocketStyle === 'rounded') return pgRoundedCushions(cfg);
         const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth;
         const CB = cfg.cornerRailEnd, CN = cfg.cornerNose, SB = cfg.sideRailEnd, SN = cfg.sideNose;
-        const N = PG_NOSE_Z, T = PG_RAIL_Z, q = [];
+        const N = pgNoseZ(cfg), T = pgRailZ(cfg), q = [];
         [-1, 1].forEach(sy => {
             [[-HL + CB, -SB, -HL + CN, -SN], [SB, HL - CB, SN, HL - CN]].forEach(g => {
                 q.push([[g[2], sy * HW, N], [g[3], sy * HW, N], [g[1], sy * (HW + CU), T], [g[0], sy * (HW + CU), T]]);
@@ -128,14 +153,63 @@
         [-1, 1].forEach(sx => {
             q.push([[sx * HL, -HW + CN, N], [sx * HL, HW - CN, N], [sx * (HL + CU), HW - CB, T], [sx * (HL + CU), -HW + CB, T]]);
         });
-        return q;
+        return q.map(c => ({ top: c, nose: [c[0], c[1]], ends: [[c[0], c[3]], [c[1], c[2]]] }));
+    }
+
+    // Snooker's cushions (the design's Table.dc.html): straight to each nose end, then a
+    // quarter-round of radius cushionCut back to the rail, centred on the rail line behind the
+    // nose, as ppBuildRoundedTable's arcs are. The top rises from the nose to the rail height
+    // across the cushion's depth.
+    function pgRoundedCushions(cfg) {
+        const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth, K = cfg.cushionCut;
+        const c = cfg.cornerNose, s = cfg.sideNose, N = pgNoseZ(cfg), T = pgRailZ(cfg), NA = 8;
+        const out = [];
+        // One run from u = a to u = b along a cushion; dirA and dirB point from each end
+        // toward its pocket; map(u, depth) is the point that fraction (depth) of the way to the rail.
+        const run = (a, b, dirA, dirB, map) => {
+            const at = (u, dep) => map(u, dep, N + (T - N) * dep);
+            const arc = (u0, dir) => {
+                const pts = [];
+                for (let i = 0; i <= NA; i++) { const t = i / NA * Math.PI / 2; pts.push(at(u0 + dir * K * Math.sin(t), 1 - Math.cos(t))); }
+                return pts;
+            };
+            const arcA = arc(a, dirA), arcB = arc(b, dirB);
+            const top = [at(a, 0), at(b, 0)].concat(arcB.slice(1), [at(a + dirA * K, 1)], arcA.slice(1, -1).reverse());
+            const ends = [];
+            [arcA, arcB].forEach(p => { for (let i = 0; i < p.length - 1; i++) ends.push([p[i], p[i + 1]]); });
+            out.push({ top, nose: [at(a, 0), at(b, 0)], ends });
+        };
+        [-1, 1].forEach(sy => {
+            const m = (u, dep, z) => [u, sy * (HW + dep * CU), z];
+            run(-HL + c, -s, -1, 1, m);
+            run(s, HL - c, -1, 1, m);
+        });
+        [-1, 1].forEach(sx => run(-HW + c, HW - c, -1, 1, (u, dep, z) => [sx * (HL + dep * CU), u, z]));
+        return out;
+    }
+
+    // The felt's markings: the table's own when it has them (snooker's baulk line, D and
+    // spots), else pool's two spots, the foot spot and the head spot.
+    //   { spots: [{ x, y, r }], lines: [[[x, y], [x, y]]], arcs: [{ x, y, r, a0, a1 }] }
+    function pgMarks(table) {
+        return table.marks || { spots: [{ x: table.footX, y: 0, r: 3 }, { x: table.headX, y: 0, r: 3 }], lines: [], arcs: [] };
+    }
+    function pgDrawMarks(ctx, view, marks) {
+        const lines = (marks.lines || []).slice();
+        (marks.arcs || []).forEach(a => {
+            const n = Math.max(8, Math.ceil(Math.abs(a.a1 - a.a0) / 0.08)), pts = [];
+            for (let i = 0; i <= n; i++) { const t = a.a0 + (a.a1 - a.a0) * i / n; pts.push([a.x + a.r * Math.cos(t), a.y + a.r * Math.sin(t)]); }
+            lines.push(pts);
+        });
+        lines.forEach(pts => pgStrokeLine(ctx, view, pts, 0.1, pgRgba(PG_IVORY, 0.35), 1, null, false));
+        if (marks.spots && marks.spots.length) pgFill(ctx, marks.spots.map(s => pcPoly(view, pgCirc(s.x, s.y, s.r, 0.1, 10))), PG_IVORY, 0.35);
     }
 
     function pgDrawTable(ctx, view, cfg, table, feltName) {
         const P = pts => pcPoly(view, pts);
         const mat = PG_FELTS[feltName] || PG_FELTS.green;
         const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth, RL = cfg.railWidth - cfg.cushionWidth;
-        const TZ = PG_RAIL_Z, OX = HL + CU + RL, OY = HW + CU + RL, IX = HL + CU, IY = HW + CU;
+        const TZ = pgRailZ(cfg), OX = HL + CU + RL, OY = HW + CU + RL, IX = HL + CU, IY = HW + CU;
         const eye = view.eye;
 
         // 1. Shadow, apron, felt.
@@ -177,16 +251,13 @@
             if (eye[1] > -IY) ri.push(P([[-IX, -IY, TZ], [IX, -IY, TZ], [IX, -IY, 0], [-IX, -IY, 0]]));
             pgFill(ctx, ri, '#24150D');
             const jaws = [];
-            cush.forEach(q => {
-                jaws.push(P([q[0], q[3], [q[3][0], q[3][1], 0], [q[0][0], q[0][1], 0]]));
-                jaws.push(P([q[1], q[2], [q[2][0], q[2][1], 0], [q[1][0], q[1][1], 0]]));
-            });
+            cush.forEach(c => c.ends.forEach(([p, q]) => jaws.push(P([p, q, [q[0], q[1], 0], [p[0], p[1], 0]]))));
             pgFill(ctx, jaws, mat.jaw);
         }
-        pgFill(ctx, cush.map(q => P([q[0], q[1], [q[1][0], q[1][1], 0], [q[0][0], q[0][1], 0]])), mat.nose);
+        pgFill(ctx, cush.map(c => P([c.nose[0], c.nose[1], [c.nose[1][0], c.nose[1][1], 0], [c.nose[0][0], c.nose[0][1], 0]])), mat.nose);
 
         // 3. Cushion tops, rail wood, lip, diamonds, spots.
-        pgFill(ctx, cush.map(P), mat.cushion);
+        pgFill(ctx, cush.map(c => P(c.top)), mat.cushion);
         const rails = [
             P([[-OX, OY, TZ], [OX, OY, TZ], [IX, IY, TZ], [-IX, IY, TZ]]),
             P([[OX, OY, TZ], [OX, -OY, TZ], [IX, -IY, TZ], [IX, IY, TZ]]),
@@ -201,15 +272,17 @@
         }
         ctx.beginPath(); pgTrace(ctx, P(pgRect(IX, IY, TZ)));
         ctx.strokeStyle = 'rgba(243, 238, 226, 0.12)'; ctx.lineWidth = 1; ctx.stroke();
-        const dia = [];
-        [-375, -250, -125, 125, 250, 375].forEach(x => {
-            dia.push(P(pgCirc(x, -(IY + RL / 2), 3.6, TZ + 0.1, 8)), P(pgCirc(x, IY + RL / 2, 3.6, TZ + 0.1, 8)));
-        });
-        [-125, 0, 125].forEach(y => {
-            dia.push(P(pgCirc(-(IX + RL / 2), y, 3.6, TZ + 0.1, 8)), P(pgCirc(IX + RL / 2, y, 3.6, TZ + 0.1, 8)));
-        });
-        pgFill(ctx, dia, '#E9DDBF');
-        pgFill(ctx, [P(pgCirc(table.footX, 0, 3, 0.1, 10)), P(pgCirc(table.headX, 0, 3, 0.1, 10))], PG_IVORY, 0.35);
+        if (cfg.diamonds !== false) {
+            const dia = [];
+            [-375, -250, -125, 125, 250, 375].forEach(x => {
+                dia.push(P(pgCirc(x, -(IY + RL / 2), 3.6, TZ + 0.1, 8)), P(pgCirc(x, IY + RL / 2, 3.6, TZ + 0.1, 8)));
+            });
+            [-125, 0, 125].forEach(y => {
+                dia.push(P(pgCirc(-(IX + RL / 2), y, 3.6, TZ + 0.1, 8)), P(pgCirc(IX + RL / 2, y, 3.6, TZ + 0.1, 8)));
+            });
+            pgFill(ctx, dia, '#E9DDBF');
+        }
+        pgDrawMarks(ctx, view, pgMarks(table));
 
         // 4. Pockets: a leather rim clamped to the rail's inner edge, then the
         // shaft seen through the opening (rail cut ∩ felt cut).
@@ -342,26 +415,29 @@
         const local = w => [pcDot(w, v.r), pcDot(w, v.u), pcDot(w, v.t)];
         ctx.globalAlpha = alpha === undefined ? 1 : alpha;
         const disc = () => { ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.closePath(); };
-        if (id === 0) {
+        const look = pgBallLook(theme.game, id);
+        if (look.cue) {
             disc();
             const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
             g.addColorStop(0, '#F8F4EB'); g.addColorStop(1, '#E6DFCF');
             ctx.fillStyle = g; ctx.fill();
+        } else if (!look.stripe && !look.number) {
+            // A plain ball (snooker's): the colour, then the lamp, nothing printed to roll.
+            disc(); ctx.fillStyle = look.colour; ctx.fill();
         } else {
-            const colour = PG_BALL_COLOURS[id > 8 ? id - 8 : id];
-            disc(); ctx.fillStyle = colour; ctx.fill();
+            disc(); ctx.fillStyle = look.colour; ctx.fill();
             const M = pgPrint(id), q = b.q || [1, 0, 0, 0];
             const N = local(pgQuatApply(q, M[0])), Y = local(pgQuatApply(q, M[1])), A = local(pgQuatApply(q, M[2]));
             const ivory = [];
-            if (id > 8) {
+            if (look.stripe) {
                 ivory.push(pgCap(A, PG_STRIPE, cx, cy, rad), pgCap([-A[0], -A[1], -A[2]], PG_STRIPE, cx, cy, rad));
             }
-            [N, [-N[0], -N[1], -N[2]]].forEach(n => ivory.push(pgCap(n, PG_NUMBER, cx, cy, rad)));
+            if (look.number) [N, [-N[0], -N[1], -N[2]]].forEach(n => ivory.push(pgCap(n, PG_NUMBER, cx, cy, rad)));
             ctx.beginPath(); ivory.forEach(p => pgTrace(ctx, p));
             ctx.fillStyle = PG_IVORY; ctx.fill();
             // Digits on the disc that faces us, foreshortened with it; hidden
             // on small balls and faded as the disc turns away (as designed).
-            if (dd >= 15) {
+            if (look.number && dd >= 15) {
                 [[N, 1], [[-N[0], -N[1], -N[2]], -1]].forEach(([n, sgn]) => {
                     const facing = n[2];
                     if (facing < 0.3) return;
@@ -500,12 +576,13 @@
     //   dpr,                                         backing-store scale of ctx
     //   aim: { angle, power, gap } | null,           null hides the cue and the guides
     //   guide: pgGuide(…) | null, guideMode: 'full' | 'short' | 'off', illegal,
-    //   bih: { x, y, valid, reason } | null, kitchen,
-    //   call: { called } | null, drops: [{ ball, pocket, t }],
+    //   bih: { x, y, valid, reason } | null, zone: 'kitchen' | 'D' | null (kitchen: the old name),
+    //   call: { called } | null, ring: the nominated ball's id (snooker) | null,
+    //   drops: [{ ball, pocket, t }],
     // }
     function pgRender(ctx, scene) {
-        const view = scene.view, w = scene.world, cfg = w.cfg, table = w.table, R = cfg.ballR;
-        const theme = Object.assign({}, PG_THEME, scene.theme);
+        const view = scene.view, w = scene.world, cfg = w.cfg, table = w.table, R = cfg.ballR, K = pgK(cfg);
+        const theme = Object.assign({}, PG_THEME, scene.theme, { game: cfg.game || 'pool' });
         if (scene.cache && scene.makeCanvas) { theme.sprites = scene.cache.digits || (scene.cache.digits = new Map()); theme.makeCanvas = scene.makeCanvas; }
         const dpr = scene.dpr || 1;
         ctx.save();
@@ -516,7 +593,7 @@
         // camera is moving (aiming in 3D turns it every frame) a cached copy would be drawn
         // once and thrown away, so the table goes straight to the screen, saving a
         // whole-canvas copy; the first frame the pose holds, it is cached again.
-        const key = JSON.stringify([view.pose, scene.felt, dpr]);
+        const key = JSON.stringify([view.pose, scene.felt, dpr, theme.game]);
         const moving = !!scene.cache && scene.cache.lastKey !== undefined && scene.cache.lastKey !== key;
         if (scene.cache) scene.cache.lastKey = key;
         if (scene.cache && scene.makeCanvas && moving && scene.cache.key !== key) {
@@ -539,10 +616,17 @@
             pgDrawTable(ctx, view, cfg, table, scene.felt);
         }
 
-        // 5. Kitchen.
-        if (scene.kitchen) {
+        // 5. The ball-in-hand zone: pool's kitchen (scene.kitchen is the older name for it).
+        const zone = scene.zone || (scene.kitchen ? 'kitchen' : null);
+        if (zone === 'kitchen') {
             pgFill(ctx, [pcPoly(view, [[-cfg.halfLength, -cfg.halfWidth, 0.2], [table.headX, -cfg.halfWidth, 0.2], [table.headX, cfg.halfWidth, 0.2], [-cfg.halfLength, cfg.halfWidth, 0.2]])], theme.accent, 0.12);
             pgStrokeLine(ctx, view, [[table.headX, -cfg.halfWidth], [table.headX, cfg.halfWidth]], 0.3, pgRgba(theme.accent, 0.8), 1.5, [6, 5], true);
+        } else if (zone === 'D' && table.marks) {
+            // Snooker's D: tinted, and outlined round the arc and back along the baulk line.
+            const m = table.marks, arc = [];
+            for (let i = 0; i <= 24; i++) { const t = Math.PI / 2 + i / 24 * Math.PI; arc.push([m.baulkX + m.dR * Math.cos(t), m.dR * Math.sin(t)]); }
+            pgFill(ctx, [pcPoly(view, arc.map(q => [q[0], q[1], 0.2]))], theme.accent, 0.12);
+            pgStrokeLine(ctx, view, arc.concat([[m.baulkX, m.dR]]), 0.3, pgRgba(theme.accent, 0.8), 1.5, [6, 5], true);
         }
 
         // Pocket drops: sinking into the hole, under everything still in play.
@@ -556,7 +640,7 @@
 
         // 6. Shadows, then guides.
         const live = w.balls.filter(b => b.state !== 'pocketed' && !(scene.bih && b.id === 0));
-        pgFill(ctx, live.map(b => pcPoly(view, pgCirc(b.x + 4, b.y - 5, R * 1.08, 0.3, 20))), '#000000', 0.38);
+        pgFill(ctx, live.map(b => pcPoly(view, pgCirc(b.x + 4 * K, b.y - 5 * K, R * 1.08, 0.3, 20))), '#000000', 0.38);
         const g = scene.aim && scene.guide && scene.guideMode !== 'off' ? scene.guide : null;
         const Z = 0.6;
         if (g && g.contact) {
@@ -615,6 +699,7 @@
             const gap = a.gap !== undefined ? a.gap : 8 + (a.power || 0) * 1.1;
             const L = 600;
             const pt = (u, side) => {
+                // Pool's cue at every ball size, as the design draws snooker's.
                 const along = R + gap + u, wd = 3.3 + (8 - 3.3) * (u / L), z = R + 1.5 + 60 * (u / L);
                 return [cue.x - d[0] * along - d[1] * wd * side, cue.y - d[1] * along + d[0] * wd * side, z];
             };
@@ -633,9 +718,20 @@
             part(3, 16, '#F2ECDF');
             part(0, 3, '#3E73B8');
         }
+        if (scene.ring) {
+            // Snooker's nominated ball: an accent ring round it, r + max(3 px, 0.4 r) (the design).
+            const b = w.balls.find(o => o.id === scene.ring && o.state !== 'pocketed');
+            const s = b && pcProject(view, [b.x, b.y, R]);
+            if (s && s[3] > PC_NEAR + R) {
+                const rad = R * s[2], rr = rad + Math.max(3, rad * 0.4);
+                ctx.beginPath(); ctx.arc(s[0], s[1], rr, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)'; ctx.lineWidth = 3.5; ctx.stroke();
+                ctx.strokeStyle = theme.accent; ctx.lineWidth = 2; ctx.stroke();
+            }
+        }
         if (scene.call) {
             table.pockets.forEach((p, i) => {
-                const ring = pcPoly(view, pgCirc(p.x, p.y, p.r + 12, PG_RAIL_Z + 0.5, 32));
+                const ring = pcPoly(view, pgCirc(p.x, p.y, p.r + 12 * K, pgRailZ(cfg) + 0.5, 32));
                 if (ring.length < 3) return;
                 ctx.beginPath(); pgTrace(ctx, ring);
                 if (i === scene.call.called) {
@@ -672,10 +768,11 @@
 
     // Screen positions of the six pockets for hit-testing a call, with
     // whether each is on screen (the rest are called from the mini-map).
-    function pgPocketMarks(view, table) {
+    function pgPocketMarks(view, table, cfg) {
+        const Z = cfg ? pgRailZ(cfg) : PG_RAIL_Z, K = table.R / 14;
         return table.pockets.map((p, i) => {
-            const s = pcProject(view, [p.x, p.y, PG_RAIL_Z]);
+            const s = pcProject(view, [p.x, p.y, Z]);
             const inView = !!s && s[0] > 10 && s[0] < view.W - 10 && s[1] > 10 && s[1] < view.H - 10;
-            return { i, x: s ? s[0] : 0, y: s ? s[1] : 0, r: s ? (p.r + 12) * s[2] : 0, inView };
+            return { i, x: s ? s[0] : 0, y: s ? s[1] : 0, r: s ? (p.r + 12 * K) * s[2] : 0, inView };
         });
     }

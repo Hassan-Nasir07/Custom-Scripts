@@ -11,7 +11,7 @@
 // laptop with GPU canvas. The bar: a 3D repaint under 4 ms (median), and the cap within 10%.
 const { spawn } = require('child_process');
 const fs = require('fs'), os = require('os'), path = require('path');
-const CHROME = 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
+const CHROME = require('./browser').browserPath();     // Chrome, else Edge, or POOL_BROWSER
 const page = 'file:///' + path.join(__dirname, 'pool-table.html').replace(/\\/g, '/').replace(/ /g, '%20');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -57,7 +57,9 @@ const MEASURE = `(async () => {
     let pass = 0, fail = 0;
     const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ✓ ' + name + (detail ? '  ' + detail : '')); } else { fail++; console.log('  ✗ ' + name + (detail ? ' — ' + detail : '')); } };
     const fmt = t => t.median + ' ms median, ' + t.p95 + ' p95';
-    for (const [label, q] of [['compact 3D', 'scene=mid&camera=3d'], ['316 px column 3D', 'scene=mid&camera=3d&narrow=1'], ['compact 2D', 'scene=mid&camera=2d']]) {
+    for (const [label, q] of [['compact 3D', 'scene=mid&camera=3d'], ['316 px column 3D', 'scene=mid&camera=3d&narrow=1'], ['compact 2D', 'scene=mid&camera=2d'],
+        // Snooker (S3): 22 balls on the smaller table, in 2D (the rack) and 3D.
+        ['snooker 2D, the 22-ball rack', 'game=snooker&camera=2d'], ['snooker 3D, mid-frame', 'game=snooker&scene=red&camera=3d']]) {
         await send('Page.navigate', { url: page + '?still=1&' + q });
         for (let i = 0; i < 60; i++) { await sleep(80); if (await evaluate('window.__ready === true')) break; }
         const r = await evaluate(MEASURE);

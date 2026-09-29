@@ -5,6 +5,7 @@
 //
 //   require('./load').physics()   pp*                  the physics alone
 //   require('./load').rules()     + pr*                the rules
+//   require('./load').snooker()   + ps*                snooker's table (and rules)
 //   require('./load').render()    + pc*, pg*           camera and renderer
 //   require('./load').hud()       + ph*                the HUD (its DOM parts need a browser)
 //   require('./load').ai()        physics, rules, pa*  the stand-in CPU
@@ -18,10 +19,11 @@ const path = require('path');
 
 // Splice order: each file only uses names from the ones before it at call time,
 // but keeping the dependency order makes the block read top-down.
-const FILES = ['pool-physics.js', 'pool-rules.js', 'pool-tour.js', 'pool-camera.js', 'pool-render.js', 'pool-hud.js', 'pool-tour-ui.js', 'pool-ai.js', 'pool-game.js'];
+const FILES = ['pool-physics.js', 'pool-rules.js', 'pool-snooker.js', 'pool-tour.js', 'pool-camera.js', 'pool-render.js', 'pool-hud.js', 'pool-tour-ui.js', 'pool-ai.js', 'pool-game.js'];
 const TARGET = path.join(__dirname, '..', 'AttendanceTimeCheckerPlus.js');
-// Module prefixes, plus the host-facing names pool-game.js keeps from v1.
-const PREFIX = /^    (?:function|const)\s+((?:pp|PP_|pr|PR_|pt|PT_|pc|PC_|pg|PG_|ph|PH_|pu|PU_|pa|PA_|pool|POOL_|initPool|resetPool|togglePool)[\w$]*)/gm;
+// Module prefixes, plus the host-facing names pool-game.js keeps from v1. ps / PS_ is
+// snooker's (pool-snooker.js, from Phase S1): the userscript has no ps* names of its own.
+const PREFIX = /^    (?:function|const)\s+((?:pp|PP_|pr|PR_|ps(?=[A-Z])|PS_|pt|PT_|pc|PC_|pg|PG_|ph|PH_|pu|PU_|pa|PA_|pool|POOL_|initPool|resetPool|togglePool)[\w$]*)/gm;
 
 const read = f => fs.readFileSync(path.join(__dirname, f), 'utf8');
 
@@ -35,11 +37,13 @@ function v2(files) {
 function physics() { return v2(['pool-physics.js']); }
 // The rules on top of the physics, in one scope as they will be in the userscript.
 function rules() { return v2(['pool-physics.js', 'pool-rules.js']); }
-// Physics, rules, camera and renderer together.
-function render() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-camera.js', 'pool-render.js']); }
+// Snooker's table and rules on the same physics and placement helpers.
+function snooker() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-snooker.js']); }
+// Physics, rules, camera and renderer together (snooker's table included, to draw it).
+function render() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-snooker.js', 'pool-camera.js', 'pool-render.js']); }
 // Everything above plus the HUD. Its DOM functions touch `document` only when
 // called, so the pure view model (phModel) loads and runs in Node.
-function hud() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-camera.js', 'pool-render.js', 'pool-hud.js']); }
+function hud() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-snooker.js', 'pool-camera.js', 'pool-render.js', 'pool-hud.js']); }
 // The rules plus the CPU.
 function ai() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-ai.js']); }
 // The tournament model (it only needs the physics' seeded rng).
@@ -128,4 +132,4 @@ function game(opts) {
     return P;
 }
 
-module.exports = { physics, rules, render, hud, ai, tour, game, FILES, TARGET, seededRandom, hostStorageHelpers };
+module.exports = { physics, rules, snooker, render, hud, ai, tour, game, FILES, TARGET, seededRandom, hostStorageHelpers };

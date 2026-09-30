@@ -581,6 +581,15 @@ async function main() {
         const done = await waitFor('!["moving","strike"].includes(window.__probe.S.phase) && window.__probe.S.frame.shots > 0', 20000);
         const af = await ev('(() => { const S = window.__probe.S, saved = JSON.parse(localStorage.getItem("snookerFrame") || "null"); return { shots: S.frame.shots, phase: S.phase, saved: !!saved && saved.frame.shots >= 1 }; })()');
         ok('the break-off is judged, and the frame is saved for a reload', done && af.shots >= 1 && af.saved, af);
+        // The CPU at the table (S4): it plans in slices, turns the cue and plays its shot; or, when
+        // the break-off fouled, makes its choice (play on, the free ball, or you back in).
+        if (await ev('window.__probe.S.frame.turn === 2 && window.__probe.mode === "cpu"')) {
+            const chose = await ev('!!window.__probe.S.frame.pending');
+            const took = await waitFor(chose ? '!window.__probe.S.frame.pending && window.__probe.S.phase !== "choice"'
+                : 'window.__probe.S.frame.shots >= 2 && !["moving","strike"].includes(window.__probe.S.phase)', 40000);
+            const cp = await ev('(() => { const S = window.__probe.S; return { shots: S.frame.shots, phase: S.phase, turn: S.frame.turn }; })()');
+            ok(chose ? 'the break-off fouled: the snooker CPU makes its choice' : 'the snooker CPU takes its turn after the break-off (plans, turns the cue, plays)', took, cp);
+        }
         await shot('host-snooker-after', '.snake-game-container');
         // Back to pool: its frame as it was left.
         await ev('window.__probe.toggleSettingsModal()'); await sleep(300);

@@ -1985,12 +1985,77 @@ with `reinsert --check` passing. Run everything on Node 22
   - **Tests:** a snapshot audit rule, "no overlay covers the aim line, the object ball's path or the
     target pocket", over scenes with shots aimed into each corner (compact and Max, 2D and 3D).
 
-#### Phase S4: the CPU
-- [ ] `pool-snooker-ai.js`, `snooker-break-tune.js`, the tiers in the Game mode sheet, ⚙️
-      *Snooker CPU*, and adaptive difficulty from `snookerCpuRecord`.
-- [ ] Measure `snooker-balance.js` against the bands and record the numbers in the Decision
-      log. `pool-verify` covers the CPU's stages and time slicing.
-- [ ] The user's test against the CPU.
+#### Phase S4: the CPU — done 2026-09-30
+- [x] **`pool-snooker-ai.js`** (`paSn*` / `PA_SN_*`, spliced after `pool-ai.js`, whose helpers it
+      borrows: `paClear`, `paMakeProb`, `paBaseSpeed`, `paRefine`, `paFirstContact`, `PA_TIPS`). It
+      replaces S3's stand-in (`psCpu*`, gone from `pool-snooker.js`; `psCueHome` stays).
+  - **Candidates:** every ball on (or each colour that may be nominated, with that nomination, and
+    the pocket called when the frame's call rule asks) into every pocket that takes it, by the
+    ghost ball, with the make probability against snooker's pockets as S1 measured them
+    (`paSnPocketTol`: about ±3 u down a corner's diagonal, ±4 square into a middle pocket and
+    closing fast with the angle). Ordered by a steady player's odds (0.12°).
+  - **Stages** (time-sliced like `paPlan`): A plays each out (aim corrected for throw first) and
+    judges it with `psJudge`; B tries the survivors with the tier's spins and paces; R replays the
+    best three with the tier's noise for fouls and the leave on a miss; the pot is valued in
+    points, `p·(points + γ·Pos) − (1−p)·M − f·(penalty + 3)`. S tries safeties (the three
+    nearest balls on, full, half and thin either side, each contact checked on its own line, and
+    one-rail kicks, at four paces) scored by the opponent's best shot after them (0.75 with the
+    cue ball on a cushion, +1.5 for a snooker), refines the best and replays it for fouls. K, when
+    nothing legal is found: pool's sweep for the gaps that meet a ball on (pro every degree, hard
+    1.5°, normal 3°, easy 6°). Pot over safety when its value plus the tier's attack bias wins;
+    after 3 safeties in a row (`poolS.cpuSafeRun`) it leans to the pot.
+  - **The break-off:** a script per reds count, `PA_SN_BREAKS`, from `snooker-break-tune.js` (a
+    coarse grid of 2,160 on one rack, the best 40 on 4 racks × ±0.1° × both sides: no foul in 24
+    for each). At the table one or two trials confirm it; else a local search, at most 24.
+  - **Choose** (`paSnChoose`): the free ball when it has one with a shot; put the offender back in
+    when the table is snookered or holds nothing for it; else play on. **Concede**
+    (`paSnConcede`): easy never; normal in the clearance needing more than 2 snookers; hard and
+    pro in the clearance needing more than 1, or more than 2 with 3 reds or fewer (the controller
+    asks at the start of its turn). **Placement** (`paSnPlace`): the break-off script's spot, else
+    the best pot from a grid over the D.
+  - **Time:** each tier caps its trials (easy 16, normal 36, hard 70, pro 120) and, once a legal
+    shot is in hand, its thinking (250 / 600 / 1,000 / 1,400 ms). A trial is 5–8 ms at 22 balls,
+    so snooker thinks in 12 ms slices (`cpu.slice`; the table stands still, so a frame costs next
+    to nothing to draw). On screen, from its turn to the cue turning, through the real controller:
+    about 0.5 s median for every tier; the worst, an escape from a snooker, 0.6 s (easy) to 1.75 s
+    (pro).
+  - **Tiers** (`PA_SN_TIERS`, execution σ): easy 0.28°, normal 0.12°, hard 0.05°, pro 0.02°, with
+    their power σ, candidates, spins, paces, noisy replays, safety trials and position weight.
+    The sheet, ⚙️ *Snooker CPU* and adaptive difficulty from `snookerCpuRecord` were in place from
+    S3; Adaptive still never reaches Pro.
+- [x] **`snooker-balance.js`**, 15 reds, against scripted humans (the hard planner with aim and pace
+      error on top, as `balance-check.js`): *casual* aims as easy does (0.3°), *skilled* as normal
+      (0.12°). Seed 7, no time cap (the numbers do not depend on the machine):
+
+      | tier | vs casual (20) | vs skilled (12) | mean break | high | fouls / shot | safeties |
+      |---|---|---|---|---|---|---|
+      | easy | 25.0% [11–47] | 0% | 3.4 ✓ | 13 | 4.5% ✓ | 36% |
+      | normal | 100% [84–100] | 58.3% [32–81] | 5.0 ✓ | 28 | 2.1% ✓ | 31% |
+      | hard | 100% [84–100] | 100% | 12.8 ✓ | 70 | 0.7% ✓ | 28% |
+      | pro | 100% [84–100] ✓ | 100% | 23.3 ✓ | 89 | 0.4% ✓ | 20% |
+
+      Against the bands: **the mean breaks and the foul rates are all in band.** The win rates
+      against casual are not: easy is at the bottom (25%, band 30–50; other seeds gave 15–60% at
+      0.26–0.30°, 20 frames are not enough to split them), and normal and hard beat a 0.3° player
+      every time. Loosening their aim does not fix it: normal at 0.22° wins 60% but its mean break
+      falls to 3.7, hard at 0.12° still wins every frame with a mean break of 5.1. The casual model
+      loses on safety and fouls, not on potting, so one aim number cannot meet both bands; the
+      tiers keep the aim that gives their breaks (Decision log). **Centuries fall short:** pro made
+      2 in 58 frames over four seeds (about 3 per 100, band 15–50), its high breaks 77–127; hard none
+      (band 2–10). Both pot reliably; what is missing is building a break over many shots
+      (position a shot ahead is all it plans). Tried and not kept: a leave valued by its best two
+      pots, softer paces, a heavier position weight (no better at 12 frames). Left for S7's final
+      balance numbers.
+- [x] **Tests:** `snooker-verify` +15 (*Snooker CPU*: the break-off for 15, 10 and 6 reds, legal and
+      home in a trial or two; a pot by pro and by easy; the colour it nominates is the one it
+      pots; a fair safety with nothing on; a fair escape when snookered; the trial caps; time
+      slicing; the choice after a foul three ways; conceding by tier; placement in the D) and the
+      call-pocket CPU test on the new planner, 157 in all; `pool-verify` +2 (the CPU concedes at its
+      turn through the controller; the 12 ms slice), and seat 1 of its snooker frames now plays the
+      new planner's easy shots; `host-run`: the CPU takes its turn after the break-off in the real
+      userscript (or, when the break-off fouled, makes its choice). Pool is unchanged: the
+      fingerprints hold.
+- [x] The user's test against the CPU (2026-09-30): "doing pretty well".
 
 #### Phase S5: tournaments
 - [ ] Tests:
@@ -2178,6 +2243,9 @@ pool-dev/pool-table.html?game=snooker`, then the real portal once v10 is install
 | 2026-09-30 | **The tracker row fits the compact panel:** with SNOOKERS REQ. and Concede showing it drops the word REDS (the dot and count stay), and in the 316 px column the colour dots too. The high break in the dialog wraps rather than being cut | Our fonts run wider than the design's; the audit found both |
 | 2026-09-30 | **Switching game during a tournament match** saves the match (its snapshot) and leaves tournament mode; it is resumed from the Game mode sheet as after *Leave for now* | A match is never parked twice |
 | 2026-09-30 | **Open issue logged: the fixed overlay corners cover shots at snooker's scale** (the camera toggle over the top-left pocket, the chips over the bottom-right, spin over the bottom-left; the user's Max screenshots). Fix before S7: fade them out of the shot's way, move them off the felt in Max, collapse the chips once a colour is picked; see S3 | Found in the user's first test of S3 |
+| 2026-09-30 | **Snooker's CPU tiers keep the aim that gives their breaks** (easy 0.28°, normal 0.12°, hard 0.05°, pro 0.02°), not the one that would put their win rate against the casual model in band | Against a 0.3° player picking shots as hard does, normal and hard win every frame; loosening them brings the win rate down only by taking their breaks out of band (normal 0.22°: 60%, mean break 3.7). The model loses on tactics, so the bands' win column and break column cannot both hold with one aim number. The user's test decides the feel |
+| 2026-09-30 | **The snooker CPU thinks in 12 ms slices, capped by tier (250–1,400 ms once a legal shot is in hand)** | A trial is 5–8 ms at 22 balls, twice pool's; at pool's 3 ms one trial a frame took up to 3 s on screen. The table is still while it thinks, so the bigger slice does not cost frames |
+| 2026-09-30 | **Every snooker tier sweeps for an escape when snookered** (pro 1°, easy 6°), not only hard and pro | Without it normal fouled on 11 of 11 blind rolls and easy on 16 of 19, which gave frames away for nothing; the coarse sweep keeps easy's escapes imperfect |
 | 2026-09-30 | **Max View is a setting: the full table (default) or the table between bars** | The user's test of the bars: aim stops over a control, so overlays over the table got in the way; but the full 1232 × 672 table was missed. On the full table the overlays sit between the corner and middle pockets |
 | 2026-09-30 | **Snooker gets a call pocket: off / colours / all balls; a wrong pocket is a foul on the ball's value** | Played that way where the user is from. With the difficulty in Vs CPU (a picked Hard: colours; Pro: all), chosen in tournaments; Adaptive and 2 Players play without, as a rule change should be chosen |
 | 2026-09-30 | **⚙️ Aim Guide shortens only the object ball's line** (150 / 100 / 60) | The user's call: the line to the ghost ball is how you aim, the purple one is the help |

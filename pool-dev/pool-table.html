@@ -96,7 +96,7 @@
             <div id="xplog">No frames finished yet.</div>
         </fieldset>
         <div class="hint">
-            This page runs the widget's own controller (pool-game.js) and CPU (pool-ai.js), on stand-ins for the host. The CPU select is the same setting as ⚙️ Pool CPU.
+            This page runs the widget's own controller (pool-game.js) and CPUs (pool-ai.js, pool-snooker-ai.js), on stand-ins for the host. The CPU select is the same setting as ⚙️ Pool CPU.
             3D: move the mouse sideways to aim (Shift for fine); it keeps aiming past the table's edge. 2D: point to aim.
             Press, then pull back or push forward along the shot line for power, and release. Return to the start or press Esc to cancel.
             Spin: drag the red dot on SPIN, or click SPIN for the big picker (letting go confirms).
@@ -196,6 +196,7 @@ function toggleGameMaxModal(cfg) {
 <script src="pool-hud.js"></script>
 <script src="pool-tour-ui.js"></script>
 <script src="pool-ai.js"></script>
+<script src="pool-snooker-ai.js"></script>
 <script src="pool-game.js"></script>
 <script>
 (() => {

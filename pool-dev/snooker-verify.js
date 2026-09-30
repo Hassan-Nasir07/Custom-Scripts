@@ -54,7 +54,7 @@ head('Pool unchanged');
 }
 
 // ── 1. The snooker table ──────────────────────────────────────────────
-const P = L.snooker();
+const P = L.snookerAi();
 const near = (a, b, eps) => Math.abs(a - b) <= (eps || 1e-9);
 const R = P.PS_TABLE.ballR;
 
@@ -541,15 +541,83 @@ head('Snooker rules: the call pocket');
     ok('…a red in the pocket called scores, and a second red elsewhere with it counts too (2)', !v.foul && v.points === 2);
     ok('…nothing potted, nothing to judge', !cj({ call: 'all' }, [8], [], -1, -1).foul);
     ok('the toast: "Potted the pink in the wrong pocket"', P.psText(cj({ call: 'colours', phase: 'colour' }, [6], [[6, 5]], 6, 2), NAMES).sub === 'Potted the pink in the wrong pocket');
-    ok('the tiers: hard calls the colours, pro every ball, easy and normal nothing', P.PS_CPU_TIERS.hard.call === 'colours' && P.PS_CPU_TIERS.pro.call === 'all' && !P.PS_CPU_TIERS.easy.call && !P.PS_CPU_TIERS.normal.call);
-    // The stand-in CPU calls the pocket of the pot it plays, and plans it fair under the call.
+    ok('the tiers: hard calls the colours, pro every ball, easy and normal nothing', P.PA_SN_TIERS.hard.call === 'colours' && P.PA_SN_TIERS.pro.call === 'all' && !P.PA_SN_TIERS.easy.call && !P.PA_SN_TIERS.normal.call);
+    // The CPU calls the pocket of the pot it plays, and plans it fair under the call.
     const w = table([-150, 60], onSpots(P.PS_COLOURS).concat([[8, 280, 150], [9, 320, -60]]));
-    const job = P.psCpuPlan(w, frame({ call: 'all' }), { tier: 'pro', noise: false });
+    const job = P.paSnPlan(w, frame({ call: 'all' }), { tier: 'pro', noise: false });
     while (!job.step(50));
     const wc = P.ppCloneWorld(w); wc.log = [];
     P.ppStrike(wc, job.shot); P.ppSimulate(wc, 40);
     const vc = P.psJudge(frame({ call: 'all' }), wc, job.shot.nominate, job.shot.call);
     ok('the CPU calls the pocket of the pot it plays, and it goes there', job.plan === 'pot' && job.shot.call >= 0 && !vc.foul && vc.points > 0, job.plan + ' call ' + job.shot.call + ' ' + (vc.foul || vc.points));
+}
+
+head('Snooker CPU (S4, pool-snooker-ai.js)');
+{
+    // Plays a planned shot on a copy and judges it.
+    const play = (w, f, shot) => { const c = P.ppCloneWorld(w); c.log = []; P.ppStrike(c, shot); P.ppSimulate(c, 40); return { w: c, v: P.psJudge(Object.assign({}, f, { touching: P.psTouching(w.balls, w.cfg.ballR) }), c, shot.nominate, shot.call) }; };
+    const plan = (w, f, o) => { const j = P.paSnPlan(w, f, Object.assign({ noise: false }, o)); while (!j.step(1e9)); return j; };
+    // The break-off, for each reds count: the script's spot, legal, the cue ball back in baulk, checked in a trial or two.
+    let breaks = true, why = '';
+    [15, 10, 6].forEach(reds => [1, 2].forEach(seed => {
+        const w = P.psRack(P.psCreateWorld(), P.ppRandom(seed), reds), f = P.psNewFrame({ reds, seed });
+        const at = P.paSnPlace(w, f, P.ppRandom(seed)); P.prPlaceCue(w, at[0], at[1]);
+        const j = plan(w, f, { tier: 'normal' }), r = play(w, f, j.shot), cue = r.w.balls[0];
+        if (j.plan !== 'break' || r.v.foul || !(cue.x < P.PS_BAULK_X) || j.tried > 2) { breaks = false; why += reds + '/' + seed + ': ' + j.plan + ' ' + (r.v.foul || '') + ' x ' + cue.x.toFixed(0) + ' tried ' + j.tried + '; '; }
+    }));
+    ok('the break-off (15, 10 and 6 reds): the script, legal, the cue ball back in baulk, in a trial or two', breaks, why);
+    // A red over the corner, the cue ball behind it: a pot, and it goes.
+    let w = table([200, 150], onSpots(P.PS_COLOURS).concat([[8, 440, 200], [9, 100, -150]])), f = frame();
+    let j = plan(w, f, { tier: 'pro' }), r = play(w, f, j.shot);
+    ok('an easy red: the pro plans the pot, and it drops', j.plan === 'pot' && r.v.points === 1 && !r.v.foul, j.plan + ' ' + (r.v.foul || r.v.points));
+    j = plan(w, f, { tier: 'easy' }); r = play(w, f, j.shot);
+    ok('…and so does the easy tier, on its own line', j.plan === 'pot' && r.v.points === 1);
+    // On a colour: it nominates the one it pots.
+    w = table([160, -40], [[2, P.PS_SPOTS[2][0], P.PS_SPOTS[2][1]], [3, P.PS_SPOTS[3][0], P.PS_SPOTS[3][1]], [4, P.PS_SPOTS[4][0], P.PS_SPOTS[4][1]], [5, 0, 0], [6, 380, -180], [7, P.PS_SPOTS[7][0], P.PS_SPOTS[7][1]], [8, 300, 60]]);
+    f = frame({ phase: 'colour' });
+    j = plan(w, f, { tier: 'hard' }); r = play(w, f, j.shot);
+    ok('on a colour: it nominates the colour it pots, and scores it', j.plan === 'pot' && j.shot.nominate >= 2 && r.v.scored.indexOf(j.shot.nominate) >= 0 && r.v.points === j.shot.nominate, j.plan + ' nom ' + j.shot.nominate + ' ' + (r.v.foul || r.v.points));
+    // Nothing on: the reds tight on the top cushion, the cue ball in baulk. A safety, fair.
+    w = table([-360, 0], onSpots(P.PS_COLOURS).concat([[8, 430, 240], [9, 400, 240]])); f = frame();
+    j = plan(w, f, { tier: 'hard' }); r = play(w, f, j.shot);
+    ok('nothing to pot: a safety, and a fair one', !r.v.foul && (j.plan === 'safety' || j.plan === 'pot'), j.plan + ' ' + (r.v.foul || ''));
+    // Snookered: the only red behind the black and pink. Hard gets out fairly.
+    w = table([200, 0], [[7, 260, 0], [6, 250, 20], [5, 250, -20], [2, P.PS_SPOTS[2][0], P.PS_SPOTS[2][1]], [3, P.PS_SPOTS[3][0], P.PS_SPOTS[3][1]], [4, P.PS_SPOTS[4][0], P.PS_SPOTS[4][1]], [8, 330, 0]]); f = frame();
+    j = plan(w, f, { tier: 'hard' }); r = play(w, f, j.shot);
+    ok('snookered on the only red: hard escapes without a foul', !r.v.foul, j.plan + ' ' + (r.v.foul || ''));
+    // Each tier stays inside its trials.
+    const mid = P.psRack(P.psCreateWorld(), P.ppRandom(3), 15);
+    P.prPlaceCue(mid, -320, 30); P.ppStrike(mid, { angle: Math.atan2(40, 610), speed: 2000, tipX: 0, tipY: 0 }); P.ppSimulate(mid, 40); P.psApplySpots(mid, []);
+    if (mid.balls[0].state === 'pocketed') P.prPlaceCue(mid, -320, 0);
+    const caps = P.PA_SN_NAMES.map(t => { const jj = plan(mid, frame(), { tier: t, rng: P.ppRandom(4), noise: true }); return [t, jj.tried, P.PA_SN_TIERS[t].trials]; });
+    ok('each tier plays out no more shots than its cap (easy 14 … pro 120), and the stronger look further', caps.every(([, n, cap]) => n <= cap + 4) && caps[3][1] >= caps[0][1], JSON.stringify(caps));
+    // Time-sliced: a 6 ms budget returns and resumes, and no slice is long.
+    const js = P.paSnPlan(mid, frame(), { tier: 'pro', rng: P.ppRandom(5) }), times = [];
+    let steps = 0;
+    for (;;) { const t0 = process.hrtime.bigint(), done = js.step(6); times.push(Number(process.hrtime.bigint() - t0) / 1e6); steps++; if (done) break; }
+    times.sort((a, b) => b - a);
+    ok('time-sliced: the pro\'s shot in ' + steps + ' slices of 6 ms, the second-slowest under 40 ms', steps > 3 && times[1] < 40 && !!js.shot, times.slice(0, 3).map(t => t.toFixed(1)).join(', '));
+    // The choice after a foul against it.
+    w = table([200, 150], onSpots(P.PS_COLOURS).concat([[8, 440, 200], [9, 100, -150]]));
+    ok('fouled against with a pot on: it plays on', P.paSnChoose(frame({ turn: 2, pending: { offender: 1, chooser: 2, options: ['play', 'back'], penalty: 4 } }), w) === 'play');
+    w = table([200, 0], [[7, 260, 0], [6, 250, 20], [5, 250, -20], [2, P.PS_SPOTS[2][0], P.PS_SPOTS[2][1]], [3, P.PS_SPOTS[3][0], P.PS_SPOTS[3][1]], [4, P.PS_SPOTS[4][0], P.PS_SPOTS[4][1]], [8, 330, 0]]);
+    ok('…snookered on the red, with the free ball offered: it takes it', P.paSnChoose(frame({ turn: 2, pending: { offender: 1, chooser: 2, options: ['play', 'back', 'free'], penalty: 4 } }), w) === 'free');
+    ok('…snookered with no free ball: it puts the offender back in', P.paSnChoose(frame({ turn: 2, pending: { offender: 1, chooser: 2, options: ['play', 'back'], penalty: 4 } }), w) === 'back');
+    // Conceding: easy never; normal in the clearance past 2 snookers; hard and pro past 1, or past 2 with 3 reds or fewer.
+    const late = (sc, o, balls) => [frame(Object.assign({ turn: 2, scores: { 1: sc[0], 2: sc[1] } }, o)), table([-100, 0], balls)];
+    const pinkBlack = [[6, 250, 0], [7, 409, 0]];
+    const needs = (sc, o, balls) => { const [fr, ww] = late(sc, o, balls); return P.psSnookersRequired(fr, ww.balls.filter(b => b.id).map(b => b.id), 2); };
+    const con = (t, sc, o, balls) => { const [fr, ww] = late(sc, o, balls); return P.paSnConcede(fr, ww, t); };
+    const cl = { phase: 'clearance', next: 6 };
+    ok('conceding: needs ' + needs([40, 0], cl, pinkBlack) + ' snookers on the pink and black: easy plays on, normal and hard give it away',
+       !con('easy', [40, 0], cl, pinkBlack) && con('normal', [40, 0], cl, pinkBlack) && con('hard', [40, 0], cl, pinkBlack) && con('pro', [40, 0], cl, pinkBlack));
+    ok('…needing 2: normal plays on, hard concedes; needing 1, all play on', !con('normal', [25, 0], cl, pinkBlack) && con('hard', [25, 0], cl, pinkBlack) && !con('hard', [18, 0], cl, pinkBlack), [needs([25, 0], cl, pinkBlack), needs([18, 0], cl, pinkBlack)].join());
+    ok('…with three reds left and far behind, hard concedes; with plenty of reds, never', con('hard', [70, 0], {}, onSpots(P.PS_COLOURS).concat(REDS3)) && !con('hard', [20, 0], {}, onSpots(P.PS_COLOURS).concat(REDS3)),
+       needs([70, 0], {}, onSpots(P.PS_COLOURS).concat(REDS3)));
+    // Placement in the D: a free spot there.
+    w = table([-100, 0], onSpots(P.PS_COLOURS).concat(REDS3)); P.prPlaceCue(w, 0, 200); w.balls[0].state = 'pocketed';
+    const at = P.paSnPlace(w, frame({ ballInHand: 'D' }), P.ppRandom(1));
+    ok('ball in hand: a spot in the D that is free', !P.prCanPlace(w, at[0], at[1], 'D'), at.map(n => n.toFixed(1)).join());
 }
 
 head('Snooker rules: whole frames, fuzzed');

@@ -35,6 +35,8 @@ start pool-dev/pool-harness.html          # shoot and tune the v2 physics live (
 start "" "pool-dev/pool-table.html?game=snooker"   # snooker in the widget's own controller and HUD (Vs CPU or 2 Players)
 start "" "pool-dev/pool-table.html?look=snooker"   # snooker's table alone, the design's stills (S1)
 node pool-dev/balance-check.js 40         # the v2 CPU tiers vs scripted humans, beside v1's numbers
+node pool-dev/snooker-balance.js 20       # snooker's CPU tiers vs scripted humans, against the plan's bands (15 reds)
+node pool-dev/snooker-break-tune.js       # searches the snooker break-off scripts (PA_SN_BREAKS); rerun when the rack or physics changes
 node pool-dev/v1/baseline-check.js 1000 1 # v1's CPU vs scripted humans: the bar the tiers are measured against
 node ludo-dev/verify-all.js               # every suite, pool included
 ```
@@ -62,6 +64,7 @@ The engine block is these ten, in this order (`load.js` `FILES`):
 | `pool-render.js` | the table, 3D pocket shafts, rolling balls, shadows, cue, physics-true guides, rings, ball in hand, pocket drops. Canvas only |
 | `pool-hud.js` | `phModel` (pure view model), `phBuild` (compact or Max DOM), `phRender`, and the canvas theme bridge `phThemeTokens` |
 | `pool-tour-ui.js` | the tournament's screens (setup, bracket compact and full, match intro, result, champion, cabinet) and dialogs (resume, abandon, pause) as HTML, and one overlay per HUD that re-renders only when the controller's key changes |
+| `pool-snooker-ai.js` | snooker's CPU (S4) on `pool-ai.js`'s helpers: candidates by the ghost ball with snooker's measured pocket tolerances, each played out and judged by `psJudge` (nominating and calling as it pots), scored in points expected (p·(points + γ·position) − the leave on a miss − fouls), noisy replays, safeties by the opponent's leave (a snooker a bonus), pool's sweep when snookered, a tuned break-off script per reds count, the choice after a foul, placement in the D, conceding by tier; each tier caps its trials (easy 14 … pro 120) and it thinks in 6 ms slices |
 | `pool-ai.js` | the CPU: four tiers on one planner (direct pots, banks, kicks, combos, safeties), every line checked on a cloned world with the real physics and rules, aim corrected for throw, position scored, noisy replays for risk, adaptive difficulty, time-sliced |
 | `pool-game.js` | the controller: the match, input, the loop, the CPU's turn, XP and records, Max, theme, lifecycle. What the host calls |
 
@@ -73,6 +76,7 @@ The rest:
 | `load.js` | evaluates the modules as they sit in the userscript: `physics()` … `ai()` for the pure layers, `game(opts)` for everything against a stubbed host |
 | `reinsert.js` | mechanical splice of both blocks |
 | `pool-verify.js` | the splice contract, the host wiring, the match headless (frames, clock, ball in hand, XP, the one-award guard), the CPU and its tiers, the Game mode sheet, tournaments in the match (setup to champion, pause, leave, reload and resume, corrupt saves) |
+| `snooker-balance.js` / `snooker-break-tune.js` | snooker's tiers against scripted humans (win rate, mean break, centuries and 147s per 100 frames, fouls per visit, think time) marked against the plan's bands, `SNOOKER_TIER_TUNE` to try settings; and the offline search for the break-off scripts |
 | `balance-check.js` | the tiers against v1's four scripted human models (the same method as `v1/baseline-check.js`); `POOL_TIER_TUNE` tries tier settings without editing `pool-ai.js` |
 | `host-run.js` | serves a stand-in portal page over DevTools, runs the real userscript in it, and plays and audits pool inside the widget; in light mode it also audits text contrast (3:1) across the whole widget, every game, ⚙️ and Max |
 | `snooker-verify.js` | snooker. §0: pool's fingerprints, taken on `main` before any snooker code, must match exactly. §1 the table; §2–6 the rules: a row per ruling, the snookered test, real shots, a scripted 147 and a free-ball 155, and whole frames fuzzed with invariants |

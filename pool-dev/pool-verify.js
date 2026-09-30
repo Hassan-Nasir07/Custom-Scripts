@@ -36,7 +36,7 @@ BLOCKS.forEach(b => {
     ok(b.name + ': sentinels appear exactly once each', host.split(b.open).length === 2 && host.split(b.close).length === 2);
     ok(b.name + ': the userscript copy is byte-identical to pool-dev/', trim(hostBlock(host, b)) === trim(devBlock(b, '\n')));
 });
-ok('the engine is spliced in dependency order', FILES.join() === 'pool-physics.js,pool-rules.js,pool-snooker.js,pool-tour.js,pool-camera.js,pool-render.js,pool-hud.js,pool-tour-ui.js,pool-ai.js,pool-game.js');
+ok('the engine is spliced in dependency order', FILES.join() === 'pool-physics.js,pool-rules.js,pool-snooker.js,pool-tour.js,pool-camera.js,pool-render.js,pool-hud.js,pool-tour-ui.js,pool-ai.js,pool-snooker-ai.js,pool-game.js');
 ok('userscript has one line ending throughout', eolOf(host) === '\n' ? host.indexOf('\r') === -1 : host.split('\r\n').length === host.split('\n').length);
 ok('the theme CSS is safe inside the template literal', templateProblem(devBlock(BLOCKS[1], '\n')) === null);
 ok('the pool theme follows the Cyberpunk theme, as pool-table.html loads them',
@@ -756,13 +756,14 @@ head('Keys (pool-game.js)');
 
 // ── 10. Snooker in the controller (S3) ─────────────────────────────────
 head('Snooker in the controller (pool-game.js)');
-// Seat 1 (and seat 2 in 2 Players) plays the stand-in CPU's shots through the strike path the
+// Seat 1 (and seat 2 in 2 Players) plays the snooker CPU's easy shots, without noise (cheap and
+// sure), through the strike path the
 // input uses; a choice after a foul takes the free ball when there is one.
 function snkHuman(P, S) {
     if (S.phase === 'choice' && !S.handoff && !P.poolCpuTurn()) P.poolOn.choose(S.frame.pending.options.indexOf('free') >= 0 ? 'free' : 'play');
-    if (S.phase === 'bih' && P.poolCanAct()) { const p = P.psCpuPlace(S.world, S.frame, S.rng); P.prPlaceCue(S.world, p[0], p[1]); S.placed = true; S.phase = 'aim'; }
+    if (S.phase === 'bih' && P.poolCanAct()) { const p = P.paSnPlace(S.world, S.frame, S.rng); P.prPlaceCue(S.world, p[0], p[1]); S.placed = true; S.phase = 'aim'; }
     if (S.phase === 'aim' && P.poolCanAct()) {
-        const job = P.psCpuPlan(S.world, S.frame, { rng: S.rng, tier: 'pro' });
+        const job = P.paSnPlan(S.world, S.frame, { rng: S.rng, tier: 'easy', noise: false });
         while (!job.step(1e9));
         if (job.shot.nominate >= 0) P.poolOn.nominate(job.shot.nominate);
         S.shot = job.shot; S.phase = 'strike'; S.strikeT = 0;
@@ -858,6 +859,16 @@ const COLOURS = [2, 3, 4, 5, 6, 7].map(id => [id].concat([[-293.5, -81.8], [-293
     for (let i = 0; i < 60 && S.phase === 'choice'; i++) P.poolTick(16);
     ok('…it chooses after its beat, and a notice says so', S.phase !== 'choice' && S.frame.turn === 2 && !S.frame.pending && S.toast && /^CPU (plays on|takes the free ball)$/.test(S.toast.title), S.toast && S.toast.title);
 
+    // The CPU gives away a frame it cannot win (hard: in the clearance, needing more than a snooker).
+    {
+        const Q = L.game({ seed: 76, prefs: { snookerDifficulty: 'hard' } }), QS = Q.poolS;
+        Q.poolSetVariant('snooker'); Q.poolNewFrame(1);
+        snkTable(Q, [-100, 0], [[6, 250, 0], [7, 409.2, 0]], { phase: 'clearance', next: 6, turn: 2, scores: { 1: 40, 2: 0 } });
+        for (let i = 0; i < 80 && QS.phase !== 'over'; i++) Q.poolTick(16);
+        ok('the hard CPU, needing 5 snookers on the pink and black, concedes at its turn', QS.phase === 'over' && QS.frame.winner === 1 && QS.frame.conceded === 2, QS.phase + ' ' + QS.frame.conceded);
+        ok('…its CPU thinks in 12 ms slices (a snooker trial is 5–8 ms)', Q.poolRules().cpu.slice === 12 && Q.POOL_GAMES.pool.cpu.slice === undefined);
+    }
+
     // In-off: ball in hand in the D, the cue ball there.
     snkTable(P, [440, 190], COLOURS.concat([[8, 300, 40]]), { phase: 'reds', turn: 1 });
     S.world.log = [];
@@ -905,7 +916,7 @@ const COLOURS = [2, 3, 4, 5, 6, 7].map(id => [id].concat([[-293.5, -81.8], [-293
        S.phase === 'over' && S.result && S.result.reason === 'Player 1 conceded.' && S.result.stats[0].value === '10–70' && S.frames[1] === 1);
 }
 {
-    // Whole frames against the stand-in CPU and in 2 Players, 6 reds: one award each, filed
+    // Whole frames against the snooker CPU and in 2 Players, 6 reds: one award each, filed
     // where snooker files them, and no XP yet (S6).
     const store = {};
     let frames = 0, bad = 0, awards = 0;

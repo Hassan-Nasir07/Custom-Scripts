@@ -133,7 +133,7 @@
         },
         // Snooker (POOL_V2_PLAN.md, Snooker): the same table component on snooker's table
         // (pool-snooker.js), 147 rules, a colour nominated when one is on, the choice after a
-        // foul, and a frame that survives a reload. Its CPU is the stand-in until Phase S4,
+        // foul, and a frame that survives a reload. Its CPU is pool-snooker-ai.js (S4),
         // and it pays no XP until S6; records are filed from S3.
         snooker: {
             id: 'snooker', title: 'Snooker', icon: '🔴', lb: 'snooker', xpType: 'snooker', diffPref: 'snookerDifficulty', diffs: PH_SNK_DIFFS,
@@ -176,8 +176,11 @@
             choiceNotice: (p, id, names) => psChoiceNotice(p, id, names),
             concede: (f, seat) => psConcede(f, seat),
             resultText: (v, names) => psResultText(v, names),
-            cpu: { tiers: PS_CPU_TIERS, names: PS_CPU_NAMES, plan: psCpuPlan, place: psCpuPlace, choose: f => psCpuChoose(f),
-                tierFor: (pref, rec) => (PS_CPU_TIERS[pref] ? pref : paAdaptiveTier(rec)), adaptive: rec => paAdaptiveTier(rec) },
+            // The CPU (pool-snooker-ai.js). A trial is 5–8 ms at 22 balls, so it thinks in
+            // 12 ms slices (the table stands still meanwhile, so a frame costs next to nothing to
+            // draw); it concedes by tier.
+            cpu: { tiers: PA_SN_TIERS, names: PA_SN_NAMES, plan: paSnPlan, place: paSnPlace, choose: (f, w) => paSnChoose(f, w), concede: paSnConcede, slice: 12,
+                tierFor: (pref, rec) => (PA_SN_TIERS[pref] ? pref : paAdaptiveTier(rec)), adaptive: rec => paAdaptiveTier(rec) },
             potXP: 0,
             frameXP: null,
             record: () => poolStoreRead('snookerRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 }),
@@ -249,6 +252,8 @@
         nom: -1, confirm: false, parked: {}, tours: {},
         // Snooker: the chips opened again after a colour was nominated (they fold to that one).
         chipsOpen: false,
+        // The CPU's safeties in a row this frame (snooker's CPU attacks after three).
+        cpuSafeRun: 0,
         drops: [], down: new Set(), drag: null, strikeT: 0, shot: null,
         // The object balls each seat has potted this frame (the cards show them on an open
         // table).
@@ -350,7 +355,7 @@
         S.rackId++;
         const home = R.cueHome(S.world);
         S.world.balls[0].x = home[0]; S.world.balls[0].y = home[1];
-        S.down = new Set(); S.drops = []; S.called = -1; S.guide = null; S.guideKey = ''; S.pots = { 1: [], 2: [] };
+        S.down = new Set(); S.drops = []; S.called = -1; S.guide = null; S.guideKey = ''; S.pots = { 1: [], 2: [] }; S.cpuSafeRun = 0;
         S.aim = 0; S.power = 0; S.tip = { x: 0, y: 0 }; S.spinOpen = false; S.phase = 'bih'; S.placed = false; S.drag = null; S.shot = null;
         S.toast = null; S.toastMs = 0; S.fouled = 0; S.result = null; S.cpu = null; S.nom = -1; S.confirm = false;
         // A tournament's later frames start with the breaker taking the seat.
@@ -594,12 +599,16 @@
         if (S.phase !== 'aim') return;
         if (c.stage === 'wait') {
             if (c.t < 350) return;
+            // Snooker: a frame it cannot win any more, it gives away (by tier).
+            if (R.cpu.concede && R.concede && R.cpu.concede(S.frame, S.world, poolCpuTier)) { S.cpu = null; poolAfterTurn(R.concede(S.frame, S.frame.turn)); return; }
             S.tip = { x: 0, y: 0 }; S.spinOpen = false;
-            c.job = R.cpu.plan(S.world, S.frame, { rng: S.rng, tier: poolCpuTier });
+            c.job = R.cpu.plan(S.world, S.frame, { rng: S.rng, tier: poolCpuTier, safeRun: S.cpuSafeRun });
             c.stage = 'think'; c.t = 0;
         } else if (c.stage === 'think') {
-            if (!c.job.step(3)) return;
+            if (!c.job.step(R.cpu.slice || 3)) return;
             c.shot = c.job.shot; c.from = S.aim; c.stage = 'turn'; c.t = 0;
+            // Safeties in a row: from three, snooker's CPU leans to the pot.
+            S.cpuSafeRun = c.job.plan === 'safety' ? S.cpuSafeRun + 1 : 0;
             if (c.shot.call >= 0) S.called = c.shot.call;
             if (c.shot.nominate >= 0) S.nom = c.shot.nominate;
         } else if (c.stage === 'turn') {

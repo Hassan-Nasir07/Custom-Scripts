@@ -24,27 +24,35 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 .im-rng:focus-within .im-thumb{box-shadow:0 0 0 4px rgba(240,180,76,.35),0 2px 6px rgba(0,0,0,.5) !important}
 @keyframes im-pulse{0%,100%{opacity:1}50%{opacity:.55}}
 .im-hot{animation:im-pulse 1s ease-in-out infinite}
+.im-hit{position:relative;cursor:pointer}.im-hit::after{content:'';position:absolute;left:-6px;right:-6px;top:-12px;bottom:-12px}
+.im-hit:focus-visible,.im-chip:focus-visible{outline:2px solid #F0B44C;outline-offset:2px}
+.im-chip{cursor:pointer}
 </style>
 </helmet>
-<div style="position: relative; width: 400px; height: 640px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 12px; background: #0E1113; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 20px; font-family: 'Sora', system-ui, sans-serif; color: #ECE8DF; overflow: hidden">
+<div style="position: relative; width: 400px; height: 640px; box-sizing: border-box; padding: {{rootPad}}; display: flex; flex-direction: column; gap: {{rootGap}}px; background: #0E1113; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 20px; font-family: 'Sora', system-ui, sans-serif; color: #ECE8DF; overflow: hidden">
 
-<div style="height: 36px; display: flex; align-items: center; justify-content: space-between">
+<div style="height: {{hdrH}}px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between">
 <div style="display: flex; align-items: center; gap: 10px">
+<sc-if value="{{isPool}}" hint-placeholder-val="{{true}}">
 <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#141516" stroke="#2C3337" stroke-width="1"></circle><circle cx="12" cy="11.4" r="4.8" fill="#F3EEE2"></circle><text x="12" y="13.9" text-anchor="middle" font-family="Chakra Petch, sans-serif" font-size="7" font-weight="700" fill="#141516">8</text><circle cx="8" cy="6.6" r="1.6" fill="#FFFFFF" fill-opacity="0.35"></circle></svg>
+</sc-if>
+<sc-if value="{{isSnk}}" hint-placeholder-val="{{false}}">
+<svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#B3202A" stroke="#2C3337" stroke-width="1"></circle><circle cx="12" cy="12" r="11" fill="none" stroke="#000000" stroke-opacity="0.25" stroke-width="3"></circle><circle cx="8.2" cy="7.4" r="2.4" fill="#FFFFFF" fill-opacity="0.45"></circle></svg>
+</sc-if>
 <sc-if value="{{tourHeader}}" hint-placeholder-val="{{false}}">
 <div style="display: flex; flex-direction: column; gap: 1px">
 <span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">CITY OPEN</span>
-<span style="font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: 600; line-height: 1.1">Semi-final · race to 2</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: 600; line-height: 1.1">{{tourTitle}}</span>
 </div>
 </sc-if>
 <sc-if value="{{plainHeader}}" hint-placeholder-val="{{true}}">
-<div style="font-family: 'Chakra Petch', sans-serif; font-size: 18px; font-weight: 600; letter-spacing: 0.01em">8-Ball Pool</div>
+<div style="font-family: 'Chakra Petch', sans-serif; font-size: 18px; font-weight: 600; letter-spacing: 0.01em">{{gameTitle}}</div>
 </sc-if>
 </div>
 <sc-if value="{{plainHeader}}" hint-placeholder-val="{{true}}">
 <div style="display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 15px; background: #1A2024; border: 1px solid rgba(240, 180, 76, 0.28); color: #F0B44C">
 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>
-<span style="font-family: 'Chakra Petch', sans-serif; font-size: 14px; font-weight: 700; color: #F4E3BF">478</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 14px; font-weight: 700; color: #F4E3BF">{{rating}}</span>
 </div>
 </sc-if>
 <sc-if value="{{tourHeader}}" hint-placeholder-val="{{false}}">
@@ -52,6 +60,7 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 </sc-if>
 </div>
 
+<sc-if value="{{isPool}}" hint-placeholder-val="{{true}}">
 <div style="height: 72px; display: grid; grid-template-columns: minmax(0, 1fr) 52px minmax(0, 1fr); gap: 8px">
 <div style="position: relative; overflow: hidden; box-sizing: border-box; padding: 10px 12px; border-radius: 14px; background: #161C1F; border: 1px solid {{c1.border}}; box-shadow: {{c1.glow}}; display: flex; flex-direction: column; justify-content: space-between">
 <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px">
@@ -94,10 +103,51 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 <div style="position: absolute; right: 0; bottom: 0; height: 3px; width: {{c2.clockW}}%; background: {{c2.clockC}}; box-shadow: 0 0 8px {{c2.clockC}}"></div>
 </div>
 </div>
+</sc-if>
+<sc-if value="{{isSnk}}" hint-placeholder-val="{{false}}">
+<div style="height: 72px; flex-shrink: 0; display: grid; grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr); gap: 6px">
+<div style="position: relative; overflow: hidden; box-sizing: border-box; padding: 10px 12px; border-radius: 14px; background: #161C1F; border: 1px solid {{c1.border}}; box-shadow: {{c1.glow}}; display: flex; flex-direction: row; align-items: center; gap: 8px">
+<div style="display: flex; flex-direction: column; gap: 3px; flex-grow: 1; min-width: 0; align-items: flex-start; text-align: left">
+<span style="max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600">{{p1}}</span>
+<span style="max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: #9CA5A8">{{rec1}}</span>
+<span class="{{c1.tagClass}}" style="min-height: 11px; font-family: 'Chakra Petch', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.12em; color: {{c1.l3C}}; white-space: nowrap">{{c1.l3}}</span>
+</div>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 28px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: {{c1.scC}}">{{c1.sc}}</span>
+<div style="position: absolute; left: 0; bottom: 0; height: 3px; width: {{c1.clockW}}%; background: {{c1.clockC}}; box-shadow: 0 0 8px {{c1.clockC}}"></div>
+</div>
+<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px">
+<div style="font-family: 'Chakra Petch', sans-serif; font-size: 20px; font-weight: 700; letter-spacing: 0.02em">{{frames}}</div>
+<div style="font-size: 9px; font-weight: 600; letter-spacing: 0.14em; color: #9CA5A8">FRAMES</div>
+</div>
+<div style="position: relative; overflow: hidden; box-sizing: border-box; padding: 10px 12px; border-radius: 14px; background: #161C1F; border: 1px solid {{c2.border}}; box-shadow: {{c2.glow}}; display: flex; flex-direction: row-reverse; align-items: center; gap: 8px">
+<div style="display: flex; flex-direction: column; gap: 3px; flex-grow: 1; min-width: 0; align-items: flex-end; text-align: right">
+<span style="max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600">{{p2}}</span>
+<span style="max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: #9CA5A8">{{rec2}}</span>
+<span class="{{c2.tagClass}}" style="min-height: 11px; font-family: 'Chakra Petch', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.12em; color: {{c2.l3C}}; white-space: nowrap">{{c2.l3}}</span>
+</div>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 28px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: {{c2.scC}}">{{c2.sc}}</span>
+<div style="position: absolute; right: 0; bottom: 0; height: 3px; width: {{c2.clockW}}%; background: {{c2.clockC}}; box-shadow: 0 0 8px {{c2.clockC}}"></div>
+</div>
+</div>
+<div style="height: 20px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 4px">
+<span style="display: flex; align-items: center; gap: 5px; font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: #C9CFCF; white-space: nowrap"><span style="width: 8px; height: 8px; border-radius: 50%; background: #B3202A; opacity: {{tr.redOp}}"></span>REDS × {{tr.reds}}</span>
+<div role="img" aria-label="{{tr.aria}}" style="display: flex; align-items: center; gap: 4px">
+<sc-for list="{{tr.dots}}" as="d" hint-placeholder-count="6">
+<span style="width: 9px; height: 9px; border-radius: 50%; background: {{d.bg}}; opacity: {{d.op}}; box-shadow: {{d.ring}}"></span>
+</sc-for>
+</div>
+<span style="flex-grow: 1"></span>
+<sc-if value="{{tr.snookers}}" hint-placeholder-val="{{false}}">
+<span style="display: flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; background: rgba(236, 106, 61, 0.16); border: 1px solid rgba(236, 106, 61, 0.7); color: #F6A585; font-family: 'Chakra Petch', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.1em; white-space: nowrap">SNOOKERS REQ. {{tr.snookersN}}</span>
+<button type="button" class="im-hit" onClick="{{askConcede}}" style="height: 20px; padding: 0 8px; border-radius: 10px; background: #1C2327; border: 1px solid rgba(255, 255, 255, 0.12); color: #ECE8DF; font-family: 'Sora', sans-serif; font-size: 11px; font-weight: 600">Concede</button>
+</sc-if>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: #9CA5A8; white-space: nowrap">{{tr.remText}}</span>
+</div>
+</sc-if>
 
-<div style="position: relative; width: 368px; height: 412px; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.06); box-sizing: border-box; flex-shrink: 0">
+<div style="position: relative; width: 368px; height: 412px; flex-shrink: 0; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.06); box-sizing: border-box; flex-shrink: 0">
 <div style="position: absolute; left: -1px; top: -1px">
-<dc-import name="Table" camera="{{t.camera}}" aim="{{t.aim}}" power="{{power}}" striking="{{striking}}" lean="{{t.lean}}" layout="{{t.layout}}" show-aim="{{t.showAim}}" bih="{{t.bih}}" kitchen="{{t.kitchen}}" cue-x="{{t.cueX}}" cue-y="{{t.cueY}}" pockets="{{t.pockets}}" called="{{t.called}}" on-call="{{pickPocket}}" width="368" height="412" hint-size="368px,412px"></dc-import>
+<dc-import name="Table" camera="{{t.camera}}" aim="{{t.aim}}" power="{{power}}" striking="{{striking}}" lean="{{t.lean}}" layout="{{t.layout}}" show-aim="{{t.showAim}}" bih="{{t.bih}}" kitchen="{{t.kitchen}}" cue-x="{{t.cueX}}" cue-y="{{t.cueY}}" pockets="{{t.pockets}}" called="{{t.called}}" on-call="{{pickPocket}}" ring-ball="{{t.ringBall}}" width="368" height="412" hint-size="368px,412px"></dc-import>
 </div>
 <sc-if value="{{aimSurface}}" hint-placeholder-val="{{true}}">
 <div aria-label="Table: move to aim, press and drag to add power, release to shoot" onMouseMove="{{onMove}}" onMouseDown="{{onDown}}" onMouseUp="{{onUp}}" onMouseLeave="{{onLeave}}" style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; cursor: {{cursor}}; user-select: none"></div>
@@ -107,12 +157,12 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 </sc-if>
 
 <sc-if value="{{showGauge}}" hint-placeholder-val="{{true}}">
-<div style="position: absolute; right: 12px; top: 190px; width: 8px; height: 140px; border-radius: 4px; background: rgba(8, 10, 11, 0.7); border: 1px solid rgba(255, 255, 255, 0.12); overflow: hidden; opacity: {{gaugeOp}}; pointer-events: none">
+<div style="position: absolute; right: 12px; top: {{gaugeTop}}px; width: 8px; height: 140px; border-radius: 4px; background: rgba(8, 10, 11, 0.7); border: 1px solid rgba(255, 255, 255, 0.12); overflow: hidden; opacity: {{gaugeOp}}; pointer-events: none">
 <div style="position: absolute; left: 0; bottom: 0; width: 100%; height: {{power}}%; background: {{powerColor}}; box-shadow: 0 0 10px {{powerColor}}"></div>
 </div>
 </sc-if>
 <sc-if value="{{locked}}" hint-placeholder-val="{{false}}">
-<div style="position: absolute; right: 6px; top: 168px; width: 20px; height: 18px; display: flex; align-items: center; justify-content: center; color: #9CA5A8; pointer-events: none">
+<div style="position: absolute; right: 6px; top: {{lockTop}}px; width: 20px; height: 18px; display: flex; align-items: center; justify-content: center; color: #9CA5A8; pointer-events: none">
 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
 </div>
 </sc-if>
@@ -129,14 +179,31 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 </sc-if>
 
 <sc-if value="{{showToast}}" hint-placeholder-val="{{false}}">
-<div role="status" style="position: absolute; left: 10px; right: 10px; top: 10px; box-sizing: border-box; min-height: 60px; padding: 10px 14px; display: flex; align-items: center; gap: 12px; border-radius: 14px; background: rgba(8, 10, 11, 0.82); border: 1px solid rgba(236, 106, 61, 0.6); backdrop-filter: blur(8px); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45)">
-<span style="width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%; background: rgba(236, 106, 61, 0.16); color: #EC6A3D; display: flex; align-items: center; justify-content: center">
+<div role="status" style="position: absolute; left: 10px; right: 10px; top: 10px; box-sizing: border-box; min-height: 60px; padding: 10px 14px; display: flex; flex-direction: column; justify-content: center; gap: 10px; border-radius: 14px; background: rgba(8, 10, 11, 0.82); border: 1px solid {{toast.border}}; backdrop-filter: blur(8px); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45)">
+<div style="display: flex; align-items: center; gap: 12px">
+<span style="width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%; background: {{toast.iconBg}}; color: {{toast.iconC}}; display: flex; align-items: center; justify-content: center">
+<sc-if value="{{toast.isFoul}}" hint-placeholder-val="{{true}}">
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 16.5h-19L12 3z"></path><path d="M12 10v4M12 17.2v.1"></path></svg>
+</sc-if>
+<sc-if value="{{toast.isNote}}" hint-placeholder-val="{{false}}">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>
+</sc-if>
+<sc-if value="{{toast.isInfo}}" hint-placeholder-val="{{false}}">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h6M14 12h6M10 8.5v7M14 8.5v7"></path></svg>
+</sc-if>
 </span>
-<span style="display: flex; flex-direction: column; gap: 3px">
-<span style="font-size: 13px; font-weight: 600; color: #F6A585">Foul · Hit opponent's ball first</span>
-<span style="font-size: 12px; color: #ECE8DF">Ball in hand to Bilal</span>
+<span style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+<span style="font-size: 13px; font-weight: 600; color: {{toast.titleC}}">{{toast.title}}</span>
+<span style="font-size: 12px; color: #ECE8DF">{{toast.sub}}</span>
 </span>
+</div>
+<sc-if value="{{toast.hasChoices}}" hint-placeholder-val="{{false}}">
+<div role="group" aria-label="{{toast.chooser}}" style="display: flex; gap: 6px">
+<sc-for list="{{toast.choices}}" as="ch" hint-placeholder-count="2">
+<button type="button" class="{{ch.cls}}" onClick="{{ch.pick}}" style="height: 44px; flex-grow: {{ch.grow}}; padding: 0 12px; border: 1px solid {{ch.border}}; border-radius: 10px; background: {{ch.bg}}; color: {{ch.fg}}; font-family: 'Sora', sans-serif; font-size: 12px; font-weight: 600; white-space: nowrap">{{ch.label}}</button>
+</sc-for>
+</div>
+</sc-if>
 </div>
 </sc-if>
 
@@ -169,6 +236,19 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 </button>
 </sc-if>
 
+<sc-if value="{{showChips}}" hint-placeholder-val="{{false}}">
+<div role="group" aria-label="{{chipAria}}" style="position: absolute; right: 10px; bottom: 10px; box-sizing: border-box; width: 160px; padding: 8px 8px 10px; border-radius: 14px; background: rgba(8, 10, 11, 0.66); border: 1px solid {{chipBorder}}; backdrop-filter: blur(8px); display: flex; flex-direction: column; gap: 4px">
+<div role="radiogroup" aria-label="{{chipAria}}" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 44px">
+<sc-for list="{{chips}}" as="k" hint-placeholder-count="6">
+<button type="button" role="radio" aria-checked="{{k.checked}}" aria-label="{{k.aria}}" class="im-chip" onClick="{{k.pick}}" style="height: 44px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center">
+<span style="width: 30px; height: 30px; border-radius: 50%; background: {{k.bg}}; box-shadow: {{k.ring}}; color: {{k.fg}}; display: flex; align-items: center; justify-content: center; font-family: 'Chakra Petch', sans-serif; font-size: 14px; font-weight: 700">{{k.val}}</span>
+</button>
+</sc-for>
+</div>
+<span style="text-align: center; font-family: 'Chakra Petch', sans-serif; font-size: 12px; font-weight: 600; color: {{chipCapC}}">{{chipCap}}</span>
+</div>
+</sc-if>
+
 <sc-if value="{{showHint}}" hint-placeholder-val="{{true}}">
 <div style="pointer-events: none; position: absolute; right: 10px; bottom: 10px; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 14px; background: rgba(8, 10, 11, 0.66); border: 1px solid {{hintBorder}}; backdrop-filter: blur(8px)">
 <span style="font-family: 'Chakra Petch', sans-serif; font-size: 12px; font-weight: 600; color: {{hintColor}}">{{hint}}</span>
@@ -177,7 +257,7 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 
 <sc-if value="{{showOver}}" hint-placeholder-val="{{false}}">
 <div style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: rgba(7, 9, 10, 0.62); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center">
-<div role="dialog" aria-label="Frame over" style="width: 320px; box-sizing: border-box; padding: 20px; border-radius: 14px; background: #161C1F; border: 1px solid {{over.border}}; box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55); display: flex; flex-direction: column; gap: 14px">
+<div role="dialog" aria-label="Frame over" style="width: 320px; box-sizing: border-box; padding: {{over.pad}}px; border-radius: 14px; background: #161C1F; border: 1px solid {{over.border}}; box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55); display: flex; flex-direction: column; gap: {{over.gap}}px">
 <div style="display: flex; align-items: center; gap: 12px">
 <span style="width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; background: {{over.iconBg}}; color: {{over.accent}}; display: flex; align-items: center; justify-content: center">
 <sc-if value="{{over.win}}" hint-placeholder-val="{{true}}">
@@ -193,6 +273,18 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 </span>
 </div>
 <div style="font-size: 13px; color: #C9CFCF">{{over.reason}}</div>
+<sc-if value="{{over.hasStats}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<div style="padding: 8px 12px; border-radius: 12px; background: #1C2327; display: flex; flex-direction: column; gap: 2px">
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">SCORE</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 18px; font-weight: 600">{{over.score}}</span>
+</div>
+<div style="padding: 8px 12px; border-radius: 12px; background: #1C2327; display: flex; flex-direction: column; gap: 2px">
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">HIGH BREAK</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 18px; font-weight: 600">{{over.high}}</span>
+</div>
+</div>
+</sc-if>
 <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: #1C2327">
 <span style="display: flex; flex-direction: column; gap: 2px">
 <span style="font-family: 'Chakra Petch', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">AYESHA · RECORD</span>
@@ -209,32 +301,49 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 </div>
 </div>
 </sc-if>
+<sc-if value="{{showConcede}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: rgba(7, 9, 10, 0.62); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center">
+<div role="alertdialog" aria-label="Concede the frame" style="width: 300px; box-sizing: border-box; padding: 20px; border-radius: 14px; background: #161C1F; border: 1px solid rgba(236, 106, 61, 0.55); box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55); display: flex; flex-direction: column; gap: 14px">
+<span style="width: 44px; height: 44px; border-radius: 50%; background: rgba(236, 106, 61, 0.16); color: #EC6A3D; display: flex; align-items: center; justify-content: center">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"></path><path d="M5 4h12l-2.5 4L17 12H5"></path></svg>
+</span>
+<span style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 22px; font-weight: 700; line-height: 1.15">Concede the frame?</span>
+<span style="font-size: 13px; color: #C9CFCF">{{concedeText}}</span>
+</span>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<button type="button" class="im-pri" style="height: 48px; border: 0; border-radius: 12px; background: #EC6A3D; color: #1B0A04; font-family: 'Chakra Petch', sans-serif; font-size: 14px; font-weight: 700; letter-spacing: 0.08em">CONCEDE</button>
+<button type="button" class="im-btn" onClick="{{keepPlaying}}" style="height: 44px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; background: #1C2327; color: #ECE8DF; font-family: 'Sora', sans-serif; font-size: 13px; font-weight: 600">Keep playing</button>
+</div>
+</div>
+</div>
+</sc-if>
 </div>
 
 <sc-if value="{{footCpu}}" hint-placeholder-val="{{true}}">
-<div style="height: 52px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<div style="height: {{footH}}px; flex-shrink: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
 <button type="button" class="im-btn" onClick="{{openSheet}}" aria-haspopup="dialog" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; font-family: 'Sora', sans-serif; font-size: 11px; font-weight: 600; padding: 0">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"></circle><path d="M3.5 19c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8"></path><circle cx="17" cy="9" r="2.6"></circle><path d="M16 14.3c2.4.1 4 1.6 4.5 4.2"></path></svg>{{modeLabel}}</button>
 <button type="button" class="im-btn" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; font-family: 'Sora', sans-serif; font-size: 11px; font-weight: 600; padding: 0">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path></svg>Reset</button>
-<a href="Max.dc.html" class="im-btn" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; font-size: 11px; font-weight: 600; text-decoration: none">
+<a href="{{maxHref}}" class="im-btn" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; font-size: 11px; font-weight: 600; text-decoration: none">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"></path></svg>Max</a>
 </div>
 </sc-if>
 
 <sc-if value="{{footTour}}" hint-placeholder-val="{{false}}">
-<div style="height: 52px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
-<a href="BracketCompact.dc.html" class="im-btn" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; font-size: 11px; font-weight: 600; text-decoration: none">
+<div style="height: {{footH}}px; flex-shrink: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<a href="{{bracketHref}}" class="im-btn" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; font-size: 11px; font-weight: 600; text-decoration: none">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h5v5H3M3 14h5v5H3M8 7.5h4v9H8M12 12h4M16 9h5v6h-5z"></path></svg>Bracket</a>
 <button type="button" class="im-btn" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; font-family: 'Sora', sans-serif; font-size: 11px; font-weight: 600; padding: 0">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5v14M15 5v14"></path></svg>Pause</button>
-<a href="Max.dc.html" class="im-btn" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; font-size: 11px; font-weight: 600; text-decoration: none">
+<a href="{{maxHref}}" class="im-btn" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; font-size: 11px; font-weight: 600; text-decoration: none">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"></path></svg>Max</a>
 </div>
 </sc-if>
 
 <sc-if value="{{footHandoff}}" hint-placeholder-val="{{false}}">
-<div style="height: 52px; box-sizing: border-box; padding: 4px 4px 4px 10px; display: flex; align-items: center; gap: 10px; border-radius: 12px; background: #161C1F; border: 1px solid rgba(240, 180, 76, 0.45)">
+<div style="height: {{footH}}px; flex-shrink: 0; box-sizing: border-box; padding: 4px 4px 4px 10px; display: flex; align-items: center; gap: 10px; border-radius: 12px; background: #161C1F; border: 1px solid rgba(240, 180, 76, 0.45)">
 <span style="width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; background: rgba(240, 180, 76, 0.14); color: #F0B44C; display: flex; align-items: center; justify-content: center">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13l-3-3M20 16H7l3 3"></path></svg>
 </span>
@@ -242,7 +351,7 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 <span style="font-size: 13px; font-weight: 600">Pass to Bilal</span>
 <span style="font-size: 11px; color: #9CA5A8">Ayesha, swap seats</span>
 </span>
-<button type="button" class="im-pri" style="height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: #F0B44C; color: #1B1406; font-family: 'Chakra Petch', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.06em; white-space: nowrap">BILAL'S READY</button>
+<button type="button" class="im-pri" onClick="{{ready}}" style="height: 40px; padding: 0 14px; border: 0; border-radius: 10px; background: #F0B44C; color: #1B1406; font-family: 'Chakra Petch', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.06em; white-space: nowrap">BILAL'S READY</button>
 </div>
 </sc-if>
 
@@ -335,14 +444,42 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"variant":{"editor":"enum","options":["mode","bih","bihBad","bihBreak","foul","call3d","call2d","clock","clockHot","win","loss","live","resume","resumeConfirm"],"default":"clock"},"$preview":{"width":400,"height":640}}'>
+<script type="text/x-dc" data-dc-script data-props='{"variant":{"editor":"enum","options":["mode","bih","bihBad","bihBreak","foul","call3d","call2d","clock","clockHot","win","loss","live","resume","resumeConfirm","snkBreak","snkRed","snkNom","snkNomPink","snkFoul","snkFoulHand","snkFree","snkFreeNom","snkSnookers","snkConcede","snkColours","snkWin","snkLoss","snkCentury","snkRespot","snk2d","snkMode","snkLive"],"default":"clock"},"$preview":{"width":400,"height":640}}'>
 class Component extends DCLogic {
   componentWillUnmount() { clearTimeout(this._strike); }
   renderVals() {
     const VW = 368, VH = 412;
     const variant = this.props.variant || 'clock';
     const s = this.state || {};
-    const CUES = { mid: [-160, 70], eight: [-60, 40], late: [60, 80], rack: [-330, 40] };
+    const CUES = { mid: [-160, 70], eight: [-60, 40], late: [60, 80], rack: [-330, 40],
+      snooker: [-60, -10], 'snooker-break': [-320, 30], 'snooker-nominate': [180, -60], 'snooker-free': [-420, -70],
+      'snooker-late': [100, -150], 'snooker-colours': [-150, -30], 'snooker-black': [-330, 20], 'snooker-empty': [60, 80] };
+    // Snooker variants share this component; tracker = { reds, rem, potted[6], on, snookers }.
+    const SK = (o) => Object.assign({ game: 'snk', kind: 'cpu', layout: 'snooker', aim: -26.9 }, o);
+    const snkCfg = {
+      snkBreak: SK({ cam: '2d', bih: true, kitchen: true, layout: 'snooker-break', cue: [-320, 30], sc: [0, 0], tag1: 'TO BREAK', tr: { reds: 15, rem: 147 }, pill: 'Break-off · in the D', hint: 'Place the cue ball in the D' }),
+      snkRed: SK({ sc: [34, 21], brk: 34, tr: { reds: 9, rem: 99 }, pill: 'On a red' }),
+      snkNom: SK({ layout: 'snooker-nominate', aim: 39.8, sc: [35, 21], brk: 35, tr: { reds: 8, rem: 98 }, pill: 'Nominate a colour', chips: true, chipSel: -1 }),
+      snkNomPink: SK({ layout: 'snooker-nominate', aim: 39.8, sc: [35, 21], brk: 35, tr: { reds: 8, rem: 98 }, pill: 'Nominate a colour', chips: true, chipSel: 4 }),
+      snkFoul: SK({ kind: 'pvp', layout: 'snooker-nominate', showAim: false, sc: [35, 33], active: 2, tag1: 'FOUL', tag1Hot: true, tag2: 'YOUR CHOICE', tr: { reds: 8, rem: 98 },
+        toast: { kind: 'foul', title: 'Foul · 6 to Bilal', sub: 'Hit the pink first', choices: ['Play', 'Make Ayesha play again'] } }),
+      snkFoulHand: SK({ kind: 'pvp', layout: 'snooker-nominate', showAim: false, sc: [35, 33], active: 2, tag1: 'FOUL', tag1Hot: true, tag2: 'YOUR CHOICE', tr: { reds: 8, rem: 98 }, handoff: true,
+        toast: { kind: 'foul', title: 'Foul · 6 to Bilal', sub: 'Hit the pink first', choices: ['Play', 'Make Ayesha play again'], needReady: true } }),
+      snkFree: SK({ kind: 'pvp', layout: 'snooker-free', aim: -5.3, showAim: false, sc: [35, 31], active: 2, tag1: 'FOUL', tag1Hot: true, tag2: 'YOUR CHOICE', tr: { reds: 8, rem: 98 },
+        toast: { kind: 'foul', title: 'Foul · 4 to Bilal', sub: 'Snookered on every red · free ball', choices: ['Play', 'Free ball', 'Make Ayesha play again'] } }),
+      snkFreeNom: SK({ kind: 'pvp', layout: 'snooker-free', aim: -5.3, sc: [35, 31], active: 2, tr: { reds: 8, rem: 98 }, pill: 'Free ball', chips: true, chipSel: -1, free: true }),
+      snkSnookers: SK({ kind: 'pvp', layout: 'snooker-late', aim: 39, sc: [22, 68], tr: { reds: 2, rem: 43, snookers: 1 }, pill: 'On a red' }),
+      snkConcede: SK({ kind: 'pvp', layout: 'snooker-late', aim: 39, sc: [22, 68], tr: { reds: 2, rem: 43, snookers: 1 }, pill: 'On a red', concede: true }),
+      snkColours: SK({ layout: 'snooker-colours', aim: 142.2, sc: [56, 41], brk: 22, tr: { reds: 0, rem: 27, on: 0 }, pill: 'On the yellow', ring: 'yellow' }),
+      snkWin: SK({ layout: 'snooker-empty', showAim: false, frames: '1–0', over: 'win', noTag: true, sc: [72, 41], tr: { reds: 0, rem: 0, potted: [1, 1, 1, 1, 1, 1] } }),
+      snkLoss: SK({ layout: 'snooker-empty', showAim: false, frames: '0–1', over: 'loss', noTag: true, sc: [60, 67], tr: { reds: 0, rem: 0, potted: [1, 1, 1, 1, 1, 1] } }),
+      snkCentury: SK({ layout: 'snooker-late', aim: 39, sc: [104, 0], brk: 104, tr: { reds: 2, rem: 43 }, toast: { kind: 'note', title: 'Century break · 104', sub: 'Ayesha keeps the break going' } }),
+      snkRespot: SK({ cam: '2d', bih: true, kitchen: true, layout: 'snooker-black', cue: [-330, 20], sc: [61, 61], tag1: 'BALL IN HAND', hint: 'Place the cue ball in the D', pill: 'Re-spotted black', tr: { reds: 0, rem: 7, potted: [1, 1, 1, 1, 1, 0], on: 5 },
+        toast: { kind: 'info', title: 'Scores level · re-spotted black', sub: 'Ayesha has ball in hand in the D' } }),
+      snk2d: SK({ cam: '2d', sc: [34, 21], brk: 34, tr: { reds: 9, rem: 99 }, pill: 'On a red' }),
+      snkMode: SK({ sc: [34, 21], brk: 34, tr: { reds: 9, rem: 99 }, pill: 'On a red', sheet: true }),
+      snkLive: SK({ kind: 'tour', frames: '1–0', sc: [34, 21], brk: 34, tr: { reds: 9, rem: 99 }, pill: 'On a red' })
+    };
     const cfgs = {
       mode:     { kind: 'cpu', sheet: true },
       bih:      { kind: 'cpu', tag1: 'BALL IN HAND', cam: '2d', bih: true, cue: [-10, 60], pill: 'Ball in hand', hint: 'Drag the cue ball to place it' },
@@ -359,7 +496,8 @@ class Component extends DCLogic {
       resume:   { kind: 'tour', frames: '1–0', resume: true },
       resumeConfirm: { kind: 'tour', frames: '1–0', resume: true, confirm: true }
     };
-    const c = cfgs[variant] || cfgs.clock;
+    const c = cfgs[variant] || snkCfg[variant] || cfgs.clock;
+    const snkG = c.game === 'snk';
     const kind = c.kind;
     const layout = c.layout || 'mid';
     const camera = s.camera ?? (c.cam || '3d');
@@ -375,11 +513,19 @@ class Component extends DCLogic {
     const sheetMode = s.sheetMode ?? kind;
     const diff = s.diff ?? 'adaptive';
     const confirm = s.confirm ?? !!c.confirm;
+    const ready = !!s.ready, toastDone = !!s.toastDone, freeNom = !!s.freeNom;
+    const concedeOpen = s.concede ?? !!c.concede;
+    const toastCfg = c.toast === true ? { kind: 'foul', title: "Foul · Hit opponent's ball first", sub: 'Ball in hand to Bilal' } : c.toast;
+    const toastOn = !!toastCfg && !toastDone;
+    const chipsOn = (!!c.chips || freeNom) && !toastOn;
+    const chipSel = s.chip ?? (c.chipSel ?? -1);
+    const liveAim = c.showAim !== false || toastDone;
     this._aimLive = aim;
     const wrap = (v) => { const x = ((v + 180) % 360 + 360) % 360 - 180; return Math.round(x * 10) / 10; };
     const local = (e) => { const r = e.currentTarget.getBoundingClientRect(); const k = r.width / VW || 1; return [(e.clientX - r.left) / k, (e.clientY - r.top) / k]; };
     const k2 = Math.min((VW - 16) / 1096, (VH - 16) / 596);
-    const aimOK = !c.bih && !c.over && !c.resume && !sheetOpen && c.showAim !== false && !(c.call && called < 0);
+    const aimOK = !c.bih && !c.over && !c.resume && !sheetOpen && liveAim && !(c.call && called < 0) && !concedeOpen;
+    const lockedNow = (!!c.call && called < 0) || (chipsOn && chipSel < 0);
 
     const AMB = '#F0B44C', HOT = '#EC6A3D';
     const p1 = 'Ayesha';
@@ -394,7 +540,11 @@ class Component extends DCLogic {
         border: on ? (c.hot ? 'rgba(236, 106, 61, 0.7)' : 'rgba(240, 180, 76, 0.45)') : 'rgba(255, 255, 255, 0.06)',
         glow: on ? (c.hot ? '0 0 24px rgba(236, 106, 61, 0.16)' : '0 0 24px rgba(240, 180, 76, 0.10)') : 'none',
         tag: c.noTag ? '' : tag, tagColor: hotTag ? HOT : AMB, tagClass: on && c.hot ? 'im-hot' : '',
-        clockW: on && c.clock ? c.clock : 0, clockC: clockC
+        clockW: on && c.clock ? c.clock : 0, clockC: clockC,
+        sc: snkG ? String((c.sc || [0, 0])[n - 1]) : '',
+        scC: on ? '#F4E3BF' : '#ECE8DF',
+        l3: c.noTag ? '' : (n === 1 ? c.tag1 : c.tag2) || (on && c.brk ? 'BREAK ' + c.brk : ''),
+        l3C: hotTag ? HOT : AMB
       };
     };
     const IV = '#F3EEE2';
@@ -421,13 +571,19 @@ class Component extends DCLogic {
       fg: sheetMode === m[0] ? '#F4E3BF' : '#ECE8DF',
       pick: () => this.setState({ sheetMode: m[0] })
     }));
-    const diffs = [
+    const diffs = (snkG ? [
+      ['adaptive', 'Adaptive', 'Matches your form, frame by frame'],
+      ['easy', 'Easy', 'Pots the simple ones · leaves chances'],
+      ['normal', 'Normal', 'Builds small breaks · plays some safe'],
+      ['hard', 'Hard', 'Plays position and safety · regular 50s'],
+      ['pro', 'Pro', 'Hardly misses · centuries']
+    ] : [
       ['adaptive', 'Adaptive', 'Matches your form, frame by frame'],
       ['easy', 'Easy', 'Takes simple pots · misses often'],
       ['normal', 'Normal', 'Solid potting · little position play'],
       ['hard', 'Hard', 'Plays position · rarely leaves a shot'],
       ['pro', 'Pro', 'Hardly misses · call every shot']
-    ].map((d) => ({
+    ]).map((d) => ({
       name: d[1], desc: d[2], checked: diff === d[0] ? 'true' : 'false',
       bg: diff === d[0] ? '#161C1F' : 'transparent',
       border: diff === d[0] ? 'rgba(240, 180, 76, 0.45)' : 'transparent',
@@ -439,19 +595,77 @@ class Component extends DCLogic {
     const over = c.over === 'win'
       ? { win: true, loss: false, title: 'Ayesha wins', reason: 'Potted the 8 in the called pocket.', record: '479W · 68L', delta: '+1 WIN', accent: AMB, iconBg: 'rgba(240, 180, 76, 0.14)', border: 'rgba(240, 180, 76, 0.45)', adaptive: 'Adaptive steps up to Hard next frame' }
       : { win: false, loss: true, title: 'CPU wins', reason: 'Scratched on the 8.', record: '478W · 69L', delta: '+1 LOSS', accent: HOT, iconBg: 'rgba(236, 106, 61, 0.16)', border: 'rgba(236, 106, 61, 0.5)', adaptive: 'Adaptive stays at Normal' };
+    over.pad = 20; over.gap = 14; over.hasStats = false;
+    if (snkG) {
+      Object.assign(over, { pad: 16, gap: 10, hasStats: true, score: (c.sc || [0, 0]).join('–') },
+        c.over === 'win' ? { reason: 'Potted the black.', record: '37W · 21L', high: '58 · You' } : { reason: 'CPU won on the re-spotted black.', record: '36W · 22L', high: '47 · CPU' });
+    }
+    // Snooker tracker row
+    const SNK = [['yellow', '#E8C21E', 2, '#15191B'], ['green', '#1F7A3F', 3, '#F3EEE2'], ['brown', '#6B3F22', 4, '#F3EEE2'], ['blue', '#1F4FB5', 5, '#F3EEE2'], ['pink', '#E88FA8', 6, '#15191B'], ['black', '#121314', 7, '#F3EEE2']];
+    const trc = c.tr || { reds: 15, rem: 147 };
+    const potted = trc.potted || [0, 0, 0, 0, 0, 0];
+    const RING = '0 0 0 1.5px #0E1113, 0 0 0 3px #F0B44C';
+    const tr = {
+      reds: trc.reds, redOp: trc.reds ? 1 : 0.22,
+      dots: SNK.map((b, i) => ({ bg: b[1], op: potted[i] ? 0.22 : 1, ring: trc.on === i ? RING : 'none' })),
+      snookers: !!trc.snookers, snookersN: trc.snookers || 0,
+      remText: trc.snookers ? trc.rem + ' LEFT' : trc.rem + ' REMAINING',
+      aria: 'Reds left ' + trc.reds + ', colours ' + SNK.filter((b, i) => !potted[i]).map((b) => b[0]).join(', ') + ', ' + trc.rem + ' points remaining'
+    };
+    const hiB = 'radial-gradient(circle at 35% 30%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 50%)';
+    const chips = SNK.map((b, i) => ({
+      val: String(b[2]), bg: hiB + ', ' + b[1], fg: b[3],
+      ring: i === chipSel ? '0 0 0 2px #0E1113, 0 0 0 4px #F0B44C' : 'inset 0 0 0 1px rgba(0, 0, 0, 0.25)',
+      checked: i === chipSel ? 'true' : 'false',
+      aria: b[0].charAt(0).toUpperCase() + b[0].slice(1) + ', ' + b[2] + ' points',
+      pick: () => this.setState({ chip: i })
+    }));
+    const selName = chipSel >= 0 ? SNK[chipSel][0] : '';
+    const ringBall = chipsOn && chipSel >= 0 ? selName : (c.ring || '');
+    const toastPal = { foul: ['rgba(236, 106, 61, 0.6)', 'rgba(236, 106, 61, 0.16)', HOT, '#F6A585'], note: ['rgba(240, 180, 76, 0.55)', 'rgba(240, 180, 76, 0.14)', AMB, '#F4E3BF'], info: ['rgba(240, 180, 76, 0.45)', 'rgba(240, 180, 76, 0.12)', AMB, '#F4E3BF'] };
+    const tk = toastCfg ? toastPal[toastCfg.kind || 'foul'] : toastPal.foul;
+    const choicesVisible = !!(toastCfg && toastCfg.choices) && (!toastCfg.needReady || ready);
+    const toast = toastCfg ? {
+      title: toastCfg.title, sub: toastCfg.needReady && !ready ? 'Bilal chooses how play continues' : toastCfg.sub,
+      border: tk[0], iconBg: tk[1], iconC: tk[2], titleC: tk[3],
+      isFoul: (toastCfg.kind || 'foul') === 'foul', isNote: toastCfg.kind === 'note', isInfo: toastCfg.kind === 'info',
+      hasChoices: choicesVisible, chooser: 'Bilal, choose how play continues',
+      choices: (toastCfg.choices || []).map((lab, i) => ({
+        label: lab, grow: lab.length > 12 ? 1 : 0,
+        cls: i === 0 ? 'im-pri' : 'im-btn',
+        bg: i === 0 ? AMB : '#1C2327', fg: i === 0 ? '#1B1406' : '#ECE8DF',
+        border: i === 0 ? AMB : 'rgba(255, 255, 255, 0.10)',
+        pick: () => this.setState(lab === 'Free ball' ? { toastDone: true, freeNom: true } : { toastDone: true })
+      }))
+    } : { title: '', sub: '', border: 'transparent', iconBg: 'transparent', iconC: AMB, titleC: '#ECE8DF', isFoul: false, isNote: false, isInfo: false, hasChoices: false, chooser: '', choices: [] };
 
     let hint = dragging ? 'Release to shoot · ' + power + '%' : 'Press and drag for power';
     let hintColor = dragging ? powerColor : '#C9CFCF', hintBorder = 'rgba(255, 255, 255, 0.10)';
     if (c.bih) { hint = s.placed ? 'Placed · aim when ready' : c.hint; if (c.hintHot) { hintColor = '#F6A585'; hintBorder = 'rgba(236, 106, 61, 0.6)'; } }
+    if (chipsOn) hint = '';
     if (c.call) {
       if (called < 0) { hint = 'Tap a pocket to call it'; hintColor = '#F4E3BF'; hintBorder = 'rgba(240, 180, 76, 0.6)'; }
       else if (!dragging) hint = ['Top left', 'Top right', 'Bottom left', 'Bottom right', 'Top side', 'Bottom side'][called] + ' called · drag to shoot';
     }
 
+    const colourName = selName ? selName.charAt(0).toUpperCase() + selName.slice(1) : '';
+    const pillText = chipsOn && chipSel >= 0 ? ((c.free || freeNom) ? 'Free ball · ' + colourName : 'On the ' + selName) : (freeNom && chipsOn ? 'Free ball' : c.pill);
     return {
+      isPool: !snkG, isSnk: snkG,
+      gameTitle: snkG ? 'Snooker' : '8-Ball Pool', rating: snkG ? '412' : '478',
+      tourTitle: snkG ? 'Semi-final · best of 3' : 'Semi-final · race to 2',
+      rootPad: snkG ? '12px 16px' : '16px', rootGap: snkG ? 8 : 12, hdrH: snkG ? 32 : 36, footH: snkG ? 48 : 52,
+      tr, chips, showChips: chipsOn, chipCap: chipSel >= 0 ? 'Drag to shoot' : 'Tap a colour',
+      chipCapC: chipSel >= 0 ? '#F4E3BF' : '#ECE8DF', chipBorder: chipSel >= 0 ? 'rgba(240, 180, 76, 0.55)' : 'rgba(255, 255, 255, 0.10)',
+      chipAria: (c.free || freeNom) ? 'Nominate the free ball' : 'Nominate a colour',
+      gaugeTop: chipsOn ? 118 : 190, lockTop: chipsOn ? 96 : 168,
+      toast, showConcede: concedeOpen, concedeText: 'Bilal wins 68–22',
+      askConcede: () => this.setState({ concede: true }), keepPlaying: () => this.setState({ concede: false }),
+      ready: () => this.setState({ ready: true }),
+      maxHref: snkG ? 'SnkMaxRed.dc.html' : 'Max.dc.html', bracketHref: snkG ? 'SnkBracket.dc.html' : 'BracketCompact.dc.html',
       p1, p2,
-      rec1: kind === 'tour' ? 'Seed 1' : (c.over === 'win' ? '479W · 68L' : c.over === 'loss' ? '478W · 69L' : '478W · 68L'),
-      rec2: kind === 'cpu' ? 'Adaptive · Normal' : kind === 'tour' ? 'Seed 4' : '112W · 97L',
+      rec1: kind === 'tour' ? 'Seed 1' : snkG ? (c.over === 'win' ? '37W · 21L' : c.over === 'loss' ? '36W · 22L' : '36W · 21L') : (c.over === 'win' ? '479W · 68L' : c.over === 'loss' ? '478W · 69L' : '478W · 68L'),
+      rec2: kind === 'cpu' ? 'Adaptive · Normal' : kind === 'tour' ? 'Seed 4' : snkG ? '28W · 30L' : '112W · 97L',
       c1: card(1), c2: card(2),
       frames: c.frames || '0–0',
       groupsSet: !c.open, groupsOpen: !!c.open,
@@ -460,7 +674,7 @@ class Component extends DCLogic {
       tourHeader: kind === 'tour', plainHeader: kind !== 'tour',
       t: {
         camera, aim, lean, layout,
-        showAim: c.showAim === false ? 'false' : 'true',
+        showAim: liveAim ? 'true' : 'false', ringBall,
         bih: c.bih ? 'true' : 'false', kitchen: c.kitchen ? 'true' : 'false',
         cueX: cue[0], cueY: cue[1],
         pockets: c.call ? 'true' : 'false', called
@@ -468,15 +682,15 @@ class Component extends DCLogic {
       power, striking, powerColor,
       pickPocket: (i) => this.setState({ called: i }),
       aimSurface: aimOK, bihSurface: !!c.bih,
-      showGauge: !c.bih && !c.over && !c.resume && c.showAim !== false,
-      gaugeOp: c.call && called < 0 ? 0.3 : dragging ? 1 : 0.45,
-      locked: !!c.call && called < 0,
-      showToggle: !c.toast, showToast: !!c.toast,
+      showGauge: !c.bih && !c.over && !c.resume && liveAim,
+      gaugeOp: lockedNow ? 0.3 : dragging ? 1 : 0.45,
+      locked: lockedNow && !c.over,
+      showToggle: !toastOn, showToast: toastOn,
       showLean: is3d && !c.over && !c.resume && !sheetOpen && !c.call,
-      showSpin: !c.bih && !c.over && !c.resume && !c.toast && !sheetOpen,
-      showHint: !c.over && !c.resume && !c.toast && !sheetOpen,
+      showSpin: !c.bih && !c.over && !c.resume && !toastOn && !sheetOpen,
+      showHint: !c.over && !c.resume && !toastOn && !sheetOpen && !chipsOn && !!hint,
       hint, hintColor, hintBorder,
-      pill: c.pill || (active === 1 ? 'Solids' : 'Stripes'),
+      pill: pillText || (snkG ? 'On a red' : active === 1 ? 'Solids' : 'Stripes'),
       pillDot: c.call && called < 0 ? AMB : AMB,
       is2d: camera === '2d' ? 'true' : 'false', is3d: is3d ? 'true' : 'false',
       c2dBg: camera === '2d' ? AMB : 'transparent', c2dFg: camera === '2d' ? '#1B1406' : '#C9CFCF',
@@ -503,7 +717,7 @@ class Component extends DCLogic {
           this._lx = p[0];
         }
       },
-      onDown: (e) => { this._drag = local(e); this._pw = 0; this.setState({ dragging: true, power: 0 }); },
+      onDown: (e) => { if (lockedNow) return; this._drag = local(e); this._pw = 0; this.setState({ dragging: true, power: 0 }); },
       onUp: () => {
         if (!this._drag) return;
         this._drag = null;
@@ -518,7 +732,7 @@ class Component extends DCLogic {
       bihMove: (e) => { if (!this._bih) return; const p = local(e); this.setState({ cue: [Math.round((p[0] - VW / 2) / k2), Math.round((p[1] - VH / 2) / k2)] }); },
       bihUp: () => { if (this._bih) { this._bih = false; this.setState({ placed: true }); } },
       showOver: !!c.over, over,
-      footCpu: !c.handoff && kind !== 'tour', footTour: kind === 'tour' && !c.handoff, footHandoff: !!c.handoff,
+      footCpu: (!c.handoff || ready) && kind !== 'tour', footTour: kind === 'tour' && !c.handoff, footHandoff: !!c.handoff && !ready,
       modeLabel: kind === 'cpu' ? 'Vs CPU' : '2 Players',
       openSheet: () => this.setState({ sheet: true }),
       closeSheet: () => this.setState({ sheet: false }),

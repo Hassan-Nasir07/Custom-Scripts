@@ -215,11 +215,13 @@
 
     // ── Table helpers (these do mutate the world) ─────────────────────
     // Why a cue-ball spot is refused, or null if it is fine: 'outside',
-    // 'kitchen' (behind the head string only) or 'overlap'.
+    // 'kitchen' (behind the head string only), 'D' (snooker: inside the D only, its
+    // lines included) or 'overlap'.
     function prCanPlace(world, x, y, zone) {
         const t = world.table, R = world.cfg.ballR;
         if (!(Math.abs(x) <= t.halfLength - R && Math.abs(y) <= t.halfWidth - R)) return 'outside';
         if (zone === 'kitchen' && x > t.headX) return 'kitchen';
+        if (zone === 'D' && !prInD(t, x, y)) return 'D';
         for (const b of world.balls) {
             if (b.id === 0 || b.state === 'pocketed') continue;
             if ((b.x - x) ** 2 + (b.y - y) ** 2 < 4 * R * R) return 'overlap';
@@ -227,14 +229,29 @@
         return null;
     }
 
+    // Inside snooker's D: behind the baulk line and within the half-circle on it (the table's
+    // marks carry both), a hair of float slack on the lines.
+    function prInD(t, x, y) {
+        const m = t.marks;
+        return !!m && x <= m.baulkX + 1e-9 && (x - m.baulkX) ** 2 + y * y <= m.dR * m.dR + 1e-6;
+    }
+
     // The nearest spot to (x, y) the zone allows, as [x, y]: on the felt,
-    // and behind the head string for 'kitchen'. Dragging the cue ball
-    // through this makes it slide along those limits instead of crossing
-    // them. Other balls are not pushed aside; an overlap is still refused.
+    // behind the head string for 'kitchen', and inside the D for 'D' (up to
+    // the baulk line, then round the arc). Dragging the cue ball through this
+    // makes it slide along those limits instead of crossing them. Other balls
+    // are not pushed aside; an overlap is still refused.
     function prClampPlace(world, x, y, zone) {
         const t = world.table, R = world.cfg.ballR;
         const hx = t.halfLength - R, hy = t.halfWidth - R;
-        return [Math.max(-hx, Math.min(zone === 'kitchen' ? Math.min(hx, t.headX) : hx, x)), Math.max(-hy, Math.min(hy, y))];
+        const p = [Math.max(-hx, Math.min(zone === 'kitchen' ? Math.min(hx, t.headX) : hx, x)), Math.max(-hy, Math.min(hy, y))];
+        if (zone === 'D' && t.marks) {
+            const m = t.marks;
+            p[0] = Math.min(p[0], m.baulkX);
+            const dx = p[0] - m.baulkX, d = Math.hypot(dx, p[1]);
+            if (d > m.dR) { p[0] = m.baulkX + dx / d * m.dR; p[1] = p[1] / d * m.dR; }
+        }
+        return p;
     }
 
     function prPlaceCue(world, x, y) {

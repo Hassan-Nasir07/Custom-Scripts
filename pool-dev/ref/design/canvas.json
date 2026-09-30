@@ -226,6 +226,249 @@
       "x": 4720,
       "y": 2300
     },
+    "Snk2D.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S10 2D overview · true scale",
+      "w": 400,
+      "x": 8080,
+      "y": 5400
+    },
+    "SnkBracket.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S13a Bracket · compact",
+      "w": 400,
+      "x": 1840,
+      "y": 6420
+    },
+    "SnkBracketFull.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S13b Bracket · full view",
+      "w": 1280,
+      "x": 4240,
+      "y": 6420
+    },
+    "SnkBreak.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S1 Break-off · ball in hand in the D",
+      "w": 400,
+      "x": 880,
+      "y": 5400
+    },
+    "SnkCabinet.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S17 Trophy cabinet · snooker",
+      "w": 400,
+      "x": 3760,
+      "y": 6420
+    },
+    "SnkCentury.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S9a Notice · century break",
+      "w": 400,
+      "x": 7120,
+      "y": 5400
+    },
+    "SnkColours.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S7 The colours · on the yellow",
+      "w": 400,
+      "x": 5680,
+      "y": 5400
+    },
+    "SnkConcede.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S6b Concede confirmation",
+      "w": 400,
+      "x": 5200,
+      "y": 5400
+    },
+    "SnkFoulChoice.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S4a Foul choice",
+      "w": 400,
+      "x": 2800,
+      "y": 5400
+    },
+    "SnkFoulHandoff.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S4b Foul choice · 2 Players, hand-off first",
+      "w": 400,
+      "x": 3280,
+      "y": 5400
+    },
+    "SnkFreeBall.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S5a Free ball · three choices",
+      "w": 400,
+      "x": 3760,
+      "y": 5400
+    },
+    "SnkFreeBallNominate.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S5b Free ball · nominate",
+      "w": 400,
+      "x": 4240,
+      "y": 5400
+    },
+    "SnkLoss.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S8b Frame over · loss vs CPU",
+      "w": 400,
+      "x": 6640,
+      "y": 5400
+    },
+    "SnkMatchIntro.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S14 Match intro",
+      "w": 400,
+      "x": 2320,
+      "y": 6420
+    },
+    "SnkMatchLive.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S15 Match in progress",
+      "w": 400,
+      "x": 2800,
+      "y": 6420
+    },
+    "SnkMatchResult.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S16 Match result",
+      "w": 400,
+      "x": 3280,
+      "y": 6420
+    },
+    "SnkMaxNominate.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S19 Max · nominate a colour",
+      "w": 1280,
+      "x": 2240,
+      "y": 7600
+    },
+    "SnkMaxOver.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S20 Max · frame over",
+      "w": 1280,
+      "x": 3600,
+      "y": 7600
+    },
+    "SnkMaxRed.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S18 Max · on a red",
+      "w": 1280,
+      "x": 880,
+      "y": 7600
+    },
+    "SnkModeSheet.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S11 Game mode sheet · snooker",
+      "w": 400,
+      "x": 880,
+      "y": 6420
+    },
+    "SnkNominate.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S3a Nominate · tap a colour",
+      "w": 400,
+      "x": 1840,
+      "y": 5400
+    },
+    "SnkNominatePink.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S3b Nominate · on the pink",
+      "w": 400,
+      "x": 2320,
+      "y": 5400
+    },
+    "SnkRed.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S2 On a red · 3D chase",
+      "w": 400,
+      "x": 1360,
+      "y": 5400
+    },
+    "SnkRespot.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S9b Notice · re-spotted black",
+      "w": 400,
+      "x": 7600,
+      "y": 5400
+    },
+    "SnkSetup.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S12 Tournament setup · snooker",
+      "w": 400,
+      "x": 1360,
+      "y": 6420
+    },
+    "SnkSnookers.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S6a Snookers required",
+      "w": 400,
+      "x": 4720,
+      "y": 5400
+    },
+    "SnkWin.dc.html": {
+      "h": 640,
+      "is_interactive": true,
+      "radius": 20,
+      "title": "S8a Frame over · win vs CPU",
+      "w": 400,
+      "x": 6160,
+      "y": 5400
+    },
     "Table.dc.html": {
       "h": 300,
       "radius": 14,
@@ -283,6 +526,30 @@
       "x": 880,
       "y": 2040
     },
+    "rowSnk1": {
+      "kind": "title1",
+      "maxW": 7600,
+      "text": "Snooker · in match",
+      "w": 240,
+      "x": 880,
+      "y": 5140
+    },
+    "rowSnk2": {
+      "kind": "title1",
+      "maxW": 4640,
+      "text": "Snooker · sheet and tournament",
+      "w": 240,
+      "x": 880,
+      "y": 6160
+    },
+    "rowSnk3": {
+      "kind": "title1",
+      "maxW": 4000,
+      "text": "Snooker · full view",
+      "w": 240,
+      "x": 880,
+      "y": 7340
+    },
     "rowTournament": {
       "kind": "title1",
       "maxW": 4240,
@@ -320,7 +587,34 @@
     "TrophyCabinet.dc.html",
     "BracketFull.dc.html",
     "BracketFull16.dc.html",
-    "ChampionFull.dc.html"
+    "ChampionFull.dc.html",
+    "SnkBreak.dc.html",
+    "SnkRed.dc.html",
+    "SnkNominate.dc.html",
+    "SnkNominatePink.dc.html",
+    "SnkFoulChoice.dc.html",
+    "SnkFoulHandoff.dc.html",
+    "SnkFreeBall.dc.html",
+    "SnkFreeBallNominate.dc.html",
+    "SnkSnookers.dc.html",
+    "SnkConcede.dc.html",
+    "SnkColours.dc.html",
+    "SnkWin.dc.html",
+    "SnkLoss.dc.html",
+    "SnkCentury.dc.html",
+    "SnkRespot.dc.html",
+    "Snk2D.dc.html",
+    "SnkModeSheet.dc.html",
+    "SnkSetup.dc.html",
+    "SnkBracket.dc.html",
+    "SnkMatchIntro.dc.html",
+    "SnkMatchLive.dc.html",
+    "SnkMatchResult.dc.html",
+    "SnkCabinet.dc.html",
+    "SnkBracketFull.dc.html",
+    "SnkMaxRed.dc.html",
+    "SnkMaxNominate.dc.html",
+    "SnkMaxOver.dc.html"
   ],
   "pages": [],
   "title": "Design"

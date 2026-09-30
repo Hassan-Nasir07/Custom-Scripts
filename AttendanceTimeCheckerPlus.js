@@ -7,9 +7,11 @@
     // Editing the seed alone makes every dispatch fail silently server-side.
     // Release: 1) fresh random hex seed  2) bump BUILD_LABEL (banner text only)
     //          3) recompute token (see sync.yml), rotate BUILD_TOKEN_CURRENT/PREVIOUS
+    //          4) set BUILD_LABEL_CURRENT in github-actions-bot's sync.yml to the new label
+    //             (pool-dev/sync-verify.js fails until the two match)
     const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
     // Seed UNCHANGED on purpose: rotating it without BUILD_TOKEN_CURRENT breaks every sync.
-    const BUILD_LABEL = 'v9';
+    const BUILD_LABEL = 'v10';
 
     // Ordinal of a 'v<N>' label; null if malformed (callers then assume behind).
     function _buildOrdinal(label) {
@@ -247,6 +249,9 @@
         brickBuster:  { icon: '🧨', name: 'Brick Buster',      desc: 'Reach level 30 in Breakout' },
         poolShark:    { icon: '🎱', name: 'Pool Shark',        desc: 'Win 100 pool games against the CPU' },
         calledIt:     { icon: '📣', name: 'Called It',         desc: 'Beat the Pro pool CPU, every shot called' },
+        // Snooker (POOL_V2_PLAN.md, S6): breaks against the CPU; a 147 needs 15 reds.
+        snookerCentury: { icon: '💯', name: 'Century',         desc: 'Make a century break against the snooker CPU' },
+        snookerMaximum: { icon: '🏅', name: 'Maximum',         desc: 'Make a 147 against the snooker CPU' },
         ludoChamp:    { icon: '🎲', name: 'Ludo Champion',     desc: 'Win 100 Ludo games against the CPU' },
         ludoFlawless: { icon: '🛡️', name: 'Flawless',          desc: 'Win a Ludo game without losing a single token' },
         ludoHunter:   { icon: '🐺', name: 'Token Hunter',      desc: 'Capture 5 opponent tokens in one Ludo match' },
@@ -284,6 +289,14 @@
         // 'adaptive' | 'easy' | 'normal' | 'hard' | 'pro'. Adaptive follows your record against
         // the CPU but never climbs to pro, which makes you call every shot too. Locked per frame.
         poolDifficulty: 'adaptive',
+        // The cue game the pool panel plays: 'pool' (8-ball) or 'snooker' (POOL_V2_PLAN.md,
+        // Snooker). Snooker's reds (15, 10 or 6) apply from a fresh rack; its CPU is picked
+        // like pool's, adaptive by default.
+        poolVariant: 'pool',
+        poolGuideLen: 'long',    // ⚙️ Aim Guide: the object ball's line, 'short' | 'medium' | 'long'
+        poolMaxLayout: 'full',   // ⚙️ Max View: 'full' (the table, overlays on it) or 'bars' (the table between bars)
+        snookerReds: 15,
+        snookerDifficulty: 'adaptive',
         gameFps: 60, // 30 or 60 — half or full vsync
         // Ludo rule toggles — flat, not nested: .toggle-switch writes
         // userPreferences[data-pref] directly. ludoRules() reads them live (mid-match).
@@ -771,6 +784,15 @@
         put('pool:hard',   poolTiers.hard);
         put('pool:pro',    poolTiers.pro);
 
+        // Snooker, read inline as pool's tiers are: wins by mode and by CPU tier, and the best
+        // break against the CPU (the High break board), which no frame can take past 155.
+        const snkRead = k => { try { return JSON.parse(localStorage.getItem(k) || '{}') || {}; } catch (_) { return {}; } };
+        const snkModes = snkRead('snookerWinsByMode'), snkTiers = snkRead('snookerWinsByTier');
+        put('snooker:cpu', snkModes.cpu);
+        put('snooker:pvp', snkModes.pvp);
+        ['easy', 'normal', 'hard', 'pro'].forEach(t => put('snooker:' + t, snkTiers[t]));
+        put('snooker:highBreak', Math.min(155, parseInt(localStorage.getItem('snookerHighBreak') || '0', 10) || 0));
+
         // Ludo is CPU-only by construction (ludoSaveWins runs under 'if (vsCPU)'). 'ludo:cpu' is
         // the flat all-time total: old clients read it, and it is the only home for pre-split wins.
         put('ludo:cpu', localStorage.getItem('ludoGamesWon'));
@@ -812,6 +834,7 @@
             rulesetVersion: { snake: parseInt(localStorage.getItem('snakeRulesetVer') || '1', 10) || 1 },
             // Pool extended record (W/L/win-rate)
             poolRecord: JSON.parse(localStorage.getItem('poolRecord') || 'null') || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 },
+            snookerRecord: (() => { try { return JSON.parse(localStorage.getItem('snookerRecord') || 'null'); } catch (_) { return null; } })() || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 },
             // Ludo W/L vs CPU; also drives the adaptive difficulty tier, so a fresh browser restores it.
             ludoRecord: JSON.parse(localStorage.getItem('ludoRecord') || 'null') || { wins: 0, losses: 0 },
             // Reflex full blob (screen + target modes)
@@ -1083,6 +1106,14 @@
             };
             localStorage.setItem('poolRecord', JSON.stringify(merged));
         }
+        // Snooker's seat record, the same way.
+        if (rec.snookerRecord && typeof rec.snookerRecord === 'object') {
+            let localSnk = {};
+            try { localSnk = JSON.parse(localStorage.getItem('snookerRecord') || '{}') || {}; } catch (_) {}
+            const snk = {};
+            ['p1Wins', 'p1Losses', 'p2Wins', 'p2Losses'].forEach(k => { snk[k] = Math.max(parseInt(localSnk[k], 10) || 0, parseInt(rec.snookerRecord[k], 10) || 0); });
+            localStorage.setItem('snookerRecord', JSON.stringify(snk));
+        }
 
         // Ludo record (W/L vs CPU) — same only-raise merge as Pool
         if (rec.ludoRecord && typeof rec.ludoRecord === 'object') {
@@ -1176,6 +1207,22 @@
             if (v > (parseInt(poolTiers[t], 10) || 0)) { poolTiers[t] = v; poolTiersChanged = true; }
         });
         if (poolTiersChanged) localStorage.setItem('poolWinsByTier', JSON.stringify(poolTiers));
+
+        // Snooker: wins by mode and by tier, only-raise; the high break too, never past 155.
+        const snkRaise = (key, modes) => {
+            let local = {};
+            try { local = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch (_) {}
+            let changed = false;
+            modes.forEach(m => {
+                const v = parseInt(gmb['snooker:' + m], 10) || 0;
+                if (v > (parseInt(local[m], 10) || 0)) { local[m] = v; changed = true; }
+            });
+            if (changed) localStorage.setItem(key, JSON.stringify(local));
+        };
+        snkRaise('snookerWinsByMode', ['cpu', 'pvp']);
+        snkRaise('snookerWinsByTier', ['easy', 'normal', 'hard', 'pro']);
+        const snkHigh = Math.min(155, parseInt(gmb['snooker:highBreak'], 10) || 0);
+        if (snkHigh > (parseInt(localStorage.getItem('snookerHighBreak') || '0', 10) || 0)) localStorage.setItem('snookerHighBreak', String(snkHigh));
 
         // Ludo per-tier wins, only-raise. The all-time total restores separately and may exceed the
         // tier sum by however many wins predate the split.
@@ -1426,13 +1473,21 @@
         // Tournaments have no board: their brackets are farmable.
         pool:     { icon: '🎱', label: 'Pool',     unit: 'wins',
                     modes: { pro: '🎯 Pro', hard: '🔥 Hard', normal: '⚔️ Normal', easy: '🌱 Easy',
-                             cpu: '📚 All-time', pvp: '👥 Hot-seat' } },
+                             cpu: '📚 All-time', pvp: '👥 Hot-seat' },
+                    notes: { cpu: 'every CPU win — older wins predate the difficulty split' } },
+        // Snooker ranks as pool does, plus the best break against the CPU (points, not wins).
+        // Every snooker win is filed by tier from the start, so its All-time has no older wins.
+        snooker:  { icon: '🔴', label: 'Snooker',  unit: 'wins', units: { highBreak: 'pts' },
+                    modes: { pro: '🎯 Pro', hard: '🔥 Hard', normal: '⚔️ Normal', easy: '🌱 Easy',
+                             cpu: '📚 All-time', pvp: '👥 Hot-seat', highBreak: '💯 High break' },
+                    notes: { cpu: 'every CPU win, all tiers', highBreak: 'best break in one visit, against the CPU' } },
         // Ludo ranks by CPU tier, not game mode (hot-seat wins are never recorded: ludoSaveWins runs
         // only under 'if (vsCPU)'). 'cpu' is the pre-split total — real wins whose difficulty was never
         // recorded, so they rank on their own board rather than an unmeasured tier.
         ludo:     { icon: '🎲', label: 'Ludo',     unit: 'wins',
                     modes: { hard: '🔥 Hard', normal: '⚔️ Normal', easy: '🌱 Easy',
-                             cpu: '📚 All-time' } }
+                             cpu: '📚 All-time' },
+                    notes: { cpu: 'every CPU win — older wins predate the difficulty split' } }
     };
 
     // No gameModeBests (client has not run this build): fall back to the legacy scalar for each
@@ -1505,7 +1560,7 @@
             return `<tr class="${isMe ? 'lb-row-me' : ''}">
                 <td class="lb-rank">${medal}</td>
                 <td class="lb-name" title="${nameAttr}">${nameHtml}${isMe ? ' <span class="lb-you">You</span>' : ''}</td>
-                <td class="lb-score lb-board-value">${r.v.toLocaleString()} <span class="lb-board-unit">${cfg.unit}</span>${extra}</td>
+                <td class="lb-score lb-board-value">${r.v.toLocaleString()} <span class="lb-board-unit">${(cfg.units && cfg.units[mode]) || cfg.unit}</span>${extra}</td>
             </tr>`;
         }).join('');
 
@@ -1529,6 +1584,9 @@
             // Ludo splits by CPU tier; ludoCpuTier locks at match start and decides where a win is filed,
             // so the board shown is always the one being played for.
             if (game === 'ludo')   return LB_BOARDS.ludo.modes[ludoCpuTier] ? ludoCpuTier : 'normal';
+            // Snooker shares pool's panel, mode and tier lock.
+            if (game === 'snooker') return poolMode === 'pvp' ? 'pvp'
+                : poolMode === 'cpu' && LB_BOARDS.snooker.modes[poolCpuTier] ? poolCpuTier : 'cpu';
         } catch (_) {}
         return Object.keys(cfg.modes)[0];
     }
@@ -1572,10 +1630,15 @@
             '</div>' +
             gameLbTabsHtml(game, mode) +
             '<div class="game-lb-body">' + lbBoardRowsHtml(game, mode) + '</div>' +
-            // Ludo's and Pool's all-time boards hold numbers that predate the split, so they say so.
-            ((game === 'ludo' || game === 'pool') && mode === 'cpu'
-                ? '<div class="game-lb-foot">every CPU win — older wins predate the difficulty split</div>'
-                : '');
+            // A board's own note: Ludo's and Pool's all-time boards hold numbers that predate the
+            // split, and Snooker's High break counts points.
+            (cfg.notes && cfg.notes[mode] ? '<div class="game-lb-foot">' + escapeHtml(cfg.notes[mode]) + '</div>' : '');
+        // The strip scrolls sideways (Snooker has seven boards): keep the board shown in view.
+        const strip = box.querySelector && box.querySelector('.game-lb-tabs'), on = strip && strip.querySelector('.game-lb-tab.is-active');
+        if (on && strip.scrollWidth > strip.clientWidth) {
+            const s = strip.getBoundingClientRect(), t = on.getBoundingClientRect();
+            strip.scrollLeft += (t.left + t.width / 2) - (s.left + s.width / 2);
+        }
     }
 
     function toggleGameLeaderboard(game, force) {
@@ -1614,7 +1677,7 @@
             if (game === 'ludo') {
                 // The tier's own wins — the board this button opens and where the next win lands.
                 updateGameScoreBtn('ludo', null, ludoTierWins(gameLbMode('ludo')));
-            } else if (game === 'pool') {
+            } else if (game === 'pool' || game === 'snooker') {
                 // The tier being played, 2 Players, or All-time in a tournament (pool-game.js).
                 poolRefreshScoreBtn();
             }
@@ -2498,6 +2561,7 @@
     // angle, until they meet the pocket's capture circle, which closes the
     // throat: a ball in the throat either drops or comes back out.
     function ppBuildTable(cfg) {
+        if (cfg.pocketStyle === 'rounded') return ppBuildRoundedTable(cfg);
         const HL = cfg.halfLength, HW = cfg.halfWidth;
         const segments = [], points = [], pockets = [];
 
@@ -2578,6 +2642,85 @@
             headX: -HL / 2, footX: HL / 2,             // head string and foot spot
             limitX: HL + cfg.railWidth, limitY: HW + cfg.railWidth,
         };
+    }
+
+    // Snooker's table (pocketStyle 'rounded', the design's Table.dc.html): each cushion runs
+    // straight along its nose, rounds off in a nose of radius noseRound, then a straight jaw
+    // goes back to the rail (square to it at the middle pockets, leaning sideJawBack /
+    // cornerJawBack toward the pocket). The rounded nose is an arc collider (a ball meets it
+    // at R + noseRound from its centre, only on the quarter that is there), tangent to the nose
+    // so there is no tip; the jaw is a cushion segment facing the gap, and every jaw ends at
+    // the rail inside its pocket's hole, which closes the throat. Only a table built with
+    // pocketStyle 'rounded' has arcs; pool's never does.
+    function ppBuildRoundedTable(cfg) {
+        const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth, RHO = cfg.noseRound;
+        const c = cfg.cornerNose, s = cfg.sideNose;
+        const segments = [], pockets = [], arcs = [];
+        const addSeg = (ax, ay, bx, by, nx, ny, kind) => {
+            const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
+            segments.push({ ax, ay, bx, by, tx: dx / len, ty: dy / len, len, nx, ny, kind: kind || 'cushion' });
+        };
+        const corner = (sx, sy) => {
+            const k = cfg.cornerPocketOffset;
+            return { kind: 'corner', x: sx * (HL + k), y: sy * (HW + k), r: cfg.cornerPocketR, sx, sy, jaws: [], cuts: [] };
+        };
+        const side = sy => ({ kind: 'side', x: 0, y: sy * (HW + cfg.sidePocketOffset), r: cfg.sidePocketR, sx: 0, sy, jaws: [], cuts: [] });
+        pockets.push(corner(-1, 1), side(1), corner(1, 1), corner(-1, -1), side(-1), corner(1, -1));
+
+        // The noses, each stopping one nose radius short of its end.
+        [1, -1].forEach(sy => {
+            const y = sy * HW;
+            addSeg(-HL + c + RHO, y, -s - RHO, y, 0, -sy);
+            addSeg(s + RHO, y, HL - c - RHO, y, 0, -sy);
+        });
+        [-1, 1].forEach(sx => addSeg(sx * HL, -HW + c + RHO, sx * HL, HW - c - RHO, -sx, 0));
+
+        // A cushion end at (ex, ey) on the nose line: (ox, oy) points off the table, (dx, dy)
+        // along the cushion toward the pocket; jb is how far the jaw leans toward it at the rail.
+        const addEnd = (ex, ey, ox, oy, dx, dy, jb, pocket) => {
+            const cx = ex - dx * RHO + ox * RHO, cy = ey - dy * RHO + oy * RHO;
+            const a0 = Math.atan2(-oy, -ox), a1 = Math.atan2(dy, dx);
+            let sp = a1 - a0;
+            sp -= 2 * Math.PI * Math.round(sp / (2 * Math.PI));
+            const arc = { cx, cy, r: RHO, mid: a0 + sp / 2, half: Math.abs(sp) / 2, pocket: pockets.indexOf(pocket) };
+            arcs.push(arc);
+            pocket.cuts.push(arc);
+            // The jaw, from where the nose's round ends back to the rail; it faces the gap.
+            const jx0 = ex + ox * RHO, jy0 = ey + oy * RHO, jx1 = ex + dx * jb + ox * CU, jy1 = ey + dy * jb + oy * CU;
+            if ((jx1 - pocket.x) ** 2 + (jy1 - pocket.y) ** 2 >= pocket.r * pocket.r) {
+                throw new Error('snooker table: a jaw misses its pocket; check the pocket settings');
+            }
+            const D = CU - RHO, L = Math.hypot(jb, D);
+            addSeg(jx0, jy0, jx1, jy1, (dx * D - ox * jb) / L, (dy * D - oy * jb) / L, 'jaw');
+            pocket.jaws.push(segments[segments.length - 1]);
+        };
+        pockets.forEach(p => {
+            if (p.kind === 'corner') {
+                const ax = p.sx * (HL - c), ay = p.sy * HW;          // on the long cushion
+                const bx = p.sx * HL, by = p.sy * (HW - c);          // on the short cushion
+                addEnd(ax, ay, 0, p.sy, p.sx, 0, cfg.cornerJawBack, p);
+                addEnd(bx, by, p.sx, 0, 0, p.sy, cfg.cornerJawBack, p);
+                p.mouth = [ax, ay, bx, by];
+            } else {
+                const y = p.sy * HW;
+                addEnd(-s, y, 0, p.sy, 1, 0, cfg.sideJawBack, p);
+                addEnd(s, y, 0, p.sy, -1, 0, cfg.sideJawBack, p);
+                p.mouth = [-s, y, s, y];
+            }
+        });
+
+        return {
+            halfLength: HL, halfWidth: HW, R: cfg.ballR, segments, points: [], arcs, pockets,
+            headX: -HL / 2, footX: HL / 2,
+            limitX: HL + cfg.railWidth, limitY: HW + cfg.railWidth,
+        };
+    }
+
+    // Is (x, y) off the arc's centre in a direction the quarter-round really covers?
+    function ppOnArc(a, x, y) {
+        let d = Math.atan2(y - a.cy, x - a.cx) - a.mid;
+        d -= 2 * Math.PI * Math.round(d / (2 * Math.PI));
+        return Math.abs(d) <= a.half + 1e-9;
     }
 
     // ── World ─────────────────────────────────────────────────────────
@@ -2824,7 +2967,8 @@
     const PP_CLUSTER_MAX_T = 5e-3;    // give up on the micro-sim after this, s
 
     function ppCluster(w, A, B) {
-        const R2 = 2 * w.cfg.ballR + PP_CLUSTER_GAP;
+        // A table with smaller balls sets its own gap (snooker's scales with R).
+        const R2 = 2 * w.cfg.ballR + (w.cfg.clusterGap !== undefined ? w.cfg.clusterGap : PP_CLUSTER_GAP);
         const live = w.balls.filter(b => b.state !== 'pocketed');
         const members = [A, B], seen = new Set([A, B]);
         for (let i = 0; i < members.length; i++) {
@@ -2989,6 +3133,10 @@
                     const tt = ppToiCircle(A.x, A.y, A.vx, A.vy, p.x, p.y, R);
                     if (tt < best.t) best = { t: tt, kind: 'point', a: A, p };
                 }
+                if (t.arcs) for (const arc of t.arcs) {
+                    const tt = ppToiCircle(A.x, A.y, A.vx, A.vy, arc.cx, arc.cy, arc.r + R);
+                    if (tt < best.t && ppOnArc(arc, A.x + A.vx * tt, A.y + A.vy * tt)) best = { t: tt, kind: 'arc', a: A, arc };
+                }
                 for (let k = 0; k < t.pockets.length; k++) {
                     const p = t.pockets[k];
                     const tt = ppToiCircle(A.x, A.y, A.vx, A.vy, p.x, p.y, p.r);
@@ -3043,6 +3191,12 @@
                 const dx = A.x - p.x, dy = A.y - p.y, d = Math.hypot(dx, dy);
                 if (d <= R + PP_CONTACT && d > 0 && ppResolveCushion(A, dx / d, dy / d, cfg)) {
                     w.log.push({ type: 'cushion', t: w.t, ball: A.id, kind: p.kind });
+                }
+            } else if (ev.kind === 'arc') {
+                const c = ev.arc;
+                const dx = A.x - c.cx, dy = A.y - c.cy, d = Math.hypot(dx, dy);
+                if (d <= c.r + R + PP_CONTACT && d > 0 && ppResolveCushion(A, dx / d, dy / d, cfg)) {
+                    w.log.push({ type: 'cushion', t: w.t, ball: A.id, kind: 'jaw' });
                 }
             } else if (ev.kind === 'pocket') {
                 // Resolved here rather than by the distance test: at the exact
@@ -3106,6 +3260,13 @@
                     b.x = p.x + dx / d * R; b.y = p.y + dy / d * R;
                     moved = true;
                     if (ppResolveCushion(b, dx / d, dy / d, cfg)) w.log.push({ type: 'cushion', t: w.t, ball: b.id, kind: p.kind });
+                }
+                if (t.arcs) for (const arc of t.arcs) {
+                    const dx = b.x - arc.cx, dy = b.y - arc.cy, d = Math.hypot(dx, dy), D2 = arc.r + R;
+                    if (d >= D2 - 1e-9 || d === 0 || !ppOnArc(arc, b.x, b.y)) continue;
+                    b.x = arc.cx + dx / d * D2; b.y = arc.cy + dy / d * D2;
+                    moved = true;
+                    if (ppResolveCushion(b, dx / d, dy / d, cfg)) w.log.push({ type: 'cushion', t: w.t, ball: b.id, kind: 'jaw' });
                 }
             }
             if (!moved) break;
@@ -3358,11 +3519,13 @@
 
     // ── Table helpers (these do mutate the world) ─────────────────────
     // Why a cue-ball spot is refused, or null if it is fine: 'outside',
-    // 'kitchen' (behind the head string only) or 'overlap'.
+    // 'kitchen' (behind the head string only), 'D' (snooker: inside the D only, its
+    // lines included) or 'overlap'.
     function prCanPlace(world, x, y, zone) {
         const t = world.table, R = world.cfg.ballR;
         if (!(Math.abs(x) <= t.halfLength - R && Math.abs(y) <= t.halfWidth - R)) return 'outside';
         if (zone === 'kitchen' && x > t.headX) return 'kitchen';
+        if (zone === 'D' && !prInD(t, x, y)) return 'D';
         for (const b of world.balls) {
             if (b.id === 0 || b.state === 'pocketed') continue;
             if ((b.x - x) ** 2 + (b.y - y) ** 2 < 4 * R * R) return 'overlap';
@@ -3370,14 +3533,29 @@
         return null;
     }
 
+    // Inside snooker's D: behind the baulk line and within the half-circle on it (the table's
+    // marks carry both), a hair of float slack on the lines.
+    function prInD(t, x, y) {
+        const m = t.marks;
+        return !!m && x <= m.baulkX + 1e-9 && (x - m.baulkX) ** 2 + y * y <= m.dR * m.dR + 1e-6;
+    }
+
     // The nearest spot to (x, y) the zone allows, as [x, y]: on the felt,
-    // and behind the head string for 'kitchen'. Dragging the cue ball
-    // through this makes it slide along those limits instead of crossing
-    // them. Other balls are not pushed aside; an overlap is still refused.
+    // behind the head string for 'kitchen', and inside the D for 'D' (up to
+    // the baulk line, then round the arc). Dragging the cue ball through this
+    // makes it slide along those limits instead of crossing them. Other balls
+    // are not pushed aside; an overlap is still refused.
     function prClampPlace(world, x, y, zone) {
         const t = world.table, R = world.cfg.ballR;
         const hx = t.halfLength - R, hy = t.halfWidth - R;
-        return [Math.max(-hx, Math.min(zone === 'kitchen' ? Math.min(hx, t.headX) : hx, x)), Math.max(-hy, Math.min(hy, y))];
+        const p = [Math.max(-hx, Math.min(zone === 'kitchen' ? Math.min(hx, t.headX) : hx, x)), Math.max(-hy, Math.min(hy, y))];
+        if (zone === 'D' && t.marks) {
+            const m = t.marks;
+            p[0] = Math.min(p[0], m.baulkX);
+            const dx = p[0] - m.baulkX, d = Math.hypot(dx, p[1]);
+            if (d > m.dR) { p[0] = m.baulkX + dx / d * m.dR; p[1] = p[1] / d * m.dR; }
+        }
+        return p;
     }
 
     function prPlaceCue(world, x, y) {
@@ -3400,6 +3578,612 @@
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // SNOOKER — TABLE (v2 engine)
+    // ═══════════════════════════════════════════════════════════════════
+    // Snooker on pool's engine (POOL_V2_PLAN.md, Snooker). The physics, cameras and
+    // renderer are pool's; this module is what makes the table a snooker table: its
+    // config, its balls, its markings and its rack; and, below the table, its rules (Phase S2).
+    //
+    // True scale on the same 1000 × 500 bed (1 u = 3.569 mm, a 3569 mm bed): 52.5 mm balls
+    // are R 7.36. The pockets, cushion ends and markings are the design's
+    // (pool-dev/ref/design/Table.dc.html, revision 1790715495-3a1b), so what is drawn is
+    // what plays. The design's y points down the screen; ours points up, so its +y is
+    // our −y (yellow sits at y < 0: on the right of the D, seen from the baulk end).
+    //
+    // Ball ids: 0 the cue ball; a colour's id is its value (yellow 2, green 3, brown 4,
+    // blue 5, pink 6, black 7); reds are 8 upward (8–22 with 15 reds). No id means what
+    // it means in pool.
+
+    const PS_TABLE = {
+        game: 'snooker',
+        ballR: 7.36,
+        // The design's pockets (revision 1790749498-5862): the cushions stop 17 u from each
+        // corner and 14.5 u either side of each middle pocket (mouth 29 u); every end is a
+        // rounded nose of radius 6 and then a straight jaw to the rail, square at the middle
+        // pockets and leaning 5 u toward the corners.
+        pocketStyle: 'rounded',
+        cornerNose: 17, sideNose: 14.5, noseRound: 6, cornerJawBack: 5, sideJawBack: 0,
+        cornerPocketOffset: 2, cornerPocketR: 18,       // holes at (±502, ±252)
+        sidePocketOffset: 9, sidePocketR: 15.5,         // holes at (0, ±259)
+        // A 12 ft table's cloth on a 1000 u bed: gravity in these units, the same 8 m/s top
+        // speed as pool, and snooker cloth's lower rolling resistance (a feel number; see
+        // the harness).
+        gravity: 2749,                                  // 9.81 m/s² at 3.569 mm/u
+        maxSpeed: 2240,
+        muRoll: 0.011,
+        clusterGap: 0.26,                               // pool's 0.5, scaled with R
+        // Pool's rail and nose heights, as the design draws them (a nose at 1.36 R is close
+        // to a real snooker table's), set explicitly so the wide shots fit the real rail.
+        railZ: 16, noseZ: 10,
+        diamonds: false,
+    };
+
+    const PS_RED = 8;                                   // the first red's id
+    const PS_COLOURS = [2, 3, 4, 5, 6, 7];              // yellow … black, by value
+    const PS_NAMES = { 0: 'cue ball', 2: 'yellow', 3: 'green', 4: 'brown', 5: 'blue', 6: 'pink', 7: 'black' };
+    const PS_REDS = [15, 10, 6];                        // the frame lengths offered
+
+    // The markings, in our frame: the baulk line 206.5 u from the baulk cushion, the D's
+    // radius, and each colour's spot.
+    const PS_BAULK_X = -293.5, PS_D_R = 81.8;
+    const PS_SPOTS = {
+        2: [PS_BAULK_X, -PS_D_R],                       // yellow
+        3: [PS_BAULK_X, PS_D_R],                        // green
+        4: [PS_BAULK_X, 0],                             // brown
+        5: [0, 0],                                      // blue
+        6: [250, 0],                                    // pink
+        7: [409.2, 0],                                  // black
+    };
+
+    const psIsRed = id => id >= PS_RED;
+    const psValue = id => (id >= PS_RED ? 1 : PS_COLOURS.indexOf(id) >= 0 ? id : 0);
+    const psName = id => (psIsRed(id) ? 'red' : PS_NAMES[id] || '');
+    const psRedsOf = n => (PS_REDS.indexOf(n) >= 0 ? n : 15);
+
+    // The markings as the renderer draws them (pgDrawMarks: spots, the baulk line across the
+    // bed, the D's half-circle toward the baulk cushion), plus the numbers the rules and
+    // ball in hand read.
+    function psMarks(cfg) {
+        const HW = cfg.halfWidth;
+        return {
+            baulkX: PS_BAULK_X, dR: PS_D_R, spotOf: PS_SPOTS,
+            spots: PS_COLOURS.map(id => ({ x: PS_SPOTS[id][0], y: PS_SPOTS[id][1], r: 2 })),
+            lines: [[[PS_BAULK_X, -HW], [PS_BAULK_X, HW]]],
+            arcs: [{ x: PS_BAULK_X, y: 0, r: PS_D_R, a0: Math.PI / 2, a1: 3 * Math.PI / 2 }],
+        };
+    }
+
+    // A snooker world: pool's physics on the snooker table, with its markings.
+    function psCreateWorld(overrides) {
+        const w = ppCreateWorld(Object.assign({}, PS_TABLE, overrides));
+        w.table.marks = psMarks(w.cfg);
+        return w;
+    }
+
+    // The rack: the reds in a pyramid (5, 4 or 3 rows) with its apex as close behind the pink
+    // as it can be without touching it, the colours exactly on their spots, and the cue ball
+    // in the D. `rng` jitters each red by a hair, as pool's rack does, so no two break-offs
+    // are the same; the colours are never jittered.
+    function psRack(w, rng, reds) {
+        const R = w.cfg.ballR, n = psRedsOf(reds);
+        const d = 2 * R + 0.02;                         // a hair between balls, as pool's rack
+        const rows = n === 15 ? 5 : n === 10 ? 4 : 3;
+        const apex = PS_SPOTS[6][0] + 2 * R + 0.05;
+        w.balls = [ppMakeBall(0, -320, -30)];           // the design's break-off spot, in the D
+        PS_COLOURS.forEach(id => w.balls.push(ppMakeBall(id, PS_SPOTS[id][0], PS_SPOTS[id][1])));
+        let id = PS_RED;
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col <= row; col++) {
+                const jx = (rng() - 0.5) * 0.008, jy = (rng() - 0.5) * 0.008;
+                w.balls.push(ppMakeBall(id++, apex + row * d * Math.sqrt(3) / 2 + jx, (col - row / 2) * d + jy));
+            }
+        }
+        w.t = 0; w.log = []; w.escapes = 0;
+        return w;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // SNOOKER — RULES (v2 engine)
+    // ═══════════════════════════════════════════════════════════════════
+    // Snooker to the 147 (POOL_V2_PLAN.md, Snooker: the rules table and the user's calls):
+    //   - the break-off is played from the D, on reds; there is no other break rule
+    //   - on reds any red may be hit first (several at once too), 1 a red; then a colour,
+    //     nominated every time, re-spotted when potted; after the last red, any colour once,
+    //     then the clearance, yellow to black, where potted balls stay down
+    //   - a foul costs max(4, the ball on, every ball involved), capped at 7, never a sum; a
+    //     foul before nominating is 7. The offender scores nothing, reds stay down and colours
+    //     come back. The incoming player chooses: play, make the offender play again, or
+    //     (snookered, and the cue ball not in-off) a free ball. No miss rule, no re-racks
+    //   - a cue ball in-off is ball in hand in the D for whoever plays next
+    //   - the frame ends when the table is cleared, on a foul with only the black left, or
+    //     on a concession; a tie re-spots the black, played from the D, the first player
+    //     drawn by the frame's seeded lot
+    //
+    // Pure, as pool's judge is: psJudge reads a settled world and its event log and returns
+    // a verdict plus the next frame state, mutating neither. The caller applies the re-spots
+    // (psApplySpots) and places the cue ball when it is in hand. Seats are 1 and 2.
+    //
+    // frame = { v, game, reds, breaker, turn, isBreak, lot, scores {1, 2}, brk, high {1, 2},
+    //   fouls {1, 2}, shots, phase 'reds' | 'colour' | 'clearance', next (the clearance's ball
+    //   on, 2–7), freeBall, ballInHand 'D' | null, touching [ids], pending, respotBlack, over,
+    //   winner, conceded }
+    // pending = { offender, chooser, options: ['play', 'back'(, 'free')], penalty }
+
+    const PS_FOUL_TEXT = {
+        inOff: 'In-off',
+        noContact: 'No ball hit',
+        noNomination: 'No colour nominated',
+        timeout: 'Out of time',
+        freeSnooker: 'Snookered behind the free ball',
+    };
+    // Which foul names the toast when a shot commits several: the one that set the penalty,
+    // and on equal values the first here.
+    const PS_FOUL_ORDER = ['wrongFirst', 'wrongPot', 'wrongPocket', 'noContact', 'inOff', 'noNomination', 'freeSnooker', 'timeout'];
+    const PS_TOUCH_GAP = 0.1;                           // a ball this close to the cue ball is touching it
+    // The call pocket, as it is played where the user is from: 'off' (the rules as written),
+    // 'colours' (every colour is called, reds are not) or 'all' (every ball). A ball on potted
+    // with none in the pocket called is a foul on its value. The break-off is never called.
+    const PS_CALLS = ['off', 'colours', 'all'];
+    const psCallNeeded = state => !state.isBreak && (state.call === 'all' || (state.call === 'colours' && state.phase !== 'reds'));
+
+    // opts: { breaker: 1|2, reds: 15|10|6, seed, call: 'off'|'colours'|'all' }
+    function psNewFrame(opts) {
+        const o = opts || {};
+        const breaker = o.breaker === 2 ? 2 : 1;
+        return {
+            v: 1, game: 'snooker', reds: psRedsOf(o.reds), breaker, turn: breaker, isBreak: true,
+            lot: (o.seed >>> 0) || 1,
+            scores: { 1: 0, 2: 0 }, brk: 0, high: { 1: 0, 2: 0 }, fouls: { 1: 0, 2: 0 }, shots: 0,
+            phase: 'reds', next: 2, freeBall: false, ballInHand: 'D', touching: [],
+            pending: null, respotBlack: false, over: false, winner: 0, conceded: 0,
+            call: PS_CALLS.indexOf(o.call) >= 0 ? o.call : 'off',
+        };
+    }
+
+    const psLiveIds = balls => balls.filter(b => b.id !== 0 && b.state !== 'pocketed').map(b => b.id);
+
+    // The colours a player may nominate now: any colour after a red (or after the last red);
+    // on a free ball, any colour that is not the ball on.
+    function psNominable(state, live) {
+        const cols = PS_COLOURS.filter(id => live.indexOf(id) >= 0);
+        if (state.freeBall) return state.phase === 'clearance' ? cols.filter(id => id !== state.next) : cols;
+        return state.phase === 'colour' ? cols : [];
+    }
+
+    // What the shooter is on. ids: the balls that may be hit first and potted; also: the balls
+    // a free ball may be hit or potted together with (the reds, or the clearance's ball on);
+    // value: what a foul on it costs at least (a free ball takes the value of the ball it
+    // stands for; nothing nominated when a nomination is needed is 7).
+    function psBallOn(state, live, nominated) {
+        const nominable = psNominable(state, live);
+        const needsNomination = state.freeBall || state.phase === 'colour';
+        const nom = needsNomination && nominable.indexOf(nominated) >= 0 ? nominated : -1;
+        const reds = live.filter(psIsRed);
+        if (state.freeBall) {
+            const also = state.phase === 'clearance' ? [state.next] : reds;
+            return { ids: nom >= 0 ? [nom] : [], also, value: nom >= 0 ? (state.phase === 'clearance' ? state.next : 1) : 7, freeId: nom, nominated: nom, needsNomination, nominable };
+        }
+        if (state.phase === 'reds') return { ids: reds, also: [], value: 1, freeId: -1, nominated: -1, needsNomination, nominable };
+        if (state.phase === 'colour') return { ids: nom >= 0 ? [nom] : [], also: [], value: nom >= 0 ? nom : 7, freeId: -1, nominated: nom, needsNomination, nominable };
+        return { ids: [state.next], also: [], value: state.next, freeId: -1, nominated: -1, needsNomination, nominable };
+    }
+
+    // The last shot from the physics log: the ball(s) the cue ball met first (all those met
+    // at the same instant), what dropped, and whether the cue ball went in. Contacts with a
+    // ball the cue ball was touching at rest are left out: playing away from it is not a hit.
+    function psSummarize(log, touching) {
+        const touch = touching || [];
+        let start = 0;
+        for (let i = log.length - 1; i >= 0; i--) if (log[i].type === 'strike') { start = i + 1; break; }
+        let firstT = null;
+        const first = [], pots = [];
+        for (let i = start; i < log.length; i++) {
+            const e = log[i];
+            if (e.type === 'ball' && (e.a === 0 || e.b === 0)) {
+                const other = e.a === 0 ? e.b : e.a;
+                if (touch.indexOf(other) >= 0) continue;
+                if (firstT === null) firstT = e.t;
+                if (Math.abs(e.t - firstT) < 1e-9 && first.indexOf(other) < 0) first.push(other);
+            } else if (e.type === 'pocket') pots.push({ ball: e.ball, pocket: e.pocket });
+        }
+        return { firstT, first, pots, cueDown: pots.some(p => p.ball === 0) };
+    }
+
+    // The balls as they will stand once the re-spots are applied (and without the cue ball
+    // when it is in hand): what the snookered and touching tests look at.
+    function psAfter(world, spots, cueInHand) {
+        const at = {};
+        (spots || []).forEach(s => { at[s.id] = s; });
+        return world.balls.filter(b => at[b.id] || (b.state !== 'pocketed' && !(cueInHand && b.id === 0)))
+            .map(b => (at[b.id] ? { id: b.id, x: at[b.id].x, y: at[b.id].y, state: 'stationary' } : b));
+    }
+
+    // Is the cue ball snookered on `onIds`? The cue ball's path to a ball on is a band 2R
+    // either side of its centre line; it is blocked by any ball not on (cushions are not
+    // looked at). mode 'free' (the free-ball test): snookered unless some ball on can be hit
+    // on both of its extreme edges. mode 'full': snookered only if no part of any ball on
+    // can be hit. `balls`: live balls, the cue ball among them; `R` the ball radius.
+    function psSnookered(balls, R, onIds, mode) {
+        const cue = balls.find(b => b.id === 0 && b.state !== 'pocketed');
+        const on = balls.filter(b => b.state !== 'pocketed' && onIds.indexOf(b.id) >= 0);
+        if (!cue || !on.length) return false;
+        const others = balls.filter(b => b.id !== 0 && b.state !== 'pocketed' && onIds.indexOf(b.id) < 0);
+        const R2 = 2 * R;
+        // The line from the cue ball that passes `off` from the object ball's centre (|off| < 2R),
+        // up to where the cue ball would meet it: is any other ball within 2R of that path?
+        const blocked = (o, off, extra) => {
+            const dx = o.x - cue.x, dy = o.y - cue.y, d = Math.hypot(dx, dy);
+            if (d <= R2 + 1e-9) return false;                              // touching: it can be hit
+            const a = Math.atan2(dy, dx) + Math.asin(off / d);
+            const vx = Math.cos(a), vy = Math.sin(a);
+            const len = d * Math.cos(Math.asin(off / d)) - Math.sqrt(Math.max(0, R2 * R2 - off * off));
+            return others.concat(extra || []).some(b => {
+                const px = b.x - cue.x, py = b.y - cue.y, s = Math.max(0, Math.min(len, px * vx + py * vy));
+                return (px - s * vx) ** 2 + (py - s * vy) ** 2 < (R2 - 1e-6) ** 2;
+            });
+        };
+        const edge = R2 - 1e-3;
+        if (mode === 'full') {
+            const offs = [];
+            for (let k = 0; k <= 40; k++) offs.push(-edge + 2 * edge * k / 40);
+            return on.every(o => offs.every(off => blocked(o, off)));
+        }
+        return !on.some(o => !blocked(o, edge) && !blocked(o, -edge));
+    }
+
+    // The ids of the balls touching the cue ball at rest.
+    function psTouching(balls, R) {
+        const cue = balls.find(b => b.id === 0 && b.state !== 'pocketed');
+        if (!cue) return [];
+        return balls.filter(b => b.id !== 0 && b.state !== 'pocketed' && Math.hypot(b.x - cue.x, b.y - cue.y) <= 2 * R + PS_TOUCH_GAP).map(b => b.id);
+    }
+
+    // Where re-spotted colours go, highest value first, each one occupying its place for the
+    // next: its own spot; else the highest-value free spot; else as close as it fits behind
+    // its own spot toward the top cushion; else in front of it. A place is free when no ball
+    // on the table (or already re-spotted) would touch the one placed there. Solved on the
+    // line exactly, not stepped.
+    function psSpotPositions(world, ids) {
+        const R = world.cfg.ballR, gap = 2 * R + 0.02, hx = world.table.halfLength - R;
+        const occ = world.balls.filter(b => b.state !== 'pocketed' && ids.indexOf(b.id) < 0).map(b => [b.x, b.y]);
+        const free = (x, y) => occ.every(([ox, oy]) => (ox - x) ** 2 + (oy - y) ** 2 >= gap * gap - 1e-9);
+        return ids.slice().sort((a, b) => b - a).map(id => {
+            const own = PS_SPOTS[id];
+            let p = null;
+            if (free(own[0], own[1])) p = own.slice();
+            for (let k = PS_COLOURS.length - 1; k >= 0 && !p; k--) { const s = PS_SPOTS[PS_COLOURS[k]]; if (free(s[0], s[1])) p = s.slice(); }
+            if (!p) {
+                // On the line through its own spot, each ball near it rules out an interval.
+                const cuts = occ.filter(([, oy]) => Math.abs(oy - own[1]) < gap)
+                    .map(([ox, oy]) => { const h = Math.sqrt(gap * gap - (oy - own[1]) ** 2); return [ox - h, ox + h]; });
+                const walk = (x, dir) => {
+                    for (let moved = true; moved;) {
+                        moved = false;
+                        for (const [lo, hi] of cuts) if (x > lo + 1e-9 && x < hi - 1e-9) { x = dir > 0 ? hi : lo; moved = true; }
+                    }
+                    return x;
+                };
+                const back = walk(own[0], 1), front = walk(own[0], -1);
+                p = [back <= hx ? back : front >= -hx ? front : own[0], own[1]];
+            }
+            occ.push(p);
+            return { id, x: p[0], y: p[1] };
+        });
+    }
+
+    // Puts the verdict's re-spotted colours back on the table (this mutates the world).
+    function psApplySpots(world, spots) {
+        (spots || []).forEach(s => {
+            const b = world.balls.find(o => o.id === s.id);
+            if (b) Object.assign(b, { x: s.x, y: s.y, vx: 0, vy: 0, wx: 0, wy: 0, wz: 0, state: 'stationary', pocket: -1 });
+        });
+    }
+
+    // Points still on the table for the player at it: a red and a black for every red, then
+    // the colours (27); after a red, the colour that follows it; in the clearance, the ball
+    // on and everything after it.
+    function psRemaining(state, live) {
+        if (state.respotBlack) return 7;
+        if (state.phase === 'clearance') { let s = 0; for (let c = state.next; c <= 7; c++) s += c; return s; }
+        return live.filter(psIsRed).length * 8 + 27 + (state.phase === 'colour' ? 7 : 0);
+    }
+
+    // How many snookers `seat` needs: none while the points left can still level it, else
+    // enough fouls on the lowest ball on (at least 4 each) to close the rest.
+    function psSnookersRequired(state, live, seat) {
+        const lead = state.scores[3 - seat] - state.scores[seat], rem = psRemaining(state, live);
+        if (lead <= rem) return 0;
+        const low = state.phase === 'clearance' ? state.next : 1;
+        return Math.ceil((lead - rem) / Math.max(4, low));
+    }
+
+    // The frame for the HUD and the CPU. `nominated` is the colour tapped so far (or -1).
+    function psStatus(state, world, seat, nominated) {
+        const live = psLiveIds(world.balls);
+        const on = psBallOn(state, live, nominated === undefined ? -1 : nominated);
+        return {
+            on, needsNomination: on.needsNomination && on.nominated < 0, nominable: on.nominable,
+            remaining: psRemaining(state, live),
+            snookersRequired: { 1: psSnookersRequired(state, live, 1), 2: psSnookersRequired(state, live, 2) },
+            pending: state.pending, scores: state.scores, brk: state.brk, high: state.high,
+            phase: state.phase, next: state.next, freeBall: state.freeBall, respotBlack: state.respotBlack,
+            redsLeft: live.filter(psIsRed).length,
+            colours: PS_COLOURS.map(id => ({ id, down: live.indexOf(id) < 0 })),
+            seat: seat || state.turn, turn: state.turn, ballInHand: state.ballInHand,
+            callRequired: psCallNeeded(state), call: state.call || 'off',
+        };
+    }
+
+    // The frame is decided (the table cleared, or a foul with only the black left): the
+    // higher score wins; a tie re-spots the black, played from the D by the lot's pick.
+    function psEndFrame(v, state, next) {
+        if (next.scores[1] !== next.scores[2]) {
+            v.frameOver = true; v.winner = next.scores[1] > next.scores[2] ? 1 : 2;
+            v.continues = false; v.nextTurn = 0; v.ballInHand = null; v.options = [];
+            Object.assign(next, { over: true, winner: v.winner, pending: null, turn: 0, ballInHand: null, brk: 0 });
+            return;
+        }
+        const first = ppRandom(state.lot + state.shots)() < 0.5 ? 1 : 2;
+        v.respotBlack = true; v.notice = 'respotBlack'; v.continues = false; v.nextTurn = first; v.ballInHand = 'D'; v.options = [];
+        v.spots = v.spots.filter(s => s.id !== 7).concat([{ id: 7, x: PS_SPOTS[7][0], y: PS_SPOTS[7][1] }]);
+        Object.assign(next, { respotBlack: true, phase: 'clearance', next: 7, turn: first, ballInHand: 'D', pending: null, brk: 0, freeBall: false, touching: [] });
+    }
+
+    // After a foul: the points to the other seat, the colours back, and the choice.
+    function psFoulOutcome(v, state, world, next, fouls, onValue) {
+        const me = state.turn, them = 3 - me;
+        const worst = fouls.reduce((m, f) => Math.max(m, f.value), onValue);
+        v.penalty = Math.min(7, Math.max(4, worst));
+        const top = fouls.slice().sort((a, b) => b.value - a.value || PS_FOUL_ORDER.indexOf(a.code) - PS_FOUL_ORDER.indexOf(b.code))[0];
+        v.foul = top.code; v.reason = top.code; v.foulBall = top.ball; v.fouls = fouls;
+        v.continues = false; v.nextTurn = them; v.points = 0; v.scored = [];
+        next.scores = Object.assign({}, state.scores, { [them]: state.scores[them] + v.penalty });
+        next.fouls = Object.assign({}, state.fouls, { [me]: state.fouls[me] + 1 });
+        next.brk = 0; next.turn = them; next.freeBall = false;
+        const liveAfter = psLiveIds(psAfter(world, v.spots, v.ballInHand === 'D'));
+        const reds = liveAfter.filter(psIsRed).length;
+        if (state.respotBlack || (state.phase === 'clearance' && state.next === 7)) {
+            next.phase = 'clearance'; next.next = 7;
+            psEndFrame(v, state, next);
+            return;
+        }
+        next.phase = reds ? 'reds' : 'clearance';
+        next.next = state.phase === 'clearance' ? state.next : 2;
+        const options = ['play', 'back'];
+        if (v.ballInHand !== 'D') {
+            const after = psAfter(world, v.spots, false);
+            const onNext = next.phase === 'reds' ? liveAfter.filter(psIsRed) : [next.next];
+            if (psSnookered(after, world.cfg.ballR, onNext, 'free')) options.push('free');
+        }
+        v.options = options;
+        next.pending = { offender: me, chooser: them, options, penalty: v.penalty };
+    }
+
+    // Judges the shot that just settled. `nominated`: the colour tapped for it, or -1;
+    // `called`: the pocket called for it (when the frame's call rule asks), or -1.
+    // Returns the verdict; verdict.next is the state to play on.
+    function psJudge(state, world, nominated, called) {
+        const call = Number.isInteger(called) && called >= 0 ? called : -1;
+        const me = state.turn, them = 3 - me;
+        const s = psSummarize(world.log, state.touching);
+        const potted = new Set(s.pots.map(p => p.ball));
+        // Everything that was on the table when the shot started.
+        const before = world.balls.filter(b => b.id !== 0 && (b.state !== 'pocketed' || potted.has(b.id))).map(b => b.id);
+        const on = psBallOn(state, before, nominated);
+        const free = on.freeId >= 0;
+        const legalPot = new Set(on.ids.concat(free ? on.also : []));
+        const v = {
+            shooter: me, foul: null, fouls: [], reason: null, penalty: 0, points: 0, scored: [],
+            frameOver: false, winner: 0, continues: false, nextTurn: them, ballInHand: s.cueDown ? 'D' : null,
+            options: [], freeBall: state.freeBall, respotBlack: false, spots: [], notice: null,
+            on, nominated: on.nominated, summary: s, wasBreak: state.isBreak, foulBall: -1,
+            callRequired: psCallNeeded(state), called: call,
+        };
+        const next = Object.assign({}, state, {
+            scores: Object.assign({}, state.scores), high: Object.assign({}, state.high), fouls: Object.assign({}, state.fouls),
+            isBreak: false, shots: state.shots + 1, freeBall: false, pending: null, ballInHand: v.ballInHand,
+        });
+        v.next = next;
+
+        // Fouls, each with the value of the balls it involves.
+        const fouls = [];
+        const add = (code, ids) => {
+            const ball = ids.reduce((m, id) => (psValue(id) > psValue(m) ? id : m), ids.length ? ids[0] : -1);
+            fouls.push({ code, ball, value: ids.reduce((m, id) => Math.max(m, psValue(id)), 0) });
+        };
+        if (on.needsNomination && on.nominated < 0) add('noNomination', [7]);
+        const touchingOn = (state.touching || []).some(id => on.ids.indexOf(id) >= 0);
+        if (!s.first.length) { if (!touchingOn) add('noContact', []); }
+        else {
+            const firstOk = free ? s.first.indexOf(on.freeId) >= 0 && s.first.every(id => id === on.freeId || on.also.indexOf(id) >= 0)
+                : s.first.every(id => on.ids.indexOf(id) >= 0);
+            if (!firstOk) {
+                const wrong = s.first.filter(id => (free ? id !== on.freeId && on.also.indexOf(id) < 0 : on.ids.indexOf(id) < 0));
+                add('wrongFirst', wrong.length ? wrong : s.first);
+            }
+        }
+        const badPots = s.pots.map(p => p.ball).filter(id => id !== 0 && !legalPot.has(id));
+        if (badPots.length) add('wrongPot', badPots);
+        if (s.cueDown) add('inOff', []);
+        // The call: a ball on went down, and none of them in the pocket called. Other reds
+        // that drop beside a red in the called pocket still count, as reds do.
+        const onPots = s.pots.filter(p => p.ball !== 0 && legalPot.has(p.ball));
+        if (v.callRequired && onPots.length && !onPots.some(p => p.pocket === call)) add('wrongPocket', onPots.map(p => p.ball));
+
+        const colourPots = s.pots.map(p => p.ball).filter(id => PS_COLOURS.indexOf(id) >= 0);
+        if (fouls.length) {
+            // Every colour that went down comes back; reds stay down.
+            v.spots = psSpotPositions(world, colourPots);
+            psFoulOutcome(v, state, world, next, fouls, on.value);
+            next.touching = psTouching(psAfter(world, v.spots, v.ballInHand === 'D'), world.cfg.ballR);
+            return v;
+        }
+
+        // A fair shot.
+        const scored = s.pots.map(p => p.ball).filter(id => legalPot.has(id));
+        const liveReds = psLiveIds(world.balls).filter(psIsRed).length;
+        let points = 0, spotIds = [];
+        if (state.phase === 'reds') {
+            points = scored.length;                                    // a red, or the free ball as one, 1 each
+            if (free && scored.indexOf(on.freeId) >= 0) spotIds = [on.freeId];
+            next.phase = points ? 'colour' : liveReds ? 'reds' : 'clearance';
+            next.next = 2;
+        } else if (state.phase === 'colour') {
+            points = scored.length ? psValue(scored[0]) : 0;
+            spotIds = scored.slice();
+            next.phase = liveReds ? 'reds' : 'clearance';
+            next.next = 2;
+        } else {
+            // The clearance: the ball on (or the free ball for it) scores the ball on's value
+            // once; the free ball comes back, the ball on stays down.
+            points = scored.length ? state.next : 0;
+            if (free && scored.indexOf(on.freeId) >= 0) spotIds = [on.freeId];
+            if (scored.indexOf(state.next) >= 0) next.next = state.next + 1;
+            next.phase = 'clearance';
+        }
+        v.points = points; v.scored = scored; v.continues = points > 0;
+        v.spots = psSpotPositions(world, spotIds);
+        v.nextTurn = v.continues ? me : them;
+        next.turn = v.nextTurn;
+        next.scores[me] += points;
+        if (v.continues) {
+            next.brk = state.brk + points;
+            next.high[me] = Math.max(next.high[me], next.brk);
+            if (state.brk < 100 && next.brk >= 100) v.notice = 'century';
+            if (state.brk < 147 && next.brk >= 147) v.notice = 'maximum';
+        } else next.brk = 0;
+
+        // Snookered behind the free ball: a foul, unless only the pink and black are left.
+        if (free && !v.continues) {
+            const after = psAfter(world, [], false), live = psLiveIds(after);
+            const onNext = live.some(psIsRed) ? live.filter(psIsRed) : [next.next];
+            const pinkBlack = !live.some(psIsRed) && live.every(id => id >= 6);
+            if (!pinkBlack && psSnookered(after, world.cfg.ballR, onNext, 'full') &&
+                !psSnookered(after.filter(b => b.id !== on.freeId), world.cfg.ballR, onNext, 'full')) {
+                Object.assign(next, { scores: Object.assign({}, state.scores), brk: 0 });
+                psFoulOutcome(v, state, world, next, [{ code: 'freeSnooker', ball: on.freeId, value: 0 }], on.value);
+                next.touching = psTouching(after, world.cfg.ballR);
+                return v;
+            }
+        }
+        // The table cleared (or the re-spotted black taken): the frame is decided.
+        if ((state.respotBlack && points) || next.next > 7) {
+            next.next = Math.min(next.next, 7);
+            psEndFrame(v, state, next);
+        }
+        next.touching = psTouching(psAfter(world, v.spots, v.ballInHand === 'D'), world.cfg.ballR);
+        return v;
+    }
+
+    // The incoming player's choice after a foul: 'play', 'back' (the offender plays again,
+    // from where the balls lie; no free ball) or 'free'.
+    function psChoose(state, choice) {
+        const p = state.pending;
+        if (!p || p.options.indexOf(choice) < 0) return state;
+        return Object.assign({}, state, { pending: null, turn: choice === 'back' ? p.offender : p.chooser, freeBall: choice === 'free', brk: 0 });
+    }
+
+    // The shot clock ran out: a foul on the ball on (7 with nothing nominated when a colour
+    // was needed), with the usual choice; nothing moved, so the cue ball stays where it is,
+    // or in hand in the D if it was.
+    function psTimeout(state, world, nominated) {
+        const me = state.turn, them = 3 - me;
+        const on = psBallOn(state, psLiveIds(world.balls), nominated === undefined ? -1 : nominated);
+        const v = {
+            shooter: me, foul: null, fouls: [], reason: null, penalty: 0, points: 0, scored: [],
+            frameOver: false, winner: 0, continues: false, nextTurn: them, ballInHand: state.ballInHand,
+            options: [], freeBall: state.freeBall, respotBlack: false, spots: [], notice: null,
+            on, nominated: on.nominated, summary: null, wasBreak: state.isBreak, foulBall: -1,
+        };
+        const next = Object.assign({}, state, { scores: Object.assign({}, state.scores), fouls: Object.assign({}, state.fouls), shots: state.shots + 1, pending: null });
+        v.next = next;
+        const value = on.needsNomination && on.nominated < 0 ? 7 : on.value;
+        psFoulOutcome(v, state, Object.assign({}, world, { balls: state.ballInHand === 'D' ? world.balls.filter(b => b.id !== 0) : world.balls }), next, [{ code: 'timeout', ball: -1, value }], on.value);
+        if (v.ballInHand === 'D' && v.options.indexOf('free') >= 0) v.options.splice(v.options.indexOf('free'), 1);
+        next.isBreak = state.isBreak;                     // the break-off is still to be played
+        return v;
+    }
+
+    // A seat gives the frame away.
+    function psConcede(state, seat) {
+        const winner = 3 - seat;
+        const next = Object.assign({}, state, { over: true, winner, conceded: seat, pending: null, turn: 0, ballInHand: null });
+        return {
+            shooter: seat, foul: null, fouls: [], reason: 'concede', penalty: 0, points: 0, scored: [],
+            frameOver: true, winner, continues: false, nextTurn: 0, ballInHand: null, options: [],
+            freeBall: false, respotBlack: false, spots: [], notice: null, conceded: seat, summary: null, next,
+        };
+    }
+
+    // Seat-aware copy for the toast and the frame result, as prText's. names = { 1, 2 }; the
+    // name 'You' gets second-person grammar.
+    function psText(v, names) {
+        const n = seat => names[seat];
+        const you = seat => n(seat) === 'You';
+        const nx = v.next;
+        if (v.frameOver) {
+            const w = v.winner, sc = nx.scores, line = sc[w] + '–' + sc[3 - w];
+            const how = v.reason === 'concede' ? (you(v.conceded) ? 'you conceded' : n(v.conceded) + ' conceded')
+                : v.foul ? 'foul on the black' : nx.respotBlack ? 'potted the re-spotted black' : 'potted the black';
+            return { kind: 'frame', title: you(w) ? 'You win' : n(w) + ' wins', sub: line + ' · ' + how };
+        }
+        // SnkRespot: an info toast. SnkCentury: the trophy, in the accent.
+        if (v.respotBlack) return { kind: 'notice', title: 'Scores level · re-spotted black', sub: (you(v.nextTurn) ? 'You have' : n(v.nextTurn) + ' has') + ' ball in hand in the D' };
+        if (v.foul) {
+            const why = v.foul === 'wrongFirst' ? 'Hit the ' + psName(v.foulBall) + ' first'
+                : v.foul === 'wrongPot' ? 'Potted the ' + psName(v.foulBall)
+                : v.foul === 'wrongPocket' ? 'Potted the ' + psName(v.foulBall) + ' in the wrong pocket'
+                : PS_FOUL_TEXT[v.foul];
+            return {
+                kind: 'foul', title: 'Foul · ' + v.penalty + ' to ' + (you(v.nextTurn) ? 'you' : n(v.nextTurn)),
+                sub: why + (v.options.indexOf('free') >= 0 ? ' · Free ball' : ''),
+            };
+        }
+        const keeps = (you(v.shooter) ? 'You keep' : n(v.shooter) + ' keeps') + ' the break going';
+        if (v.notice === 'maximum') return { kind: 'notice', icon: 'trophy', title: 'Maximum break · ' + nx.brk, sub: v.frameOver ? '' : keeps };
+        if (v.notice === 'century') return { kind: 'notice', icon: 'trophy', title: 'Century break · ' + nx.brk, sub: keeps };
+        return null;
+    }
+
+    // The choice after a foul, as buttons: { id, label, short } in the order offered.
+    function psChoiceText(pending, names) {
+        const off = names[pending.offender];
+        return pending.options.map(id => (id === 'play' ? { id, label: 'Play', short: 'Play' }
+            : id === 'back' ? { id, label: off === 'You' ? 'Make you play again' : 'Make ' + off + ' play again', short: 'Put back' }
+            : { id, label: 'Free ball', short: 'Free ball' }));
+    }
+
+    // What the chooser decided, for a notice when it was not the viewer (the CPU, say):
+    // CPU plays on / CPU takes the free ball / CPU puts you back in.
+    function psChoiceNotice(pending, choice, names) {
+        const who = names[pending.chooser], me = who === 'You', off = names[pending.offender];
+        if (choice === 'back') return (me ? 'You put ' : who + ' puts ') + (off === 'You' ? 'you' : off) + ' back in';
+        if (choice === 'free') return (me ? 'You take' : who + ' takes') + ' the free ball';
+        return (me ? 'You play on' : who + ' plays on');
+    }
+
+    // The frame-over dialog's words (SnkWin / SnkLoss): the reason in a sentence, the score
+    // in seat order, and the frame's high break with who made it.
+    function psResultText(v, names) {
+        const n = seat => (names[seat] === 'You' ? 'You' : names[seat]);
+        const nx = v.next, sc = nx.scores, h = nx.high;
+        const reason = v.reason === 'concede' ? n(v.conceded) + ' conceded.'
+            : v.foul ? n(v.shooter) + ' fouled on the black.'
+            : nx.respotBlack ? n(v.winner) + ' won on the re-spotted black.' : 'Potted the black.';
+        const top = h[2] > h[1] ? 2 : 1;
+        return { reason, score: sc[1] + '–' + sc[2], high: h[top] ? h[top] + ' · ' + n(top) : '0' };
+    }
+
+    // ── The cue ball in hand ─────────────────────────────────────────────
+    // A free spot in the D for the cue ball in hand: the design's break-off spot, else a
+    // walk out over the D.
+    function psCueHome(w) {
+        const tries = [[-320, -30], [-330, 0], [-320, 30]];
+        for (let r = 10; r <= 80; r += 10) for (let a = 0; a < 12; a++) tries.push([PS_BAULK_X - r * Math.sin(a * Math.PI / 12 + 0.01), r * Math.cos(a * Math.PI / 12 + 0.01)]);
+        return tries.find(([x, y]) => !prCanPlace(w, x, y, 'D')) || tries[0];
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — TOURNAMENT MODEL (v2)
     // ═══════════════════════════════════════════════════════════════════
     // A single-elimination bracket for 3–16 people on one computer, humans
@@ -3414,10 +4198,13 @@
     //          winners feed forward by index (match j → j >> 1, side j & 1)
     //   breaks the lower seed (the higher number) breaks first, then they
     //          alternate
-    // A tournament: { v, id, seed, name, created, settings, slots, size,
-    // rounds, matches: [{ id, round, index, a, b, raceTo, frames, winner,
-    // status }], snapshot }. Slots are indices into `slots`; a is the upper
-    // line of a match, b the lower.
+    // A tournament: { v, id, game, seed, name, created, settings, slots, size,
+    // rounds, matches: [{ id, round, index, a, b, raceTo, frames, points, high,
+    // winner, status }], snapshot }. Slots are indices into `slots`; a is the upper
+    // line of a match, b the lower. game is 'pool' or 'snooker' (a save made before
+    // snooker has none, and is pool's); snooker's matches also keep each frame's
+    // points ([a, b]) and the match's high break ({ slot, frame, value }). raceTo is
+    // stored for both games; snooker says it as best of 2N − 1 (ptRaceText).
 
     const PT_VERSION = 1;
     const PT_MIN = 3, PT_MAX = 16;
@@ -3426,6 +4213,23 @@
     const PT_RACE_DEFAULT = { 4: [2, 3], 8: [1, 2, 3], 16: [1, 1, 2, 3] };
 
     const ptSizeFor = n => (n <= 4 ? 4 : n <= 8 ? 8 : 16);
+    const ptGameOf = x => (x && x.game === 'snooker' ? 'snooker' : 'pool');
+    // "Race to 2" in pool, "Best of 3" in snooker: the same match.
+    const ptRaceText = (t, n) => (ptGameOf(t) === 'snooker' ? 'Best of ' + (2 * n - 1) : 'Race to ' + n);
+    // A tournament's settings, normalised for its game: a race of 1–5 per round, a clock of
+    // 0 / 30 / 45 (/ 60 in snooker), the guideline; pool's call (the 8 only or every shot),
+    // snooker's reds (15 / 10 / 6) and call pocket (off / the colours / every ball).
+    function ptSettings(game, s0, rounds, size) {
+        const s = s0 || {}, snk = game === 'snooker';
+        const race = (Array.isArray(s.race) && s.race.length === rounds ? s.race : PT_RACE_DEFAULT[size]).map(x => Math.max(1, Math.min(5, x | 0 || 1)));
+        const out = {
+            race, clock: [0, 30, 45].concat(snk ? [60] : []).indexOf(s.clock) >= 0 ? s.clock : 30,
+            guide: s.guide === 'short' || s.guide === 'off' ? s.guide : 'full', shuffle: !!s.shuffle,
+        };
+        if (snk) { out.reds = [15, 10, 6].indexOf(s.reds) >= 0 ? s.reds : 15; out.call = ['off', 'colours', 'all'].indexOf(s.call) >= 0 ? s.call : 'off'; }
+        else out.call = s.call === 'every' ? 'every' : '8';
+        return out;
+    }
     const ptRoundsFor = size => Math.round(Math.log2(size));
 
     // "Final", "Semi-final", "Quarter-final", "Round of 16", from the end.
@@ -3460,30 +4264,28 @@
         return a;
     }
 
-    // opts: { names: [...], you: 0 (the slot that is the account owner, or -1),
-    //         settings: { race: [per round], clock: 30|45|0, guide: 'full'|'short'|'off',
-    //         call: '8'|'every', shuffle }, name, seed, created (ms) }
+    // opts: { game: 'pool'|'snooker', names: [...], you: 0 (the slot that is the account
+    //         owner, or -1), settings: { race: [per round], clock: 30|45|0 (|60), guide:
+    //         'full'|'short'|'off', call, reds (snooker), shuffle }, name, seed, created (ms) }
     function ptCreate(opts) {
         const o = opts || {};
         const names = (o.names || []).map(n => String(n || '').trim().slice(0, 16)).slice(0, PT_MAX);
         if (names.length < PT_MIN) throw new Error('a tournament needs at least ' + PT_MIN + ' players');
         const size = ptSizeFor(names.length), rounds = ptRoundsFor(size);
         const seed = (o.seed === undefined ? Date.now() : o.seed) >>> 0;
-        const set = Object.assign({ clock: 30, guide: 'full', call: '8', shuffle: false }, o.settings);
-        const race = (set.race && set.race.length === rounds ? set.race : PT_RACE_DEFAULT[size]).map(x => Math.max(1, Math.min(5, x | 0)));
-        set.race = race;
+        const game = ptGameOf(o), set = ptSettings(game, o.settings, rounds, size), race = set.race;
         // Seeding: entry order, or the shuffled order. Seed k is slot k − 1.
         const entries = names.map((name, i) => ({ name: name || 'Player ' + (i + 1), you: i === (o.you === undefined ? 0 : o.you) }));
         const seeded = set.shuffle ? ptShuffle(entries, seed) : entries;
         const slots = seeded.map((e, i) => ({ name: e.name, seed: i + 1, you: e.you }));
         const t = {
-            v: PT_VERSION, id: 't' + seed.toString(36), seed, name: String(o.name || '').trim().slice(0, 24) || PT_NAMES[size],
+            v: PT_VERSION, id: 't' + seed.toString(36), game, seed, name: String(o.name || '').trim().slice(0, 24) || PT_NAMES[size],
             created: o.created || Date.now(), settings: set, slots, size, rounds, matches: [], snapshot: null,
         };
         const order = ptSeedOrder(size);
         for (let r = 0, count = size / 2; r < rounds; r++, count /= 2) {
             for (let j = 0; j < count; j++) {
-                t.matches.push({ id: 'r' + r + 'm' + j, round: r, index: j, a: null, b: null, raceTo: race[r], frames: [], winner: null, status: 'pending' });
+                t.matches.push({ id: 'r' + r + 'm' + j, round: r, index: j, a: null, b: null, raceTo: race[r], frames: [], points: [], high: null, winner: null, status: 'pending' });
             }
         }
         // Round one: the better seed on the upper line; a seed past N is a bye.
@@ -3530,12 +4332,21 @@
         return k % 2 === 0 ? lower : upper;
     }
 
-    // A frame is over: returns { t, matchOver, winner }. Pure: t is copied.
-    function ptRecordFrame(t0, matchId, winnerSlot) {
+    // A frame is over: returns { t, matchOver, winner }. Pure: t is copied. extra (snooker):
+    // { points: [a, b], high: [a, b] }, the frame's score and each line's best break in it.
+    function ptRecordFrame(t0, matchId, winnerSlot, extra) {
         const t = JSON.parse(JSON.stringify(t0));
         const m = ptById(t, matchId);
         if (!m || m.status === 'done' || m.status === 'bye' || (winnerSlot !== m.a && winnerSlot !== m.b)) return { t: t0, matchOver: false, winner: null };
         m.frames.push(winnerSlot);
+        if (extra && Array.isArray(extra.points)) {
+            if (!Array.isArray(m.points)) m.points = [];
+            m.points[m.frames.length - 1] = extra.points.map(n => Math.max(0, n | 0));
+        }
+        if (extra && Array.isArray(extra.high)) {
+            const hi = extra.high.map(n => Math.max(0, n | 0)), side = hi[1] > hi[0] ? 1 : 0;
+            if (hi[side] > 0 && (!m.high || hi[side] > m.high.value)) m.high = { slot: side ? m.b : m.a, frame: m.frames.length, value: hi[side] };
+        }
         m.status = 'live';
         const [sa, sb] = ptScore(m);
         let matchOver = false;
@@ -3584,9 +4395,12 @@
 
     // A saved tournament, or null when it is not one this version can resume.
     // Checked field by field, because a half-loaded bracket is worse than none.
-    function ptValidate(x) {
+    // game: the game asking (a save for the other game is not resumed); the settings come back
+    // normalised for it.
+    function ptValidate(x, game) {
         try {
             if (!x || typeof x !== 'object' || x.v !== PT_VERSION) return null;
+            if (game && ptGameOf(x) !== (game === 'snooker' ? 'snooker' : 'pool')) return null;
             if (!Array.isArray(x.slots) || x.slots.length < PT_MIN || x.slots.length > PT_MAX) return null;
             if ([4, 8, 16].indexOf(x.size) === -1 || x.rounds !== ptRoundsFor(x.size) || x.slots.length > x.size) return null;
             if (!Array.isArray(x.matches) || x.matches.length !== x.size - 1) return null;
@@ -3594,8 +4408,12 @@
             for (const m of x.matches) {
                 if (!ok(m.a) || !ok(m.b) || !ok(m.winner) || !Array.isArray(m.frames) || !m.frames.every(ok)) return null;
                 if (['pending', 'live', 'done', 'bye'].indexOf(m.status) === -1 || !(m.raceTo >= 1 && m.raceTo <= 5)) return null;
+                if (m.points !== undefined && !(Array.isArray(m.points) && m.points.every(p => p === null || (Array.isArray(p) && p.length === 2 && p.every(Number.isFinite))))) return null;
+                if (m.high !== undefined && m.high !== null && !(ok(m.high.slot) && Number.isFinite(m.high.value) && Number.isInteger(m.high.frame))) return null;
             }
             if (!x.slots.every(s => s && typeof s.name === 'string' && Number.isInteger(s.seed))) return null;
+            x.game = ptGameOf(x);
+            x.settings = ptSettings(x.game, x.settings, x.rounds, x.size);
             return x;
         } catch (_) { return null; }
     }
@@ -3663,12 +4481,17 @@
         return { OX: cfg.halfLength + cfg.railWidth, OY: cfg.halfWidth + cfg.railWidth };
     }
 
+    // The rail top the wide shots fit: the table's own when it sets one (snooker), else
+    // R + 2, which is pool's 16 at R = 14.
+    const pcRailTop = cfg => (cfg.railZ !== undefined ? cfg.railZ : cfg.ballR + 2);
+
     // A perspective pose is an eye, a point it looks at, an up hint and a
     // focal length; poses of that kind blend by lerping all four.
     function pcChase(cue, aim, lean, W, H, cfg) {
         const R = cfg ? cfg.ballR : 14;
         const lt = Math.max(0, Math.min(100, lean)) / 100;
         const phi = (19.5 + 28.5 * lt) * Math.PI / 180;
+        // The same at every ball size: the design frames snooker's small balls from pool's distances.
         const dist = 110 + 310 * lt;
         const F = 1.1 * H;
         const pitch = phi - Math.atan(0.34 / 1.1);
@@ -3684,7 +4507,7 @@
     // cut to and from 2D barely moves anything.
     function pcBroadcast(W, H, cfg) {
         const { OX, OY } = pcTableExtent(cfg);
-        const F = 4 * H, top = cfg.ballR + 2;     // fit the rail top
+        const F = 4 * H, top = pcRailTop(cfg);    // fit the rail top
         const h = top + F * Math.max(OX / (W / 2 - PC_MARGIN), OY / (H / 2 - PC_MARGIN));
         return { kind: 'persp', eye: [0, 0, h], target: [0, 0, 0], up: [0, 1, 0], F, W, H };
     }
@@ -3701,7 +4524,7 @@
 
     function pcSurvey(aim, W, H, cfg) {
         const { OX, OY } = pcTableExtent(cfg);
-        const top = cfg.ballR + 2, F = 1.1 * H, m = PC_SURVEY_MARGIN;
+        const top = pcRailTop(cfg), F = 1.1 * H, m = PC_SURVEY_MARGIN;
         const cx = W / 2, cy = (m.top + H - m.bottom) / 2;     // the middle of the clear box
         const corners = [];
         [top, PC_APRON_Z].forEach(z => [[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(([a, b]) => corners.push([a * OX, b * OY, z])));
@@ -3929,6 +4752,12 @@
     const PG_RAIL_Z = 16;              // rail top
     const PG_NOSE_Z = 10;              // cushion nose height
     const PG_POCKET_FLOOR = -64;
+    // Pool's heights, unless the table sets its own (snooker's smaller balls sit under a
+    // lower rail). Sizes drawn around a ball (cue, shadow, rings) scale by pgK: R over
+    // pool's 14, so pool draws exactly as it always has.
+    const pgRailZ = cfg => (cfg.railZ !== undefined ? cfg.railZ : PG_RAIL_Z);
+    const pgNoseZ = cfg => (cfg.noseZ !== undefined ? cfg.noseZ : PG_NOSE_Z);
+    const pgK = cfg => cfg.ballR / 14;
 
     const PG_FELTS = {
         green:     { felt: ['#2E8F70', '#1D6E55', '#114534'], cushion: '#185F4B', jaw: '#0F4234', nose: '#0E3B2F' },
@@ -3937,6 +4766,21 @@
         lightgrey: { felt: ['#A3AEB8', '#86929D', '#59636D'], cushion: '#707C87', jaw: '#56606A', nose: '#4C565F' },
     };
     const PG_BALL_COLOURS = { 1: '#E9B825', 2: '#2457C5', 3: '#D2352B', 4: '#6A3FA0', 5: '#EE7A2E', 6: '#1F8A4C', 7: '#8C2A20', 8: '#141516' };
+    // What each game's balls look like, by id: { cue } for the cue ball, else
+    // { colour, stripe, number }. The renderer and the HUD's dots both read it.
+    // Snooker's balls are plain: a colour's id is its value (yellow 2 … black 7), reds are 8
+    // upward (pool-snooker.js). The design's colours.
+    const PG_SNOOKER_COLOURS = { 2: '#E8C21E', 3: '#1F7A3F', 4: '#6B3F22', 5: '#1F4FB5', 6: '#E88FA8', 7: '#121314' };
+    const PG_SNOOKER_RED = '#B3202A';
+    const PG_LOOKS = {
+        pool: id => (id === 0 ? { cue: true } : { colour: PG_BALL_COLOURS[id > 8 ? id - 8 : id], stripe: id > 8, number: true }),
+        snooker: id => (id === 0 ? { cue: true } : { colour: id >= 8 ? PG_SNOOKER_RED : PG_SNOOKER_COLOURS[id] || PG_SNOOKER_RED, stripe: false, number: false }),
+    };
+    const pgLookCache = {};
+    function pgBallLook(game, id) {
+        const g = PG_LOOKS[game] ? game : 'pool', key = g + '|' + id;
+        return pgLookCache[key] || (pgLookCache[key] = PG_LOOKS[g](id));
+    }
     const PG_IVORY = '#F3EEE2';
     const PG_GUIDE = '#F4F1E8';
     const PG_THEME = { accent: '#f093fb', hot: '#ff5d73', font: 'Inter, system-ui, sans-serif' };
@@ -4018,12 +4862,16 @@
     }
 
     // ── Layers 1–4: the table ─────────────────────────────────────────
-    // The cushion quads, from the physics config so they match the colliders:
-    // [nose start, nose end, rail end, rail start], nose at z = 10, rail at 16.
+    // The six cushions, from the physics config so they match the colliders. Each is
+    // { top, nose: [a, b], ends: [[p, q], …] }: its top face, the nose edge (its face drops to
+    // the felt), and the end edges whose faces are drawn in the jaw colour. Pool's are quads,
+    // [nose start, nose end, rail end, rail start] with a straight jaw at each end; nose at
+    // z = 10, rail at 16.
     function pgCushions(cfg) {
+        if (cfg.pocketStyle === 'rounded') return pgRoundedCushions(cfg);
         const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth;
         const CB = cfg.cornerRailEnd, CN = cfg.cornerNose, SB = cfg.sideRailEnd, SN = cfg.sideNose;
-        const N = PG_NOSE_Z, T = PG_RAIL_Z, q = [];
+        const N = pgNoseZ(cfg), T = pgRailZ(cfg), q = [];
         [-1, 1].forEach(sy => {
             [[-HL + CB, -SB, -HL + CN, -SN], [SB, HL - CB, SN, HL - CN]].forEach(g => {
                 q.push([[g[2], sy * HW, N], [g[3], sy * HW, N], [g[1], sy * (HW + CU), T], [g[0], sy * (HW + CU), T]]);
@@ -4032,14 +4880,65 @@
         [-1, 1].forEach(sx => {
             q.push([[sx * HL, -HW + CN, N], [sx * HL, HW - CN, N], [sx * (HL + CU), HW - CB, T], [sx * (HL + CU), -HW + CB, T]]);
         });
-        return q;
+        return q.map(c => ({ top: c, nose: [c[0], c[1]], ends: [[c[0], c[3]], [c[1], c[2]]] }));
+    }
+
+    // Snooker's cushions (the design's Table.dc.html): straight along the nose, a rounded nose
+    // of radius noseRound, then a straight jaw back to the rail, as ppBuildRoundedTable's
+    // colliders are. The top rises from the nose to the rail height across the cushion's depth.
+    function pgRoundedCushions(cfg) {
+        const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth, RHO = cfg.noseRound;
+        const c = cfg.cornerNose, s = cfg.sideNose, N = pgNoseZ(cfg), T = pgRailZ(cfg), NA = 8;
+        const out = [];
+        // One run from u = a to u = b along a cushion; dirA and dirB point from each end toward
+        // its pocket, jbA / jbB how far each jaw leans that way at the rail; map(u, depth, z) is
+        // the point that fraction (depth) of the way to the rail.
+        const run = (a, b, dirA, dirB, jbA, jbB, map) => {
+            const at = (u, dep) => map(u, dep, N + (T - N) * dep);
+            const end = (e, dir, jb) => {
+                const pts = [];
+                for (let i = 0; i <= NA; i++) { const t = i / NA * Math.PI / 2; pts.push(at(e - dir * RHO + dir * RHO * Math.sin(t), RHO * (1 - Math.cos(t)) / CU)); }
+                pts.push(at(e + dir * jb, 1));
+                return pts;
+            };
+            const sa = end(a, dirA, jbA), sb = end(b, dirB, jbB);
+            const top = sb.concat(sa.slice().reverse());
+            const ends = [];
+            [sa, sb].forEach(p => { for (let i = 0; i < p.length - 1; i++) ends.push([p[i], p[i + 1]]); });
+            out.push({ top, nose: [sa[0], sb[0]], ends });
+        };
+        const cj = cfg.cornerJawBack, sj = cfg.sideJawBack;
+        [-1, 1].forEach(sy => {
+            const m = (u, dep, z) => [u, sy * (HW + dep * CU), z];
+            run(-HL + c, -s, -1, 1, cj, sj, m);
+            run(s, HL - c, -1, 1, sj, cj, m);
+        });
+        [-1, 1].forEach(sx => run(-HW + c, HW - c, -1, 1, cj, cj, (u, dep, z) => [sx * (HL + dep * CU), u, z]));
+        return out;
+    }
+
+    // The felt's markings: the table's own when it has them (snooker's baulk line, D and
+    // spots), else pool's two spots, the foot spot and the head spot.
+    //   { spots: [{ x, y, r }], lines: [[[x, y], [x, y]]], arcs: [{ x, y, r, a0, a1 }] }
+    function pgMarks(table) {
+        return table.marks || { spots: [{ x: table.footX, y: 0, r: 3 }, { x: table.headX, y: 0, r: 3 }], lines: [], arcs: [] };
+    }
+    function pgDrawMarks(ctx, view, marks) {
+        const lines = (marks.lines || []).slice();
+        (marks.arcs || []).forEach(a => {
+            const n = Math.max(8, Math.ceil(Math.abs(a.a1 - a.a0) / 0.08)), pts = [];
+            for (let i = 0; i <= n; i++) { const t = a.a0 + (a.a1 - a.a0) * i / n; pts.push([a.x + a.r * Math.cos(t), a.y + a.r * Math.sin(t)]); }
+            lines.push(pts);
+        });
+        lines.forEach(pts => pgStrokeLine(ctx, view, pts, 0.1, pgRgba(PG_IVORY, 0.35), 1, null, false));
+        if (marks.spots && marks.spots.length) pgFill(ctx, marks.spots.map(s => pcPoly(view, pgCirc(s.x, s.y, s.r, 0.1, 10))), PG_IVORY, 0.35);
     }
 
     function pgDrawTable(ctx, view, cfg, table, feltName) {
         const P = pts => pcPoly(view, pts);
         const mat = PG_FELTS[feltName] || PG_FELTS.green;
         const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth, RL = cfg.railWidth - cfg.cushionWidth;
-        const TZ = PG_RAIL_Z, OX = HL + CU + RL, OY = HW + CU + RL, IX = HL + CU, IY = HW + CU;
+        const TZ = pgRailZ(cfg), OX = HL + CU + RL, OY = HW + CU + RL, IX = HL + CU, IY = HW + CU;
         const eye = view.eye;
 
         // 1. Shadow, apron, felt.
@@ -4081,16 +4980,13 @@
             if (eye[1] > -IY) ri.push(P([[-IX, -IY, TZ], [IX, -IY, TZ], [IX, -IY, 0], [-IX, -IY, 0]]));
             pgFill(ctx, ri, '#24150D');
             const jaws = [];
-            cush.forEach(q => {
-                jaws.push(P([q[0], q[3], [q[3][0], q[3][1], 0], [q[0][0], q[0][1], 0]]));
-                jaws.push(P([q[1], q[2], [q[2][0], q[2][1], 0], [q[1][0], q[1][1], 0]]));
-            });
+            cush.forEach(c => c.ends.forEach(([p, q]) => jaws.push(P([p, q, [q[0], q[1], 0], [p[0], p[1], 0]]))));
             pgFill(ctx, jaws, mat.jaw);
         }
-        pgFill(ctx, cush.map(q => P([q[0], q[1], [q[1][0], q[1][1], 0], [q[0][0], q[0][1], 0]])), mat.nose);
+        pgFill(ctx, cush.map(c => P([c.nose[0], c.nose[1], [c.nose[1][0], c.nose[1][1], 0], [c.nose[0][0], c.nose[0][1], 0]])), mat.nose);
 
         // 3. Cushion tops, rail wood, lip, diamonds, spots.
-        pgFill(ctx, cush.map(P), mat.cushion);
+        pgFill(ctx, cush.map(c => P(c.top)), mat.cushion);
         const rails = [
             P([[-OX, OY, TZ], [OX, OY, TZ], [IX, IY, TZ], [-IX, IY, TZ]]),
             P([[OX, OY, TZ], [OX, -OY, TZ], [IX, -IY, TZ], [IX, IY, TZ]]),
@@ -4105,15 +5001,17 @@
         }
         ctx.beginPath(); pgTrace(ctx, P(pgRect(IX, IY, TZ)));
         ctx.strokeStyle = 'rgba(243, 238, 226, 0.12)'; ctx.lineWidth = 1; ctx.stroke();
-        const dia = [];
-        [-375, -250, -125, 125, 250, 375].forEach(x => {
-            dia.push(P(pgCirc(x, -(IY + RL / 2), 3.6, TZ + 0.1, 8)), P(pgCirc(x, IY + RL / 2, 3.6, TZ + 0.1, 8)));
-        });
-        [-125, 0, 125].forEach(y => {
-            dia.push(P(pgCirc(-(IX + RL / 2), y, 3.6, TZ + 0.1, 8)), P(pgCirc(IX + RL / 2, y, 3.6, TZ + 0.1, 8)));
-        });
-        pgFill(ctx, dia, '#E9DDBF');
-        pgFill(ctx, [P(pgCirc(table.footX, 0, 3, 0.1, 10)), P(pgCirc(table.headX, 0, 3, 0.1, 10))], PG_IVORY, 0.35);
+        if (cfg.diamonds !== false) {
+            const dia = [];
+            [-375, -250, -125, 125, 250, 375].forEach(x => {
+                dia.push(P(pgCirc(x, -(IY + RL / 2), 3.6, TZ + 0.1, 8)), P(pgCirc(x, IY + RL / 2, 3.6, TZ + 0.1, 8)));
+            });
+            [-125, 0, 125].forEach(y => {
+                dia.push(P(pgCirc(-(IX + RL / 2), y, 3.6, TZ + 0.1, 8)), P(pgCirc(IX + RL / 2, y, 3.6, TZ + 0.1, 8)));
+            });
+            pgFill(ctx, dia, '#E9DDBF');
+        }
+        pgDrawMarks(ctx, view, pgMarks(table));
 
         // 4. Pockets: a leather rim clamped to the rail's inner edge, then the
         // shaft seen through the opening (rail cut ∩ felt cut).
@@ -4129,6 +5027,54 @@
         const bandRGB = ['#563C29', '#302117', '#150F0B'];
         const lit = [0.55, 0.8, 1.08];
         const NF = 30;
+        // Snooker in 3D (the design's revision 1790749498-5862): a pocket sits mostly behind the
+        // cushion line, so its lip is at rail height only where the rail is cut and drops to the
+        // felt across the cushion gap. The opening is that mixed-height rim (it also covers the
+        // rail face between the cushion ends); the wall's top band shows only over the rail. Then
+        // the cushions are drawn again, in front of the holes.
+        if (cfg.pocketStyle === 'rounded' && eye) {
+            const over = (x, y) => Math.abs(x) > IX || Math.abs(y) > IY;
+            table.pockets.forEach(p => {
+                const rim = [];
+                for (let i = 0; i < 72; i++) {
+                    const t0 = i / 72 * Math.PI * 2, t1 = (i + 1) / 72 * Math.PI * 2;
+                    const x0 = p.x + p.r * Math.cos(t0), y0 = p.y + p.r * Math.sin(t0), x1 = p.x + p.r * Math.cos(t1), y1 = p.y + p.r * Math.sin(t1);
+                    const o0 = over(x0, y0), o1 = over(x1, y1);
+                    rim.push([x0, y0, o0 ? TZ + 0.3 : 0.05]);
+                    if (o0 !== o1) { const xm = (x0 + x1) / 2, ym = (y0 + y1) / 2; rim.push([xm, ym, o0 ? TZ + 0.3 : 0.05], [xm, ym, o1 ? TZ + 0.3 : 0.05]); }
+                }
+                const ap = P(rim);
+                if (ap.length < 3) return;
+                pgFill(ctx, [ap], '#040303');
+                // The walls and the floor rings are clipped to the opening (it need not be convex); a
+                // canvas without clip() (the tests' software one) shows the opening alone.
+                if (typeof ctx.clip !== 'function') return;
+                ctx.save();
+                ctx.beginPath(); pgTrace(ctx, ap); ctx.clip();
+                const walls = [[], [], [], [], [], [], [], [], []], cl = Math.hypot(p.x, p.y) || 1;
+                for (let k = 0; k < NF; k++) {
+                    const a0 = k / NF * Math.PI * 2, a1 = (k + 1) / NF * Math.PI * 2, am = (a0 + a1) / 2;
+                    const nx = -Math.cos(am), ny = -Math.sin(am), px = p.x + p.r * Math.cos(am), py = p.y + p.r * Math.sin(am);
+                    if ((eye[0] - px) * nx + (eye[1] - py) * ny <= 0) continue;
+                    const face = Math.max(0, nx * (-p.x / cl) + ny * (-p.y / cl)), bi = face > 0.66 ? 2 : face > 0.25 ? 1 : 0;
+                    const x0 = p.x + p.r * Math.cos(a0), y0 = p.y + p.r * Math.sin(a0), x1 = p.x + p.r * Math.cos(a1), y1 = p.y + p.r * Math.sin(a1);
+                    bandZ.forEach((bz, band) => {
+                        if (band === 0 && !over(px, py)) return;              // no rail wall above the felt across the gap
+                        walls[band * 3 + bi].push(P([[x0, y0, bz[0]], [x1, y1, bz[0]], [x1, y1, bz[1]], [x0, y0, bz[1]]]));
+                    });
+                }
+                walls.forEach((w, i) => { if (w.length) pgFill(ctx, w, pgRgb(bandRGB[Math.floor(i / 3)], lit[i % 3])); });
+                pgFill(ctx, [P(pgCirc(p.x, p.y, p.r * 0.86, PG_POCKET_FLOOR, 36))], '#1E140E');
+                pgFill(ctx, [P(pgCirc(p.x, p.y, p.r * 0.66, PG_POCKET_FLOOR, 36))], '#020303');
+                ctx.restore();
+            });
+            const jaws = [];
+            cush.forEach(c => c.ends.forEach(([p, q]) => jaws.push(P([p, q, [q[0], q[1], 0], [p[0], p[1], 0]]))));
+            pgFill(ctx, jaws, mat.jaw);
+            pgFill(ctx, cush.map(c => P([c.nose[0], c.nose[1], [c.nose[1][0], c.nose[1][1], 0], [c.nose[0][0], c.nose[0][1], 0]])), mat.nose);
+            pgFill(ctx, cush.map(c => P(c.top)), mat.cushion);
+            return;
+        }
         table.pockets.forEach(p => {
             const top = P(pgCirc(p.x, p.y, p.r, TZ + 0.3, 36));
             const aperture = view.ortho ? top : pgClipConvex(top, pgHull(P(pgCirc(p.x, p.y, p.r, 0, 36))));
@@ -4246,26 +5192,29 @@
         const local = w => [pcDot(w, v.r), pcDot(w, v.u), pcDot(w, v.t)];
         ctx.globalAlpha = alpha === undefined ? 1 : alpha;
         const disc = () => { ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.closePath(); };
-        if (id === 0) {
+        const look = pgBallLook(theme.game, id);
+        if (look.cue) {
             disc();
             const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
             g.addColorStop(0, '#F8F4EB'); g.addColorStop(1, '#E6DFCF');
             ctx.fillStyle = g; ctx.fill();
+        } else if (!look.stripe && !look.number) {
+            // A plain ball (snooker's): the colour, then the lamp, nothing printed to roll.
+            disc(); ctx.fillStyle = look.colour; ctx.fill();
         } else {
-            const colour = PG_BALL_COLOURS[id > 8 ? id - 8 : id];
-            disc(); ctx.fillStyle = colour; ctx.fill();
+            disc(); ctx.fillStyle = look.colour; ctx.fill();
             const M = pgPrint(id), q = b.q || [1, 0, 0, 0];
             const N = local(pgQuatApply(q, M[0])), Y = local(pgQuatApply(q, M[1])), A = local(pgQuatApply(q, M[2]));
             const ivory = [];
-            if (id > 8) {
+            if (look.stripe) {
                 ivory.push(pgCap(A, PG_STRIPE, cx, cy, rad), pgCap([-A[0], -A[1], -A[2]], PG_STRIPE, cx, cy, rad));
             }
-            [N, [-N[0], -N[1], -N[2]]].forEach(n => ivory.push(pgCap(n, PG_NUMBER, cx, cy, rad)));
+            if (look.number) [N, [-N[0], -N[1], -N[2]]].forEach(n => ivory.push(pgCap(n, PG_NUMBER, cx, cy, rad)));
             ctx.beginPath(); ivory.forEach(p => pgTrace(ctx, p));
             ctx.fillStyle = PG_IVORY; ctx.fill();
             // Digits on the disc that faces us, foreshortened with it; hidden
             // on small balls and faded as the disc turns away (as designed).
-            if (dd >= 15) {
+            if (look.number && dd >= 15) {
                 [[N, 1], [[-N[0], -N[1], -N[2]], -1]].forEach(([n, sgn]) => {
                     const facing = n[2];
                     if (facing < 0.3) return;
@@ -4404,12 +5353,14 @@
     //   dpr,                                         backing-store scale of ctx
     //   aim: { angle, power, gap } | null,           null hides the cue and the guides
     //   guide: pgGuide(…) | null, guideMode: 'full' | 'short' | 'off', illegal,
-    //   bih: { x, y, valid, reason } | null, kitchen,
-    //   call: { called } | null, drops: [{ ball, pocket, t }],
+    //   guideLen: the object ball's line in full mode (150 unless ⚙️ Aim Guide shortens it),
+    //   bih: { x, y, valid, reason } | null, zone: 'kitchen' | 'D' | null (kitchen: the old name),
+    //   call: { called } | null, ring: the nominated ball's id (snooker) | null,
+    //   drops: [{ ball, pocket, t }],
     // }
     function pgRender(ctx, scene) {
-        const view = scene.view, w = scene.world, cfg = w.cfg, table = w.table, R = cfg.ballR;
-        const theme = Object.assign({}, PG_THEME, scene.theme);
+        const view = scene.view, w = scene.world, cfg = w.cfg, table = w.table, R = cfg.ballR, K = pgK(cfg);
+        const theme = Object.assign({}, PG_THEME, scene.theme, { game: cfg.game || 'pool' });
         if (scene.cache && scene.makeCanvas) { theme.sprites = scene.cache.digits || (scene.cache.digits = new Map()); theme.makeCanvas = scene.makeCanvas; }
         const dpr = scene.dpr || 1;
         ctx.save();
@@ -4420,7 +5371,7 @@
         // camera is moving (aiming in 3D turns it every frame) a cached copy would be drawn
         // once and thrown away, so the table goes straight to the screen, saving a
         // whole-canvas copy; the first frame the pose holds, it is cached again.
-        const key = JSON.stringify([view.pose, scene.felt, dpr]);
+        const key = JSON.stringify([view.pose, scene.felt, dpr, theme.game]);
         const moving = !!scene.cache && scene.cache.lastKey !== undefined && scene.cache.lastKey !== key;
         if (scene.cache) scene.cache.lastKey = key;
         if (scene.cache && scene.makeCanvas && moving && scene.cache.key !== key) {
@@ -4443,10 +5394,17 @@
             pgDrawTable(ctx, view, cfg, table, scene.felt);
         }
 
-        // 5. Kitchen.
-        if (scene.kitchen) {
+        // 5. The ball-in-hand zone: pool's kitchen (scene.kitchen is the older name for it).
+        const zone = scene.zone || (scene.kitchen ? 'kitchen' : null);
+        if (zone === 'kitchen') {
             pgFill(ctx, [pcPoly(view, [[-cfg.halfLength, -cfg.halfWidth, 0.2], [table.headX, -cfg.halfWidth, 0.2], [table.headX, cfg.halfWidth, 0.2], [-cfg.halfLength, cfg.halfWidth, 0.2]])], theme.accent, 0.12);
             pgStrokeLine(ctx, view, [[table.headX, -cfg.halfWidth], [table.headX, cfg.halfWidth]], 0.3, pgRgba(theme.accent, 0.8), 1.5, [6, 5], true);
+        } else if (zone === 'D' && table.marks) {
+            // Snooker's D: tinted, and outlined round the arc and back along the baulk line.
+            const m = table.marks, arc = [];
+            for (let i = 0; i <= 24; i++) { const t = Math.PI / 2 + i / 24 * Math.PI; arc.push([m.baulkX + m.dR * Math.cos(t), m.dR * Math.sin(t)]); }
+            pgFill(ctx, [pcPoly(view, arc.map(q => [q[0], q[1], 0.2]))], theme.accent, 0.12);
+            pgStrokeLine(ctx, view, arc.concat([[m.baulkX, m.dR]]), 0.3, pgRgba(theme.accent, 0.8), 1.5, [6, 5], true);
         }
 
         // Pocket drops: sinking into the hole, under everything still in play.
@@ -4460,7 +5418,7 @@
 
         // 6. Shadows, then guides.
         const live = w.balls.filter(b => b.state !== 'pocketed' && !(scene.bih && b.id === 0));
-        pgFill(ctx, live.map(b => pcPoly(view, pgCirc(b.x + 4, b.y - 5, R * 1.08, 0.3, 20))), '#000000', 0.38);
+        pgFill(ctx, live.map(b => pcPoly(view, pgCirc(b.x + 4 * K, b.y - 5 * K, R * 1.08, 0.3, 20))), '#000000', 0.38);
         const g = scene.aim && scene.guide && scene.guideMode !== 'off' ? scene.guide : null;
         const Z = 0.6;
         if (g && g.contact) {
@@ -4471,7 +5429,7 @@
                 pgStrokeLine(ctx, view, [[g.start[0] + ux * R * 1.3, g.start[1] + uy * R * 1.3], [g.contact[0] - ux * R, g.contact[1] - uy * R]], Z, pgRgba(PG_GUIDE, 0.85), 1.5, [5, 4]);
             }
             if (g.obj) {
-                const L = short ? 60 : 150;
+                const L = short ? 60 : scene.guideLen || 150;
                 pgStrokeLine(ctx, view, [[g.obj.x + g.obj.dx * R, g.obj.y + g.obj.dy * R], [g.obj.x + g.obj.dx * (R + L), g.obj.y + g.obj.dy * (R + L)]], Z, theme.accent, 2, null, true);
             }
             if (g.after.length > 1) {
@@ -4519,6 +5477,7 @@
             const gap = a.gap !== undefined ? a.gap : 8 + (a.power || 0) * 1.1;
             const L = 600;
             const pt = (u, side) => {
+                // Pool's cue at every ball size, as the design draws snooker's.
                 const along = R + gap + u, wd = 3.3 + (8 - 3.3) * (u / L), z = R + 1.5 + 60 * (u / L);
                 return [cue.x - d[0] * along - d[1] * wd * side, cue.y - d[1] * along + d[0] * wd * side, z];
             };
@@ -4537,9 +5496,20 @@
             part(3, 16, '#F2ECDF');
             part(0, 3, '#3E73B8');
         }
+        if (scene.ring) {
+            // Snooker's nominated ball: an accent ring round it, r + max(3 px, 0.4 r) (the design).
+            const b = w.balls.find(o => o.id === scene.ring && o.state !== 'pocketed');
+            const s = b && pcProject(view, [b.x, b.y, R]);
+            if (s && s[3] > PC_NEAR + R) {
+                const rad = R * s[2], rr = rad + Math.max(3, rad * 0.4);
+                ctx.beginPath(); ctx.arc(s[0], s[1], rr, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)'; ctx.lineWidth = 3.5; ctx.stroke();
+                ctx.strokeStyle = theme.accent; ctx.lineWidth = 2; ctx.stroke();
+            }
+        }
         if (scene.call) {
             table.pockets.forEach((p, i) => {
-                const ring = pcPoly(view, pgCirc(p.x, p.y, p.r + 12, PG_RAIL_Z + 0.5, 32));
+                const ring = pcPoly(view, pgCirc(p.x, p.y, p.r + 12 * K, pgRailZ(cfg) + 0.5, 32));
                 if (ring.length < 3) return;
                 ctx.beginPath(); pgTrace(ctx, ring);
                 if (i === scene.call.called) {
@@ -4576,11 +5546,12 @@
 
     // Screen positions of the six pockets for hit-testing a call, with
     // whether each is on screen (the rest are called from the mini-map).
-    function pgPocketMarks(view, table) {
+    function pgPocketMarks(view, table, cfg) {
+        const Z = cfg ? pgRailZ(cfg) : PG_RAIL_Z, K = table.R / 14;
         return table.pockets.map((p, i) => {
-            const s = pcProject(view, [p.x, p.y, PG_RAIL_Z]);
+            const s = pcProject(view, [p.x, p.y, Z]);
             const inView = !!s && s[0] > 10 && s[0] < view.W - 10 && s[1] > 10 && s[1] < view.H - 10;
-            return { i, x: s ? s[0] : 0, y: s ? s[1] : 0, r: s ? (p.r + 12) * s[2] : 0, inView };
+            return { i, x: s ? s[0] : 0, y: s ? s[1] : 0, r: s ? (p.r + 12 * K) * s[2] : 0, inView };
         });
     }
 
@@ -4593,6 +5564,11 @@
     // toast, lean, power gauge, spin, hint, ball-in-hand chip, move-cue-ball
     // button, pocket
     // mini-map, frame-over dialog) and the footer or the seat hand-off.
+    // Snooker (the snk* artboards) is the same HUD with its own parts: a score and a
+    // third line on each card, the tracker row (reds, colours, points remaining, snookers
+    // required, Concede), the colour chips, the choice after a foul in the toast, the
+    // frame's score and high break in the dialog, and the concede question
+    // (phSnookerModel).
     //
     // Three layers, so the logic can be tested without a browser:
     //   phModel(game)      pure: game snapshot → view model (every string,
@@ -4642,9 +5618,22 @@
         { key: 'hard', name: 'Hard', desc: 'Plays position · rarely leaves a shot' },
         { key: 'pro', name: 'Pro', desc: 'Hardly misses · call every shot' },
     ];
+    // Snooker's list (InMatch.dc.html, snkMode): the same tiers, snooker's words.
+    const PH_SNK_DIFFS = [
+        { key: 'adaptive', name: 'Adaptive', desc: 'Matches your form, frame by frame' },
+        { key: 'easy', name: 'Easy', desc: 'Pots the simple ones · leaves chances' },
+        { key: 'normal', name: 'Normal', desc: 'Builds small breaks · plays some safe' },
+        { key: 'hard', name: 'Hard', desc: 'Position and safety · call the colours' },
+        { key: 'pro', name: 'Pro', desc: 'Hardly misses · call every ball' },
+    ];
+    // Snooker's colours, by id (= value), for the tracker and the chips.
+    const PH_SNK = [[2, 'yellow'], [3, 'green'], [4, 'brown'], [5, 'blue'], [6, 'pink'], [7, 'black']].map(([id, name]) => ({ id, name }));
+    const phSnkName = id => { const c = PH_SNK.find(b => b.id === id); return c ? c.name : 'red'; };
+    const phCap = s => s.charAt(0).toUpperCase() + s.slice(1);
+    const PH_SNK_SHORT = { 'YOUR CHOICE': 'CHOICE', 'BALL IN HAND': 'IN HAND', CHOOSING: 'CHOOSING' };
     const PH_CLOCK_HOT = 5;          // seconds left when the clock goes hot
     const PH_POWER_HOT = 85;         // % at which the gauge goes hot
-    const PH_BIH_NOTE = { overlap: 'Overlaps a ball', kitchen: 'Behind the head string only', outside: 'Keep it on the felt' };
+    const PH_BIH_NOTE = { overlap: 'Overlaps a ball', kitchen: 'Behind the head string only', outside: 'Keep it on the felt', D: 'Inside the D only' };
 
     const phWins = (name) => (name === 'You' ? 'You win' : name + ' wins');
 
@@ -4662,7 +5651,11 @@
     // game = {
     //   layout: 'compact' | 'max', mode: 'cpu' | 'pvp' | 'tour',
     //   names: { 1, 2 }, records: { 1, 2 }, frames: [a, b], trophies,
+    //   game: 'pool' | 'snooker',    which game's balls and words (pool when absent)
+    //   title,                       the game's name, for the Max header
     //   frame,                       the rules state (pool-rules.js)
+    //   status,                      the shooter's position, from the game's rules
+    //                                (poolRules().status: pool's prStatus)
     //   world,                       the physics world, for the trackers
     //   phase: 'aim' | 'strike' | 'moving' | 'bih' | 'over',
     //   camera: '3d' | '2d', lean, power, dragging, called,
@@ -4677,6 +5670,7 @@
     //   cpuTurn,                     the CPU is at the table: its own hint, no human controls
     //   sheet: { open, mode, note }, the Game mode sheet: which tab, and a line under the list
     //   difficulty,                  the picked CPU difficulty ('adaptive' or a tier)
+    //   diffs,                       the difficulty list for this game (PH_DIFFS when absent)
     //   pots: { 1: [ids], 2: [ids] } the object balls each seat has potted this frame, shown
     //                                on its card while the table is open
     //   tour: { kicker, title, frame } | null   a tournament match: the header strip, and
@@ -4684,10 +5678,14 @@
     //   tourSheet: { saved, name }   the sheet's Tournament tab: resume, or set one up
     //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
     //   secondaryLabel,              the frame-over dialog's second button, when the default does not apply
-    //   result: { win, title, reason, recordLabel, record, delta, note } | null,
+    //   result: { win, title, reason, recordLabel, record, delta, note, stats? } | null,
+    //   Snooker also:
+    //   nom,                         the colour nominated for this shot, or -1
+    //   choice: { chooser, cpu, options: [{ id, label, short }] } | null   after a foul
+    //   confirm,                     the concede question is open
     // }
     function phModel(g) {
-        const st = prStatusFrom(g.frame, g.frame.turn, g.world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed').map(b => b.id));
+        const st = g.status;
         const over = g.phase === 'over';
         const bih = g.phase === 'bih';
         const moving = g.phase === 'moving';
@@ -4712,7 +5710,7 @@
                 else if (active && clockLeft !== null) tag = Math.ceil(clockLeft) + 's';
                 else if (active) tag = 'TO SHOOT';
             }
-            const group = g.frame.groups[seat];
+            const group = g.frame.groups ? g.frame.groups[seat] : null;
             const ids = group === 'solids' ? [1, 2, 3, 4, 5, 6, 7] : group === 'stripes' ? [9, 10, 11, 12, 13, 14, 15] : [];
             return {
                 seat, name: g.names[seat], rec: g.records[seat] || '',
@@ -4731,7 +5729,7 @@
 
         // The pill names what the shooter is on: state only. What to do about it (call a
         // pocket) is the hint's, or in 3D the call card's, so it is never said twice.
-        const shooterGroup = g.frame.groups[g.frame.turn];
+        const shooterGroup = g.frame.groups ? g.frame.groups[g.frame.turn] : null;
         let pill;
         if (bih) pill = g.frame.ballInHand === 'kitchen' ? 'Break · kitchen only' : 'Ball in hand';
         else if (g.frame.isBreak) pill = 'Break';
@@ -4773,8 +5771,9 @@
         const note = bih && g.bih && g.bih.valid === false && g.bih.sx !== undefined
             ? { text: PH_BIH_NOTE[g.bih.reason] || PH_BIH_NOTE.overlap, x: g.bih.sx, y: g.bih.sy + (g.bih.sr || 5) + 26 } : null;
 
-        return {
+        const vm = {
             layout: max ? 'max' : 'compact',
+            game: g.game || 'pool', title: g.title || '8-Ball Pool',
             cards,
             frames: (g.frames ? g.frames[0] : 0) + '–' + (g.frames ? g.frames[1] : 0),
             trophies: g.trophies || 0,
@@ -4784,9 +5783,11 @@
                 label3d: max ? '3D AIM' : '3D',
             },
             pill: { show: !toast && !over, text: pill },
-            toast: toast ? { show: true, foul: toast.kind === 'foul', title: toast.title, sub: toast.sub } : { show: false },
+            toast: toast ? { show: true, foul: toast.kind === 'foul', title: toast.title, sub: toast.sub, icon: toast.icon || '', choices: [], chooser: '' } : { show: false, choices: [] },
             lean: {
-                show: is3d && !over && !(aiming && st.callRequired) && !moving && !sheetOpen,
+                // It stays for a call: the call card sits bottom right, not top left as in the
+                // design's 4a, so a call never needs the slider's side.
+                show: is3d && !over && !moving && !sheetOpen,
                 value: lean,
                 // The pitch the camera actually looks down at, as the design labels it.
                 label: Math.round(19.5 + 28.5 * lean / 100 - Math.atan(0.34 / 1.1) * 180 / Math.PI) + '°',
@@ -4817,15 +5818,105 @@
                 ready: (g.names[g.handoff] || '').toUpperCase() + "'S READY",
             } : { show: false },
             cursor: bih ? 'placing' : g.dragging ? 'dragging' : '',
+            // The shot in view pixels (segments and circles), for phShy.
+            shot: g.shot || null,
+            maxBars: max && !!g.maxBars,
             sheet: sheetOpen ? {
                 show: true, mode: sheetMode,
-                diffs: PH_DIFFS.map(d => ({ key: d.key, name: d.name, desc: d.desc, checked: (g.difficulty || 'adaptive') === d.key })),
+                diffs: (g.diffs || PH_DIFFS).map(d => ({ key: d.key, name: d.name, desc: d.desc, checked: (g.difficulty || 'adaptive') === d.key })),
                 chip: 'NOW ' + String(g.adaptiveTier || 'normal').toUpperCase(),
                 note: (g.sheet && g.sheet.note) || '',
                 tour: g.tourSheet && g.tourSheet.saved ? { saved: true, cta: 'RESUME ' + String(g.tourSheet.name || 'TOURNAMENT').toUpperCase(), sub: g.tourSheet.where || '' }
                     : { saved: false, cta: 'SET UP TOURNAMENT', sub: '' },
             } : { show: false },
+            // Snooker's parts; hidden for pool.
+            track: { show: false }, chips: { show: false }, concede: { show: false },
         };
+        return vm.game === 'snooker' ? phSnookerModel(g, vm) : vm;
+    }
+
+    // Snooker's HUD (the snk* artboards) over the shared model: the same cards, pill, toast
+    // and dialog, with a score and a third line on each card, the tracker row, the colour
+    // chips while a colour is to be nominated, the choice after a foul, and Concede.
+    function phSnookerModel(g, vm) {
+        const st = g.status, on = st.on || {}, f = g.frame;
+        const over = g.phase === 'over', bih = g.phase === 'bih', aiming = g.phase === 'aim' || g.phase === 'strike';
+        const max = g.layout === 'max', sheetOpen = !!(g.sheet && g.sheet.open), toast = g.toast || null, ch = g.choice || null;
+        const nom = g.nom >= 0 ? g.nom : -1, seat = f.turn;
+        vm.cards.forEach((c, i) => {
+            const s = i + 1;
+            let tag = '', hot = false;
+            if (!over) {
+                if (g.fouled === s) { tag = 'FOUL'; hot = true; }
+                else if (ch && ch.chooser === s) tag = ch.cpu ? 'CHOOSING' : 'YOUR CHOICE';
+                else if (c.active && bih) tag = f.isBreak ? 'TO BREAK' : 'BALL IN HAND';
+                else if (c.active && c.hot) { tag = Math.ceil(g.clock.left) + 's'; hot = true; }
+                else if (c.active && st.brk > 0) tag = 'BREAK ' + st.brk;
+            }
+            Object.assign(c, { tag, tagShort: '', tagHot: hot, score: String(st.scores ? st.scores[s] : 0), open: false, group: [], potted: [] });
+        });
+        // The tracker: reds, the six colours (the ball on ringed), and what is left to score.
+        const need = !over && seat ? (st.snookersRequired || {})[seat] || 0 : 0;
+        const ringId = over ? -1 : st.phase === 'clearance' || st.respotBlack ? st.next : nom;
+        const left = (st.colours || []).filter(c => !c.down).map(c => phSnkName(c.id));
+        vm.track = {
+            show: true, reds: st.redsLeft || 0,
+            dots: (st.colours || []).map(c => ({ id: c.id, down: c.down, on: c.id === ringId && !c.down })),
+            snookers: need,
+            concede: need > 0 && !g.cpuTurn && !g.handoff && (g.phase === 'aim' || g.phase === 'bih') && !g.confirm,
+            rem: need ? st.remaining + ' LEFT' : (over ? 0 : st.remaining) + ' REMAINING',
+            aria: 'Reds left ' + (st.redsLeft || 0) + ', colours ' + (left.length ? left.join(', ') : 'none') + ', ' + (over ? 0 : st.remaining) + ' points remaining' +
+                (need ? '; ' + g.names[seat] + ' needs ' + need + (need > 1 ? ' snookers' : ' snooker') : ''),
+        };
+        // The pill: what the shooter is on.
+        let pill;
+        if (bih) pill = f.isBreak ? 'Break-off · in the D' : st.respotBlack ? 'Re-spotted black' : 'Ball in hand · the D';
+        else if (st.freeBall) pill = nom >= 0 ? 'Free ball · ' + phCap(phSnkName(nom)) : 'Free ball';
+        else if (st.phase === 'colour') pill = nom >= 0 ? 'On the ' + phSnkName(nom) : 'Nominate a colour';
+        else if (st.phase === 'reds') pill = 'On a red';
+        else pill = 'On the ' + phSnkName(st.next);
+        if (max && !bih) { const who = g.names[seat]; pill = (who === 'You' ? 'Your shot' : who + "'s shot") + ' · ' + pill; }
+        vm.pill = { show: !toast && !over, text: pill };
+        // Read out once a shot is over (S7): what the player at the table is on, the score and
+        // the tracker. Held while balls run (null: the last reading stays), so a pot mid-shot
+        // does not interrupt.
+        const settled = g.phase !== 'moving' && g.phase !== 'strike', sc = st.scores || { 1: 0, 2: 0 };
+        vm.track.say = !settled ? null : (over ? 'Frame over' : pill) + '. ' + g.names[1] + ' ' + sc[1] + ', ' + g.names[2] + ' ' + sc[2] + '. ' + vm.track.aria + '.';
+        // The chips: while a colour is to be nominated (the gauge padlocks until one is).
+        const chips = aiming && !!on.needsNomination && !g.cpuTurn && !g.handoff && !toast && !sheetOpen && !vm.spin.open && !g.confirm;
+        const pw = Math.round(g.power || 0);
+        // Once a colour is nominated they fold to that one chip and the caption, freeing the
+        // corner for the stroke; the chip opens them again.
+        const folded = nom >= 0 && !g.chipsOpen, callNeeded = aiming && !!st.callRequired && !(g.called >= 0);
+        vm.chips = chips ? {
+            show: true, folded,
+            label: folded ? (st.freeBall ? 'Free ball: the ' : 'Nominated: the ') + phSnkName(nom) + '. Press it to change' : st.freeBall ? 'Nominate the free ball' : 'Nominate a colour',
+            items: PH_SNK.map(b => ({ id: b.id, name: b.name, live: (on.nominable || []).indexOf(b.id) >= 0, checked: nom === b.id })),
+            caption: nom < 0 ? 'Tap a colour' : g.dragging ? 'Release · ' + pw + '%' : callNeeded ? 'Tap a pocket' : 'Drag to shoot',
+            tone: nom < 0 ? '' : g.dragging ? (pw >= PH_POWER_HOT ? 'hot' : 'power') : callNeeded ? 'call' : 'set',
+            // With a call to make, the folded chips carry the pocket map in 3D (2D taps the table).
+            pad: folded && !!st.callRequired && g.camera === '3d', called: g.called >= 0 ? g.called : -1,
+        } : { show: false };
+        // The padlock: until a colour is nominated, and (pool's) until a pocket is called.
+        vm.gauge = Object.assign({}, vm.gauge, { locked: vm.gauge.locked || (aiming && !!on.needsNomination && nom < 0) });
+        // The chips hold the corner, and the call with them: no call card beside them.
+        if (chips) vm.mini = Object.assign({}, vm.mini, { show: false });
+        // The hint: the D, and none while the chips carry the caption.
+        if (bih && !(g.bih && (g.bih.placed || g.bih.valid === false))) vm.hint = Object.assign({}, vm.hint, { text: 'Place the cue ball in the D', tone: '' });
+        if (chips) vm.hint = Object.assign({}, vm.hint, { show: false });
+        // The choice after a foul: its buttons for a human chooser, once the seat is taken.
+        if (vm.toast.show && ch) {
+            const who = g.names[ch.chooser];
+            vm.toast.chooser = who + ', choose how play continues';
+            vm.toast.choices = !ch.cpu && !g.handoff ? ch.options.map((o, i) => ({ id: o.id, label: o.label, short: o.short, primary: i === 0 })) : [];
+            if (g.handoff) vm.toast.sub = who + ' chooses how play continues';
+        }
+        // While the choice is open the lean slider steps aside for the toast's buttons.
+        if (g.phase === 'choice') vm.lean = Object.assign({}, vm.lean, { show: false });
+        // Concede, confirmed.
+        const other = 3 - seat;
+        vm.concede = g.confirm && seat ? { show: true, text: phWins(g.names[other]) + ' ' + st.scores[other] + '–' + st.scores[seat] } : { show: false };
+        return vm;
     }
 
     // ── DOM ───────────────────────────────────────────────────────────
@@ -4850,28 +5941,44 @@
         pause: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5v14M15 5v14"></path></svg>',
         close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
         cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
+        flag: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"></path><path d="M5 4h12l-2.5 4L17 12H5"></path></svg>',
     };
 
     function phCardHTML(seat, max) {
         const top = '<div class="ph-card-top"><span class="ph-name" data-ph="name"></span>' +
             (max ? '<span class="ph-rec" data-ph="rec"></span>' : '<span class="ph-tag ph-label" data-ph="tag"></span>') + '</div>';
         const group = '<div class="ph-group" data-ph="group" role="img"></div><div class="ph-open" data-ph="open" role="img" aria-label="Open table"><span class="ph-open-l" data-ph="openl">Open table</span><span class="ph-open-balls" data-ph="openb"></span></div>';
+        // Snooker's third line (its tag, or BREAK 34) and its score; hidden for pool.
+        const l3 = '<span class="ph-l3 ph-label" data-ph="l3"></span>', score = '<span class="ph-score ph-num" data-ph="score"></span>';
         const body = max
-            ? '<div class="ph-avatar" data-ph="avatar"></div><div class="ph-card-body">' + top + group + '</div>'
-            : top + '<div class="ph-rec" data-ph="rec"></div>' + group;
+            ? '<div class="ph-avatar" data-ph="avatar"></div><div class="ph-card-body">' + top + l3 + group + '</div>' + score
+            : top + '<div class="ph-rec" data-ph="rec"></div>' + l3 + group + score;
         return '<div class="ph-card" data-seat="' + seat + '">' + body + '<div class="ph-clock" data-ph="clock"></div></div>';
+    }
+    // Snooker's tracker row: REDS × n, the six colours, and what is left to score, with
+    // SNOOKERS REQ. n and Concede when the player at the table needs them.
+    function phTrackHTML() {
+        return '<div class="ph-track" data-ph="track" hidden><span class="ph-track-reds ph-label"><i class="ph-track-red" data-ph="trred"></i><span data-ph="trreds"></span></span>' +
+            '<span class="ph-track-dots" role="img" data-ph="trdots"></span><span class="ph-track-gap"></span>' +
+            '<span class="ph-track-snk ph-label" data-ph="trsnk" hidden></span>' +
+            '<button type="button" class="ph-track-concede" data-ph="trconcede" hidden>Concede</button>' +
+            '<span class="ph-track-rem ph-label" data-ph="trrem"></span>' +
+            '<span class="ph-sr" data-ph="trlive" aria-live="polite" aria-atomic="true"></span></div>';
     }
 
     function phViewHTML(max) {
-        const mini = [[0, 0], [26, 0], [52, 0], [0, 26], [26, 26], [52, 26]]
-            .map((p, i) => '<button type="button" data-ph-call="' + i + '" style="left:' + p[0] + 'px;top:' + p[1] + 'px" aria-label="Call ' + PH_POCKETS[i].toLowerCase() + ' pocket" aria-pressed="false"><span></span></button>')
+        // The six pocket targets on a 52 × 26 table: the call card's, and the folded chips'.
+        const pad = attr => [[0, 0], [26, 0], [52, 0], [0, 26], [26, 26], [52, 26]]
+            .map((p, i) => '<button type="button" ' + attr + '="' + i + '" style="left:' + p[0] + 'px;top:' + p[1] + 'px" aria-label="Call ' + PH_POCKETS[i].toLowerCase() + ' pocket" aria-pressed="false"><span></span></button>')
             .join('');
+        const mini = pad('data-ph-call');
         return '<div class="ph-view" data-ph="view"><canvas class="ph-canvas" data-ph="canvas"></canvas><div class="ph-layer">' +
             '<div class="ph-cam ph-glass" data-ph="cam"><button type="button" class="ph-label" data-ph="cam2d" aria-pressed="false">' + PH_ICON.d2 + '<span data-ph="cam2dl">2D</span></button>' +
             '<button type="button" class="ph-label" data-ph="cam3d" aria-pressed="true">' + PH_ICON.d3 + '<span data-ph="cam3dl">3D</span></button></div>' +
             '<div class="ph-pill ph-glass" data-ph="pill"><span class="ph-pill-dot"></span><span data-ph="pillt"></span></div>' +
-            '<div class="ph-toast ph-glass" role="status" data-ph="toast" hidden><span class="ph-toast-icon" data-ph="toasti"></span>' +
+            '<div class="ph-toast ph-glass" role="status" data-ph="toast" hidden><div class="ph-toast-row"><span class="ph-toast-icon" data-ph="toasti"></span>' +
             '<span class="ph-toast-text"><span class="ph-toast-title" data-ph="toastt"></span><span class="ph-toast-sub" data-ph="toasts"></span></span></div>' +
+            '<div class="ph-toast-acts" role="group" data-ph="toastacts" hidden></div></div>' +
             '<div class="ph-lean ph-glass" data-ph="lean"><label class="ph-lean-l ph-label" for="ph-lean-' + (max ? 'm' : 'c') + '">LEAN</label>' +
             '<span class="ph-lean-v ph-num" data-ph="leanv"></span><span class="ph-lean-chev">' + PH_ICON.up + '</span>' +
             '<div class="ph-rng"><div class="ph-rng-track"></div><div class="ph-rng-fill" data-ph="leanf"></div><div class="ph-rng-thumb" data-ph="leant"></div>' +
@@ -4893,14 +6000,26 @@
             '<button type="button" class="ph-replace ph-glass" data-ph="replace" hidden>' + PH_ICON.hand + '<span>Move cue ball</span></button>' +
             '<div class="ph-mini ph-glass" data-ph="mini" hidden><span class="ph-mini-cap" data-ph="minicap"></span>' +
             '<div class="ph-mini-pad"><div class="ph-mini-table"></div>' + mini + '</div></div>' +
+            // Snooker's colour chips: a 3 × 2 grid, each ball carrying its value.
+            '<div class="ph-chips ph-glass" role="group" data-ph="chips" hidden><div class="ph-chips-grid" role="radiogroup" data-ph="chipgrid">' +
+            PH_SNK.map(b => '<button type="button" role="radio" class="ph-chip" data-ph-nom="' + b.id + '" aria-checked="false" aria-label="' + phCap(b.name) + ', ' + b.id + ' points"><span>' + b.id + '</span></button>').join('') +
+            '</div><span class="ph-chips-cap" data-ph="chipcap"></span>' +
+            '<div class="ph-mini-pad ph-chips-pad" data-ph="chippad" hidden><div class="ph-mini-table"></div>' + pad('data-ph-ccall') + '</div></div>' +
             '<div class="ph-scrim" data-ph="scrim" hidden><div class="ph-dialog" role="dialog" aria-label="Frame over" data-ph="dialog">' +
             '<div class="ph-dialog-head"><span class="ph-dialog-icon" data-ph="dlgi"></span><span style="display:flex;flex-direction:column;gap:2px">' +
             '<span class="ph-dialog-kicker ph-label" data-ph="dlgk"></span><span class="ph-dialog-title" data-ph="dlgt"></span></span></div>' +
             '<div class="ph-dialog-reason" data-ph="dlgr"></div>' +
+            '<div class="ph-dialog-stats" data-ph="dlgstats" hidden></div>' +
             '<div class="ph-dialog-rec" data-ph="dlgrec"><span style="display:flex;flex-direction:column;gap:2px"><span class="ph-dialog-rec-l ph-label" data-ph="dlgrl"></span>' +
             '<span class="ph-dialog-rec-v ph-num" data-ph="dlgrv"></span></span><span class="ph-dialog-delta ph-label" data-ph="dlgd"></span></div>' +
             '<div class="ph-dialog-note" data-ph="dlgn">' + PH_ICON.chip + '<span data-ph="dlgnt"></span></div>' +
             '<div class="ph-dialog-actions"><button type="button" class="ph-primary ph-label" data-ph="dlgp"></button><button type="button" class="ph-btn" data-ph="dlgs"></button></div>' +
+            '</div></div>' +
+            // Snooker: Concede the frame? (SnkConcede)
+            '<div class="ph-scrim" data-ph="cscrim" hidden><div class="ph-dialog is-alert" role="alertdialog" aria-label="Concede the frame" data-ph="cdlg">' +
+            '<span class="ph-dialog-icon">' + PH_ICON.flag + '</span>' +
+            '<span class="ph-cdlg-t"><span class="ph-dialog-title">Concede the frame?</span><span class="ph-dialog-reason" data-ph="cdlgt"></span></span>' +
+            '<div class="ph-dialog-actions"><button type="button" class="ph-primary ph-label is-hot" data-ph="cdlgy">CONCEDE</button><button type="button" class="ph-btn" data-ph="cdlgn">Keep playing</button></div>' +
             '</div></div>' +
             '</div></div>';
     }
@@ -4958,9 +6077,9 @@
                 '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="pause" aria-label="Pause" title="Pause" hidden>' + PH_ICON.pause + '</button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="max" aria-label="Exit full view" title="Exit full view">' + PH_ICON.exit + '</button></div></div>' +
-                phViewHTML(true) + phHandoffHTML() + phSheetHTML();
+                phTrackHTML() + phViewHTML(true) + phHandoffHTML() + phSheetHTML();
         } else {
-            html = phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' + phViewHTML(false) +
+            html = phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' + phTrackHTML() + phViewHTML(false) +
                 '<div class="ph-foot" data-ph="foot">' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn" data-ph="reset">' + PH_ICON.reset + '<span>Reset</span></button>' +
@@ -4984,12 +6103,13 @@
             'mini', 'minicap', 'scrim', 'dialog', 'dlgi', 'dlgk', 'dlgt', 'dlgr', 'dlgrec', 'dlgrl', 'dlgrv', 'dlgd', 'dlgn', 'dlgnt', 'dlgp', 'dlgs',
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
             'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart',
-            'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy'].forEach(n => { hud[n] = ref(n); });
+            'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy',
+            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
             const r = n => q('[data-ph="' + n + '"]', c);
-            return { el: c, name: r('name'), tag: r('tag'), rec: r('rec'), group: r('group'), open: r('open'), openl: r('openl'), openb: r('openb'), clock: r('clock'), avatar: r('avatar'), dots: [] };
+            return { el: c, name: r('name'), tag: r('tag'), rec: r('rec'), group: r('group'), open: r('open'), openl: r('openl'), openb: r('openb'), clock: r('clock'), avatar: r('avatar'), l3: r('l3'), score: r('score'), dots: [] };
         });
         hud.miniButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-call]'));
 
@@ -5057,6 +6177,22 @@
         hud.dlgp.addEventListener('click', () => fire('primary'));
         hud.dlgs.addEventListener('click', () => fire('secondary'));
         hud.miniButtons.forEach(b => b.addEventListener('click', () => fire('call', +b.getAttribute('data-ph-call'))));
+        // Snooker: the chips, the choice after a foul, Concede and its question.
+        hud.chipButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-nom]'));
+        hud.chipButtons.forEach(b => {
+            // The balls' colours are materials, the same in every theme.
+            const id = +b.getAttribute('data-ph-nom'), s = b.firstChild;
+            s.style.background = phDotStyle(id, 'snooker');
+            s.style.color = phInkOn(pgBallLook('snooker', id).colour);
+            b.addEventListener('click', () => fire('nominate', id));
+        });
+        hud.chipCallButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-ccall]'));
+        hud.chipCallButtons.forEach(b => b.addEventListener('click', () => fire('call', +b.getAttribute('data-ph-ccall'))));
+        hud.toastacts.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-ph-choose]'); if (b) fire('choose', b.getAttribute('data-ph-choose')); });
+        hud.trconcede.addEventListener('click', () => fire('concede'));
+        hud.cdlgy.addEventListener('click', () => fire('concedeYes'));
+        hud.cdlgn.addEventListener('click', () => fire('concedeNo'));
+        hud.cdlg.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('concedeNo'); e.preventDefault(); e.stopPropagation(); } });
         // The Game mode sheet.
         hud.modeButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-mode]'));
         hud.diffButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-diff]'));
@@ -5083,20 +6219,42 @@
     }
     const phShow = (el, on) => { if (el) el.hidden = !on; };
 
-    function phDotStyle(id) {
-        const c = PG_BALL_COLOURS[id > 8 ? id - 8 : id];
+    // Dark or light ink on a ball's colour: whichever reads better (WCAG relative luminance).
+    function phInkOn(hex) {
+        const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
+        if (!m) return '#ffffff';
+        const lin = v => { const c = parseInt(v, 16) / 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+        const L = 0.2126 * lin(m[1]) + 0.7152 * lin(m[2]) + 0.0722 * lin(m[3]);
+        return (L + 0.05) / 0.05 > 1.05 / (L + 0.05) ? '#101214' : '#ffffff';
+    }
+    function phDotStyle(id, game) {
+        const look = pgBallLook(game, id), c = look.colour;
         const hi = 'radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0) 48%)';
-        return id > 8
+        return look.stripe
             ? hi + ', linear-gradient(180deg, ' + PG_IVORY + ' 0%, ' + PG_IVORY + ' 28%, ' + c + ' 28%, ' + c + ' 72%, ' + PG_IVORY + ' 72%, ' + PG_IVORY + ' 100%)'
             : hi + ', ' + c;
     }
 
     function phRender(hud, vm) {
         const s = (k, v, f) => phSet(hud, k, v, f);
+        s('game', vm.game, v => hud.el.setAttribute('data-game', v));
         vm.cards.forEach((c, i) => {
             const r = hud.cards[i], k = 'c' + i + '.';
             s(k + 'name', c.name, v => { r.name.textContent = v; });
             s(k + 'rec', c.rec, v => { r.rec.textContent = v; });
+            if (r.score) s(k + 'score', c.score || '', v => { r.score.textContent = v; });
+            if (r.l3) {
+                // The widget's column shows the short form (YOUR CHOICE → CHOICE) where there is one.
+                s(k + 'l3', vm.game === 'snooker' ? c.tag : '', v => {
+                    const sh = PH_SNK_SHORT[v];
+                    r.l3.textContent = '';
+                    if (!sh) { r.l3.textContent = v; return; }
+                    const long = document.createElement('span'), short = document.createElement('span');
+                    long.className = 'ph-l3-long'; long.textContent = v; short.className = 'ph-l3-short'; short.textContent = sh;
+                    r.l3.append(long, short);
+                });
+                s(k + 'l3hot', !!c.tagHot, v => r.l3.classList.toggle('is-hot', v));
+            }
             if (r.tag) {
                 s(k + 'tag', c.tag + '|' + c.tagShort, () => {
                     r.tag.textContent = '';
@@ -5125,7 +6283,7 @@
             // drawn potted or not at once, and the per-dot cache starts over: the old frame's
             // values would otherwise match and skip the update, leaving a potted ball lit.
             s(k + 'ids', ids, () => {
-                r.group.innerHTML = c.group.map(d => '<i class="ph-dot' + (d.down ? ' is-down' : '') + '" style="background:' + phDotStyle(d.id) + '"></i>').join('');
+                r.group.innerHTML = c.group.map(d => '<i class="ph-dot' + (d.down ? ' is-down' : '') + '" style="background:' + phDotStyle(d.id, vm.game) + '"></i>').join('');
                 r.dots = Array.prototype.slice.call(r.group.children);
                 for (let j = 0; j < 7; j++) delete hud.last[k + 'down' + j];
                 c.group.forEach((d, j) => { hud.last[k + 'down' + j] = d.down; });
@@ -5137,7 +6295,7 @@
                 v => r.group.setAttribute('aria-label', v));
             s(k + 'openLabel', c.potted.length ? 'Open table; potted ' + c.potted.join(', ') : 'Open table', v => r.open.setAttribute('aria-label', v));
             s(k + 'openl', c.potted.length ? (c.potted.length > 3 ? '' : 'Potted') : 'Open table', v => { r.openl.textContent = v; phShow(r.openl, !!v); });
-            s(k + 'openb', c.potted.join(), () => { r.openb.innerHTML = c.potted.map(id => '<i class="ph-dot" style="background:' + phDotStyle(id) + '"></i>').join(''); });
+            s(k + 'openb', c.potted.join(), () => { r.openb.innerHTML = c.potted.map(id => '<i class="ph-dot" style="background:' + phDotStyle(id, vm.game) + '"></i>').join(''); });
             c.group.forEach((d, j) => s(k + 'down' + j, d.down, v => r.dots[j] && r.dots[j].classList.toggle('is-down', v)));
         });
         s('frames', vm.frames, v => { hud.frames.textContent = v; });
@@ -5161,10 +6319,64 @@
 
         s('toast.show', vm.toast.show, v => phShow(hud.toast, v));
         if (vm.toast.show) {
-            s('toast.foul', vm.toast.foul, v => { hud.toast.classList.toggle('is-foul', v); hud.toasti.innerHTML = v ? PH_ICON.warn : PH_ICON.info; });
+            s('toast.foul', vm.toast.foul + '|' + (vm.toast.icon || ''), () => {
+                hud.toast.classList.toggle('is-foul', vm.toast.foul);
+                hud.toasti.innerHTML = vm.toast.foul ? PH_ICON.warn : vm.toast.icon === 'trophy' ? PH_ICON.cup : PH_ICON.info;
+            });
             s('toast.title', vm.toast.title, v => { hud.toastt.textContent = v; });
             s('toast.sub', vm.toast.sub || '', v => { hud.toasts.textContent = v; });
         }
+        // The choice after a foul (snooker): 44 px buttons, the first primary. A long label
+        // ("Make Ayesha play again") falls back to its short form when the row would overflow.
+        const acts = vm.toast.show ? vm.toast.choices || [] : [];
+        s('toast.acts', acts.map(a => a.id + ':' + a.label).join('|') + '|' + (vm.toast.chooser || ''), () => {
+            hud.toastacts.innerHTML = acts.map(a => '<button type="button" data-ph-choose="' + a.id + '" class="' + (a.primary ? 'ph-primary' : 'ph-btn') + (a.label.length > 12 ? ' is-grow' : '') + '">' +
+                '<span class="ph-act-l">' + a.label + '</span><span class="ph-act-s">' + (a.short || a.label) + '</span></button>').join('');
+            hud.toastacts.setAttribute('aria-label', vm.toast.chooser || 'Choose how play continues');
+            phShow(hud.toastacts, acts.length > 0);
+            delete hud.last['toast.fit'];
+        });
+        if (acts.length) s('toast.fit', hud.el.clientWidth, () => {
+            hud.toastacts.classList.remove('is-tight');
+            if (hud.toastacts.scrollWidth > hud.toastacts.clientWidth + 1) hud.toastacts.classList.add('is-tight');
+        });
+
+        // Snooker's tracker row.
+        const tr = vm.track;
+        s('track.show', !!tr.show, v => phShow(hud.track, v));
+        if (tr.show) {
+            s('track.reds', tr.reds, v => { hud.trreds.innerHTML = '<span class="ph-track-word">REDS </span>× ' + v; hud.trreds.setAttribute('aria-hidden', 'true'); hud.trred.classList.toggle('is-down', !v); });
+            s('track.redc', 1, () => { hud.trred.style.background = phDotStyle(8, 'snooker'); });
+            s('track.dots', tr.dots.map(d => d.id + (d.down ? 'd' : '') + (d.on ? 'o' : '')).join(), () => {
+                hud.trdots.innerHTML = tr.dots.map(d => '<i class="ph-track-dot' + (d.down ? ' is-down' : '') + (d.on ? ' is-on' : '') + '" style="background:' + phDotStyle(d.id, 'snooker') + '"></i>').join('');
+            });
+            s('track.aria', tr.aria, v => hud.trdots.setAttribute('aria-label', v));
+            s('track.snk', tr.snookers, v => { phShow(hud.trsnk, v > 0); hud.trsnk.textContent = 'SNOOKERS REQ. ' + v; hud.track.classList.toggle('is-snk', v > 0); });
+            s('track.concede', !!tr.concede, v => phShow(hud.trconcede, v));
+            s('track.rem', tr.rem, v => { hud.trrem.textContent = v; });
+            if (tr.say !== null && tr.say !== undefined) s('track.say', tr.say, v => { hud.trlive.textContent = v; });
+        }
+        // Snooker's colour chips.
+        const ch = vm.chips;
+        s('chips.show', !!ch.show, v => { phShow(hud.chips, v); hud.view.classList.toggle('is-nominating', v); });
+        s('chips.fold', !!(ch.show && ch.folded), v => { hud.chips.toggleAttribute('data-fold', v); hud.view.classList.toggle('is-nomfold', v); });
+        s('chips.pad', !!(ch.show && ch.pad), v => { phShow(hud.chippad, v); hud.chips.toggleAttribute('data-pad', v); hud.view.classList.toggle('is-nompad', v); });
+        s('maxbars', !!vm.maxBars, v => hud.el.toggleAttribute('data-bars', v));
+        if (ch.show) {
+            s('chips.label', ch.label, v => { hud.chips.setAttribute('aria-label', v); hud.chipgrid.setAttribute('aria-label', v); });
+            s('chips.state', ch.items.map(it => (it.live ? 1 : 0) + '' + (it.checked ? 1 : 0)).join(''), () => hud.chipButtons.forEach((b, i) => {
+                const it = ch.items[i];
+                b.disabled = !it.live;
+                b.setAttribute('aria-checked', it.checked ? 'true' : 'false');
+            }));
+            s('chips.cap', ch.caption, v => { hud.chipcap.textContent = v; });
+            s('chips.called', ch.called === undefined ? -1 : ch.called, v => hud.chipCallButtons.forEach((b, i) => b.setAttribute('aria-pressed', i === v ? 'true' : 'false')));
+            s('chips.tone', ch.tone || '', v => { hud.chips.className = 'ph-chips ph-glass' + (v ? ' is-' + v : ''); });
+        }
+        // Concede the frame?
+        const cq = vm.concede;
+        s('concede.show', !!cq.show, v => phShow(hud.cscrim, v));
+        if (cq.show) s('concede.text', cq.text, v => { hud.cdlgt.textContent = v; });
 
         s('lean.show', vm.lean.show, v => phShow(hud.lean, v));
         s('lean.value', vm.lean.value, v => {
@@ -5226,6 +6438,12 @@
             s('dlg.kicker', d.kicker, v => { hud.dlgk.textContent = v; });
             s('dlg.title', d.title, v => { hud.dlgt.textContent = v; });
             s('dlg.reason', d.reason || '', v => { hud.dlgr.textContent = v; });
+            // Snooker: SCORE 72–41 and HIGH BREAK 58 · You, two up.
+            s('dlg.stats', JSON.stringify(d.stats || null), () => {
+                const st = d.stats || [];
+                hud.dlgstats.innerHTML = st.map(x => '<div class="ph-dialog-stat"><span class="ph-dialog-stat-l ph-label">' + x.label + '</span><span class="ph-dialog-stat-v ph-num">' + x.value + '</span></div>').join('');
+                phShow(hud.dlgstats, st.length > 0);
+            });
             s('dlg.rec', !!d.record, v => phShow(hud.dlgrec, v));
             s('dlg.recl', d.recordLabel || '', v => { hud.dlgrl.textContent = v; });
             s('dlg.recv', d.record || '', v => { hud.dlgrv.textContent = v; });
@@ -5238,6 +6456,7 @@
         if (hud.foot) s('foot.show', vm.foot.show, v => phShow(hud.foot, v));
         // In a tournament match: Bracket / Pause in place of the mode and Reset.
         s('foot.tour', vm.foot.tour, v => { phShow(hud.mode, !v); phShow(hud.reset, !v); phShow(hud.bracket, v); phShow(hud.pause, v); if (hud.trophy) phShow(hud.trophy, !v); });
+        s('title', vm.title, v => { if (hud.title) hud.title.textContent = v; });
         s('tour.show', vm.tour.show, v => { phShow(hud.tourhead, v); if (hud.title) phShow(hud.title, !v); });
         if (vm.tour.show) {
             s('tour.k', vm.tour.kicker, v => { hud.tourk.textContent = v; });
@@ -5252,6 +6471,14 @@
                 hud.modeButtons.forEach(b => b.setAttribute('aria-checked', b.getAttribute('data-ph-mode') === v ? 'true' : 'false'));
                 phShow(hud.sheetcpu, v === 'cpu'); phShow(hud.sheetpvp, v === 'pvp'); phShow(hud.sheettour, v === 'tour');
             });
+            // The list is built once; its words follow the game being played.
+            s('sheet.words', sh.diffs.map(d => d.name + '|' + d.desc).join(';'), () => hud.diffButtons.forEach((b, i) => {
+                const d = sh.diffs[i];
+                if (!d) return;
+                const n = b.querySelector('.ph-sheet-dn > span'), dd = b.querySelector('.ph-sheet-dd');
+                if (n) n.textContent = d.name;
+                if (dd) dd.textContent = d.desc;
+            }));
             s('sheet.diff', sh.diffs.map(d => d.checked ? 1 : 0).join(''), () => hud.diffButtons.forEach((b, i) => b.setAttribute('aria-checked', sh.diffs[i].checked ? 'true' : 'false')));
             s('sheet.chip', sh.chip, v => { hud.sheetchip.textContent = v; });
             s('sheet.note', sh.note, v => { hud.sheetnote.textContent = v; phShow(hud.sheetnote, !!v); });
@@ -5281,6 +6508,56 @@
             hud.canvas.classList.toggle('is-dragging', v === 'dragging');
             hud.canvas.classList.toggle('is-placing', v === 'placing');
         });
+        // A prompt waiting on the player (the chips before a colour, the call card before a
+        // pocket) stays up; everything else gets out of the way of the shot.
+        phShy(hud, vm.shot, { chips: !!(vm.chips.show && !vm.chips.folded), mini: !!(vm.mini.show && vm.mini.called < 0) });
+    }
+
+    // ── Out of the way of the shot ────────────────────────────────────
+    // At snooker's true scale the pockets and the balls near them sit under the corner
+    // overlays. While the aim line (from the cue ball), the object ball's path, the contact or the
+    // target pocket passes under one, it is marked data-shy and pool-theme.css fades it (in
+    // 3D, back while the pointer is on it). Max keeps its corner overlays in bars above and
+    // below the table (pool-theme.css), so there it only ever touches the lean slider.
+    const PH_SHY = ['cam', 'pill', 'lean', 'spin', 'hint', 'mini', 'chips', 'replace'];
+    const PH_SHY_PAD = 6;
+    // Does the segment (x0, y0)–(x1, y1) cross the box { l, t, r, b }? (Liang–Barsky)
+    function phSegInBox(x0, y0, x1, y1, q) {
+        const dx = x1 - x0, dy = y1 - y0, p = [-dx, dx, -dy, dy], d = [x0 - q.l, q.r - x0, y0 - q.t, q.b - y0];
+        let t0 = 0, t1 = 1;
+        for (let i = 0; i < 4; i++) {
+            if (p[i] === 0) { if (d[i] < 0) return false; continue; }
+            const t = d[i] / p[i];
+            if (p[i] < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+            else { if (t < t0) return false; if (t < t1) t1 = t; }
+        }
+        return true;
+    }
+    // Pure: the names of the boxes ({ name: { x, y, w, h } }) the shot passes under.
+    function phShyHits(shot, rects, pad) {
+        if (!shot) return [];
+        pad = pad === undefined ? PH_SHY_PAD : pad;
+        return Object.keys(rects).filter(n => {
+            const r = rects[n], q = { l: r.x - pad, t: r.y - pad, r: r.x + r.w + pad, b: r.y + r.h + pad };
+            return shot.segs.some(s => phSegInBox(s[0], s[1], s[2], s[3], q)) ||
+                shot.dots.some(c => Math.hypot(c[0] - Math.max(q.l, Math.min(q.r, c[0])), c[1] - Math.max(q.t, Math.min(q.b, c[1]))) < c[2]);
+        });
+    }
+    function phShy(hud, shot, keep) {
+        const on = {};
+        if (shot && hud.view) {
+            // In canvas pixels, as the shot is (Max's canvas sits under its top bar), and the Max
+            // frame may be scaled to fit the window.
+            const vr = hud.canvas.getBoundingClientRect(), k = vr.width / (hud.canvas.clientWidth || vr.width || 1) || 1, rects = {};
+            PH_SHY.forEach(n => {
+                const el = hud[n];
+                if (!el || el.hidden || (keep && keep[n])) return;
+                const r = el.getBoundingClientRect();
+                if (r.width && r.height) rects[n] = { x: (r.left - vr.left) / k, y: (r.top - vr.top) / k, w: r.width / k, h: r.height / k };
+            });
+            phShyHits(shot, rects).forEach(n => { on[n] = true; });
+        }
+        PH_SHY.forEach(n => { const el = hud[n]; if (el && el.hasAttribute('data-shy') !== !!on[n]) el.toggleAttribute('data-shy', !!on[n]); });
     }
 
     // ── Canvas bridge ─────────────────────────────────────────────────
@@ -5318,7 +6595,9 @@
     // The tournament's screens from the design (TournamentSetup, BracketTree,
     // BracketCompact, BracketFull, MatchIntro, MatchResult, Champion,
     // ChampionFull, TrophyCabinet, and InMatch's resume, abandon and pause
-    // dialogs), over the pool HUD.
+    // dialogs), over the pool HUD. Snooker's are the same screens in its words (the design's
+    // snooker variants): best of 2N − 1 for race to N, breaks off, its reds, the frames' points
+    // and the match's high break, and its own cabinet.
     //
     //   puTree(t, opts)        the bracket as HTML + SVG, the design's geometry:
     //                          column (W − champ − rounds·gap) / rounds, card
@@ -5427,7 +6706,7 @@
         if (path.champ) hi += cd; else lines += cd;
         const champ = ptChampion(t);
         const heads = mini ? '' : Array.from({ length: cols }, (_, r) => '<div class="pu-tr-head" style="left:' + fx(r * (cardW + gap)) + 'px;width:' + fx(cardW) + 'px">' +
-            puEsc((cardW < 190 ? puRoundShort(t.rounds, r) : ptRoundName(t.rounds, r)).toUpperCase() + ' · RACE TO ' + t.settings.race[r]) + '</div>').join('') +
+            puEsc((cardW < 190 ? puRoundShort(t.rounds, r) : ptRoundName(t.rounds, r)).toUpperCase() + ' · ' + ptRaceText(t, t.settings.race[r]).toUpperCase()) + '</div>').join('') +
             '<div class="pu-tr-head" style="left:' + fx(chX) + 'px;width:' + fx(champW) + 'px">CHAMPION</div>';
         return '<div class="pu-tree' + (mini ? ' is-mini' : '') + '" role="img" aria-label="Tournament bracket" style="width:' + W + 'px;height:' + H + 'px">' + heads +
             '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true"><path class="pu-tr-line" d="' + lines + '" stroke-width="' + (mini ? 1.25 : 1.5) + '"></path>' +
@@ -5445,25 +6724,29 @@
         '<div class="pu-seg" style="grid-template-columns:repeat(' + opts.length + ',minmax(0,1fr))">' +
         opts.map(o => '<button type="button" role="radio" aria-checked="' + (o[0] === cur ? 'true' : 'false') + '" data-pu-act="set" data-pu-arg="' + key + ':' + o[0] + '">' + puEsc(o[1]) + '</button>').join('') + '</div></div>';
 
-    // s = { n, names, name, race: [per column], clock, guide, call, shuffle }
+    // s = { game, n, names, name, race: [per column], clock, guide, call, calls, reds, shuffle }
     function puSetupHTML(s) {
         const size = ptSizeFor(s.n), byes = size - s.n, cols = ptRaceColumns(size);
         const rows = s.names.slice(0, s.n).map((nm, i) => '<div class="pu-player"><label class="pu-seedl" for="pu-p' + i + '">' + String(i + 1).padStart(2, '0') + '</label>' +
             '<div class="pu-player-in"><input id="pu-p' + i + '" class="pu-input' + (i === 0 ? ' is-you' : '') + '" type="text" maxlength="16" placeholder="Player name" value="' + puEsc(nm) + '" data-pu-in="name:' + i + '" aria-label="' + (i === 0 ? 'Player 1 name (you)' : 'Player ' + (i + 1) + ' name') + '">' +
             (i === 0 ? '<span class="pu-you">' + PU_ICON.you + 'YOU</span>' : '') + '</div></div>').join('');
-        const races = cols.map((c, ci) => '<label class="pu-race"><span>' + c.label + '</span><select data-pu-in="race:' + ci + '" aria-label="' + c.label + ', race to">' +
-            [1, 2, 3, 4, 5].map(v => '<option value="' + v + '"' + (v === s.race[ci] ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label>').join('');
-        return '<div class="pu-screen-in">' + puHead('TOURNAMENT · HUMANS ONLY', 'New tournament', 'close') +
+        const snk = s.game === 'snooker';
+        // Snooker counts frames as best of 2N − 1; what is stored is still race to N.
+        const races = cols.map((c, ci) => '<label class="pu-race"><span>' + c.label + '</span><select data-pu-in="race:' + ci + '" aria-label="' + c.label + (snk ? ', best of' : ', race to') + '">' +
+            [1, 2, 3, 4, 5].map(v => '<option value="' + v + '"' + (v === s.race[ci] ? ' selected' : '') + '>' + (snk ? 2 * v - 1 : v) + '</option>').join('') + '</select></label>').join('');
+        return '<div class="pu-screen-in">' + puHead(snk ? 'SNOOKER · HUMANS ONLY' : 'TOURNAMENT · HUMANS ONLY', 'New tournament', 'close') +
             '<div class="pu-body">' +
             '<label class="pu-field"><span class="pu-seg-l">Name</span><input class="pu-input" type="text" maxlength="24" placeholder="' + puEsc(PT_NAMES[size]) + '" value="' + puEsc(s.name) + '" data-pu-in="tname" aria-label="Tournament name"></label>' +
             '<div class="pu-count"><span class="pu-count-t"><span class="pu-strong">Contestants</span><span class="pu-note">Bracket of ' + size + (byes ? ' · ' + byes + (byes === 1 ? ' bye' : ' byes') + ' to top seeds' : '') + '</span></span>' +
             '<div class="pu-stepper" role="group" aria-label="Contestants"><button type="button" data-pu-act="count" data-pu-arg="-1" aria-label="Fewer contestants"' + (s.n <= PT_MIN ? ' disabled' : '') + '>' + PU_ICON.minus + '</button>' +
             '<span class="pu-count-n" aria-live="polite">' + s.n + '</span><button type="button" data-pu-act="count" data-pu-arg="1" aria-label="More contestants"' + (s.n >= PT_MAX ? ' disabled' : '') + '>' + PU_ICON.plus + '</button></div></div>' +
             '<div class="pu-players">' + rows + '</div>' +
-            '<div class="pu-group"><span class="pu-kicker">FRAMES PER ROUND · RACE TO</span><div class="pu-races" style="grid-template-columns:repeat(' + cols.length + ',minmax(0,1fr))">' + races + '</div></div>' +
-            puSeg('Shot clock', 'clock', [[30, '30s'], [45, '45s'], [0, 'Off']], s.clock) +
+            '<div class="pu-group"><span class="pu-kicker">FRAMES PER ROUND · ' + (snk ? 'BEST OF' : 'RACE TO') + '</span><div class="pu-races" style="grid-template-columns:repeat(' + cols.length + ',minmax(0,1fr))">' + races + '</div></div>' +
+            puSeg('Shot clock', 'clock', snk ? [[30, '30s'], [45, '45s'], [60, '60s'], [0, 'Off']] : [[30, '30s'], [45, '45s'], [0, 'Off']], s.clock) +
+            (snk ? puSeg('Reds', 'reds', [[15, '15'], [10, '10'], [6, '6']], s.reds) : '') +
             puSeg('Guideline', 'guide', [['full', 'Full'], ['short', 'Short'], ['off', 'Off']], s.guide) +
-            puSeg('Call pocket', 'call', [['8', '8 only'], ['every', 'Every shot']], s.call) +
+            // Pool: the 8 only or every shot; snooker: off, the colours, or every ball (the game's tourDefaults).
+            puSeg('Call pocket', 'call', s.calls || [['8', '8 only'], ['every', 'Every shot']], s.call) +
             '<div class="pu-count"><span class="pu-count-t"><span class="pu-strong" id="pu-shuf">Shuffle seeds</span><span class="pu-note">Off keeps the list order as seeding</span></span>' +
             '<button type="button" class="pu-switch" role="switch" aria-checked="' + (s.shuffle ? 'true' : 'false') + '" aria-labelledby="pu-shuf" data-pu-act="shuffle"><span><span></span></span></button></div>' +
             '</div>' +
@@ -5474,7 +6757,8 @@
     function puMatchCard(t, m, liveId) {
         const st = puState(t, m, liveId), [sa, sb] = ptScore(m), showScore = st === 'done' || st === 'live';
         const code = puShort(t.rounds, m.round) + (t.rounds - 1 - m.round === 0 ? 'INAL' : ' ' + (m.index + 1));
-        const title = code === 'FINAL' ? 'FINAL · RACE TO ' + m.raceTo : st === 'bye' ? code + ' · BYE' : code + ' · RACE TO ' + m.raceTo;
+        const race = ptRaceText(t, m.raceTo).toUpperCase();
+        const title = code === 'FINAL' ? 'FINAL · ' + race : st === 'bye' ? code + ' · BYE' : code + ' · ' + race;
         const a = puLine(t, m, 'a'), b = st === 'bye' ? { name: 'Advances to ' + ptRoundName(t.rounds, m.round + 1).toLowerCase(), seed: '', tbd: true } : puLine(t, m, 'b');
         const row = (L, score, win, lose) => '<div class="pu-mrow' + (win ? ' is-win' : '') + (lose ? ' is-lose' : '') + (L.tbd ? ' is-tbd' : '') + '"><span class="pu-mseed">' + puEsc(L.seed) + '</span>' +
             '<span class="pu-mname">' + puEsc(L.name) + '</span><span class="pu-mscore">' + (showScore ? score : '') + '</span></div>';
@@ -5497,7 +6781,7 @@
             const played = ptPlayable(t).filter(m => m.status === 'done').length, cur = next || live;
             const stage = cur ? ptRoundName(t.rounds, cur.round) + ' · ' + played + ' of ' + ptPlayable(t).length + ' played' : 'Complete';
             const path = puPath(t);
-            return '<div class="pu-screen-in is-max"><div class="pu-maxhead"><div class="pu-head-t"><span class="pu-kicker">' + puEsc(t.name.toUpperCase() + ' · ' + t.slots.length + ' PLAYERS') + '</span>' +
+            return '<div class="pu-screen-in is-max"><div class="pu-maxhead"><div class="pu-head-t"><span class="pu-kicker">' + puEsc(t.name.toUpperCase() + ' · ' + (ptGameOf(t) === 'snooker' ? 'SNOOKER · ' : '') + t.slots.length + ' PLAYERS') + '</span>' +
                 '<span class="pu-title is-big">' + puEsc(stage) + '</span></div>' +
                 '<div class="pu-legend"><span><span class="pu-chip is-live">LIVE</span>At the table</span><span><span class="pu-chip is-next">NEXT</span>Up next</span>' +
                 (path.name ? '<span><span class="pu-legend-line"></span>' + puEsc((path.champ ? 'Champion\'s path · ' : 'Your path · ') + path.name) + '</span>' : '') + '</div>' +
@@ -5510,7 +6794,7 @@
             return '<button type="button" role="tab" aria-selected="' + (r === v.tab ? 'true' : 'false') + '" data-pu-act="tab" data-pu-arg="' + r + '">' + (done ? PU_ICON.check : '') + puEsc(t.rounds > 3 ? puRoundShort(t.rounds, r) : ptRoundName(t.rounds, r)) + '</button>';
         }).join('');
         const page = t.matches.filter(m => m.round === v.tab).map(m => puMatchCard(t, m, v.liveId)).join('');
-        return '<div class="pu-screen-in">' + puHead(t.name.toUpperCase(), 'Bracket', live ? 'resume' : 'close', puPill(t.slots.length + ' PLAYERS')) +
+        return '<div class="pu-screen-in">' + puHead(t.name.toUpperCase() + (ptGameOf(t) === 'snooker' ? ' · SNOOKER' : ''), 'Bracket', live ? 'resume' : 'close', puPill(t.slots.length + ' PLAYERS')) +
             '<div class="pu-tabs" role="tablist" aria-label="Rounds" style="grid-template-columns:repeat(' + t.rounds + ',minmax(0,1fr))">' + tabs + '</div>' +
             '<div class="pu-body" role="tabpanel">' + page +
             (v.tab > 0 ? '<div class="pu-group"><span class="pu-kicker">WHOLE BRACKET</span><div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: puMiniH(t), mini: true, liveId: v.liveId }) + '</div></div>' : '') + '</div>' +
@@ -5532,9 +6816,11 @@
         const side = (S, slot, cls) => '<div class="pu-vs-side ' + cls + '"><div class="pu-avatar' + (slot === m.a ? ' is-lead' : '') + '">' + puEsc((S.name[0] || '?').toUpperCase()) + '</div>' +
             '<span class="pu-vs-name">' + puEsc(S.name) + '</span><span class="pu-note">' + puEsc(puRoute(t, slot, m.round)) + '</span></div>';
         return '<div class="pu-screen-in is-intro">' + puHead(t.name.toUpperCase() + ' · MATCH ' + num.n + ' OF ' + num.of, '', 'bracket') +
-            '<div class="pu-body is-center"><div class="pu-round"><span class="pu-round-n">' + puEsc(ptRoundName(t.rounds, m.round).toUpperCase()) + '</span><span class="pu-round-r">Race to ' + m.raceTo + '</span></div>' +
+            '<div class="pu-body is-center"><div class="pu-round"><span class="pu-round-n">' + puEsc(ptRoundName(t.rounds, m.round).toUpperCase()) + '</span><span class="pu-round-r">' + puEsc(ptRaceText(t, m.raceTo)) + '</span></div>' +
             '<div class="pu-vs">' + side(A, m.a, 'is-a') + '<span class="pu-vs-x">VS</span>' + side(B, m.b, 'is-b') + '</div>' +
-            '<div class="pu-breaks">' + PU_ICON.ball + '<span><strong>' + puEsc(br.name) + ' breaks</strong><span class="pu-note"> · breaks alternate after</span></span></div></div>' +
+            '<div class="pu-breaks">' + PU_ICON.ball + (ptGameOf(t) === 'snooker'
+                ? '<span><strong>' + puEsc(br.name) + ' breaks off</strong><span class="pu-note"> · ' + t.settings.reds + ' reds</span></span></div></div>'
+                : '<span><strong>' + puEsc(br.name) + ' breaks</strong><span class="pu-note"> · breaks alternate after</span></span></div></div>') +
             '<div class="pu-foot"><span class="pu-note is-center">' + puEsc(A.name + ' and ' + B.name + ', take the seat when it\'s your shot.') + '</span>' +
             '<button type="button" class="pu-primary" data-pu-act="ready">READY</button></div></div>';
     }
@@ -5544,14 +6830,23 @@
         const t = v.t, m = ptById(t, v.matchId), num = ptMatchNumber(t, m), [sa, sb] = ptScore(m);
         const W = t.slots[m.winner], L = t.slots[m.winner === m.a ? m.b : m.a];
         const final = m.round === t.rounds - 1, next = ptNext(t);
+        const snk = ptGameOf(t) === 'snooker';
         const frames = m.frames.map((w, i) => '<div class="pu-frame' + (w === m.winner ? ' is-win' : '') + '"><span class="pu-kicker">FRAME ' + (i + 1) + '</span><span>' + puEsc(t.slots[w].name) + '</span></div>').join('');
-        return '<div class="pu-screen-in">' + puHead(t.name.toUpperCase(), ptRoundName(t.rounds, m.round) + ' · race to ' + m.raceTo, '', puPill('MATCH ' + num.n + ' OF ' + num.of)) +
+        // Snooker (SnkMatchResult): a row per frame, its winner and its points winner-first,
+        // the frames the loser took muted; then the match's high break.
+        const pts = (i, w) => { const p = (m.points || [])[i]; if (!p) return ''; const a = w === m.a ? p[0] : p[1], b = w === m.a ? p[1] : p[0]; return a + '–' + b; };
+        const frows = m.frames.map((w, i) => '<div class="pu-frow' + (w === m.winner ? '' : ' is-lost') + '"><span class="pu-frow-l pu-kicker">FRAME ' + (i + 1) + '</span>' +
+            '<span class="pu-frow-n">' + puEsc(t.slots[w].name) + '</span><span class="pu-frow-p">' + puEsc(pts(i, w)) + '</span></div>').join('') +
+            (m.high ? '<div class="pu-frow is-high"><span class="pu-frow-l pu-kicker">HIGH BREAK</span><span class="pu-frow-n">' + puEsc(t.slots[m.high.slot].name + ' · frame ' + m.high.frame) + '</span>' +
+                '<span class="pu-frow-p">' + m.high.value + '</span></div>' : '');
+        return '<div class="pu-screen-in">' + puHead(t.name.toUpperCase(), ptRoundName(t.rounds, m.round) + ' · ' + ptRaceText(t, m.raceTo).toLowerCase(), '', puPill('MATCH ' + num.n + ' OF ' + num.of)) +
             '<div class="pu-body"><div class="pu-won"><div class="pu-won-top"><div class="pu-avatar is-lead">' + puEsc((W.name[0] || '?').toUpperCase()) + '</div>' +
             '<div class="pu-won-t"><span class="pu-kicker is-accent">' + (final ? 'CHAMPION' : 'MATCH WON') + '</span><span class="pu-won-n">' + puEsc(W.name) + '</span></div>' +
-            '<span class="pu-won-s">' + Math.max(sa, sb) + '–' + Math.min(sa, sb) + '</span></div><div class="pu-frames" style="grid-template-columns:repeat(' + Math.min(3, m.frames.length) + ',minmax(0,1fr))">' + frames + '</div></div>' +
+            '<span class="pu-won-s">' + Math.max(sa, sb) + '–' + Math.min(sa, sb) + '</span></div>' +
+            (snk ? '<div class="pu-frows">' + frows + '</div>' : '<div class="pu-frames" style="grid-template-columns:repeat(' + Math.min(3, m.frames.length) + ',minmax(0,1fr))">' + frames + '</div>') + '</div>' +
             '<div class="pu-out"><span class="pu-avatar is-small">' + puEsc((L.name[0] || '?').toUpperCase()) + '</span><span class="pu-out-t">' + puEsc(L.name + ' is out') + '</span><span class="pu-note">' + puEsc(ptRoundName(t.rounds, m.round) + ' finish') + '</span></div>' +
             '<div class="pu-group"><span class="pu-kicker">' + puEsc(final ? W.name.toUpperCase() + ' WINS ' + t.name.toUpperCase() : W.name.toUpperCase() + ' ADVANCES TO THE ' + ptRoundName(t.rounds, m.round + 1).toUpperCase()) + '</span>' +
-            '<div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: puMiniH(t), mini: true }) + '</div></div></div>' +
+            '<div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: snk ? 112 : puMiniH(t), mini: true }) + '</div></div></div>' +
             '<button type="button" class="pu-primary is-two" data-pu-act="' + (final ? 'champion' : 'bracket') + '"><span>CONTINUE</span><span class="pu-primary-sub">' +
             puEsc(final ? 'The champion' : next ? 'Next: ' + t.slots[next.a].name + ' vs ' + t.slots[next.b].name + ' · ' + ptRoundName(t.rounds, next.round) : '') + '</span></button></div>';
     }
@@ -5577,7 +6872,7 @@
             '<div class="pu-group"><span class="pu-kicker">FINAL BRACKET</span><div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: puMiniH(t), mini: true }) + '</div></div></div>' + acts + '</div>';
     }
 
-    // v = { cab }
+    // v = { cab, game }
     function puCabinetHTML(v) {
         const rows = ptCabinetRows(v.cab);
         const cell = n => '<span class="pu-cab-c' + (n ? '' : ' is-zero') + '">' + (n || '–') + '</span>';
@@ -5586,7 +6881,8 @@
             : '<div class="pu-empty">No titles yet. The first tournament you finish lands here.</div>';
         const recent = (v.cab.recent || []).map(r => '<div class="pu-recent" role="listitem"><span class="pu-recent-s">' + r.size + '</span><span class="pu-recent-t"><span class="pu-strong">' + puEsc(r.name) + '</span>' +
             '<span class="pu-note">' + puEsc(puDate(r.date) + ' · ' + r.players + ' players') + '</span></span><span class="pu-recent-c">' + PU_ICON.cup + puEsc(r.champ) + '</span></div>').join('');
-        return '<div class="pu-screen-in">' + puHead('SAVED ON THIS COMPUTER', 'Trophy cabinet', 'cabinetBack') +
+        const snk = v.game === 'snooker';
+        return '<div class="pu-screen-in">' + puHead(snk ? 'TROPHY CABINET · THIS COMPUTER' : 'SAVED ON THIS COMPUTER', snk ? 'Snooker' : 'Trophy cabinet', 'cabinetBack') +
             '<div class="pu-body"><div class="pu-group"><span class="pu-kicker">TITLES BY BRACKET SIZE</span><div class="pu-cab" role="table" aria-label="Titles by bracket size">' +
             '<div class="pu-cab-row is-head" role="row"><span>PLAYER</span><span>4</span><span>8</span><span>16</span><span class="is-accent">TOTAL</span></div>' + table + '</div></div>' +
             (recent ? '<div class="pu-group"><span class="pu-kicker">RECENT TOURNAMENTS</span><div class="pu-recents" role="list">' + recent + '</div></div>' : '') + '</div></div>';
@@ -6241,10 +7537,467 @@
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // SNOOKER — CPU (Phase S4)
+    // ═══════════════════════════════════════════════════════════════════
+    // pool-ai.js's pipeline on snooker's rules (POOL_V2_PLAN.md, Snooker, CPU):
+    //   A  candidates from geometry: each ball the shooter may play (with the colour it
+    //      nominates and the pocket it calls) into each pocket that takes it, with the
+    //      tier's make probability against snooker's tight pockets; each played out on a
+    //      copy of the table, the aim corrected for throw first, and judged by psJudge
+    //   B  the survivors with the tier's spins and paces, scored in points expected:
+    //      p·(points + γ·position) − (1−p)·what a miss leaves − fouls·(penalty + 3)
+    //   R  the best lines replayed with the tier's own noise: how often they foul, and
+    //      what a miss leaves the opponent
+    //   S  safeties: the three nearest balls on, full, half-ball and thin either side and
+    //      one-rail kicks, at four paces, scored by the opponent's best shot after them (a
+    //      quarter less with the cue ball on a cushion, a snooker a bonus), then refined
+    //   K  snookered: pool's sweep, the cue turned round for the gaps that meet a ball on (every
+    //      tier: pro a degree at a time, easy every 6°)
+    // The break-off is a script per reds count (snooker-break-tune.js), checked in a trial
+    // or two, with a local search as the fallback. Pure and time-sliced like paPlan: each
+    // tier caps its trials (one shot to rest, 5–8 ms at 22 balls), and that is its time.
+
+    // aim / power: execution σ (degrees, fraction); top: candidates played out; keep: how
+    // many survivors get the spin × pace search; refine: aim corrections; robust: noisy
+    // replays of the best lines; safeTrials: safeties tried; gamma: what position is worth;
+    // miss: how much the leave on a miss counts; attack: points of bias toward the pot over
+    // the safety; safeBelow: look for a safety when the best pot's p is under it; trials:
+    // the cap on shots played out; maxMs: the thinking time, once a legal shot is in hand (the
+    // worst positions, a sweep and a full safety search, would run on well past it). Picked
+    // (not by Adaptive), hard calls the colours and pro
+    // every ball (lockCall).
+    const PA_SN_TIERS = {
+        easy:   { label: 'Easy',   aim: 0.28, power: 0.10,  top: 5,  keep: 1, refine: 1, spins: ['stun'], speeds: [1],
+                  robust: 0, safeTrials: 8,  gamma: 0,   miss: 0.2, attack: 3,   safeBelow: 0.1,  trials: 16,  maxMs: 250,  sweepStep: 6 },
+        normal: { label: 'Normal', aim: 0.2,  power: 0.07,  top: 8,  keep: 2, refine: 1, spins: ['stun', 'follow', 'draw'], speeds: [1, 1.3],
+                  robust: 2, safeTrials: 12, gamma: 0.5, miss: 0.6, attack: 1,   safeBelow: 0.5,  trials: 36,  maxMs: 600,  sweepStep: 3 },
+        hard:   { label: 'Hard',   aim: 0.09, power: 0.033, top: 12, keep: 3, refine: 2, spins: ['stun', 'follow', 'draw', 'left', 'right'], speeds: [0.8, 1, 1.3],
+                  robust: 3, safeTrials: 20, gamma: 0.8, miss: 1,   attack: 0.3, safeBelow: 0.7,  trials: 70,  maxMs: 1000, sweepStep: 1.5, call: 'colours' },
+        pro:    { label: 'Pro',    aim: 0.0425, power: 0.015, top: 14, keep: 4, refine: 2,
+                  spins: ['stun', 'follow', 'draw', 'left', 'right', 'followLeft', 'followRight', 'drawLeft', 'drawRight'], speeds: [0.8, 1, 1.3],
+                  robust: 3, safeTrials: 28, gamma: 1,   miss: 1,   attack: 0,   safeBelow: 0.8,  trials: 120, maxMs: 1400, sweepStep: 1, call: 'all' },
+    };
+    const PA_SN_NAMES = ['easy', 'normal', 'hard', 'pro'];
+    // What a steady club player's odds are: candidates are ordered, and leaves judged, by it.
+    const PA_SN_RANK = 0.12 * PA_DEG;
+    // The break-off (snooker-break-tune.js): the cue ball placed at (x, y·side) in the D, the
+    // back red on that side taken `off` R wide of its centre, at `speed`, with the tip at
+    // (tipX·side, tipY). side is the cue ball's side of the table, so each has its mirror.
+    const PA_SN_BREAKS = {
+        // snooker-break-tune.js, 2026-09-30 (the design revision 1790749498-5862 pockets): no foul on 4 racks × ±0.1° × both sides for each.
+        15: { x: -305, y: 45, off: 1.6, speed: 1100, tipX: 0, tipY: 0 },
+        10: { x: -305, y: 15, off: 1.6, speed: 1100, tipX: 0, tipY: 0 },
+        6:  { x: -335, y: 15, off: 1.45, speed: 1250, tipX: 0, tipY: 0 },
+    };
+
+    // Where to send a ball into snooker's pocket p: a little in from the hole's centre.
+    function paSnAimPoint(p) {
+        const k = 0.35 * p.r;
+        return p.kind === 'corner' ? { x: p.x - p.sx * k / Math.SQRT2, y: p.y - p.sy * k / Math.SQRT2 } : { x: p.x, y: p.y - p.sy * k };
+    }
+    // How far off line a ball arriving along (dx, dy) can be and still drop, as snooker-verify §1
+    // measures the design's revision 1790749498-5862 pockets (rounded noses, straight jaws): a
+    // corner takes about ±6 u down its diagonal (±8 off a jaw) and still takes a ball rolled along
+    // the cushion; a middle pocket takes ±8 square on, closing as the angle opens (5 lines of 9
+    // at 60°).
+    function paSnPocketTol(p, dx, dy) {
+        const L = Math.hypot(dx, dy) || 1;
+        if (p.kind === 'corner') {
+            const c = (dx * p.sx + dy * p.sy) / (Math.SQRT2 * L);
+            return c < Math.cos(55 * PA_DEG) ? 0 : 7 * (0.35 + 0.65 * c);
+        }
+        const c = dy * p.sy / L;
+        return c < Math.cos(70 * PA_DEG) ? 0 : 8.5 * Math.pow(c, 0.7);
+    }
+    // What potting the ball on is worth now, and a little for what it opens (a red leads to
+    // a colour).
+    function paSnPoints(frame, id) {
+        if (frame.freeBall) return frame.phase === 'clearance' ? frame.next : 1;
+        if (frame.phase === 'reds') return 1;
+        if (frame.phase === 'colour') return psValue(id);
+        return frame.next;
+    }
+    const paSnFollow = frame => (frame.phase === 'reds' && !frame.freeBall ? 2.5 : frame.phase === 'clearance' ? 0.4 * Math.min(7, frame.next + 1) : 0);
+
+    // Every direct pot from (cx, cy), best first by a steady player's odds: the ball on (or
+    // each colour that may be nominated, with that nomination) into each pocket that faces
+    // it, through clear paths. p is the make probability at `sigma`.
+    function paSnCandidates(world, frame, cx, cy, sigma) {
+        const R = world.cfg.ballR, t = world.table, cfg = world.cfg, gap = 2 * R - 0.05, out = [];
+        const st = psStatus(frame, world, frame.turn, -1);
+        const ids = st.on.needsNomination ? st.nominable : st.on.ids;
+        for (const id of ids) {
+            const b = world.balls.find(o => o.id === id);
+            if (!b || b.state === 'pocketed') continue;
+            const points = paSnPoints(frame, id);
+            t.pockets.forEach((p, pi) => {
+                const ap = paSnAimPoint(p);
+                const tx = ap.x - b.x, ty = ap.y - b.y, tl = Math.hypot(tx, ty);
+                const tol = paSnPocketTol(p, tx, ty);
+                if (tol <= 0) return;
+                const gx = b.x - tx / tl * 2 * R, gy = b.y - ty / tl * 2 * R;
+                const ax = gx - cx, ay = gy - cy, al = Math.hypot(ax, ay);
+                if (al < 1) return;
+                const cut = Math.acos(Math.max(-1, Math.min(1, (ax * tx + ay * ty) / (al * tl))));
+                if (cut > 75 * PA_DEG) return;
+                if (!paClear(world.balls, cx, cy, gx, gy, [0, b.id], gap) || !paClear(world.balls, b.x, b.y, ap.x, ap.y, [0, b.id], gap)) return;
+                const rank = paMakeProb(al, cut, tl, tol, PA_SN_RANK, R), p1 = sigma === PA_SN_RANK ? rank : paMakeProb(al, cut, tl, tol, sigma, R);
+                if (rank < 0.01 && p1 < 0.05) return;
+                out.push({
+                    kind: 'direct', ball: b.id, pocket: pi, nominate: st.on.needsNomination ? b.id : -1, points,
+                    angle: Math.atan2(ay, ax), gx, gy, dcg: al, cut, lop: tl, want: Math.atan2(ty, tx), tol,
+                    p: p1, rank, speed: paBaseSpeed(cfg, al, cut, tl) * 0.9,
+                });
+            });
+        }
+        return out.sort((a, b) => b.rank * (b.points + 1) - a.rank * (a.points + 1));
+    }
+
+    // The best pot `seat` would have from where the cue ball lies (or anywhere in the D with
+    // it in hand), in points expected at a steady player's odds: what a leave is worth to
+    // whoever is at the table next. The cue ball tight on a cushion is harder to cue: 0.75.
+    // two: the best and half the second (a leave with a choice is worth more to a break).
+    function paSnLeave(world, frame, two) {
+        if (frame.over) return 0;
+        const cue = world.balls.find(b => b.id === 0), R = world.cfg.ballR, t = world.table;
+        const best = (x, y) => {
+            const vals = paSnCandidates(world, frame, x, y, PA_SN_RANK).map(c => c.rank * (c.points + paSnFollow(frame))).sort((a, b) => b - a);
+            return (vals[0] || 0) + (two ? 0.5 * (vals.find((v, i) => i > 0) || 0) : 0);
+        };
+        if (frame.ballInHand === 'D' || !cue || cue.state === 'pocketed') {
+            let m = 0;
+            [[-300, 0], [-320, 40], [-320, -40], [-340, 60], [-340, -60], [-360, 0]].forEach(([x, y]) => { if (!prCanPlace(world, x, y, 'D')) m = Math.max(m, best(x, y)); });
+            return m;
+        }
+        const tight = t.halfLength - Math.abs(cue.x) < R + 5 || t.halfWidth - Math.abs(cue.y) < R + 5;
+        return best(cue.x, cue.y) * (tight ? 0.75 : 1);
+    }
+
+    // Is the next player snookered on everything they are on?
+    function paSnSnookered(world, frame) {
+        if (frame.over || frame.ballInHand === 'D') return false;
+        const st = psStatus(frame, world, frame.turn, -1), ids = st.on.needsNomination ? st.nominable : st.on.ids;
+        return ids.length > 0 && psSnookered(world.balls, world.cfg.ballR, ids, 'full');
+    }
+
+    // How good a break-off (or any safety) left the table: the opponent's leave, the cue ball
+    // back in baulk. Shared with snooker-break-tune.js.
+    function paSnBreakScore(r) {
+        if (r.v.foul) return -100;
+        const cue = r.w.balls.find(b => b.id === 0);
+        const home = cue && cue.state !== 'pocketed' && cue.x < PS_BAULK_X ? 3 : 0;
+        const deep = cue && cue.state !== 'pocketed' ? (cue.x + r.w.table.halfLength) / 100 : 5;
+        return home - deep - 3 * paSnLeave(r.w, r.v.next);
+    }
+
+    // opts: { tier, rng, noise (default true), aimDeg / powerFrac (override the tier's
+    // execution noise, for snooker-balance.js's human models), safeRun (safeties in a row:
+    // from 3 the CPU leans to the pot, so frames do not stall), timeCap (default true: stop at
+    // the tier's maxMs once something legal is found; snooker-balance.js turns it off so its
+    // numbers do not depend on the machine) }. job.shot = { angle, speed,
+    // tipX, tipY, nominate, call }; job.plan: 'break' | 'pot' | 'safety' | 'escape' | 'fallback'.
+    function paSnPlan(world, frame, opts) {
+        const o = opts || {}, cfg = world.cfg, R = cfg.ballR, seat = frame.turn;
+        const tier = PA_SN_TIERS[o.tier] ? o.tier : 'normal', T = PA_SN_TIERS[tier];
+        const cue = world.balls.find(b => b.id === 0);
+        const f0 = Object.assign({}, frame, { touching: psTouching(world.balls, R) });
+        const st = psStatus(f0, world, seat, -1);
+        const callOf = pocket => (st.callRequired ? pocket : -1);
+        // trialMs: a trial's recent cost, so a slice stops before one that would overrun it.
+        const job = { done: false, shot: null, tried: 0, plan: '', kind: '', tier, ev: 0, ms: 0, trialMs: 0 };
+        const noisy = o.noise !== false && !!o.rng;
+        const aimSig = (o.aimDeg !== undefined ? o.aimDeg : T.aim) * PA_DEG, powSig = o.powerFrac !== undefined ? o.powerFrac : T.power;
+        const clampSpeed = v => Math.max(150, Math.min(cfg.maxSpeed, v));
+        const finish = (shot, plan, kind, ev) => {
+            const s = Object.assign({ tipX: 0, tipY: 0, nominate: -1, call: -1 }, shot);
+            if (noisy) { s.angle += paGauss(o.rng) * aimSig; s.speed = clampSpeed(s.speed * (1 + paGauss(o.rng) * powSig)); }
+            job.shot = s; job.plan = plan; job.kind = kind || plan; job.ev = ev || 0; job.done = true;
+        };
+        const trial = shot => {
+            const t = now(), w = ppCloneWorld(world);
+            w.log = [];
+            ppStrike(w, shot);
+            ppSimulate(w, 40);
+            job.tried++;
+            const dt = now() - t;
+            job.trialMs = job.trialMs ? 0.7 * job.trialMs + 0.3 * dt : dt;
+            return { w, v: psJudge(f0, w, shot.nominate === undefined ? -1 : shot.nominate, shot.call === undefined ? -1 : shot.call) };
+        };
+        const jitter = shot => Object.assign({}, shot, { angle: shot.angle + paGauss(o.rng) * aimSig, speed: clampSpeed(shot.speed * (1 + paGauss(o.rng) * powSig)) });
+        const now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+        const onIds = st.on.needsNomination ? st.nominable : st.on.ids;
+        const nomFor = id => (st.on.needsNomination && st.nominable.indexOf(id) >= 0 ? id : -1);
+        const nearPocket = b => world.table.pockets.reduce((bi, p, pi, all) => (Math.hypot(p.x - b.x, p.y - b.y) < Math.hypot(all[bi].x - b.x, all[bi].y - b.y) ? pi : bi), 0);
+
+        // ── The break-off: the script for the reds count, then a local search round it.
+        if (frame.isBreak) {
+            const S0 = PA_SN_BREAKS[frame.reds] || PA_SN_BREAKS[15];
+            const side = cue.y >= 0 ? 1 : -1;
+            const reds = world.balls.filter(b => psIsRed(b.id) && b.state !== 'pocketed');
+            const back = reds.reduce((a, b) => (b.x > a.x + 1 || (Math.abs(b.x - a.x) <= 1 && b.y * side > a.y * side) ? b : a), reds[0]);
+            const shotOf = (off, speed, tipX, tipY) => ({ angle: Math.atan2(back.y + side * off * R - cue.y, back.x - cue.x), speed, tipX: tipX * side, tipY, nominate: -1, call: -1 });
+            const queue = [shotOf(S0.off, S0.speed, S0.tipX, S0.tipY)];
+            [[0.1, 1], [-0.1, 1], [0, 1.1], [0, 0.9], [0.2, 1], [-0.2, 1], [0.1, 1.1], [-0.1, 0.9]].forEach(([d, k]) => queue.push(shotOf(S0.off + d, S0.speed * k, S0.tipX, S0.tipY)));
+            let best = null;
+            job.step = budgetMs => {
+                const t0 = now();
+                while (queue.length && job.tried < 24) {
+                    const s = queue.shift(), r = trial(s), sc = paSnBreakScore(r);
+                    if (!best || sc > best.sc) best = { s, sc };
+                    // The script (or a near neighbour) is good: legal, the cue ball home, little on.
+                    if (best.sc > 0.5 && job.tried <= 2) break;
+                    if (budgetMs !== undefined && now() - t0 >= budgetMs && queue.length) return false;
+                }
+                finish(best.s, 'break', 'break', best.sc);
+                return true;
+            };
+            return job;
+        }
+
+        const snookered = psSnookered(world.balls, R, onIds, 'full');
+        const cands = snookered ? [] : paSnCandidates(world, f0, cue.x, cue.y, Math.max(aimSig, 0.02 * PA_DEG)).slice(0, T.top);
+        const pen = id => Math.min(7, Math.max(4, psValue(id)));
+        const good = [], variants = [], scored = [], robustQ = [], safeties = [], safeScored = [], safeQ = [], sweep = [], escapes = [];
+        let stage = cands.length ? 'A' : 'S0', bestPot = null, bestSafe = null, bestEscape = null, swept = false;
+        const attack = T.attack + ((o.safeRun || 0) >= 3 ? 2 : 0);
+        const budgetLeft = reserve => job.tried < T.trials - reserve;
+
+        // A pot's value on the table after it: points, and what the next shot is worth.
+        const potEV = (c, r) => {
+            const v = r.v;
+            if (v.frameOver) return v.winner === seat ? 1000 : -1000;
+            if (v.foul || !v.continues) return null;
+            return v.points + T.gamma * paSnLeave(r.w, v.next, T.pos2);
+        };
+        const safeEV = r => {
+            const v = r.v;
+            if (v.frameOver) return v.winner === seat ? 1000 : -1000;
+            if (v.foul) return -(v.penalty + 3) - paSnLeave(r.w, v.next);
+            if (v.continues) return v.points + T.gamma * paSnLeave(r.w, v.next);
+            return -paSnLeave(r.w, v.next) + (paSnSnookered(r.w, v.next) ? 1.5 : 0);
+        };
+        // Safeties: the three nearest balls on, full, half and thin either side, four paces;
+        // then one-rail kicks at them when the direct way is blocked.
+        const makeSafeties = () => {
+            const mu = cfg.muRoll * cfg.gravity;
+            const tg = world.balls.filter(b => onIds.indexOf(b.id) >= 0 && b.state !== 'pocketed')
+                .sort((a, b) => Math.hypot(a.x - cue.x, a.y - cue.y) - Math.hypot(b.x - cue.x, b.y - cue.y)).slice(0, 3);
+            const direct = [], rest = [];
+            tg.forEach(b => {
+                const dist = Math.hypot(b.x - cue.x, b.y - cue.y), base = Math.atan2(b.y - cue.y, b.x - cue.x);
+                const clear = paClear(world.balls, cue.x, cue.y, b.x, b.y, [0, b.id], 2 * R - 0.05);
+                // Each contact on its own line: the cue ball's path to where it meets the ball, so a
+                // half-ball or thin contact past a ball in the way still counts.
+                const open = off => {
+                    const s = dist * Math.sin(off), t = dist * Math.cos(off) - Math.sqrt(Math.max(0, 4 * R * R - s * s)), a = base + off;
+                    return t > 0 && paClear(world.balls, cue.x, cue.y, cue.x + t * Math.cos(a), cue.y + t * Math.sin(a), [0, b.id], 2 * R - 0.05);
+                };
+                const half = Math.asin(Math.min(1, R / Math.max(dist, 2 * R))), thin = Math.asin(Math.min(0.97, 1.8 * R / Math.max(dist, 2 * R)));
+                const pace = k => clampSpeed(k * 1.4 * Math.sqrt(2 * mu * (dist + 500)));
+                [[0, 0.6], [half, 0.6], [-half, 0.6], [thin, 0.8], [-thin, 0.8]].forEach(([off, k]) => { if (open(off)) direct.push({ angle: base + off, speed: pace(k), nominate: nomFor(b.id), call: callOf(nearPocket(b)) }); });
+                [[0, 0.9], [half, 0.9], [-half, 0.9], [thin, 0.5], [-thin, 0.5], [0, 0.4], [half, 1.2], [-half, 1.2]].forEach(([off, k]) => { if (open(off)) rest.push({ angle: base + off, speed: pace(k), nominate: nomFor(b.id), call: callOf(nearPocket(b)) }); });
+                const t = world.table;
+                [['x', t.halfLength - R], ['x', -(t.halfLength - R)], ['y', t.halfWidth - R], ['y', -(t.halfWidth - R)]].forEach(([axis, v]) => {
+                    const m = axis === 'x' ? { x: 2 * v - b.x, y: b.y } : { x: b.x, y: 2 * v - b.y };
+                    const da = axis === 'x' ? v - cue.x : v - cue.y, dm = axis === 'x' ? m.x - cue.x : m.y - cue.y;
+                    if (Math.abs(dm) < 1e-9 || da / dm <= 0 || da / dm >= 1) return;
+                    const k = da / dm, hx = cue.x + (m.x - cue.x) * k, hy = cue.y + (m.y - cue.y) * k;
+                    if (!paClear(world.balls, cue.x, cue.y, hx, hy, [0], 2 * R - 0.05) || !paClear(world.balls, hx, hy, b.x, b.y, [0, b.id], 2 * R - 0.05)) return;
+                    const len = Math.hypot(hx - cue.x, hy - cue.y) + Math.hypot(b.x - hx, b.y - hy);
+                    [1, 1.4].forEach(q => (clear ? rest : direct).push({ angle: Math.atan2(hy - cue.y, hx - cue.x), speed: clampSpeed(q * 1.4 * Math.sqrt(2 * mu * (len / 0.8 + 300))), nominate: nomFor(b.id), call: callOf(nearPocket(b)) }));
+                });
+            });
+            direct.concat(rest).slice(0, T.safeTrials).forEach(s => safeties.push(s));
+        };
+
+        const capped = t0 => o.timeCap !== false && job.ms + now() - t0 >= T.maxMs && (bestPot || bestSafe || bestEscape || good.length || scored.length);
+        job.step = budgetMs => {
+            if (job.done) return true;
+            const t0 = now();
+            // A slice ends when the next trial would take it past its budget (S7: they ran to
+            // 20–30 ms in 12 ms slices, finishing a long trial), after at least one trial.
+            const tried0 = job.tried;
+            const spent = () => budgetMs !== undefined && job.tried > tried0 && now() - t0 + job.trialMs >= budgetMs;
+            try {
+            while (!spent()) {
+                // Out of time with something legal in hand: value what is scored, and choose.
+                if (capped(t0) && stage !== 'done') { if (!bestPot && scored.length && (stage === 'A' || stage === 'B' || stage === 'R')) { stage = 'P'; } else if (stage !== 'P') stage = 'done'; }
+                if (stage === 'A') {
+                    // A: does the line pot, fairly, with stun at its base pace?
+                    const c = cands.shift();
+                    if (!c || !budgetLeft(3 * T.robust + T.safeTrials)) {
+                        stage = 'B';
+                        good.sort((a, b) => b.ev - a.ev).slice(0, T.keep).forEach(g => T.spins.forEach(sp => T.speeds.forEach(k => {
+                            if (sp === 'stun' && k === 1) return;             // played in A
+                            variants.push({ c: g.c, base: g.shot, sp, k });
+                        })));
+                        good.forEach(g => scored.push({ c: g.c, shot: g.shot, ev0: g.ev }));
+                        continue;
+                    }
+                    let shot = { angle: c.angle, speed: c.speed, tipX: 0, tipY: 0, nominate: c.nominate, call: callOf(c.pocket) };
+                    shot = paRefine(world, c, shot, T.refine, R);
+                    const r = trial(shot), ev = potEV(c, r);
+                    if (r.v.frameOver && r.v.winner === seat) { finish(shot, 'pot', 'direct', 1000); return true; }
+                    if (ev !== null) good.push({ c, shot, ev });
+                } else if (stage === 'B') {
+                    // B: the survivors with the tier's spins and paces, for position.
+                    const item = variants.shift();
+                    if (!item || !budgetLeft(3 * T.robust + (T.safeBelow > 0 ? T.safeTrials : 0))) {
+                        scored.sort((a, b) => b.c.p * b.ev0 - a.c.p * a.ev0);
+                        if (T.robust && noisy && scored.length) {
+                            scored.slice(0, 3).forEach(e => { e.fouls = 0; e.miss = 0; e.missLeave = 0; e.n = 0; for (let i = 0; i < T.robust; i++) robustQ.push(e); });
+                            stage = 'R';
+                        } else stage = 'P';
+                        continue;
+                    }
+                    const tip = PA_TIPS[item.sp];
+                    let shot = { angle: item.base.angle, speed: Math.min(cfg.maxSpeed * 0.9, item.c.speed * item.k), tipX: tip.x, tipY: tip.y, nominate: item.c.nominate, call: callOf(item.c.pocket) };
+                    shot = paRefine(world, item.c, shot, Math.min(1, T.refine), R);
+                    const ev = potEV(item.c, trial(shot));
+                    if (ev !== null) scored.push({ c: item.c, shot, ev0: ev });
+                } else if (stage === 'R') {
+                    // R: the best lines with the tier's noise: fouls, and the leave on a miss.
+                    const e = robustQ.shift();
+                    if (!e) { stage = 'P'; continue; }
+                    const r = trial(jitter(e.shot));
+                    e.n++;
+                    if (r.v.foul) e.fouls++;
+                    else if (!r.v.continues) { e.miss++; e.missLeave += paSnLeave(r.w, r.v.next); }
+                } else if (stage === 'P') {
+                    // The pots, valued: p·(points + γ·position) − (1−p)·leave − fouls·(penalty + 3).
+                    scored.forEach(e => {
+                        const p = e.c.p, M = e.miss ? e.missLeave / e.miss : 2.5, f = e.n ? e.fouls / e.n : 0;
+                        e.ev = p * e.ev0 - (1 - p) * T.miss * M - f * (pen(e.c.ball) + 3);
+                        if (!bestPot || e.ev > bestPot.ev) bestPot = e;
+                    });
+                    stage = !bestPot || bestPot.c.p < T.safeBelow ? 'S0' : 'done';
+                } else if (stage === 'S0') {
+                    makeSafeties();
+                    stage = 'S';
+                } else if (stage === 'S') {
+                    const shot = safeties.shift();
+                    if (!shot || (!budgetLeft(0) && bestSafe)) {
+                        // Refine the best: a hair either way, a little firmer and softer.
+                        if (bestSafe && budgetLeft(-4)) [[0.4, 1], [-0.4, 1], [0, 1.12], [0, 0.88]].forEach(([d, k]) => safeQ.push({ refine: true, shot: Object.assign({}, bestSafe.shot, { angle: bestSafe.shot.angle + d * PA_DEG, speed: clampSpeed(bestSafe.shot.speed * k) }) }));
+                        stage = 'SF';
+                        continue;
+                    }
+                    const r = trial(shot), ev = safeEV(r);
+                    safeScored.push({ shot, ev, foul: !!r.v.foul });
+                    if (!r.v.foul && (!bestSafe || ev > bestSafe.ev)) bestSafe = { shot, ev };
+                } else if (stage === 'SF') {
+                    const item = safeQ.shift();
+                    if (!item) {
+                        // The best safety replayed with the tier's noise: one that fouls a little off is no safety.
+                        if (bestSafe && noisy && T.robust) { bestSafe.n = 0; bestSafe.fouls = 0; for (let i = 0; i < T.robust; i++) safeQ.push({ check: true }); stage = 'SR'; }
+                        else stage = 'done';
+                        continue;
+                    }
+                    const r = trial(item.shot), ev = safeEV(r);
+                    if (!r.v.foul && ev > bestSafe.ev) bestSafe = { shot: item.shot, ev };
+                } else if (stage === 'SR') {
+                    const item = safeQ.shift();
+                    if (!item) { if (bestSafe.n) bestSafe.ev -= (bestSafe.fouls / bestSafe.n) * 6; stage = 'done'; continue; }
+                    const r = trial(jitter(bestSafe.shot));
+                    bestSafe.n++;
+                    if (r.v.foul) bestSafe.fouls++;
+                } else if (stage === 'K') {
+                    // The sweep: the first ball met, a degree at a time.
+                    const n = Math.round(360 / T.sweepStep), a = sweep.length;
+                    if (a < n) { sweep.push(onIds.indexOf(paFirstContact(world, { angle: a * T.sweepStep * PA_DEG, speed: 1600, tipX: 0, tipY: 0 })) >= 0); continue; }
+                    const gaps = [], start = sweep.indexOf(false);
+                    if (start === -1) gaps.push({ mid: 0, n });
+                    else for (let i = 1, run = 0; i <= n; i++) {
+                        const at = (start + i) % n;
+                        if (sweep[at] && i < n) { run++; continue; }
+                        if (run) gaps.push({ mid: at - 1 - (run - 1) / 2, n: run });
+                        run = 0;
+                    }
+                    gaps.sort((x, y) => y.n - x.n).slice(0, 8).forEach(g => [1100, 1800].forEach(sp => escapes.push({ angle: g.mid * T.sweepStep * PA_DEG, speed: sp, tipX: 0, tipY: 0, nominate: -1, call: -1 })));
+                    stage = 'K2';
+                } else if (stage === 'K2') {
+                    const shot = escapes.shift();
+                    if (!shot) { stage = 'done'; continue; }
+                    // What it met first decides the nomination; played out as a safety.
+                    const first = paFirstContact(world, shot);
+                    const s = Object.assign({}, shot, { nominate: nomFor(first), call: first > 0 ? callOf(nearPocket(world.balls.find(b => b.id === first))) : -1 });
+                    const r = trial(s);
+                    if (r.v.foul) continue;
+                    const ev = safeEV(r);
+                    if (!bestEscape || ev > bestEscape.ev) bestEscape = { shot: s, ev };
+                } else {
+                    // Snookered with nothing legal found: the sweep before a roll.
+                    if (!bestPot && !bestSafe && !swept) { swept = true; stage = 'K'; continue; }
+                    if (bestPot && (!bestSafe || bestPot.ev + attack >= bestSafe.ev)) finish(bestPot.shot, 'pot', bestPot.c.kind, bestPot.ev);
+                    else if (bestSafe) finish(bestSafe.shot, 'safety', 'safety', bestSafe.ev);
+                    else if (bestEscape) finish(bestEscape.shot, 'escape', 'safety', bestEscape.ev);
+                    else if (good.length) finish(good[0].shot, 'pot', good[0].c.kind, good[0].ev);
+                    else {
+                        // Nothing clean: roll up to the nearest ball on.
+                        const b = world.balls.filter(x => onIds.indexOf(x.id) >= 0 && x.state !== 'pocketed').sort((x, y) => Math.hypot(x.x - cue.x, x.y - cue.y) - Math.hypot(y.x - cue.x, y.y - cue.y))[0];
+                        finish(b ? { angle: Math.atan2(b.y - cue.y, b.x - cue.x), speed: 800, nominate: nomFor(b.id), call: callOf(nearPocket(b)) } : { angle: 0, speed: 800 }, 'fallback', 'safety');
+                    }
+                    return true;
+                }
+            }
+            return false;
+            } finally { job.ms += now() - t0; }
+        };
+        return job;
+    }
+
+    // Ball in hand in the D: for the break-off, the script's spot on a side of the D; else
+    // the point on a grid over the D with the best pot from it, else the break-off spot.
+    function paSnPlace(world, frame, rng) {
+        const S0 = PA_SN_BREAKS[frame.reds] || PA_SN_BREAKS[15];
+        if (frame.isBreak) {
+            const side = rng && rng() < 0.5 ? -1 : 1;
+            return !prCanPlace(world, S0.x, S0.y * side, 'D') ? [S0.x, S0.y * side] : psCueHome(world);
+        }
+        let best = null;
+        for (let x = PS_BAULK_X - 3; x >= PS_BAULK_X - PS_D_R; x -= 9) {
+            for (let y = -PS_D_R; y <= PS_D_R; y += 9) {
+                if (prCanPlace(world, x, y, 'D')) continue;
+                const c = paSnCandidates(world, frame, x, y, PA_SN_RANK)[0];
+                const s = c ? c.rank * (c.points + 0.5) : 0;
+                if (c && (!best || s > best.s)) best = { x, y, s };
+            }
+        }
+        return best ? [best.x, best.y] : psCueHome(world);
+    }
+
+    // After a foul against it: a free ball when it has one and a pot to play with it; else
+    // play on when there is a pot or a fair hit, and put the offender back in when the
+    // table is worse for whoever is at it (snookered, nothing on).
+    function paSnChoose(frame, world) {
+        const p = frame.pending;
+        if (!p) return 'play';
+        const as = id => psChoose(frame, id);
+        const mine = id => paSnLeave(world, as(id));
+        if (p.options.indexOf('free') >= 0 && mine('free') >= 0.3) return 'free';
+        const play = mine('play'), stuck = paSnSnookered(world, as('play'));
+        if (p.options.indexOf('back') >= 0 && (stuck || play < 0.15) && !(p.options.indexOf('free') >= 0)) return 'back';
+        return p.options.indexOf('free') >= 0 && stuck ? 'free' : 'play';
+    }
+
+    // Does the CPU give the frame away (POOL_V2_PLAN.md, Snooker, implementer's calls)? Easy
+    // never; normal in the clearance needing more than 2 snookers; hard and pro in the
+    // clearance needing more than 1, or more than 2 with 3 reds or fewer left.
+    function paSnConcede(frame, world, tier) {
+        if (tier === 'easy' || frame.over || frame.isBreak) return false;
+        const live = world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed').map(b => b.id);
+        const need = psSnookersRequired(frame, live, frame.turn), reds = live.filter(psIsRed).length;
+        if (tier === 'normal') return frame.phase === 'clearance' && need > 2;
+        return (frame.phase === 'clearance' && need > 1) || (reds <= 3 && need > 2);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — GAME (v2)
     // ═══════════════════════════════════════════════════════════════════
     // The controller: it runs the match and ties the physics, rules, camera,
-    // renderer, HUD and CPU into the panel the host shows.
+    // renderer, HUD and CPU into the panel the host shows. Pool and snooker share it
+    // (POOL_V2_PLAN.md, Snooker): what differs between them is one profile in
+    // POOL_GAMES, and poolRules() is the one being played.
     //
     // What the rest of the userscript calls:
     //   initPoolGame()        switchGame opened the panel: build it once, keep a
@@ -6259,6 +8012,11 @@
     //   poolMode, poolGamesWon, poolMaximized, poolRecord, poolCpuTier
     //   poolWinsByTier()      your CPU wins by the tier each frame was locked to
     //                         read by the leaderboard, achievements and tests
+    //   poolSetVariant(game)  ⚙️ Cue Game: 'pool' or 'snooker'. The frame in progress is
+    //                         parked and the other game's comes back (or a fresh rack)
+    //   poolOnPrefChange(p)   a ⚙️ setting the controller follows changed (the game, the
+    //                         CPU difficulty, snooker's reds)
+    //   poolTitle()           "🎱 8-Ball Pool" or "🔴 Snooker", for the panel header
     //
     // Input (POOL_V2_PLAN.md, Input):
     //   3D     sideways mouse movement turns the aim (0.3°/px, Shift 0.05°/px),
@@ -6286,10 +8044,222 @@
     // 2 Players as it has always paid Player 1, a tournament match for the YOU seat only.
     const POOL_WIN_XP = { easy: 60, normal: 80, hard: 100, pro: 120 };
     const POOL_LOSS_XP = 15, POOL_PVP_WIN_XP = 80, POOL_TOUR_WIN_XP = 80;
+    // Snooker's (POOL_V2_PLAN.md, Snooker · XP): a CPU win by the tier and the reds (a longer
+    // frame pays more), a loss 20; your best break of the frame against the CPU adds a bonus,
+    // won or lost. At most 180 + 50 = 230 a frame, inside the bot's 250 a game. 2 Players and
+    // tournaments pay as pool; no pot pays.
+    const POOL_SNK_WIN_XP = {
+        15: { easy: 90, normal: 120, hard: 150, pro: 180 },
+        10: { easy: 75, normal: 100, hard: 125, pro: 150 },
+        6: { easy: 60, normal: 80, hard: 100, pro: 120 },
+    };
+    const POOL_SNK_LOSS_XP = 20;
+    const poolSnkBreakBonus = h => (h >= 147 ? 50 : h >= 100 ? 25 : h >= 50 ? 10 : 0);
+    // A break can be no bigger than a 15-red frame with a free ball (8 + 15 × 8 + 27).
+    const POOL_SNK_BREAK_CAP = 155;
     const POOL_MAX_W = 1280, POOL_MAX_H = 800;
     const POOL_DEG = Math.PI / 180;
-    const POOL_TOUR_KEY = 'poolTournament', POOL_CAB_KEY = 'poolTrophyCabinet';
     const POOL_RESULT_MS = 1100;             // the last pot drops before the match result covers the table
+
+    // ── Games ─────────────────────────────────────────────────────────
+    // Everything the controller asks of a game: its table and rack, its rules, its CPU,
+    // where its records live, what it pays and what it is called. Nothing below this
+    // block names a game's rules, CPU or storage directly (pool-verify.js checks it).
+    const POOL_GAMES = {
+        pool: {
+            id: 'pool', title: '8-Ball Pool', icon: '🎱', lb: 'pool', xpType: 'pool', diffPref: 'poolDifficulty', diffs: PH_DIFFS,
+            keys: { cpuRec: 'poolCpuRecord', byTier: 'poolWinsByTier', tour: 'poolTournament', cab: 'poolTrophyCabinet' },
+            clock: POOL_CLOCK_S,
+            // Aim steps: ←/→ and the Shift fine aim, in degrees.
+            aimKey: 0.1, aimFine: 0.05,
+            // Seat records for the cards (p1Wins, p1Losses, p2Wins, p2Losses).
+            record: () => poolRecord,
+            world: () => ppCreateWorld(),
+            rack: (w, rng) => ppRack(w, rng),
+            // Inside the kitchen, not on its line, so a press on the ball never rounds past it.
+            cueHome: w => [w.table.headX - 80, 0],
+            newFrame: o => prNewFrame({ breaker: o.breaker, callEvery: o.callEvery }),
+            status: (f, w, seat) => prStatus(f, w, seat),
+            judge: (f, w, pick) => prJudge(f, w, pick.call),
+            // The frame's call rule: every shot at pro, or as the tournament sets it.
+            lockCall: (f, tier) => { f.callEvery = poolS.callEvery || (poolMode === 'cpu' && !!tier.callEvery); },
+            // After the verdict, before the next turn: the 8 potted on the break comes back.
+            apply: (w, v) => { if (v.respot8) prSpotBall(w, 8); },
+            timeout: f => prTimeout(f),
+            text: (v, names) => prText(v, names),
+            // May this ball be hit first? (the aim-at-nearest pick and the illegal-target sign)
+            legal: (f, w, id) => {
+                const st = prStatus(f, w);
+                if (f.isBreak) return true;
+                if (st.onThe8) return id === 8;
+                if (id === 8) return false;
+                return !st.group || prGroupOf(id) === st.group;
+            },
+            canPlace: (w, x, y, zone) => prCanPlace(w, x, y, zone),
+            clampPlace: (w, x, y, zone) => prClampPlace(w, x, y, zone),
+            placeCue: (w, x, y) => prPlaceCue(w, x, y),
+            // The balls a card lists as potted on an open table: the 8 comes back on the break.
+            tracksPot: id => id > 0 && id < 16 && id !== 8,
+            ballCount: () => 16,
+            validFrame: f => !!f && f.v === 1 && (f.turn === 1 || f.turn === 2) && !f.over,
+            tourDefaults: { game: 'pool', call: '8', calls: [['8', '8 only'], ['every', 'Every shot']] },
+            cpu: { tiers: PA_TIERS, names: PA_TIER_NAMES, plan: paPlan, place: paPlace, tierFor: paTierFor, adaptive: paAdaptiveTier },
+            // XP a pot, for your pots against the CPU (poolAwardPots).
+            potXP: POOL_POT_XP,
+            // A quick frame's XP: a CPU win by the tier it was played at, 2 Players as it has
+            // always paid Player 1.
+            frameXP: c => (!c.won ? POOL_LOSS_XP : c.vsCPU ? POOL_WIN_XP[c.tier] || POOL_WIN_XP.normal : POOL_PVP_WIN_XP),
+            // What else the award reports (the host's achievement check reads it): nothing more.
+            xpPerf: () => ({}),
+            // A quick frame's records, through the host's storage helpers. Seat 1 is you.
+            fileResult: (w, vsCPU, tier) => {
+                if (!poolRecord) poolRecord = loadPoolRecord();
+                // Seed the per-mode split before the all-time count moves; seeded after,
+                // it would copy this win in and then count it again.
+                loadPoolWinsByMode();
+                if (w === 1) {
+                    poolGamesWon++;
+                    savePoolHighScore(poolGamesWon);
+                    savePoolWinByMode(poolMode);
+                    // Filed before the award: the award's achievement check and the wins button read it.
+                    if (vsCPU) poolRecordTierWin(tier);
+                    poolRecord.p1Wins++; poolRecord.p2Losses++;
+                    savePoolRecord(poolRecord);
+                } else if (w === 2) {
+                    poolRecord.p2Wins++; poolRecord.p1Losses++;
+                    savePoolRecord(poolRecord);
+                }
+            },
+            // The wins button: the tier being played, 2 Players, or (in a tournament, which has
+            // no board) the all-time CPU total.
+            wins: () => {
+                const byMode = loadPoolWinsByMode();
+                if (poolMode === 'pvp') return byMode.pvp;
+                if (poolMode === 'cpu') return poolWinsByTier()[poolCpuTier] || 0;
+                return byMode.cpu;
+            },
+        },
+        // Snooker (POOL_V2_PLAN.md, Snooker): the same table component on snooker's table
+        // (pool-snooker.js), 147 rules, a colour nominated when one is on, the choice after a
+        // foul, and a frame that survives a reload. Its CPU is pool-snooker-ai.js (S4); its XP,
+        // records and high break are filed under its own names (S6).
+        snooker: {
+            id: 'snooker', title: 'Snooker', icon: '🔴', lb: 'snooker', xpType: 'snooker', diffPref: 'snookerDifficulty', diffs: PH_SNK_DIFFS,
+            keys: { cpuRec: 'snookerCpuRecord', byTier: 'snookerWinsByTier', tour: 'snookerTournament', cab: 'snookerTrophyCabinet', frame: 'snookerFrame' },
+            // Aiming at true scale is slower (implementer's call 4), and so is finer aim.
+            clock: 45, aimKey: 0.025, aimFine: 0.0125,
+            // The ⚙️ setting a fresh frame racks from.
+            rackPref: 'snookerReds',
+            aimClear: true,
+            world: () => psCreateWorld(),
+            rack: (w, rng) => psRack(w, rng, POOL_GAMES.snooker.framesReds()),
+            cueHome: w => psCueHome(w),
+            newFrame: o => psNewFrame({ breaker: o.breaker, reds: POOL_GAMES.snooker.framesReds(), seed: o.seed }),
+            status: (f, w, seat) => psStatus(f, w, seat || f.turn, poolS.nom),
+            judge: (f, w, pick) => psJudge(f, w, pick.nominate, pick.call),
+            // The call pocket (off / colours / all): a picked tier's (hard the colours, pro every
+            // ball; Adaptive hands no rule change), the tournament's, and none in 2 Players.
+            lockCall: (f, tier) => { f.call = poolMode === 'tour' ? poolS.callMode : poolMode === 'cpu' && poolDifficulty() !== 'adaptive' ? (tier.call || 'off') : 'off'; },
+            apply: (w, v) => psApplySpots(w, v.spots),
+            timeout: (f, w) => psTimeout(f, w, poolS.nom),
+            text: (v, names) => psText(v, names),
+            // Just before the strike: the balls touching the cue ball at rest (touching ball).
+            prime: (f, w) => Object.assign({}, f, { touching: psTouching(w.balls, w.cfg.ballR) }),
+            // What may be hit first: the ball on; before a colour is nominated, any of those
+            // that may be (so aim-at-nearest finds one).
+            legal: (f, w, id) => {
+                const on = psStatus(f, w, f.turn, poolS.nom).on;
+                return on.needsNomination && on.nominated < 0 ? on.nominable.indexOf(id) >= 0 : on.ids.indexOf(id) >= 0;
+            },
+            canPlace: (w, x, y, zone) => prCanPlace(w, x, y, zone),
+            clampPlace: (w, x, y, zone) => prClampPlace(w, x, y, zone),
+            placeCue: (w, x, y) => prPlaceCue(w, x, y),
+            tracksPot: () => false,
+            ballCount: f => 7 + psRedsOf(f && f.reds),
+            validFrame: f => !!f && f.v === 1 && f.game === 'snooker' && (f.turn === 1 || f.turn === 2) && !f.over && PS_REDS.indexOf(f.reds) >= 0 && (f.call === undefined || PS_CALLS.indexOf(f.call) >= 0),
+            tourDefaults: { game: 'snooker', reds: 15, call: 'off', calls: [['off', 'Off'], ['colours', 'Colours'], ['all', 'All balls']] },
+            // A tournament frame's score and each seat's best break, for the bracket (the result
+            // screen lists them).
+            tourFrame: v => ({ points: [v.next.scores[1], v.next.scores[2]], high: [v.next.high[1], v.next.high[2]] }),
+            // The reds a frame racks: the tournament's own, else ⚙️'s.
+            framesReds: () => psRedsOf(poolMode === 'tour' && poolS.tour.t && poolS.tour.t.settings.reds ? poolS.tour.t.settings.reds : +userPreferences.snookerReds),
+            // After a foul, and giving the frame away.
+            choose: (f, id) => psChoose(f, id),
+            choices: (p, names) => psChoiceText(p, names),
+            choiceNotice: (p, id, names) => psChoiceNotice(p, id, names),
+            concede: (f, seat) => psConcede(f, seat),
+            resultText: (v, names) => psResultText(v, names),
+            // The CPU (pool-snooker-ai.js). A trial is 5–8 ms at 22 balls, so it thinks in
+            // 12 ms slices (the table stands still meanwhile, so a frame costs next to nothing to
+            // draw); it concedes by tier.
+            cpu: { tiers: PA_SN_TIERS, names: PA_SN_NAMES, plan: paSnPlan, place: paSnPlace, choose: (f, w) => paSnChoose(f, w), concede: paSnConcede, slice: 12,
+                tierFor: (pref, rec) => (PA_SN_TIERS[pref] ? pref : paAdaptiveTier(rec)), adaptive: rec => paAdaptiveTier(rec) },
+            potXP: 0,
+            // A quick frame's XP: against the CPU by the tier and the reds, plus the break bonus
+            // for seat 1's best break; 2 Players as pool.
+            frameXP: c => {
+                if (!c.vsCPU) return c.won ? POOL_PVP_WIN_XP : POOL_LOSS_XP;
+                const byTier = POOL_SNK_WIN_XP[c.frame && c.frame.reds] || POOL_SNK_WIN_XP[15];
+                const high = c.frame && c.frame.high ? c.frame.high[1] || 0 : 0;
+                return (c.won ? byTier[c.tier] || byTier.normal : POOL_SNK_LOSS_XP) + poolSnkBreakBonus(high);
+            },
+            // The reds and your best break go with the award: Century and Maximum read them.
+            xpPerf: f => ({ reds: f ? f.reds : 15, highBreak: f && f.high ? Math.min(POOL_SNK_BREAK_CAP, f.high[1] || 0) : 0 }),
+            record: () => poolStoreRead('snookerRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 }),
+            fileResult: (w, vsCPU, tier, f) => {
+                // Your best break against the CPU, at every frame end, lost or conceded too (the
+                // High break board). 2 Players' breaks are not kept: either seat is this account.
+                if (vsCPU && f && f.high) {
+                    const best = poolStoreNum('snookerHighBreak'), mine = Math.min(POOL_SNK_BREAK_CAP, f.high[1] || 0);
+                    if (mine > best) poolStoreWrite('snookerHighBreak', mine);
+                }
+                const rec = poolStoreRead('snookerRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 });
+                const byMode = poolStoreRead('snookerWinsByMode', { cpu: 0, pvp: 0 });
+                if (w === 1) {
+                    byMode[poolMode === 'pvp' ? 'pvp' : 'cpu']++;
+                    if (vsCPU) poolRecordTierWin(tier);
+                    rec.p1Wins++; rec.p2Losses++;
+                } else if (w === 2) { rec.p2Wins++; rec.p1Losses++; }
+                poolStoreWrite('snookerRecord', rec);
+                poolStoreWrite('snookerWinsByMode', byMode);
+            },
+            wins: () => {
+                const byMode = poolStoreRead('snookerWinsByMode', { cpu: 0, pvp: 0 });
+                if (poolMode === 'pvp') return byMode.pvp;
+                if (poolMode === 'cpu') return poolWinsByTier()[poolCpuTier] || 0;
+                return byMode.cpu;
+            },
+        },
+    };
+    // A small record in localStorage, read with every field a whole number (a corrupt or
+    // missing one reads as the defaults, never as a throw).
+    function poolStoreRead(key, defaults) {
+        const out = Object.assign({}, defaults);
+        try {
+            const raw = JSON.parse(localStorage.getItem(key) || 'null');
+            if (raw && typeof raw === 'object') Object.keys(defaults).forEach(k => { out[k] = parseInt(raw[k], 10) || 0; });
+        } catch (_) {}
+        return out;
+    }
+    // A whole number in localStorage (0 when missing or corrupt).
+    function poolStoreNum(key) { try { return Math.max(0, parseInt(localStorage.getItem(key) || '0', 10) || 0); } catch (_) { return 0; } }
+    function poolStoreWrite(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {} }
+    const poolRules = () => POOL_GAMES[poolS.game] || POOL_GAMES.pool;
+    // The panel plays this game from now: its table config, and a fresh camera and cache
+    // for it. The frame on the table is the caller's business.
+    function poolUseGame(game) {
+        const S = poolS;
+        // Each game has its own tournament (bracket, screens, saved key).
+        S.tours[S.game] = S.tour;
+        S.game = POOL_GAMES[game] ? game : 'pool';
+        S.tour = S.tours[S.game] || (S.tours[S.game] = poolTourFresh());
+        S.cfg = poolRules().world().cfg;
+        if (poolMode !== 'tour') S.clockTotal = poolRules().clock || POOL_CLOCK_S;
+        S.director = null; S.cache = {}; S.W = S.H = 0; S.drawKey = ''; S.guide = null; S.guideKey = '';
+    }
+    const poolTourFresh = () => ({ t: null, screen: null, dialog: null, dlgBack: null, tab: 0, matchId: null, setup: null, cab: null, cabBack: null,
+        prevMode: 'cpu', pending: 0, rev: 0, checked: false });
+    function poolTitle() { const R = poolRules(); return R.icon + ' ' + R.title; }
 
     let poolMode = 'cpu';                    // 'cpu' | 'pvp' | 'tour'
     let poolGamesWon = 0;                    // all-time wins, as stored by savePoolHighScore
@@ -6302,10 +8272,18 @@
     // Everything else about the panel and the match lives in one object, so
     // a reset is a reassignment rather than thirty lines of lets.
     const poolS = {
+        game: 'pool',                        // the game on the table: a key of POOL_GAMES
         root: null, hudC: null, hudM: null, hud: null, canvas: null, ctx: null, maxFrame: null, maxPanel: null,
         W: 0, H: 0, dpr: 1, cfg: null, director: null, cache: {},
         world: null, frame: null, rackId: 0, awardedRack: -1, breaker: 1, frames: [0, 0], seed: 0, rng: null,
         phase: 'aim', aim: 0, power: 0, tip: { x: 0, y: 0 }, spinOpen: false, called: -1, guide: null, guideKey: '',
+        // Snooker: the colour nominated for this shot (-1: none), the concede question, and
+        // the frame parked by the other game while this one is on the table.
+        nom: -1, confirm: false, parked: {}, tours: {},
+        // Snooker: the chips opened again after a colour was nominated (they fold to that one).
+        chipsOpen: false,
+        // The CPU's safeties in a row this frame (snooker's CPU attacks after three).
+        cpuSafeRun: 0,
         drops: [], down: new Set(), drag: null, strikeT: 0, shot: null,
         // The object balls each seat has potted this frame (the cards show them on an open
         // table).
@@ -6316,11 +8294,13 @@
         cpuRec: null, sheet: { open: false, mode: 'cpu' },
         // Table settings: guide length (full | short | off) and call every shot. Fixed for
         // quick matches today; tournaments (Phase 7) and the pro tier (Phase 6) set them.
-        guideMode: 'full', callEvery: false, clockTotal: POOL_CLOCK_S,
+        guideMode: 'full', callEvery: false, callMode: 'off', clockTotal: POOL_CLOCK_S,
         // The tournament: the bracket (t, with t.current the match in progress), the screen
         // and dialog over the panel, the match on the table, setup's draft, the cabinet.
         tour: { t: null, screen: null, dialog: null, dlgBack: null, tab: 0, matchId: null, setup: null, cab: null, cabBack: null,
             prevMode: 'cpu', pending: 0, rev: 0, checked: false },
+        // The phase 'choice' holds the table after a foul in snooker until the incoming
+        // player picks how play continues.
         running: false, raf: null, lastMs: 0, acc: 0, sinceDraw: 0, drawKey: '',
         attached: false, armed: false, lastX: null, leanSave: null, scheme: null,
     };
@@ -6333,19 +8313,20 @@
         return poolMode === 'cpu' ? { 1: me || 'You', 2: 'CPU' } : { 1: me || 'Player 1', 2: 'Player 2' };
     }
     // The picked difficulty: 'adaptive' (the default) or a pinned tier.
-    const poolDifficulty = () => (PA_TIERS[userPreferences.poolDifficulty] ? userPreferences.poolDifficulty : 'adaptive');
+    const poolDifficulty = () => { const R = poolRules(), d = userPreferences[R.diffPref]; return R.cpu.tiers[d] ? d : 'adaptive'; };
     function poolLoadCpuRecord() {
         let r = null;
-        try { r = JSON.parse(localStorage.getItem('poolCpuRecord') || 'null'); } catch (_) {}
+        try { r = JSON.parse(localStorage.getItem(poolRules().keys.cpuRec) || 'null'); } catch (_) {}
         return { wins: (r && parseInt(r.wins, 10)) || 0, losses: (r && parseInt(r.losses, 10)) || 0 };
     }
-    function poolSaveCpuRecord(r) { try { localStorage.setItem('poolCpuRecord', JSON.stringify(r)); } catch (_) {} }
+    function poolSaveCpuRecord(r) { try { localStorage.setItem(poolRules().keys.cpuRec, JSON.stringify(r)); } catch (_) {} }
     const poolCpuRec = () => poolS.cpuRec || (poolS.cpuRec = poolLoadCpuRecord());
-    // Locks the tier for the frame; pro calls every shot, for both seats.
+    // Locks the tier for the frame, and with it the frame's call rule (for both seats).
     function poolLockTier() {
         const S = poolS;
-        poolCpuTier = paTierFor(poolDifficulty(), poolCpuRec());
-        S.frame.callEvery = S.callEvery || (poolMode === 'cpu' && !!PA_TIERS[poolCpuTier].callEvery);
+        const cpu = poolRules().cpu;
+        poolCpuTier = cpu.tierFor(poolDifficulty(), poolCpuRec());
+        poolRules().lockCall(S.frame, cpu.tiers[poolCpuTier]);
         // The wins button shows the board being played for, and that is this frame's tier.
         poolRefreshScoreBtn();
     }
@@ -6355,9 +8336,9 @@
     function poolRecordText(seat) {
         const m = poolTourMatch();
         if (m) return 'Seed ' + poolS.tour.t.slots[seat === 1 ? m.a : m.b].seed;
-        const r = poolRecord || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
+        const r = poolRules().record() || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
         if (poolMode === 'cpu' && seat === 2) {
-            const label = PA_TIERS[poolCpuTier].label;
+            const label = poolRules().cpu.tiers[poolCpuTier].label;
             return poolDifficulty() === 'adaptive' ? 'Adaptive · ' + label : label;
         }
         return seat === 1 ? r.p1Wins + 'W · ' + r.p1Losses + 'L' : r.p2Wins + 'W · ' + r.p2Losses + 'L';
@@ -6366,30 +8347,26 @@
     // changed mid-frame cannot re-file a win. Not seeded from the all-time count: those
     // wins' difficulty was never recorded, so they stay on the All-time board.
     function poolWinsByTier() {
-        const out = { easy: 0, normal: 0, hard: 0, pro: 0 };
+        const R = poolRules(), out = {};
+        R.cpu.names.forEach(t => { out[t] = 0; });
         try {
-            const raw = JSON.parse(localStorage.getItem('poolWinsByTier') || 'null');
-            if (raw && typeof raw === 'object') PA_TIER_NAMES.forEach(t => { out[t] = parseInt(raw[t], 10) || 0; });
+            const raw = JSON.parse(localStorage.getItem(R.keys.byTier) || 'null');
+            if (raw && typeof raw === 'object') R.cpu.names.forEach(t => { out[t] = parseInt(raw[t], 10) || 0; });
         } catch (_) { /* corrupt storage reads as no wins, never as a throw */ }
         return out;
     }
     function poolRecordTierWin(tier) {
-        if (PA_TIER_NAMES.indexOf(tier) === -1) return;
+        const R = poolRules();
+        if (R.cpu.names.indexOf(tier) === -1) return;
         const byTier = poolWinsByTier();
         byTier[tier]++;
-        try { localStorage.setItem('poolWinsByTier', JSON.stringify(byTier)); } catch (_) { /* quota */ }
+        try { localStorage.setItem(R.keys.byTier, JSON.stringify(byTier)); } catch (_) { /* quota */ }
     }
-    // The count on the wins button: the tier being played, 2 Players, or (in a tournament,
-    // which has no board) the all-time CPU total.
-    function poolWins() {
-        const byMode = loadPoolWinsByMode();
-        if (poolMode === 'pvp') return byMode.pvp;
-        if (poolMode === 'cpu') return poolWinsByTier()[poolCpuTier] || 0;
-        return byMode.cpu;
-    }
+    // The count on the wins button, by the game's own rule.
+    const poolWins = () => poolRules().wins();
     // The header button and the Max trophy show the same count; it only changes when a
     // frame ends or the mode flips, so it is read here and cached, not every frame.
-    function poolRefreshScoreBtn() { poolS.wins = poolWins(); updateGameScoreBtn('pool', null, poolS.wins); }
+    function poolRefreshScoreBtn() { poolS.wins = poolWins(); updateGameScoreBtn(poolRules().lb, null, poolS.wins); }
     const poolCpuTurn = () => poolMode === 'cpu' && poolS.frame && poolS.frame.turn === 2 && !poolS.frame.over;
     const poolCueBall = () => poolS.world.balls[0];
     const poolSpeedOf = p => poolS.cfg.maxSpeed * p / 100;
@@ -6397,20 +8374,20 @@
 
     // ── Frames ────────────────────────────────────────────────────────
     function poolNewFrame(breaker) {
-        const S = poolS;
-        if (!S.cfg) S.cfg = ppCreateWorld().cfg;
+        const S = poolS, R = poolRules();
+        if (!S.cfg) poolUseGame(S.game);
         S.seed = (Date.now() ^ (S.rackId * 2654435761)) >>> 0;
         S.rng = ppRandom(S.seed);
-        S.world = ppRack(ppCreateWorld(), S.rng);
+        S.world = R.rack(R.world(), S.rng);
         S.breaker = breaker === 2 ? 2 : 1;
-        S.frame = prNewFrame({ breaker: S.breaker, callEvery: S.callEvery });
+        S.frame = R.newFrame({ breaker: S.breaker, callEvery: S.callEvery, seed: S.seed });
         poolLockTier();
         S.rackId++;
-        // Inside the kitchen, not on its line, so a press on the ball never rounds past it.
-        S.world.balls[0].x = S.world.table.headX - 80; S.world.balls[0].y = 0;
-        S.down = new Set(); S.drops = []; S.called = -1; S.guide = null; S.guideKey = ''; S.pots = { 1: [], 2: [] };
+        const home = R.cueHome(S.world);
+        S.world.balls[0].x = home[0]; S.world.balls[0].y = home[1];
+        S.down = new Set(); S.drops = []; S.called = -1; S.guide = null; S.guideKey = ''; S.pots = { 1: [], 2: [] }; S.cpuSafeRun = 0;
         S.aim = 0; S.power = 0; S.tip = { x: 0, y: 0 }; S.spinOpen = false; S.phase = 'bih'; S.placed = false; S.drag = null; S.shot = null;
-        S.toast = null; S.toastMs = 0; S.fouled = 0; S.result = null; S.cpu = null;
+        S.toast = null; S.toastMs = 0; S.fouled = 0; S.result = null; S.cpu = null; S.nom = -1; S.confirm = false;
         // A tournament's later frames start with the breaker taking the seat.
         const tm = poolTourMatch();
         S.handoff = tm && tm.frames.length > 0 ? S.breaker : 0; S.clockLeft = S.clockTotal || POOL_CLOCK_S;
@@ -6418,7 +8395,7 @@
     }
 
     function resetPoolGame() {
-        if (!poolS.cfg) poolS.cfg = ppCreateWorld().cfg;
+        if (!poolS.cfg) poolUseGame(poolS.game);
         // A tournament frame is not re-rackable: that would undo a lost frame.
         if (poolMode === 'tour' && poolTourMatch()) return;
         poolNewFrame(poolS.breaker);
@@ -6434,32 +8411,18 @@
 
     // The frame is over: record it once per rack, however it ended.
     function poolEndFrame(v) {
-        const S = poolS, w = v.winner;
+        const S = poolS, w = v.winner, R = poolRules();
         if (S.awardedRack === S.rackId) return;
         S.awardedRack = S.rackId;
+        // A frame that survives a reload is gone once it is decided, before anything is paid.
+        poolClearSaved();
         // Tournament frames go to the bracket, not to the quick-match records or XP (Phase 8).
-        if (poolMode === 'tour') { poolTourFrameOver(w); return; }
-        if (!poolRecord) poolRecord = loadPoolRecord();
-        // Seed the per-mode split before the all-time count moves; seeded after,
-        // it would copy this win in and then count it again.
-        loadPoolWinsByMode();
-        const vsCPU = poolMode === 'cpu', tier = poolCpuTier;
-        if (w === 1) {
-            poolGamesWon++;
-            savePoolHighScore(poolGamesWon);
-            savePoolWinByMode(poolMode);
-            // Filed before the award: the award's achievement check and the wins button read it.
-            if (vsCPU) poolRecordTierWin(tier);
-            poolRecord.p1Wins++; poolRecord.p2Losses++;
-            savePoolRecord(poolRecord);
-        } else if (w === 2) {
-            poolRecord.p2Wins++; poolRecord.p1Losses++;
-            savePoolRecord(poolRecord);
-        }
+        if (poolMode === 'tour') { poolTourFrameOver(w, v); return; }
+        const vsCPU = poolMode === 'cpu', tier = poolCpuTier, f = v.next || S.frame;
+        R.fileResult(w, vsCPU, tier, f);
         if (w === 1 || w === 2) {
             const won = w === 1;
-            awardGameXP('pool', { won, vsCPU, tier: vsCPU ? tier : null,
-                xp: !won ? POOL_LOSS_XP : vsCPU ? POOL_WIN_XP[tier] || POOL_WIN_XP.normal : POOL_PVP_WIN_XP });
+            awardGameXP(R.xpType, Object.assign({ won, vsCPU, tier: vsCPU ? tier : null, xp: R.frameXP({ won, vsCPU, tier, frame: f }) }, R.xpPerf(f)));
         }
         if (poolMode === 'cpu') {
             const rec = poolCpuRec();
@@ -6470,24 +8433,26 @@
         poolRefreshScoreBtn();
     }
 
-    // +5 XP per legal pot, for your pots against the CPU only. 2 Players paid both seats
-    // (problem 8): the XP lands on this machine's account whoever is at the table.
+    // XP per legal pot (pool's +5), for your pots against the CPU only, in a game that pays
+    // pots. 2 Players paid both seats (problem 8): the XP lands on this machine's account
+    // whoever is at the table.
     function poolAwardPots(seat, n) {
-        if (!n || poolMode !== 'cpu' || seat !== 1 || !xpSystemReady) return;
-        const xpGained = n * POOL_POT_XP;
+        const per = poolRules().potXP;
+        if (!n || !per || poolMode !== 'cpu' || seat !== 1 || !xpSystemReady) return;
+        const xpGained = n * per;
         userXP.currentXP += xpGained;
         userXP.totalXP += xpGained;
         checkLevelUp();
         saveUserXP(userXP);
-        showXPNotification('🎱 +' + xpGained + ' XP (' + (n === 1 ? '1 pot' : n + ' pots') + ')', 'game');
+        showXPNotification(poolRules().icon + ' +' + xpGained + ' XP (' + (n === 1 ? '1 pot' : n + ' pots') + ')', 'game');
         updateXPDisplay();
     }
 
     // What the frame-over dialog says about the next frame's CPU, when adaptive.
     function poolAdaptiveNote() {
         if (poolMode !== 'cpu' || poolDifficulty() !== 'adaptive') return '';
-        const now = poolCpuTier, next = paAdaptiveTier(poolCpuRec()), label = PA_TIERS[next].label;
-        const d = PA_TIER_NAMES.indexOf(next) - PA_TIER_NAMES.indexOf(now);
+        const cpu = poolRules().cpu, now = poolCpuTier, next = cpu.adaptive(poolCpuRec()), label = cpu.tiers[next].label;
+        const d = cpu.names.indexOf(next) - cpu.names.indexOf(now);
         return d > 0 ? 'Adaptive steps up to ' + label + ' next frame' : d < 0 ? 'Adaptive eases to ' + label + ' next frame' : 'Adaptive stays at ' + label;
     }
 
@@ -6495,59 +8460,94 @@
 
     // Applies a verdict (a judged shot or a timeout) and sets up the next turn.
     function poolAfterTurn(v) {
-        const S = poolS, shooter = v.shooter;
-        S.frame = v.next; S.called = -1; S.tip = { x: 0, y: 0 }; S.spinOpen = false; S.power = 0; S.cpu = null; S.shot = null;
+        const S = poolS, R = poolRules(), shooter = v.shooter;
+        S.frame = v.next; S.called = -1; S.nom = -1; S.confirm = false; S.tip = { x: 0, y: 0 }; S.spinOpen = false; S.power = 0; S.cpu = null; S.shot = null;
         if (v.frameOver) {
-            const w = v.winner, t = prText(v, poolNames());
+            const w = v.winner, t = R.text(v, poolNames());
             const you = poolMode === 'cpu' ? w === 1 : null;
+            // Snooker's dialog says why in a sentence, with the score and high break beside it.
+            const more = R.resultText ? R.resultText(v, poolNames()) : null;
             poolEndFrame(v);
             if (poolMode === 'tour') { poolTourResult(t); return; }
             S.result = {
-                win: you === null ? true : you, title: t.title, reason: t.sub,
+                win: you === null ? true : you, title: t.title, reason: more ? more.reason : t.sub,
                 recordLabel: (poolMode === 'cpu' ? poolNames()[1] : poolNames()[w]).toUpperCase() + ' · RECORD',
                 record: poolRecordText(poolMode === 'cpu' ? 1 : w),
                 delta: poolMode === 'cpu' ? (you ? '+1 WIN' : '+1 LOSS') : '+1 WIN',
                 note: poolAdaptiveNote(),
             };
+            if (more) S.result.stats = [{ label: 'SCORE', value: more.score }, { label: 'HIGH BREAK', value: more.high }];
             S.phase = 'over'; S.toast = null;
             return;
         }
         S.fouled = v.foul ? shooter : 0;
         // Hot-seat: when the table changes hands, the next player takes the seat first.
         if (poolMode !== 'cpu' && S.frame.turn !== shooter) S.handoff = S.frame.turn;
+        // Snooker after a foul: the table waits for the incoming player's choice.
+        if (S.frame.pending) { S.phase = 'choice'; S.clockLeft = S.clockTotal || POOL_CLOCK_S; }
+        else poolStartTurn();
+        // A shot boundary: the table is still, so this is the state a reload comes back to.
+        poolTourSnapshot();
+        poolSaveFrame();
+    }
+
+    // The player at the table starts a turn: with the cue ball in hand (placed at home when it
+    // went down, or when snooker's D needs it back), or from where it lies.
+    function poolStartTurn() {
+        const S = poolS, R = poolRules();
         if (S.frame.ballInHand) {
             const c = poolCueBall();
-            if (c.state === 'pocketed') prPlaceCue(S.world, S.world.table.headX - 80, 0);
+            if (c.state === 'pocketed' || (S.frame.ballInHand === 'D' && R.canPlace(S.world, c.x, c.y, 'D'))) { const home = R.cueHome(S.world); R.placeCue(S.world, home[0], home[1]); }
             S.phase = 'bih'; S.placed = false;
         } else { S.phase = 'aim'; poolAimAtNearest(); }
         S.clockLeft = S.clockTotal || POOL_CLOCK_S;
-        // A shot boundary: the table is still, so this is the state a reload comes back to.
+    }
+
+    // The incoming player's choice after a snooker foul (psChoose): play, put the offender back
+    // in, or take the free ball. A CPU's choice is named in a notice; in hot-seat, a change of
+    // seat is handed over first.
+    function poolChoose(id, byCpu) {
+        const S = poolS, R = poolRules(), p = S.frame && S.frame.pending;
+        if (!p || !R.choose || p.options.indexOf(id) < 0) return;
+        const before = S.frame.turn;
+        S.frame = R.choose(S.frame, id);
+        S.fouled = 0; S.nom = -1;
+        poolShowToast(byCpu ? { kind: 'notice', title: R.choiceNotice(p, id, poolNames()), sub: '' } : null);
+        if (poolMode !== 'cpu' && S.frame.turn !== before) S.handoff = S.frame.turn;
+        poolStartTurn();
         poolTourSnapshot();
+        poolSaveFrame();
     }
 
     function poolSettle() {
-        const S = poolS;
-        const v = prJudge(S.frame, S.world, S.called);
-        poolShowToast(prText(v, poolNames()));
-        if (v.respot8) prSpotBall(S.world, 8);
-        if (!v.foul) poolAwardPots(v.shooter, v.counted.length);
+        const S = poolS, R = poolRules();
+        const v = R.judge(S.frame, S.world, { call: S.called, nominate: S.nom });
+        poolShowToast(R.text(v, poolNames()));
+        R.apply(S.world, v);
+        if (!v.foul && v.counted) poolAwardPots(v.shooter, v.counted.length);
         poolAfterTurn(v);
     }
 
     // ── Aim helpers ───────────────────────────────────────────────────
-    function poolLegalTarget(id) {
-        const S = poolS, st = prStatus(S.frame, S.world);
-        if (S.frame.isBreak) return true;
-        if (st.onThe8) return id === 8;
-        if (id === 8) return false;
-        return !st.group || prGroupOf(id) === st.group;
-    }
+    const poolLegalTarget = id => poolRules().legal(poolS.frame, poolS.world, id);
     function poolAimAtNearest() {
         const S = poolS, c = poolCueBall();
         const cands = S.world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed' && poolLegalTarget(b.id));
         if (!cands.length) return;
         cands.sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y));
-        S.aim = Math.atan2(cands[0].y - c.y, cands[0].x - c.x);
+        // Snooker's balls sit in each other's way (the brown between the D and the pack): the
+        // nearest one with a clear line, if any.
+        let pick = cands[0];
+        if (poolRules().aimClear) {
+            const R2 = 2 * S.cfg.ballR;
+            const clear = t => S.world.balls.every(b => {
+                if (b === t || b.id === 0 || b.state === 'pocketed') return true;
+                const dx = t.x - c.x, dy = t.y - c.y, L2 = dx * dx + dy * dy || 1, s = Math.max(0, Math.min(1, ((b.x - c.x) * dx + (b.y - c.y) * dy) / L2));
+                return (b.x - c.x - s * dx) ** 2 + (b.y - c.y - s * dy) ** 2 >= R2 * R2;
+            });
+            pick = cands.find(clear) || pick;
+        }
+        S.aim = Math.atan2(pick.y - c.y, pick.x - c.x);
     }
     function poolRefreshGuide() {
         const S = poolS;
@@ -6558,21 +8558,70 @@
         S.guideKey = key;
         S.guide = pgGuide(S.world, { angle: S.aim, speed: poolSpeedOf(p), tipX: t.x, tipY: t.y });
     }
+    // The shot on screen, for the HUD to keep its overlays off (phShy): the aim line to the
+    // first contact, the object ball's path on to the pocket it is heading for (else to the
+    // cushion), and as circles the contact, the object ball and that pocket. The cue ball is
+    // the line's start, not a circle: in 3D it always sits bottom centre, which the overlays
+    // are laid out round.
+    function poolShotPath(v) {
+        const S = poolS, g = S.guide, cfg = S.cfg, R = cfg.ballR, c = poolCueBall();
+        if (!g || !g.contact || !c || c.state === 'pocketed') return null;
+        const segs = [], dots = [], pockets = S.world.table.pockets;
+        const line = (a, b) => {
+            const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 40));
+            let prev = null;
+            for (let i = 0; i <= n; i++) {
+                const q = pcProject(v, [a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n, R]);
+                if (q && prev) segs.push([prev[0], prev[1], q[0], q[1]]);
+                prev = q;
+            }
+        };
+        const dot = (x, y, r) => { const q = pcProject(v, [x, y, R]); if (q) dots.push([q[0], q[1], r * q[2]]); };
+        line([c.x, c.y], g.contact);
+        dot(g.contact[0], g.contact[1], R);
+        if (g.pocketed) {
+            const p = pockets.slice().sort((a, b) => Math.hypot(a.x - g.contact[0], a.y - g.contact[1]) - Math.hypot(b.x - g.contact[0], b.y - g.contact[1]))[0];
+            if (p) dot(p.x, p.y, p.r);
+        }
+        if (g.obj) {
+            const o = g.obj;
+            let hit = null, best = Infinity;
+            pockets.forEach(p => {
+                const t = (p.x - o.x) * o.dx + (p.y - o.y) * o.dy, d = Math.abs((p.x - o.x) * o.dy - (p.y - o.y) * o.dx);
+                if (t > 0 && d < p.r + R && t < best) { best = t; hit = p; }
+            });
+            let end;
+            if (hit) { end = [hit.x, hit.y]; dot(hit.x, hit.y, hit.r); }
+            else {
+                const lim = (s, d, h) => d > 1e-9 ? (h - s) / d : d < -1e-9 ? (-h - s) / d : Infinity;
+                const t = Math.max(0, Math.min(lim(o.x, o.dx, cfg.halfLength - R), lim(o.y, o.dy, cfg.halfWidth - R)));
+                end = [o.x + o.dx * t, o.y + o.dy * t];
+            }
+            dot(o.x, o.y, R);
+            line([o.x, o.y], end);
+        }
+        return { segs, dots };
+    }
     // A human may act: not in the hand-off, not while the CPU plays.
-    const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over' && !poolS.sheet.open && !poolTourBlocked();
+    const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over' && poolS.phase !== 'choice' && !poolS.confirm && !poolS.sheet.open && !poolTourBlocked();
 
     // ── The CPU's turn ────────────────────────────────────────────────
     // Wait a beat, place the ball if it has it in hand, think (time-sliced),
     // turn the cue onto the line, draw it back, then strike.
     function poolCpuTick(dt) {
-        const S = poolS;
+        const S = poolS, R = poolRules();
         if (!poolCpuTurn() || poolTourBlocked() || S.phase === 'moving' || S.phase === 'strike') return;
         const c = S.cpu || (S.cpu = { stage: 'wait', t: 0 });
         c.t += dt;
+        // Fouled against: a beat (its card reads CHOOSING), then its choice.
+        if (S.phase === 'choice') {
+            if (c.t >= 700) { S.cpu = null; poolChoose(R.cpu.choose(S.frame, S.world), true); }
+            return;
+        }
         if (S.phase === 'bih') {
             if (c.t < 550) return;
-            const p = paPlace(S.world, S.frame, S.rng, poolCpuTier);
-            prPlaceCue(S.world, p[0], p[1]);
+            const p = R.cpu.place(S.world, S.frame, S.rng, poolCpuTier);
+            R.placeCue(S.world, p[0], p[1]);
             S.phase = 'aim'; S.placed = true; poolAimAtNearest();
             S.cpu = { stage: 'wait', t: 0 };
             return;
@@ -6580,13 +8629,18 @@
         if (S.phase !== 'aim') return;
         if (c.stage === 'wait') {
             if (c.t < 350) return;
+            // Snooker: a frame it cannot win any more, it gives away (by tier).
+            if (R.cpu.concede && R.concede && R.cpu.concede(S.frame, S.world, poolCpuTier)) { S.cpu = null; poolAfterTurn(R.concede(S.frame, S.frame.turn)); return; }
             S.tip = { x: 0, y: 0 }; S.spinOpen = false;
-            c.job = paPlan(S.world, S.frame, { rng: S.rng, tier: poolCpuTier });
+            c.job = R.cpu.plan(S.world, S.frame, { rng: S.rng, tier: poolCpuTier, safeRun: S.cpuSafeRun });
             c.stage = 'think'; c.t = 0;
         } else if (c.stage === 'think') {
-            if (!c.job.step(3)) return;
+            if (!c.job.step(R.cpu.slice || 3)) return;
             c.shot = c.job.shot; c.from = S.aim; c.stage = 'turn'; c.t = 0;
+            // Safeties in a row: from three, snooker's CPU leans to the pot.
+            S.cpuSafeRun = c.job.plan === 'safety' ? S.cpuSafeRun + 1 : 0;
             if (c.shot.call >= 0) S.called = c.shot.call;
+            if (c.shot.nominate >= 0) S.nom = c.shot.nominate;
         } else if (c.stage === 'turn') {
             const k = Math.min(1, c.t / 650);
             let d = c.shot.angle - c.from;
@@ -6617,6 +8671,8 @@
         if (S.phase === 'strike') {
             S.strikeT += dt;
             if (S.strikeT >= POOL_STRIKE_MS) {
+                const R = poolRules();
+                if (R.prime) S.frame = R.prime(S.frame, S.world);
                 S.world.log = [];
                 const t = poolTip();
                 ppStrike(S.world, S.shot || { angle: S.aim, speed: poolSpeedOf(S.power), tipX: t.x, tipY: t.y });
@@ -6631,8 +8687,8 @@
                     if (b.state === 'pocketed' && !S.down.has(b.id)) {
                         S.down.add(b.id);
                         // The shooter's, whatever the verdict: a ball down on a foul stays down.
-                        // The 8 is left out; on the break it comes back.
-                        if (b.id !== 0 && b.id !== 8) S.pots[S.frame.turn].push(b.id);
+                        // Pool leaves the 8 out; on the break it comes back.
+                        if (poolRules().tracksPot(b.id)) S.pots[S.frame.turn].push(b.id);
                         S.drops.push({ ball: Object.assign({}, b, { q: b.q.slice() }), pocket: b.pocket, t: 0 });
                     }
                 });
@@ -6643,8 +8699,8 @@
             // tournament can turn it off.
             S.clockLeft -= dt / 1000;
             if (S.clockLeft <= 0) {
-                const v = prTimeout(S.frame);
-                poolShowToast(prText(v, poolNames()));
+                const R = poolRules(), v = R.timeout(S.frame, S.world);
+                poolShowToast(R.text(v, poolNames()));
                 poolAfterTurn(v);
             }
         }
@@ -6670,40 +8726,43 @@
         return true;
     }
 
+    // ⚙️ Aim Guide: how far the object ball's line runs, in table units.
+    const POOL_GUIDE_LEN = { short: 60, medium: 100, long: 150 };
     function poolDraw(dt) {
-        const S = poolS;
+        const S = poolS, R = poolRules();
         if (!poolFit()) return;
         const pose = pcDirect(S.director, poolCamInput(), dt);
         const v = pcView(pose);
         poolRefreshGuide();
-        const st = prStatus(S.frame, S.world);
+        const st = R.status(S.frame, S.world);
         const aiming = (S.phase === 'aim' || S.phase === 'strike') && !S.handoff;
         const pull = 8 + S.power * 1.1;
         const gap = S.phase === 'strike' ? pull + (1 - pull) * Math.min(1, S.strikeT / POOL_STRIKE_MS) : pull;
         const c = poolCueBall();
-        const bihBad = S.phase === 'bih' ? prCanPlace(S.world, c.x, c.y, S.frame.ballInHand) : null;
+        const bihBad = S.phase === 'bih' ? R.canPlace(S.world, c.x, c.y, S.frame.ballInHand) : null;
         const felt = userPreferences.poolTableColor || 'green';
         const theme = phThemeTokens(S.hud);
         // Nothing on the table moved and the camera is still: keep last frame's pixels.
-        const key = JSON.stringify([pose, S.world.t, c.x, c.y, S.aim, S.power, gap, S.phase, S.called, S.handoff, felt, theme, S.drops.length, S.guideKey, S.guideMode, S.W, S.H]);
+        const key = JSON.stringify([pose, S.world.t, c.x, c.y, S.aim, S.power, gap, S.phase, S.called, S.handoff, felt, theme, S.drops.length, S.guideKey, S.guideMode, S.W, S.H, S.nom, userPreferences.poolGuideLen]);
         if (key !== S.drawKey || S.drops.length) {
             S.drawKey = key;
             pgRender(S.ctx, {
                 view: v, world: S.world, felt, dpr: S.dpr, cache: S.cache, theme,
                 makeCanvas: (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h }),
                 aim: aiming ? { angle: S.aim, power: S.power, gap } : null,
-                guide: aiming ? S.guide : null, guideMode: S.guideMode,
+                guide: aiming ? S.guide : null, guideMode: S.guideMode, guideLen: POOL_GUIDE_LEN[userPreferences.poolGuideLen] || POOL_GUIDE_LEN.long,
                 illegal: !!(S.guide && S.guide.hit > 0 && !poolLegalTarget(S.guide.hit)),
                 bih: S.phase === 'bih' ? { x: c.x, y: c.y, valid: !bihBad } : null,
-                kitchen: S.phase === 'bih' && S.frame.ballInHand === 'kitchen',
+                zone: S.phase === 'bih' ? S.frame.ballInHand : null,
                 call: aiming && st.callRequired ? { called: S.called } : null,
+                ring: aiming && S.nom >= 0 ? S.nom : null,
                 drops: S.drops,
             });
         }
         const gs = S.phase === 'bih' ? pcProject(v, [c.x, c.y, S.cfg.ballR]) : null;
         const cpuTurn = poolCpuTurn();
         phRender(S.hud, phModel({
-            layout: S.hud.layout, mode: poolMode, names: poolNames(), records: { 1: poolRecordText(1), 2: poolRecordText(2) },
+            layout: S.hud.layout, game: S.game, title: R.title, status: st, diffs: R.diffs, mode: poolMode, names: poolNames(), records: { 1: poolRecordText(1), 2: poolRecordText(2) },
             frames: S.frames, trophies: S.wins,
             frame: S.frame, world: S.world, phase: S.phase, camera: userPreferences.poolCamera === '2d' ? '2d' : '3d',
             lean: poolLean(), power: S.power, dragging: !!(S.drag && S.drag.kind === 'power'), tip: S.tip, spinOpen: S.spinOpen, called: S.called,
@@ -6714,9 +8773,18 @@
             canReplace: !!S.frame.ballInHand && S.placed && poolCanAct(),
             cpuTurn,
             sheet: { open: S.sheet.open, mode: S.sheet.mode, note: poolSheetNote() },
-            difficulty: poolDifficulty(), adaptiveTier: paAdaptiveTier(poolCpuRec()),
+            difficulty: poolDifficulty(), adaptiveTier: R.cpu.adaptive(poolCpuRec()),
             tour: poolTourHead(), tourSheet: poolTourSheet(),
             pots: S.pots,
+            nom: S.nom, confirm: S.confirm, chipsOpen: S.chipsOpen,
+            shot: aiming ? poolShotPath(v) : null,
+            // ⚙️ Max View: the table between bars, or the full table (the default).
+            maxBars: userPreferences.poolMaxLayout === 'bars',
+            // Snooker's choice after a foul: the buttons (for a human chooser), or CHOOSING.
+            choice: S.phase === 'choice' && S.frame.pending && R.choices ? {
+                chooser: S.frame.pending.chooser, cpu: cpuTurn,
+                options: R.choices(S.frame.pending, poolNames()),
+            } : null,
         }));
         poolTourSync();
     }
@@ -6724,8 +8792,8 @@
     // Under the difficulty list: when the pick cannot apply to the frame being played.
     function poolSheetNote() {
         if (poolMode !== 'cpu' || poolFrameFresh() || poolS.phase === 'over') return '';
-        const next = paTierFor(poolDifficulty(), poolCpuRec());
-        return next !== poolCpuTier ? PA_TIERS[next].label + ' from the next frame; this one stays ' + PA_TIERS[poolCpuTier].label : '';
+        const cpu = poolRules().cpu, next = cpu.tierFor(poolDifficulty(), poolCpuRec());
+        return next !== poolCpuTier ? cpu.tiers[next].label + ' from the next frame; this one stays ' + cpu.tiers[poolCpuTier].label : '';
     }
 
     function poolLoop(ms) {
@@ -6772,10 +8840,10 @@
     // The ball follows the pointer but stops at the cushions and, on the
     // break, at the head string, so it can be dragged along them (as v1 did).
     function poolPlace(sx, sy) {
-        const S = poolS;
+        const S = poolS, R = poolRules();
         const p = pcView(pcOrtho(S.W, S.H, S.cfg)).unproject(sx, sy);
-        const q = prClampPlace(S.world, p[0], p[1], S.frame.ballInHand);
-        prPlaceCue(S.world, q[0], q[1]);
+        const q = R.clampPlace(S.world, p[0], p[1], S.frame.ballInHand);
+        R.placeCue(S.world, q[0], q[1]);
     }
 
     function poolOnEnter(e) { poolS.armed = true; poolS.lastX = poolLocal(e)[0]; }
@@ -6788,16 +8856,37 @@
         S.armed = true; S.lastX = sx;
         if (S.phase === 'bih') { S.drag = { kind: 'place' }; S.placed = false; poolPlace(sx, sy); return; }
         if (S.phase !== 'aim') return;
-        const st = prStatus(S.frame, S.world);
+        const st = poolRules().status(S.frame, S.world);
+        // Snooker: a press on a colour that may be nominated nominates it (before any call).
+        if (st.needsNomination) {
+            const id = poolBallAt(sx, sy, st.nominable);
+            if (id >= 0) { S.nom = id; S.chipsOpen = false; return; }
+        }
         if (st.callRequired) {
-            const hit = pgPocketMarks(poolView(), S.world.table).find(m => m.inView && Math.hypot(m.x - sx, m.y - sy) < Math.max(22, m.r));
+            const hit = pgPocketMarks(poolView(), S.world.table, S.cfg).find(m => m.inView && Math.hypot(m.x - sx, m.y - sy) < Math.max(22, m.r));
             if (hit) { S.called = hit.i; return; }
             if (S.called < 0) return;
         }
+        // Snooker: no power until a colour is nominated (the padlock).
+        if (st.needsNomination) return;
         const ax = poolShotAxis();
         const reach = poolClamp(Math.max(poolRoom(sx, sy, ax[0], ax[1]), poolRoom(sx, sy, -ax[0], -ax[1])) - 6, 40, S.W > 1000 ? 220 : 140);
         S.drag = { kind: 'power', x: sx, y: sy, ax, reach };
         S.power = 0;
+    }
+    // The ball under the pointer among `ids`, or -1. The target is at least 12 px across the
+    // centre, so the 2D view's small balls can still be pressed.
+    function poolBallAt(sx, sy, ids) {
+        const S = poolS, v = poolView(), R = S.cfg.ballR;
+        let best = -1, bd = Infinity;
+        S.world.balls.forEach(b => {
+            if (b.state === 'pocketed' || ids.indexOf(b.id) < 0) return;
+            const q = pcProject(v, [b.x, b.y, R]);
+            if (!q) return;
+            const d = Math.hypot(q[0] - sx, q[1] - sy);
+            if (d < Math.max(12, R * q[2]) && d < bd) { bd = d; best = b.id; }
+        });
+        return best;
     }
     function poolOnMove(e) {
         const S = poolS;
@@ -6816,7 +8905,7 @@
         const dx = S.lastX === null ? 0 : sx - S.lastX;
         S.lastX = sx;
         if (S.phase !== 'aim' || !poolCanAct()) return;
-        if (userPreferences.poolCamera !== '2d') S.aim -= dx * (e.shiftKey ? 0.05 : 0.3) * POOL_DEG;
+        if (userPreferences.poolCamera !== '2d') S.aim -= dx * (e.shiftKey ? poolRules().aimFine : 0.3) * POOL_DEG;
         else {
             const p = poolView().unproject(sx, sy, S.cfg.ballR), c = poolCueBall();
             if (p && Math.hypot(p[0] - c.x, p[1] - c.y) > 2) S.aim = Math.atan2(p[1] - c.y, p[0] - c.x);
@@ -6828,7 +8917,7 @@
         const d = S.drag; S.drag = null;
         if (d.kind === 'place') {
             const c = poolCueBall();
-            if (!prCanPlace(S.world, c.x, c.y, S.frame.ballInHand)) { S.placed = true; S.phase = 'aim'; poolAimAtNearest(); }
+            if (!poolRules().canPlace(S.world, c.x, c.y, S.frame.ballInHand)) { S.placed = true; S.phase = 'aim'; poolAimAtNearest(); }
             return;
         }
         if (S.power < 3) { S.power = 0; return; }
@@ -6861,7 +8950,7 @@
         if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && S.phase === 'aim' && poolCanAct() && (S.armed || poolMaximized)) {
             const tag = e.target && e.target.tagName;
             if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-            S.aim += (e.key === 'ArrowLeft' ? 1 : -1) * 0.1 * POOL_DEG;
+            S.aim += (e.key === 'ArrowLeft' ? 1 : -1) * poolRules().aimKey * POOL_DEG;
             e.preventDefault();
         }
     }
@@ -6887,8 +8976,8 @@
         // A difficulty: remembered (the same setting as ⚙️), in force now if nothing has
         // been hit yet, else from the next frame. From 2 Players it switches to Vs CPU.
         difficulty: d => {
-            const S = poolS;
-            userPreferences.poolDifficulty = PA_TIERS[d] ? d : 'adaptive';
+            const S = poolS, R = poolRules();
+            userPreferences[R.diffPref] = R.cpu.tiers[d] ? d : 'adaptive';
             savePreferences();
             if (poolMode !== 'cpu') { poolSetMode('cpu'); S.sheet.open = false; return; }
             if (poolFrameFresh()) { poolLockTier(); S.sheet.open = false; }
@@ -6909,7 +8998,36 @@
         reset: () => resetPoolGame(),
         max: () => togglePoolMaximize(),
         call: i => { if (poolCanAct()) poolS.called = i; },
-        ready: () => { const S = poolS; S.handoff = 0; S.toast = null; S.fouled = 0; S.clockLeft = S.clockTotal || POOL_CLOCK_S; },
+        // A choice after a foul is still to be made: the toast carries it, and the fouled
+        // card keeps its tag, until it is.
+        ready: () => {
+            const S = poolS;
+            S.handoff = 0;
+            if (!(S.frame && S.frame.pending)) { S.toast = null; S.fouled = 0; }
+            S.clockLeft = S.clockTotal || POOL_CLOCK_S;
+        },
+        // Snooker: a colour chip, before the stroke.
+        nominate: id => {
+            const S = poolS;
+            if (!poolCanAct() || S.phase !== 'aim' || S.drag) return;
+            const st = poolRules().status(S.frame, S.world);
+            if (!st.on || st.on.nominable.indexOf(id) < 0) return;
+            // The folded chip (the colour nominated) opens the chips again; the same colour
+            // picked from them folds them back.
+            if (id === S.nom) { S.chipsOpen = !S.chipsOpen; return; }
+            S.nom = id; S.chipsOpen = false; poolAimAtNearest();
+        },
+        // The choice after a foul, by the player choosing (a CPU chooses for itself).
+        choose: id => { const S = poolS; if (S.phase === 'choice' && !S.handoff && !poolCpuTurn() && !poolTourBlocked()) poolChoose(id, false); },
+        // Concede: asked, then confirmed (SnkConcede), only by the player at the table.
+        concede: () => { const S = poolS; if (poolRules().concede && poolCanAct() && (S.phase === 'aim' || S.phase === 'bih')) { S.confirm = true; S.drag = null; S.power = 0; } },
+        concedeNo: () => { poolS.confirm = false; },
+        concedeYes: () => {
+            const S = poolS, R = poolRules();
+            if (!S.confirm || !R.concede) return;
+            S.confirm = false;
+            poolAfterTurn(R.concede(S.frame, S.frame.turn));
+        },
         // Pick the cue ball up again. The clock pauses in ball in hand and
         // carries on from where it was once the ball is down, so this never buys time back.
         replace: () => { const S = poolS; if (S.phase === 'aim' && S.frame.ballInHand && poolCanAct() && !S.drag) { S.phase = 'bih'; S.placed = false; S.power = 0; } },
@@ -6936,11 +9054,12 @@
         poolGamesWon = loadPoolHighScore();
         loadPoolWinsByMode();   // seeds the per-mode split on first run
         poolRecord = loadPoolRecord();
+        if (!S.cfg) poolUseGame(userPreferences.poolVariant);
         poolS.cpuRec = poolLoadCpuRecord();
-        if (!S.cfg) S.cfg = ppCreateWorld().cfg;
         if (!S.hudC || !root.contains(S.hudC.el)) poolBuild(root);
-        // A frame in progress survives switching to another game and back.
-        if (!S.world) poolNewFrame(1);
+        // A frame in progress survives switching to another game and back; a snooker frame
+        // survives a reload too.
+        if (!S.world && !poolRestoreTable(poolLoadSaved())) poolNewFrame(1);
         // Once per page: a tournament saved last time is offered back.
         if (!S.tour.checked) {
             S.tour.checked = true;
@@ -6948,7 +9067,7 @@
             if (t) { S.tour.t = t; S.tour.dialog = 'resume'; poolTourBump(); }
         }
         poolAttach();
-        poolRefreshScoreBtn();
+        poolSyncChrome();
     }
 
     function poolAttach() {
@@ -6977,6 +9096,7 @@
     function poolDetach() {
         const S = poolS;
         poolTourSnapshot();
+        poolSaveFrame();
         if (poolMaximized) togglePoolMaximize();
         S.running = false;
         if (S.raf) { cancelAnimationFrame(S.raf); S.raf = null; }
@@ -6998,6 +9118,139 @@
         poolDisarm();
     }
 
+    // ── The two games ─────────────────────────────────────────────────
+    // POOL_V2_PLAN.md, Snooker: the ⚙️ Cue Game setting chooses what the panel plays.
+    // Each game keeps its own frame: switching parks the one on the table and brings the
+    // other back as it was left (or racks a fresh one).
+
+    // The table at rest, whole: the balls, the rules state, the mode and tier it is played
+    // at, the frame count and the clock. Null mid-shot or once the frame is decided.
+    function poolSnapshotTable() {
+        const S = poolS;
+        if (!S.world || !S.frame || S.frame.over || S.phase === 'over' || S.phase === 'moving' || S.phase === 'strike') return null;
+        return {
+            v: 1, game: S.game, mode: poolMode === 'pvp' ? 'pvp' : 'cpu', tier: poolCpuTier, breaker: S.breaker, frames: S.frames.slice(),
+            frame: JSON.parse(JSON.stringify(S.frame)),
+            balls: S.world.balls.map(b => ({ id: b.id, x: b.x, y: b.y, q: b.q.slice(), state: b.state, pocket: b.pocket })),
+            clockLeft: S.clockLeft, fouled: S.fouled, pots: { 1: S.pots[1].slice(), 2: S.pots[2].slice() },
+        };
+    }
+    // A world rebuilt from a snapshot's balls, or null if any of them is not a ball.
+    function poolWorldFrom(snap) {
+        const R = poolRules();
+        try {
+            if (!Array.isArray(snap.balls) || snap.balls.length !== R.ballCount(snap.frame)) return null;
+            const world = R.world();
+            world.balls = snap.balls.map(b => {
+                if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) throw new Error('ball');
+                const ball = ppMakeBall(b.id | 0, b.x, b.y);
+                ball.state = b.state === 'pocketed' ? 'pocketed' : 'stationary';
+                ball.pocket = b.pocket | 0;
+                if (Array.isArray(b.q) && b.q.length === 4 && b.q.every(Number.isFinite)) ball.q = b.q.slice();
+                return ball;
+            });
+            return world;
+        } catch (_) { return null; }
+    }
+    // Puts a parked or saved quick frame back on the table, as it was left. False if it is
+    // not this game's, or not a frame at all.
+    function poolRestoreTable(snap) {
+        const S = poolS, R = poolRules();
+        if (!snap || snap.v !== 1 || snap.game !== S.game || !R.validFrame(snap.frame)) return false;
+        const world = poolWorldFrom(snap);
+        if (!world) return false;
+        if (poolMode !== 'tour') poolMode = snap.mode === 'pvp' ? 'pvp' : 'cpu';
+        poolNewFrame(snap.breaker === 2 ? 2 : 1);
+        S.world = world; S.frame = JSON.parse(JSON.stringify(snap.frame));
+        if (Array.isArray(snap.frames) && snap.frames.length === 2 && snap.frames.every(n => Number.isInteger(n) && n >= 0)) S.frames = snap.frames.slice();
+        // The tier stays the one the frame was locked to.
+        if (poolMode === 'cpu' && R.cpu.tiers[snap.tier]) { poolCpuTier = snap.tier; poolRefreshScoreBtn(); }
+        S.fouled = snap.fouled === 1 || snap.fouled === 2 ? snap.fouled : 0;
+        const potsOf = a => (Array.isArray(a) ? a.filter(id => Number.isInteger(id) && R.tracksPot(id)) : []);
+        S.pots = { 1: potsOf(snap.pots && snap.pots[1]), 2: potsOf(snap.pots && snap.pots[2]) };
+        S.down = new Set(S.world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+        if (S.frame.pending) S.phase = 'choice'; else poolStartTurn();
+        S.clockLeft = Number.isFinite(snap.clockLeft) && snap.clockLeft > 0 ? snap.clockLeft : S.clockTotal || POOL_CLOCK_S;
+        // In hot-seat, whoever is to act takes the seat.
+        S.handoff = poolMode === 'pvp' ? S.frame.turn : 0;
+        S.drawKey = '';
+        return true;
+    }
+    // Snooker's quick frame survives a reload: written at every shot boundary, removed once
+    // the frame is decided (before the award). Pool keeps no such save.
+    function poolSaveFrame() {
+        const key = poolRules().keys.frame;
+        if (!key || poolMode === 'tour') return;
+        const snap = poolSnapshotTable();
+        if (snap) poolStoreWrite(key, snap);
+    }
+    function poolLoadSaved() {
+        const key = poolRules().keys.frame;
+        if (!key) return null;
+        try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (_) { return null; }
+    }
+    function poolClearSaved() {
+        const key = poolRules().keys.frame;
+        if (key) { try { localStorage.removeItem(key); } catch (_) {} }
+    }
+    // The header follows the game: the title, the switcher's tooltip, and which wins button shows.
+    function poolSyncChrome() {
+        const R = poolRules();
+        if (typeof currentGame === 'undefined' || currentGame === 'pool') {
+            const t = document.getElementById('game-title');
+            if (t) t.textContent = poolTitle();
+        }
+        const sw = document.getElementById('game-switch-pool');
+        if (sw) sw.title = R.title;
+        Object.keys(POOL_GAMES).forEach(g => { const b = document.getElementById(POOL_GAMES[g].lb + '-lb-btn'); if (b) b.style.display = g === poolS.game ? '' : 'none'; });
+        poolRefreshScoreBtn();
+    }
+    // ⚙️ Cue Game. Works with the panel closed too. A shot in flight is run to rest and
+    // judged first; a tournament match is saved as it stands (it resumes from the sheet).
+    function poolSetVariant(game) {
+        const S = poolS;
+        if (!POOL_GAMES[game]) game = 'pool';
+        if (game === S.game && S.cfg) { poolSyncChrome(); return; }
+        if (poolMaximized) togglePoolMaximize();
+        if (S.world && S.phase === 'strike') { S.phase = 'aim'; S.power = 0; S.shot = null; }
+        if (S.world && S.phase === 'moving') { ppSimulate(S.world, 60); poolSettle(); }
+        if (poolMode === 'tour') {
+            const T = S.tour;
+            poolTourSnapshot();
+            poolMode = T.prevMode === 'pvp' ? 'pvp' : 'cpu';
+            T.matchId = null; T.pending = 0; T.screen = null; T.dialog = null;
+            S.guideMode = 'full'; S.callEvery = false; S.callMode = 'off';
+            S.parked[S.game] = null;
+        } else if (S.world) {
+            S.parked[S.game] = poolSnapshotTable();
+            poolSaveFrame();
+        }
+        poolUseGame(game);
+        S.sheet.open = false; S.spinOpen = false; S.drag = null; S.power = 0; S.toast = null; S.handoff = 0;
+        const snap = S.parked[game] || poolLoadSaved();
+        S.parked[game] = null;
+        S.world = null;
+        if (S.hudC || S.frame) { S.frames = [0, 0]; if (!poolRestoreTable(snap)) poolNewFrame(1); }
+        // This game's saved tournament, once per page, as the panel offers pool's.
+        if (S.hudC && !S.tour.checked) {
+            S.tour.checked = true;
+            const t = poolTourLoad();
+            if (t) { S.tour.t = t; S.tour.dialog = 'resume'; poolTourBump(); }
+        }
+        poolSyncChrome();
+    }
+    // A ⚙️ setting the controller follows: the game; the CPU difficulty (in force now if
+    // nothing has been hit, else from the next frame); snooker's reds (a fresh rack, if
+    // nothing has been hit).
+    function poolOnPrefChange(pref) {
+        const S = poolS;
+        if (pref === 'poolVariant') { poolSetVariant(userPreferences.poolVariant); return; }
+        const R = poolRules();
+        if (!S.frame) return;
+        if (pref === R.diffPref) { if (poolMode === 'cpu' && poolFrameFresh()) poolLockTier(); return; }
+        if (R.rackPref && pref === R.rackPref && poolMode !== 'tour' && poolFrameFresh()) poolNewFrame(S.breaker);
+    }
+
     // ── Tournament ────────────────────────────────────────────────────
     // The bracket lives in poolS.tour.t; poolMode is 'tour' only while one of its
     // matches is on the table (tour.matchId). Screens and dialogs cover the panel
@@ -7017,24 +9270,26 @@
     function poolTourSave() {
         const t = poolS.tour.t;
         try {
-            if (t && ptChampion(t) === null) localStorage.setItem(POOL_TOUR_KEY, JSON.stringify(t));
-            else localStorage.removeItem(POOL_TOUR_KEY);
+            const key = poolRules().keys.tour;
+            if (t && ptChampion(t) === null) localStorage.setItem(key, JSON.stringify(t));
+            else localStorage.removeItem(key);
         } catch (_) {}
     }
     // The saved tournament, or null. A corrupt one, or one from another version, is
     // dropped behind a toast; it is never half-loaded.
     function poolTourLoad() {
         let raw = null;
-        try { raw = localStorage.getItem(POOL_TOUR_KEY); } catch (_) { return null; }
+        const key = poolRules().keys.tour;
+        try { raw = localStorage.getItem(key); } catch (_) { return null; }
         if (!raw) return null;
         let t = null;
-        try { t = ptValidate(JSON.parse(raw)); } catch (_) { t = null; }
+        try { t = ptValidate(JSON.parse(raw), poolS.game); } catch (_) { t = null; }
         if (t && t.current) {
             const m = ptById(t, t.current);
             if (!m || m.status === 'done' || m.status === 'bye' || m.a === null || m.b === null) t.current = null;
         }
         if (t && ptChampion(t) === null) return t;
-        try { localStorage.removeItem(POOL_TOUR_KEY); } catch (_) {}
+        try { localStorage.removeItem(key); } catch (_) {}
         if (!t) poolShowToast({ kind: 'notice', title: "Couldn't resume the tournament", sub: 'The saved bracket was damaged or out of date' });
         return null;
     }
@@ -7042,7 +9297,7 @@
         const T = poolS.tour;
         if (!T.cab) {
             let c = null;
-            try { c = JSON.parse(localStorage.getItem(POOL_CAB_KEY) || 'null'); } catch (_) {}
+            try { c = JSON.parse(localStorage.getItem(poolRules().keys.cab) || 'null'); } catch (_) {}
             T.cab = c && c.v === 1 && c.titles && typeof c.titles === 'object' && Array.isArray(c.recent) ? c : ptCabinetEmpty();
         }
         return T.cab;
@@ -7061,31 +9316,20 @@
         poolTourSave();
     }
     function poolTourRestore(snap, m) {
-        const S = poolS;
-        let world = null;
-        try {
-            if (!snap || snap.match !== m.id || snap.frames !== m.frames.length || !Array.isArray(snap.balls) || snap.balls.length !== 16) return false;
-            const f = snap.frame;
-            if (!f || f.v !== 1 || (f.turn !== 1 && f.turn !== 2) || f.over) return false;
-            world = ppCreateWorld();
-            world.balls = snap.balls.map(b => {
-                if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) throw new Error('ball');
-                const ball = ppMakeBall(b.id | 0, b.x, b.y);
-                ball.state = b.state === 'pocketed' ? 'pocketed' : 'stationary';
-                ball.pocket = b.pocket | 0;
-                if (Array.isArray(b.q) && b.q.length === 4 && b.q.every(Number.isFinite)) ball.q = b.q.slice();
-                return ball;
-            });
-        } catch (_) { return false; }
+        const S = poolS, R = poolRules();
+        if (!snap || snap.match !== m.id || snap.frames !== m.frames.length || !Array.isArray(snap.balls) || !R.validFrame(snap.frame)) return false;
+        const world = poolWorldFrom(snap);
+        if (!world) return false;
         poolNewFrame(snap.breaker === 2 ? 2 : 1);
         S.world = world; S.frame = JSON.parse(JSON.stringify(snap.frame));
         S.clockLeft = Number.isFinite(snap.clockLeft) && snap.clockLeft > 0 ? snap.clockLeft : S.clockTotal || POOL_CLOCK_S;
         S.fouled = snap.fouled === 1 || snap.fouled === 2 ? snap.fouled : 0;
-        const potsOf = a => (Array.isArray(a) ? a.filter(id => Number.isInteger(id) && id > 0 && id < 16 && id !== 8) : []);
+        const potsOf = a => (Array.isArray(a) ? a.filter(id => Number.isInteger(id) && R.tracksPot(id)) : []);
         S.pots = { 1: potsOf(snap.pots && snap.pots[1]), 2: potsOf(snap.pots && snap.pots[2]) };
-        if (poolCueBall().state === 'pocketed') prPlaceCue(S.world, S.world.table.headX - 80, 0);
+        if (poolCueBall().state === 'pocketed') { const home = R.cueHome(S.world); R.placeCue(S.world, home[0], home[1]); }
         S.down = new Set(S.world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
-        if (S.frame.ballInHand) { S.phase = 'bih'; S.placed = false; } else { S.phase = 'aim'; poolAimAtNearest(); }
+        if (S.frame.pending) S.phase = 'choice';
+        else if (S.frame.ballInHand) { S.phase = 'bih'; S.placed = false; } else { S.phase = 'aim'; poolAimAtNearest(); }
         S.drawKey = '';
         return true;
     }
@@ -7095,7 +9339,8 @@
         const S = poolS, set = S.tour.t.settings;
         S.guideMode = set.guide === 'short' || set.guide === 'off' ? set.guide : 'full';
         S.callEvery = set.call === 'every';
-        S.clockTotal = set.clock === 45 ? 45 : set.clock === 0 ? 0 : POOL_CLOCK_S;
+        S.callMode = set.call === 'colours' || set.call === 'all' ? set.call : 'off';
+        S.clockTotal = set.clock === 45 || set.clock === 60 ? set.clock : set.clock === 0 ? 0 : POOL_CLOCK_S;
     }
     // Puts a match on the table: from the start, or from its snapshot.
     function poolTourSeat(m, fromSnapshot) {
@@ -7115,7 +9360,7 @@
         poolTourSnapshot();
         poolMode = mode === 'pvp' || mode === 'cpu' ? mode : T.prevMode === 'pvp' ? 'pvp' : 'cpu';
         T.matchId = null; T.pending = 0;
-        S.guideMode = 'full'; S.callEvery = false; S.clockTotal = POOL_CLOCK_S;
+        S.guideMode = 'full'; S.callEvery = false; S.callMode = 'off'; S.clockTotal = poolRules().clock || POOL_CLOCK_S;
         S.frames = [0, 0];
         poolNewFrame(1);
         poolRefreshScoreBtn();
@@ -7136,11 +9381,12 @@
         S.handoff = S.frame.turn;
     }
 
-    // Called by poolEndFrame: the frame goes into the bracket, and it is saved.
-    function poolTourFrameOver(seat) {
-        const S = poolS, T = S.tour, m = poolTourMatch();
+    // Called by poolEndFrame: the frame goes into the bracket (with snooker's points and
+    // breaks), and it is saved.
+    function poolTourFrameOver(seat, v) {
+        const S = poolS, T = S.tour, m = poolTourMatch(), R = poolRules();
         if (!m || (seat !== 1 && seat !== 2)) return;
-        const r = ptRecordFrame(T.t, m.id, seat === 1 ? m.a : m.b);
+        const r = ptRecordFrame(T.t, m.id, seat === 1 ? m.a : m.b, R.tourFrame && v && v.next ? R.tourFrame(v) : null);
         T.t = r.t;
         S.frames = ptScore(ptById(T.t, m.id));
         if (r.matchOver) {
@@ -7150,11 +9396,11 @@
             const mm = ptById(T.t, m.id), mine = [mm.a, mm.b].find(s => T.t.slots[s] && T.t.slots[s].you);
             if (mine !== undefined) {
                 const won = mm.winner === mine;
-                awardGameXP('pool', { won, vsCPU: false, tour: true, round: ptRoundName(T.t.rounds, mm.round), xp: won ? POOL_TOUR_WIN_XP : POOL_LOSS_XP });
+                awardGameXP(poolRules().xpType, { won, vsCPU: false, tour: true, round: ptRoundName(T.t.rounds, mm.round), xp: won ? POOL_TOUR_WIN_XP : POOL_LOSS_XP });
             }
             if (ptChampion(T.t) !== null) {
                 T.cab = ptCabinetAdd(poolCabinet(), T.t);
-                try { localStorage.setItem(POOL_CAB_KEY, JSON.stringify(T.cab)); } catch (_) {}
+                try { localStorage.setItem(poolRules().keys.cab, JSON.stringify(T.cab)); } catch (_) {}
             }
         }
         poolTourSave();
@@ -7169,7 +9415,7 @@
         if (m.status === 'done') { S.result = null; S.tour.pending = POOL_RESULT_MS; return; }
         S.result = {
             win: true, title: text.title, reason: text.sub,
-            recordLabel: 'MATCH · RACE TO ' + m.raceTo, record: S.frames[0] + '–' + S.frames[1],
+            recordLabel: 'MATCH · ' + ptRaceText(S.tour.t, m.raceTo).toUpperCase(), record: S.frames[0] + '–' + S.frames[1],
             delta: '+1 FRAME', note: '',
         };
     }
@@ -7182,7 +9428,7 @@
     function poolTourSetupFresh() {
         const names = Array.from({ length: PT_MAX }, () => '');
         names[0] = poolMe();
-        return poolTourSetupRace({ n: 4, names, name: '', clock: 30, guide: 'full', call: '8', shuffle: false, size: 0, race: [] });
+        return poolTourSetupRace(Object.assign({ n: 4, names, name: '', clock: 30, guide: 'full', shuffle: false, size: 0, race: [] }, poolRules().tourDefaults));
     }
     // The race-to columns follow the bracket size; a new size starts from its defaults.
     function poolTourSetupRace(d) {
@@ -7193,7 +9439,7 @@
     function poolTourStart() {
         const T = poolS.tour, d = T.setup, cols = ptRaceColumns(d.size);
         const race = Array.from({ length: ptRoundsFor(d.size) }, (_, r) => d.race[cols.findIndex(c => c.rounds.indexOf(r) !== -1)]);
-        T.t = ptCreate({ names: d.names.slice(0, d.n), you: 0, name: d.name, settings: { race, clock: d.clock, guide: d.guide, call: d.call, shuffle: d.shuffle } });
+        T.t = ptCreate({ game: d.game, names: d.names.slice(0, d.n), you: 0, name: d.name, settings: { race, clock: d.clock, guide: d.guide, call: d.call, reds: d.reds, shuffle: d.shuffle } });
         T.t.current = null;
         T.setup = null;
         poolTourSave();
@@ -7217,9 +9463,10 @@
             const d = poolS.tour.setup, i = String(arg).indexOf(':');
             if (!d || i < 0) return;
             const k = String(arg).slice(0, i), v = String(arg).slice(i + 1);
-            if (k === 'clock') d.clock = v === '45' ? 45 : v === '0' ? 0 : 30;
+            if (k === 'clock') d.clock = v === '45' ? 45 : v === '60' && d.game === 'snooker' ? 60 : v === '0' ? 0 : 30;
+            else if (k === 'reds') d.reds = [15, 10, 6].indexOf(+v) >= 0 ? +v : 15;
             else if (k === 'guide') d.guide = v === 'short' || v === 'off' ? v : 'full';
-            else if (k === 'call') d.call = v === 'every' ? 'every' : '8';
+            else if (k === 'call') { const opts = (d.calls || [['8'], ['every']]).map(c => c[0]); d.call = opts.indexOf(v) >= 0 ? v : opts[0]; }
             poolTourBump();
         },
         shuffle: () => { const d = poolS.tour.setup; if (d) { d.shuffle = !d.shuffle; poolTourBump(); } },
@@ -7264,12 +9511,12 @@
         },
     };
 
-    // The HUD's tournament header: "CITY OPEN" over "Semi-final · race to 2", FRAME n.
+    // The HUD's tournament header: "CITY OPEN" over "Semi-final · race to 2" (snooker: "best of 3"), FRAME n.
     function poolTourHead() {
         const S = poolS, m = poolTourMatch();
         if (!m) return null;
         const n = S.phase === 'over' ? m.frames.length : m.frames.length + 1;
-        return { kicker: S.tour.t.name.toUpperCase(), title: ptRoundName(S.tour.t.rounds, m.round) + ' · race to ' + m.raceTo, frame: 'FRAME ' + Math.max(1, n) };
+        return { kicker: S.tour.t.name.toUpperCase(), title: ptRoundName(S.tour.t.rounds, m.round) + ' · ' + ptRaceText(S.tour.t, m.raceTo).toLowerCase(), frame: 'FRAME ' + Math.max(1, n) };
     }
     // The Game mode sheet's Tournament tab: resume the saved one, or set one up.
     function poolTourSheet() {
@@ -7297,7 +9544,7 @@
         else if (screen === 'intro') html = puIntroHTML({ t: T.t, matchId: T.introId });
         else if (screen === 'result') html = puResultHTML({ t: T.t, matchId: T.matchId, miniW });
         else if (screen === 'champion') html = puChampionHTML({ t: T.t, layout: hud.layout, miniW });
-        else if (screen === 'cabinet') html = puCabinetHTML({ cab: poolCabinet() });
+        else if (screen === 'cabinet') html = puCabinetHTML({ cab: poolCabinet(), game: S.game });
         puSync(hud, poolTourOn, { screen: html, dialog: dialog ? puDialogHTML(dialog, { t: T.t, liveId }) : '', key });
         hud.el.classList.toggle('is-pu', !!screen);
         // The mini tree is laid out for its box's real width (the body's scrollbar takes
@@ -7342,9 +9589,10 @@
         const S = poolS;
         S.maxPanel = panel;
         S.maxFrame = document.createElement('div');
-        S.maxFrame.className = 'pool-max-frame';
+        // Snooker's full view is a little tighter at the top, for the tracker row.
+        S.maxFrame.className = 'pool-max-frame' + (S.game === 'snooker' ? ' is-snooker' : '');
         panel.appendChild(S.maxFrame);
-        S.hudM = phBuild(S.maxFrame, { layout: 'max', on: poolOn, canvas: S.canvas, title: '8-Ball Pool' });
+        S.hudM = phBuild(S.maxFrame, { layout: 'max', on: poolOn, canvas: S.canvas, title: poolRules().title });
         S.hud = S.hudM;
         poolSyncMaxTheme();
         poolFitMax();
@@ -7362,7 +9610,7 @@
         if (!poolS.hudC) return;
         poolMaximized = toggleGameMaxModal({
             canvasId: 'pool-root',
-            title: '8-Ball Pool',
+            title: poolRules().title,
             panelClass: 'pool-max-panel',
             build: poolBuildMax,
             unbuild: poolUnbuildMax,
@@ -13264,6 +15512,10 @@
         let poolTierWins = {};
         try { poolTierWins = JSON.parse(localStorage.getItem('poolWinsByTier') || '{}') || {}; } catch (_) {}
         if (!has('calledIt')     && (parseInt(poolTierWins.pro, 10) || 0) >= 1) unlockAchievement('calledIt', S);
+        // Snooker's best break against the CPU is kept (snookerHighBreak), so both come back.
+        const snookerHigh = Math.min(155, parseInt(localStorage.getItem('snookerHighBreak') || '0', 10) || 0);
+        if (!has('snookerCentury') && snookerHigh >= 100) unlockAchievement('snookerCentury', S);
+        if (!has('snookerMaximum') && snookerHigh >= 147) unlockAchievement('snookerMaximum', S);
         if (!has('ludoChamp')    && ludoWon >= 100)    unlockAchievement('ludoChamp', S);
         // tetrisMaster, sharpshooter, brickBuster and lightning need session metrics (lines, accuracy,
         // level, avgTime) absent from localStorage; ludoFlawless and ludoHunter are per-match facts.
@@ -13350,6 +15602,18 @@
                     unlockAchievement('calledIt');
                 }
                 break;
+            case 'snooker':
+                // Its own case, so a Pro snooker win never reaches pool's Called It. Both are breaks
+                // against the CPU (2 Players' breaks would be this account's whichever seat made
+                // them); a break of 147 or more needs 15 reds.
+                if (!p.vsCPU) break;
+                if (!userXP.achievements.includes('snookerCentury') && (p.highBreak || 0) >= 100) {
+                    unlockAchievement('snookerCentury');
+                }
+                if (!userXP.achievements.includes('snookerMaximum') && (p.highBreak || 0) >= 147) {
+                    unlockAchievement('snookerMaximum');
+                }
+                break;
             case 'ludo':
                 // All three are CPU-only: hot-seat wins cost nothing to farm,
                 // so endLudoGame reports vsCPU and they are gated on it.
@@ -13379,6 +15643,7 @@
         snakeEndless: 80, snakeWalled: 90, snakeGourmand: 100,
         snakeCampaign: 110, snakeConqueror: 200, snakeLong: 90,
         sharpshooter: 100, lightning: 120, brickBuster: 100, poolShark: 150, calledIt: 120,
+        snookerCentury: 150, snookerMaximum: 300,
         ludoChamp: 150, ludoFlawless: 120, ludoHunter: 80,
         curator: 40, picturePerfect: 40, meditative: 200, teamPlayer: 60
     };
@@ -13743,6 +16008,22 @@
                     message = performance.won ? `🎱 +${xpGained} XP (Pool: beat the ${poolTier || ''} CPU! 🏆)` : `🎱 +${xpGained} XP (Pool: good game vs the ${poolTier || ''} CPU)`;
                 } else {
                     message = performance.won ? `🎱 +${xpGained} XP (Pool: Player 1 wins 🏆)` : `🎱 +${xpGained} XP (Pool: good game)`;
+                }
+                break;
+            }
+
+            case 'snooker': {
+                // Computed in pool-game.js (the tier, the reds, the break bonus; 2 Players and tournaments
+                // as pool), where the headless XP tests pin it; re-clamped here as pool's is.
+                xpGained = Math.max(0, Math.min(AC_MAX_XP_PER_GAME, Math.round(performance.xp || 0)));
+                const snkTier = { easy: 'Easy', normal: 'Normal', hard: 'Hard', pro: 'Pro' }[performance.tier];
+                const snkBreak = performance.vsCPU && (performance.highBreak || 0) >= 50 ? `, a ${performance.highBreak} break` : '';
+                if (performance.tour) {
+                    message = performance.won ? `🔴 +${xpGained} XP (Snooker: ${performance.round} won! 🏆)` : `🔴 +${xpGained} XP (Snooker: ${performance.round}, good game)`;
+                } else if (performance.vsCPU) {
+                    message = performance.won ? `🔴 +${xpGained} XP (Snooker: beat the ${snkTier || ''} CPU${snkBreak}! 🏆)` : `🔴 +${xpGained} XP (Snooker: good frame vs the ${snkTier || ''} CPU${snkBreak})`;
+                } else {
+                    message = performance.won ? `🔴 +${xpGained} XP (Snooker: Player 1 wins 🏆)` : `🔴 +${xpGained} XP (Snooker: good game)`;
                 }
                 break;
             }
@@ -18080,6 +20361,15 @@
                 color: var(--pool-overlay-text);
             }
             .pool-hud [hidden] { display: none !important; }
+            /* Out of the way of the shot (phShy): an overlay the shot passes under fades, and stays
+               a working control. In 3D it comes back while the pointer is on it (3D aim follows the
+               mouse's movement, so reaching it does not move the shot); in 2D the pointer is the aim,
+               often out toward the pocket, so it stays see-through. Focus brings it back in both. */
+            .pool-hud .ph-cam, .pool-hud .ph-pill, .pool-hud .ph-lean, .pool-hud .ph-spin, .pool-hud .ph-hint,
+            .pool-hud .ph-mini, .pool-hud .ph-chips, .pool-hud .ph-replace { transition: opacity 0.15s ease; }
+            .pool-hud .ph-layer > [data-shy] { opacity: 0.22; }
+            .pool-hud .ph-view:not(.is-2d) .ph-layer > [data-shy]:hover, .pool-hud .ph-layer > [data-shy]:focus-visible, .pool-hud .ph-layer > [data-shy]:has(:focus-visible) { opacity: 1; }
+            .pool-hud .ph-canvas.is-dragging ~ .ph-layer > [data-shy] { opacity: 0.22; }
 
             .pool-hud .ph-cam { left: 10px; top: 10px; display: flex; gap: 2px; padding: 3px; border-radius: 11px; pointer-events: auto; }
             .pool-hud .ph-cam button {
@@ -18093,10 +20383,11 @@
 
             .pool-hud .ph-toast {
                 left: 10px; right: 10px; top: 10px; box-sizing: border-box; min-height: 60px; padding: 10px 14px;
-                display: flex; align-items: center; gap: 12px; border-radius: var(--pool-radius);
+                display: flex; flex-direction: column; justify-content: center; gap: 10px; border-radius: var(--pool-radius);
                 background: var(--pool-overlay-strong); border-color: rgba(var(--pool-accent-rgb), 0.6);
                 box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
             }
+            .pool-hud .ph-toast-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
             .pool-hud .ph-toast.is-foul { border-color: rgba(var(--pool-hot-rgb), 0.7); background: var(--pool-hot-edge) left top / 4px 100% no-repeat, var(--pool-overlay-strong); }
             .pool-hud .ph-toast-icon { width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.16); color: var(--pool-accent); }
             .pool-hud .ph-toast.is-foul .ph-toast-icon { background: rgba(var(--pool-hot-rgb), 0.16); color: var(--pool-hot); }
@@ -18104,7 +20395,17 @@
             .pool-hud .ph-toast-title { font-size: 13px; font-weight: 600; color: var(--pool-accent); }
             .pool-hud .ph-toast.is-foul .ph-toast-title { color: var(--pool-hot); }
             .pool-hud .ph-toast-sub { font-size: 12px; }
+            /* Snooker's choice after a foul: a row of 44 px buttons, the first primary. */
+            .pool-hud .ph-toast-acts { display: flex; gap: 6px; pointer-events: auto; min-width: 0; }
+            .pool-hud .ph-toast-acts button { height: 44px; padding: 0 12px; flex-shrink: 0; white-space: nowrap; font-family: var(--pool-body); font-size: 12px; font-weight: 600; letter-spacing: 0; }
+            .pool-hud .ph-toast-acts button.is-grow { flex-grow: 1; flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-toast-acts .ph-btn { color: var(--pool-overlay-text); background: rgba(255, 255, 255, 0.06); border-color: var(--pool-overlay-line); }
+            .pool-hud .ph-act-s { display: none; }
+            .pool-hud .ph-toast-acts.is-tight .ph-act-l { display: none; }
+            .pool-hud .ph-toast-acts.is-tight .ph-act-s { display: inline; }
 
+            /* Read by screen readers, never seen (snooker's tracker readout). */
+            .pool-hud .ph-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
             .pool-hud .ph-lean {
                 left: 10px; top: 60px; width: 40px; height: min(288px, calc(100% - 124px)); box-sizing: border-box; padding: 10px 0;
                 display: flex; flex-direction: column; align-items: center; gap: 6px; border-radius: 20px; pointer-events: auto;
@@ -18223,22 +20524,22 @@
             .pool-hud .ph-mini.is-hot .ph-mini-cap { color: var(--pool-hot); }
             .pool-hud .ph-mini-pad { position: relative; width: 76px; height: 50px; }
             .pool-hud .ph-mini-table { position: absolute; left: 12px; top: 12px; width: 52px; height: 26px; box-sizing: border-box; border-radius: 3px; background: #1d6e55; border: 3px solid #553220; }
-            .pool-hud .ph-mini button {
+            .pool-hud .ph-mini-pad button {
                 position: absolute; width: 24px; height: 24px; padding: 0; border: 0; background: transparent;
                 display: flex; align-items: center; justify-content: center; cursor: pointer;
             }
-            .pool-hud .ph-mini button span {
+            .pool-hud .ph-mini-pad button span {
                 width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; display: flex; align-items: center; justify-content: center;
                 border: 2px solid rgba(var(--pool-accent-rgb), 0.55); background: var(--pool-overlay);
             }
-            .pool-hud .ph-mini button[aria-pressed="true"] span { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.25); }
-            .pool-hud .ph-mini button:hover span { border-color: var(--pool-accent); }
+            .pool-hud .ph-mini-pad button[aria-pressed="true"] span { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.25); }
+            .pool-hud .ph-mini-pad button:hover span { border-color: var(--pool-accent); }
             /* While the card holds the corner: the gauge and its padlock step up over it, and
                Move cue ball goes bottom left, over the spin control (the lean slider is hidden). */
             .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-gauge { bottom: 98px; height: min(140px, calc(100% - 248px)); }
             .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-lock { bottom: calc(102px + min(140px, calc(100% - 248px))); }
             .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-replace { right: auto; left: 10px; bottom: 62px; }
-            .pool-hud .ph-mini button[aria-pressed="true"] span::after { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--pool-accent); }
+            .pool-hud .ph-mini-pad button[aria-pressed="true"] span::after { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--pool-accent); }
 
             /* Frame-over dialog */
             .pool-hud .ph-scrim { inset: 0; background: rgba(7, 9, 10, 0.62); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; pointer-events: auto; }
@@ -18424,6 +20725,9 @@
             .pool-hud .ph-card.is-tight .ph-tag-long { display: none; }
             .pool-hud .ph-card.is-tight .ph-tag-short { display: inline; }
             .pool-hud .ph-spin-side-s { display: none; }
+            /* Snooker's break-off pill ("Break-off · in the D") in Cyberpunk's wider face would meet the
+               toggle's "2D · AUTO": the toggle says 2D, as it does in the widget's column. */
+            .retro-theme .pool-hud[data-game="snooker"][data-layout="compact"] .ph-cam-more { display: none; }
             @container pool-hud (max-width: 359px) {
                 .pool-hud .ph-spin-side { display: none; }
                 .pool-hud .ph-spin-side-s { display: inline; }
@@ -18748,6 +21052,17 @@
             }
             .pool-hud .pu-frame > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .pool-hud .pu-frame.is-win { border-color: rgba(var(--pool-accent-rgb), 0.45); }
+            /* Snooker's result: a 28 px row per frame (its points, winner first), then the high break. */
+            .pool-hud .pu-frows { display: flex; flex-direction: column; gap: 4px; }
+            .pool-hud .pu-frow { height: 28px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: var(--pool-radius-sm); background: var(--pool-control); min-width: 0; }
+            .pool-hud .pu-frow-l { min-width: 58px; flex-shrink: 0; }
+            .pool-hud .pu-frow .pu-frow-l { white-space: nowrap; }
+            .pool-hud .pu-frow-n { flex-grow: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-frow-p { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 600; flex-shrink: 0; }
+            .pool-hud .pu-frow.is-lost .pu-frow-n, .pool-hud .pu-frow.is-lost .pu-frow-p { color: var(--pool-muted); font-weight: 500; }
+            .pool-hud .pu-frow.is-high { background: transparent; border: 1px solid rgba(var(--pool-accent-rgb), 0.35); }
+            .pool-hud .pu-frow.is-high .pu-frow-l { color: var(--pool-accent-ink); }
+            .pool-hud .pu-frow.is-high .pu-frow-p { font-weight: 700; }
             .pool-hud .pu-out {
                 display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
                 background: var(--pool-card); border: 1px solid var(--pool-card-line); flex-shrink: 0;
@@ -18871,6 +21186,201 @@
                 .pool-hud .pu-tabs button { font-size: 10px; }
                 .pool-hud .ph-sheet-mode { font-size: 11px; }
             }
+
+            /* ── Snooker (POOL_V2_PLAN.md, Snooker: the snk* artboards) ───── */
+            /* The same HUD with data-game="snooker": a tighter rhythm so the tracker row fits,
+               cards with a score and a third line, the tracker, the colour chips, the frame's
+               stats in the dialog, and the concede question. The balls' colours are materials,
+               set inline from the renderer's; everything else reads --pool-* only. */
+            .pool-hud:not([data-game="snooker"]) .ph-l3, .pool-hud:not([data-game="snooker"]) .ph-score { display: none; }
+            .pool-hud[data-game="snooker"] .ph-tag, .pool-hud[data-game="snooker"] .ph-group, .pool-hud[data-game="snooker"] .ph-open { display: none !important; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] { gap: 8px; }
+            .pool-hud[data-game="snooker"] .ph-cards { grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr); gap: 6px; }
+            .pool-hud[data-game="snooker"] .ph-frames-n { font-size: 20px; }
+            .pool-hud[data-game="snooker"] .ph-foot, .pool-hud[data-game="snooker"] .ph-handoff { height: 48px; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-card {
+                display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto auto;
+                column-gap: 8px; row-gap: 3px; align-content: center; justify-items: start;
+            }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-card[data-seat="2"] { grid-template-columns: auto minmax(0, 1fr); justify-items: end; text-align: right; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-card-top { grid-column: 1; grid-row: 1; min-width: 0; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-rec { grid-column: 1; grid-row: 2; font-size: 10px; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-l3 { grid-column: 1; grid-row: 3; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-card[data-seat="2"] :is(.ph-card-top, .ph-rec, .ph-l3) { grid-column: 2; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-score { grid-column: 2; grid-row: 1 / 4; align-self: center; }
+            .pool-hud[data-game="snooker"][data-layout="compact"] .ph-card[data-seat="2"] .ph-score { grid-column: 1; }
+            .pool-hud .ph-l3 { min-height: 11px; font-size: 9px; color: var(--pool-accent-ink); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-l3.is-hot { color: var(--pool-hot-ink); }
+            .pool-hud .ph-l3-short { display: none; }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .ph-l3-long { display: none; }
+                .pool-hud .ph-l3-short { display: inline; }
+            }
+            .pool-hud .ph-score { font-size: 28px; font-weight: 700; line-height: 1; }
+            .pool-hud .ph-card.is-active .ph-score { color: var(--pool-accent-ink); }
+            .retro-theme .pool-hud .ph-l3 { font-family: var(--pool-num); letter-spacing: 0.08em; font-size: 10px; }
+
+            /* The tracker row (20 px): reds, the colours (the ball on ringed), points left. */
+            .pool-hud .ph-track { height: 20px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 4px; min-width: 0; }
+            .pool-hud .ph-track-reds { display: flex; align-items: center; gap: 5px; font-size: 10px; letter-spacing: 0.12em; white-space: nowrap; }
+            .pool-hud .ph-track-red { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+            .pool-hud .ph-track-red.is-down { opacity: 0.22; }
+            .pool-hud .ph-track-dots { display: flex; align-items: center; gap: 4px; }
+            .pool-hud .ph-track-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; transition: opacity 0.25s ease; }
+            .pool-hud .ph-track-dot.is-down { opacity: 0.22; }
+            .pool-hud .ph-track-dot.is-on { box-shadow: 0 0 0 1.5px var(--pool-card-line), 0 0 0 3px var(--pool-accent); }
+            .pool-hud .ph-track-gap { flex-grow: 1; }
+            .pool-hud .ph-track-snk {
+                display: flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; white-space: nowrap;
+                background: rgba(var(--pool-hot-rgb), 0.16); border: 1px solid rgba(var(--pool-hot-rgb), 0.7); color: var(--pool-hot-ink); font-size: 9px; letter-spacing: 0.1em;
+            }
+            /* Concede keeps the drawn 20 px look with a 44 px target (an invisible pad above and below). */
+            .pool-hud .ph-track-concede {
+                position: relative; height: 20px; padding: 0 8px; border-radius: 10px; cursor: pointer; flex-shrink: 0;
+                background: var(--pool-control); border: 1px solid var(--pool-control-line); color: var(--pool-text); font-size: 11px; font-weight: 600;
+            }
+            .pool-hud .ph-track-concede::after { content: ''; position: absolute; left: 0; right: 0; top: -12px; bottom: -12px; }
+            .pool-hud .ph-track-concede:hover { background: var(--pool-hover); color: var(--pool-hover-text); }
+            .pool-hud .ph-track-rem { font-size: 10px; letter-spacing: 0.12em; color: var(--pool-muted); white-space: nowrap; }
+            .pool-hud .ph-track > * { flex-shrink: 0; }
+            .pool-hud .ph-track > .ph-track-gap { flex-shrink: 1; }
+            /* With SNOOKERS REQ. and Concede in the row, the reds count keeps its dot and number
+               ("● × 2"); in the widget's column the colour dots give way too. Max has the room. */
+            .pool-hud[data-layout="compact"] .ph-track.is-snk { gap: 6px; padding: 0 2px; }
+            .pool-hud[data-layout="compact"] .ph-track.is-snk .ph-track-word { display: none; }
+            /* Cyberpunk's wider label face needs 12 px more than the row has: its dots give way too. */
+            .retro-theme .pool-hud[data-layout="compact"] .ph-track.is-snk .ph-track-dots { display: none; }
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .ph-track.is-snk .ph-track-dots { display: none; }
+                .pool-hud .ph-track { gap: 6px; padding: 0 2px; }
+            }
+
+            /* The colour chips (160 px card, bottom right): 44 px rows, 30 px balls with their value. */
+            .pool-hud .ph-chips {
+                right: 10px; bottom: 10px; width: 160px; box-sizing: border-box; padding: 8px 8px 10px; border-radius: var(--pool-radius);
+                display: flex; flex-direction: column; gap: 4px; pointer-events: auto;
+            }
+            .pool-hud .ph-chips.is-set, .pool-hud .ph-chips.is-power { border-color: rgba(var(--pool-accent-rgb), 0.55); }
+            .pool-hud .ph-chips.is-hot { border-color: rgba(var(--pool-hot-rgb), 0.6); }
+            .pool-hud .ph-chips-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 44px; }
+            .pool-hud .ph-chip { height: 44px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+            .pool-hud .ph-chip span {
+                width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                font-family: var(--pool-num); font-size: 14px; font-weight: 700; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+            }
+            .pool-hud .ph-chip[aria-checked="true"] span { box-shadow: 0 0 0 2px var(--pool-overlay-strong), 0 0 0 4px var(--pool-accent); }
+            .pool-hud .ph-chip:disabled { cursor: default; }
+            .pool-hud .ph-chip:disabled span { opacity: 0.22; }
+            .pool-hud .ph-chips-cap { text-align: center; font-size: 12px; font-weight: 600; color: var(--pool-overlay-text); white-space: nowrap; }
+            .pool-hud .ph-chips.is-set .ph-chips-cap, .pool-hud .ph-chips.is-power .ph-chips-cap { color: var(--pool-accent-lite); }
+            .pool-hud .ph-chips.is-hot .ph-chips-cap { color: var(--pool-hot-lite); }
+            .pool-hud .ph-chips.is-call { border-color: rgba(var(--pool-accent-rgb), 0.6); }
+            .pool-hud .ph-chips.is-call .ph-chips-cap { color: var(--pool-accent-lite); }
+            /* Folded with a call to make (3D): the pocket map beside the chip. In compact the caption
+               goes under them (a 144 x 78 card, the widget's column included), and the gauge and its
+               padlock step up over it as they do over the call card; Max keeps it in a row. */
+            .pool-hud .ph-chips-pad { flex-shrink: 0; }
+            .pool-hud[data-layout="compact"] .ph-chips[data-fold][data-pad] {
+                display: grid; grid-template-columns: auto auto; grid-template-areas: "chip pad" "cap cap"; align-items: center; justify-items: center; gap: 2px 6px; padding: 5px 8px 6px;
+            }
+            .pool-hud[data-layout="compact"] .ph-chips[data-fold][data-pad] .ph-chips-grid { grid-area: chip; }
+            .pool-hud[data-layout="compact"] .ph-chips[data-fold][data-pad] .ph-chips-cap { grid-area: cap; }
+            .pool-hud[data-layout="compact"] .ph-chips[data-fold][data-pad] .ph-chips-pad { grid-area: pad; }
+            .pool-hud[data-layout="compact"] .ph-view.is-nompad .ph-gauge { bottom: 98px; height: min(140px, calc(100% - 248px)); }
+            .pool-hud[data-layout="compact"] .ph-view.is-nompad .ph-lock { bottom: calc(102px + min(140px, calc(100% - 248px))); }
+            /* While the chips hold the corner: the gauge and padlock step up over them, and
+               Move cue ball goes bottom left. */
+            .pool-hud[data-layout="compact"] .ph-view.is-nominating:not(.is-nomfold) .ph-gauge { bottom: 146px; height: min(140px, calc(100% - 290px)); }
+            .pool-hud[data-layout="compact"] .ph-view.is-nominating:not(.is-nomfold) .ph-lock { bottom: calc(150px + min(140px, calc(100% - 290px))); }
+            /* Folded once a colour is nominated: that chip and the caption in a row, the corner
+               free for the stroke; the chip opens the six again. */
+            .pool-hud .ph-chips[data-fold] { width: max-content; flex-direction: row; align-items: center; gap: 4px; padding: 6px 14px 6px 6px; }
+            .pool-hud .ph-chips[data-fold] .ph-chips-grid { display: flex; }
+            .pool-hud .ph-chips[data-fold] .ph-chip { width: 44px; }
+            .pool-hud .ph-chips[data-fold] .ph-chip:not([aria-checked="true"]) { display: none; }
+            .pool-hud[data-layout="compact"] .ph-view.is-nominating .ph-replace { right: auto; left: 10px; bottom: 62px; }
+
+            /* The frame-over dialog: tighter, with SCORE and HIGH BREAK two up. */
+            .pool-hud[data-game="snooker"] .ph-dialog { padding: 16px; gap: 10px; }
+            .pool-hud .ph-dialog-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+            .pool-hud .ph-dialog-stat { padding: 8px 12px; border-radius: var(--pool-radius-sm); background: rgba(255, 255, 255, 0.06); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            .pool-hud .ph-dialog-stat-l { font-size: 9px; letter-spacing: 0.14em; color: var(--pool-overlay-muted); }
+            /* A long name under HIGH BREAK wraps rather than being cut; the widget's column takes it smaller. */
+            .pool-hud .ph-dialog-stat-v { font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
+            @container pool-hud (max-width: 359px) { .pool-hud .ph-dialog-stat-v { font-size: 15px; } }
+
+            /* Concede the frame? (SnkConcede): an alert dialog, CONCEDE hot. */
+            .pool-hud .ph-dialog.is-alert { width: min(300px, calc(100% - 32px)); padding: 20px; gap: 14px; border-color: rgba(var(--pool-hot-rgb), 0.55); background: var(--pool-hot-edge) left top / 4px 100% no-repeat, var(--pool-overlay-strong); }
+            .pool-hud .ph-dialog.is-alert .ph-dialog-icon { background: rgba(var(--pool-hot-rgb), 0.16); color: var(--pool-hot); }
+            .pool-hud .ph-cdlg-t { display: flex; flex-direction: column; gap: 6px; }
+            .pool-hud .ph-cdlg-t .ph-dialog-title { font-size: 22px; line-height: 1.15; }
+            .pool-hud .ph-primary.is-hot { background: var(--pool-hot-fill); color: #ffffff; font-size: 14px; }
+
+            /* Max (SnkMaxRed / SnkMaxNominate / SnkMaxOver). */
+            .pool-max-frame.is-snooker { padding: 12px 24px 16px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] { gap: 8px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-frames { width: 80px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-frames-n { font-size: 28px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-card { width: 250px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-card-top { flex-direction: column; align-items: flex-start; gap: 3px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-card[data-seat="2"] .ph-card-top { flex-direction: column; align-items: flex-end; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-card-body { gap: 3px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-l3 { font-size: 10px; min-height: 12px; }
+            .pool-hud[data-game="snooker"][data-layout="max"] .ph-score { font-size: 34px; }
+            .pool-hud[data-layout="max"] .ph-track { justify-content: center; gap: 16px; }
+            .pool-hud[data-layout="max"] .ph-track-gap { display: none; }
+            .pool-hud[data-layout="max"] .ph-track-reds, .pool-hud[data-layout="max"] .ph-track-rem { font-size: 11px; }
+            .pool-hud[data-layout="max"] .ph-track-red { width: 10px; height: 10px; }
+            .pool-hud[data-layout="max"] .ph-track-dots { gap: 6px; }
+            .pool-hud[data-layout="max"] .ph-track-dot { width: 11px; height: 11px; }
+            .pool-hud[data-layout="max"] .ph-chips { right: 16px; bottom: 16px; width: 212px; padding: 12px 12px 14px; gap: 6px; }
+            .pool-hud[data-layout="max"] .ph-chips-grid { grid-auto-rows: 58px; }
+            .pool-hud[data-layout="max"] .ph-chip { height: 58px; }
+            .pool-hud[data-layout="max"] .ph-chip span { width: 42px; height: 42px; font-size: 18px; }
+            .pool-hud[data-layout="max"] .ph-chips-cap { font-size: 14px; }
+            .pool-hud[data-layout="max"] .ph-chips[data-fold] { width: max-content; padding: 8px 18px 8px 8px; gap: 6px; }
+            .pool-hud[data-layout="max"] .ph-chips[data-fold] .ph-chip { width: 58px; }
+            .pool-hud[data-layout="max"] .ph-view.is-nominating .ph-replace { right: auto; left: 16px; bottom: 100px; }
+
+            /* Max (S3 follow-up): the corner overlays leave the corners, where at true scale the
+               pockets are. ⚙️ Max View picks where they go: the full table (the design's 1232 × 672,
+               the default), with them on it between the corner and middle pockets and fading out of
+               the way of the shot (phShy); or the table between two bars (data-bars), with them off
+               it. Either way only the lean slider and the power gauge stay by the cushions. */
+            /* Both: spin, the chips and the call card in rows, 56 px tall. */
+            .pool-hud[data-layout="max"] .ph-spin { height: 56px; padding: 0 18px 0 5px; border-radius: 28px; }
+            .pool-hud[data-layout="max"] .ph-spin-ball { width: 46px; height: 46px; }
+            .pool-hud[data-layout="max"] .ph-mini { transform: none; flex-direction: row; gap: 10px; padding: 3px 6px 3px 14px; }
+            .pool-hud[data-layout="max"] .ph-mini-cap { font-size: 13px; }
+            .pool-hud[data-layout="max"] .ph-chips, .pool-hud[data-layout="max"] .ph-chips[data-fold] {
+                width: max-content; flex-direction: row; align-items: center; gap: 10px; padding: 3px 18px 3px 3px; border-radius: 28px;
+            }
+            .pool-hud[data-layout="max"] .ph-chips-grid { display: grid; grid-template-columns: repeat(6, 50px); grid-auto-rows: 50px; }
+            .pool-hud[data-layout="max"] .ph-chips[data-fold] .ph-chips-grid { display: flex; }
+            .pool-hud[data-layout="max"] .ph-chip, .pool-hud[data-layout="max"] .ph-chips[data-fold] .ph-chip { width: 50px; height: 50px; }
+            /* The full table: each centred on a long cushion between a corner and the middle
+               pocket, a quarter of the way in; Move cue ball and the spin picker above spin. */
+            .pool-hud[data-layout="max"]:not([data-bars]) .ph-cam, .pool-hud[data-layout="max"]:not([data-bars]) .ph-spin, .pool-hud[data-layout="max"]:not([data-bars]) .ph-spinpop,
+            .pool-hud[data-layout="max"]:not([data-bars]) .ph-view .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-view.is-calling .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-view.is-nominating .ph-replace { left: 25%; right: auto; transform: translateX(-50%); }
+            .pool-hud[data-layout="max"]:not([data-bars]) .ph-pill, .pool-hud[data-layout="max"]:not([data-bars]) .ph-hint, .pool-hud[data-layout="max"]:not([data-bars]) .ph-mini, .pool-hud[data-layout="max"]:not([data-bars]) .ph-chips { left: 75%; right: auto; transform: translateX(-50%); }
+            .pool-hud[data-layout="max"]:not([data-bars]) .ph-view .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-view.is-calling .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-view.is-nominating .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-spinpop { bottom: 84px; }
+            /* Between bars: the canvas is sized between them (poolFit measures it); canvas-placed
+               marks (the ball-in-hand note) are offset by the top bar. */
+            .pool-hud[data-layout="max"][data-bars] { --ph-bar-t: 60px; --ph-bar-b: 68px; }
+            .pool-hud[data-layout="max"][data-bars] .ph-canvas { top: var(--ph-bar-t); height: calc(100% - var(--ph-bar-t) - var(--ph-bar-b)); }
+            .pool-hud[data-layout="max"][data-bars] .ph-view::before {
+                content: ''; position: absolute; inset: 0; pointer-events: none;
+                background: linear-gradient(var(--pool-overlay-line), var(--pool-overlay-line)) 0 calc(var(--ph-bar-t) - 1px) / 100% 1px no-repeat,
+                    linear-gradient(var(--pool-overlay-line), var(--pool-overlay-line)) 0 calc(100% - var(--ph-bar-b)) / 100% 1px no-repeat;
+            }
+            .pool-hud[data-layout="max"][data-bars] .ph-bihnote { margin-top: var(--ph-bar-t); }
+            .pool-hud[data-layout="max"][data-bars] .ph-cam { top: 8px; }
+            .pool-hud[data-layout="max"][data-bars] .ph-pill { top: 13px; }
+            .pool-hud[data-layout="max"][data-bars] .ph-spin, .pool-hud[data-layout="max"][data-bars] .ph-mini, .pool-hud[data-layout="max"][data-bars] .ph-chips { bottom: 6px; }
+            .pool-hud[data-layout="max"][data-bars] .ph-spinpop { bottom: calc(var(--ph-bar-b) + 8px); }
+            .pool-hud[data-layout="max"][data-bars] .ph-hint { bottom: 17px; }
+            .pool-hud[data-layout="max"][data-bars] .ph-view .ph-replace, .pool-hud[data-layout="max"][data-bars] .ph-view.is-calling .ph-replace,
+            .pool-hud[data-layout="max"][data-bars] .ph-view.is-nominating .ph-replace { left: 50%; right: auto; bottom: 18px; transform: translateX(-50%); }
             /* ═══ END POOL THEME ═══ */
 
             /* Borderless PiP Window - Hide Browser Chrome */
@@ -21339,6 +23849,14 @@
         cyberSweepEmoji(modal);
 
         const wasOpen = modal.classList.contains('active');
+        // Built once, so a select can be stale: another control (the pool panel's Game mode
+        // sheet, say) may have changed its setting since. Opening shows every one as it is now.
+        if (!wasOpen) {
+            modal.querySelectorAll('.settings-select[data-pref]').forEach(sel => {
+                const v = userPreferences[sel.getAttribute('data-pref')];
+                if (v !== undefined && v !== null && Array.prototype.some.call(sel.options, o => o.value === String(v))) sel.value = String(v);
+            });
+        }
         modal.classList.toggle('active');
         overlay.classList.toggle('active');
 
@@ -21507,6 +24025,46 @@
                 </select>
             </div>
             <div class="settings-option">
+                <span class="settings-option-label"><span class="rt-emo">🎱</span> Aim Guide</span>
+                <select class="settings-select" data-pref="poolGuideLen">
+                    <option value="long" ${userPreferences.poolGuideLen !== 'medium' && userPreferences.poolGuideLen !== 'short' ? 'selected' : ''}>Long — the object ball's line in full</option>
+                    <option value="medium" ${userPreferences.poolGuideLen === 'medium' ? 'selected' : ''}>Medium</option>
+                    <option value="short" ${userPreferences.poolGuideLen === 'short' ? 'selected' : ''}>Short — a hint of the line</option>
+                </select>
+            </div>
+            <div class="settings-option">
+                <span class="settings-option-label"><span class="rt-emo">🎱</span> Max View</span>
+                <select class="settings-select" data-pref="poolMaxLayout">
+                    <option value="full" ${userPreferences.poolMaxLayout !== 'bars' ? 'selected' : ''}>Full table — controls on it, between the pockets</option>
+                    <option value="bars" ${userPreferences.poolMaxLayout === 'bars' ? 'selected' : ''}>Table between bars — nothing over the table</option>
+                </select>
+            </div>
+            <div class="settings-option">
+                <span class="settings-option-label"><span class="rt-emo">🎱</span> Cue Game</span>
+                <select class="settings-select" data-pref="poolVariant">
+                    <option value="pool" ${userPreferences.poolVariant !== 'snooker' ? 'selected' : ''}>8-Ball Pool</option>
+                    <option value="snooker" ${userPreferences.poolVariant === 'snooker' ? 'selected' : ''}>Snooker</option>
+                </select>
+            </div>
+            <div class="settings-option">
+                <span class="settings-option-label"><span class="rt-emo">🔴</span> Snooker Reds</span>
+                <select class="settings-select" data-pref="snookerReds">
+                    <option value="15" ${+userPreferences.snookerReds !== 10 && +userPreferences.snookerReds !== 6 ? 'selected' : ''}>15 — the full frame</option>
+                    <option value="10" ${+userPreferences.snookerReds === 10 ? 'selected' : ''}>10</option>
+                    <option value="6" ${+userPreferences.snookerReds === 6 ? 'selected' : ''}>6 — quick</option>
+                </select>
+            </div>
+            <div class="settings-option">
+                <span class="settings-option-label"><span class="rt-emo">🔴</span> Snooker CPU</span>
+                <select class="settings-select" data-pref="snookerDifficulty">
+                    <option value="adaptive" ${userPreferences.snookerDifficulty === 'adaptive' || !userPreferences.snookerDifficulty ? 'selected' : ''}>Adaptive — matches your form</option>
+                    <option value="easy" ${userPreferences.snookerDifficulty === 'easy' ? 'selected' : ''}>Easy — pots the simple ones</option>
+                    <option value="normal" ${userPreferences.snookerDifficulty === 'normal' ? 'selected' : ''}>Normal — small breaks, some safety</option>
+                    <option value="hard" ${userPreferences.snookerDifficulty === 'hard' ? 'selected' : ''}>Hard — position and safety, call the colours</option>
+                    <option value="pro" ${userPreferences.snookerDifficulty === 'pro' ? 'selected' : ''}>Pro — hardly misses, call every ball</option>
+                </select>
+            </div>
+            <div class="settings-option">
                 <span class="settings-option-label"><span class="rt-emo">🎲</span> Ludo Board</span>
                 <select class="settings-select" data-pref="ludoRotation">
                     <option value="0" ${Number(userPreferences.ludoRotation) === 0 ? 'selected' : ''}>Blue top-left (default)</option>
@@ -21575,11 +24133,14 @@
             select.addEventListener('change', function() {
                 const pref = this.getAttribute('data-pref');
                 // Selects hand back strings; these two are numbers everywhere else.
-                const numericPrefs = ['gameFps', 'ludoRotation'];
+                const numericPrefs = ['gameFps', 'ludoRotation', 'snookerReds'];
                 userPreferences[pref] = numericPrefs.indexOf(pref) !== -1
                     ? parseInt(this.value, 10) : this.value;
                 savePreferences();
                 applyPreferences();
+                // The cue game, and snooker's reds and CPU: the pool panel follows them now (a
+                // new difficulty or reds count applies to a frame nothing has been hit in yet).
+                if (['poolVariant', 'snookerReds', 'snookerDifficulty'].indexOf(pref) !== -1 && typeof poolOnPrefChange === 'function') poolOnPrefChange(pref);
 
                 // If theme changed, update dependent options visibility
                 if (pref === 'displayTheme') {
@@ -23535,6 +26096,10 @@
                                 <span class="gsb-best" id="pool-wins">0</span>
                                 <span class="gsb-trophy">🏆</span>
                             </button>
+                            <button id="snooker-lb-btn" class="game-score-btn" style="display: none;" onclick="window.openGameLeaderboard('snooker')">
+                                <span class="gsb-best" id="snooker-wins">0</span>
+                                <span class="gsb-trophy">🏆</span>
+                            </button>
                         </div>
                         <div id="ludo-scoreboard" class="snake-scoreboard" style="display: none;">
                             <span class="snake-score gsb-aside" id="ludo-mode-label">PvCPU</span>
@@ -24074,7 +26639,8 @@
                     titleElement.textContent = '🏓 Breakout';
                     break;
                 case 'pool':
-                    titleElement.textContent = '🎱 8-Ball Pool';
+                    // 🎱 8-Ball Pool or 🔴 Snooker: whichever cue game the panel plays.
+                    titleElement.textContent = typeof poolTitle === 'function' ? poolTitle() : '🎱 8-Ball Pool';
                     break;
                 case 'ludo':
                     titleElement.textContent = '🎲 Ludo';

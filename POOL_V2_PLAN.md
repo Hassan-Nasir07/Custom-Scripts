@@ -1,10 +1,12 @@
-# 8-Ball Pool v2: 3D table, real physics, tournament mode
+# 8-Ball Pool v2 and Snooker: 3D table, real physics, tournament mode
 
 > **Living document.** Tick the boxes in **Progress** as work lands and record every
 > deviation in the **Decision log** at the bottom. Attach this file as context in later
 > sessions.
 >
-> Status: `DONE`, Phases 0–9 complete (**v2 is in the userscript**); Snooker is a later, unscheduled mode · Last updated: 2026-09-29 · Branch: `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
+> Status: **Pool v2 `DONE`**: Phases 0–9 complete and merged to `main` (PR #14, `6c6af10`), v9 in the userscript ·
+> **Snooker `DONE`** (2026-09-30): S0–S7 done and tested by the user (the seam, the table, the rules, the controller and HUD, the CPU, tournaments, progression and the bot, v10, polish); Phases S0–S7 in [*Snooker*](#snooker-the-second-game-on-the-v2-table-phases-s0s7), sharing this table, engine block, panel and harnesses with pool ·
+> Last updated: 2026-09-30 · Branch: `feat/snooker` (from `main`); v2 was built on `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
 
 ## Context
 
@@ -1088,35 +1090,1168 @@ in `pool-dev/v1/` for `baseline-check.js`.
       the user's test of the v9 userscript, 2026-09-29; keyboard shooting came out of it (see
       the Decision log).
 
-### Later: Snooker (not scheduled; after v2 ships)
-The user's review of the Phase 3 table: it is good enough to carry snooker rules. What
-carries over and what would be new:
+---
 
-- **Carries over as is:** the physics (sliding, rolling, spin, throw, cushions, the pocket
-  jaws model), the cameras and director, the renderer's table and ball drawing, the event
-  log the judge reads, ball in hand with a clamp, the hot-seat hand-off, the tournament
-  bracket and the theme layer. A real snooker bed is 2:1 like ours (3569 × 1778 mm), so
-  the playfield stays 1000 × 500.
-- **Table config:** balls to scale are much smaller (52.5 mm on 3569 mm is R ≈ 7.4 units,
-  against pool's 14), and snooker pockets are narrower with rounded cushion cuts. Both
-  are `ppCreateWorld` options; the jaws model already takes any pocket geometry.
-- **Markings:** the baulk line (≈ 206.5 units from the baulk cushion), the D (radius
-  ≈ 81.8) and the six colour spots replace the head string and foot spot. `prClampPlace`
-  gains a `'d'` zone: the ball slides along the D's arc and the baulk line.
-- **Rules, as a sibling of `pool-rules.js`:** red then colour while reds remain, colours
-  re-spotted (to the next free spot if theirs is taken), then yellow → black in order;
-  1–7 points; a foul gives the opponent max(4, value of the ball on or hit); free ball
-  after a foul that leaves a snooker; a re-spotted black on a tie. The *miss* rule and
-  re-racks stay out, like WPA's options in Phase 2. Still judged from the log after the
-  last strike.
-- **HUD:** scores and the current break instead of group trackers, the *ball on* in the
-  pill, points remaining and *snookers required*. Nominating a colour replaces the
-  pocket call.
-- **CPU:** safety matters far more than in 8-ball, so the Phase 6 planner needs a
-  snooker evaluation (where the cue ball leaves the opponent), not only pot chance.
-- ❓ **Ball size on the compact panel:** to scale, a ball in compact 2D is about 2.4 px in
-  radius, under 5 px across. Options: slightly oversized balls (as most snooker games do), a portrait 2D
-  view, or snooker only in 3D and Max.
+## Snooker: the second game on the v2 table (Phases S0–S7)
+
+> Status: `IN PROGRESS`, S0 done · Branch: `feat/snooker` (from `main` at `6c6af10`, the v2 merge) ·
+> Scheduled 2026-09-29, after v2 shipped. This section replaces the old *Later: Snooker*
+> note (its text is kept at the end of this section for reference).
+
+### Why and what
+
+v2 was built so a second game could share it. The physics is pure and deterministic and is
+driven entirely by per-world config (`ppCreateWorld(overrides)`; R is only ever read from
+`cfg.ballR`). The judge reads the physics event log. The CPU evaluates every line on a cloned
+world through the judge.
+
+The job is **full snooker, up to the 147 maximum**, on the same table component, with every
+pool mode:
+
+- Vs CPU (easy/normal/hard/pro, adaptive, pinnable)
+- 2 Players hot-seat
+- Tournament (humans only)
+
+Pool vs Snooker is chosen in ⚙️. The 8-ball assumptions sit in `ppRack`, `pool-rules.js`, and
+about a dozen hardcoded ids and counts in the controller, HUD, renderer and AI. So the work
+is:
+
+1. a seam
+2. a snooker table, rules and CPU behind it
+3. the HUD, tournaments and progression generalised over both games
+
+### One space, two games
+
+Pool and snooker **coexist in the same space**. Nothing is forked:
+
+- **Userscript.** Both games use the one engine block between the `POOL ENGINE` sentinels,
+  the one `#pool-root` panel, game switcher button 7 and shortcut `7`, one Max modal, and the
+  one theme block.
+  - The host sees one game, `pool`. It asks the block for the title (`poolTitle()`) and the
+    wins button.
+  - The ⚙️ *Cue Game* row picks the game. Everything in the panel then belongs to that game:
+    its modes, its tournament, its cabinet and its records.
+- **Harnesses.** The existing pages gain a game switch; no new pages:
+  - `pool-table.html` (the widget's own controller on host stand-ins):
+    - a *Game* select (8-Ball Pool / Snooker) that writes `userPreferences.poolVariant` and
+      calls `poolSetVariant()`, exactly as ⚙️ does
+    - a *Reds* select (15 / 10 / 6)
+    - the *Call every shot* toggle, shown for pool only
+    - `snooker:` design scenes next to pool's (break-off in the D, nominate, free ball, put
+      back, snookers required, frame over, Max)
+    - `?game=snooker` to open on snooker
+    - the XP log shows snooker awards
+  - `pool-harness.html` (the live physics): a *Table* preset select (Pool / Snooker) that
+    swaps `PP_DEFAULTS` for `PS_TABLE`. It rebuilds the knobs with snooker's ranges, racks
+    with `psRack` (reds 15/10/6), draws the D, spots and baulk line, and adds an *Acceptance*
+    button that fires the pocket-window probe lines.
+  - `snapshot.js`, `theme-verify.js` and `perf-check.js` drive the same `pool-table.html` with
+    `?game=snooker` scenes.
+  - `host-run.js` drives the real widget and switches game through ⚙️.
+  - `load.js` loads both games in one scope (`game(opts)` gains `opts.variant`).
+  - `balance-check.js` stays pool's; `snooker-balance.js` is its sibling on the same loader.
+
+### Review of this plan against the shipped v2 (2026-09-29)
+
+| # | Finding | Action |
+|---|---|---|
+| 1 | The status line still said *Snooker is a later, unscheduled mode · Branch: `feat/pool-v2`*, and v2 is merged to `main` | Updated (this commit) |
+| 2 | The old note said *carries over as is: … the pocket jaws model*. The jaws are straight segments, and authentic rounded cuts need **arc colliders** (new code, guarded so pool never runs it) | S1 |
+| 3 | The old note said *the renderer's table and ball drawing carry over*, but several sizes are absolute and only right at R = 14: the camera `top = cfg.ballR + 2` (equal to the rail height only by coincidence), cue width 3.3→8, pull-back `8 + 1.1·power`, shadow offset (+4, −5), and pocket rings `r + 12`. The table cache key has no variant either | S0: R-relative (`k = R/14`, so pool stays identical) |
+| 4 | The physics runs at **1 u = 2.54 mm** (gravity 3862), a 9 ft bed. True snooker scale on the same bed is 1 u = 3.569 mm, so gravity and top speed are rescaled | S1 `PS_TABLE` |
+| 5 | The ❓ on ball size is answered: true scale, no zoom, Max is the clear view. *The miss rule and re-racks stay out* is confirmed. **New:** the put-back choice, which the old note did not list | User decisions below |
+| 6 | Unticked v2 items: Phase 1 *break-pot tuning (open)*; Phase 8 *the user pushes the bot first* (v9 has shipped since) | Confirm the bot's state before S6; snooker's bot change stacks on it |
+| 7 | Hazard: the pool case in `checkGameAchievements` unlocks *Called It* on any win with `tier === 'pro'` (host :13349). If snooker reused the `'pool'` XP type, a Pro snooker win would unlock it | S6: snooker gets its own `'snooker'` type |
+| 8 | Existing bug: ⚙️ is built once (`createSettingsModal` :21351), so the *Pool CPU* select goes stale after the Game mode sheet changes the difficulty | S3: every `[data-pref]` control re-syncs on open |
+| 9 | The Context's line references (`:1749-4762` and others) are from before the extraction; the engine block is now :2432–7372 | Cosmetic, left as history |
+
+### User decisions (2026-09-29)
+
+| Topic | Decision |
+|---|---|
+| Scale | **True scale**: R ≈ 7.36 (52.5 mm on a 3569 mm bed), authentic narrow pockets with rounded cuts, markings at true positions, on the same 1000 × 500 bed |
+| Compact 2D | **No zoom.** Whole-table 2D with ~2 px balls; **Max is the clear view**. 3D is snooker's default camera |
+| Fouls | Standard values (min 4, max 7). After any foul the incoming player chooses **Play** or **Make ‹name› play again** (and **Free ball** when snookered); the CPU decides for itself. **No miss rule.** A cue ball in-off gives ball in hand **in the D**; otherwise play from where it lies |
+| Nomination | **Tap a colour every time** you are on a colour (after a red) or on a free ball; the power gauge padlocks until you do. The clearance (yellow→black) needs none |
+| Reds | **15 / 10 / 6**, 15 by default and the only count where a 147 is possible. ⚙️ sets it for quick play and tournament setup for tournaments |
+| Leaderboard | Own **Snooker** board: Pro/Hard/Normal/Easy/All-time/Hot-seat wins, **plus a High break tab** (best break vs CPU). 💯 *Century* and 🏅 *Maximum* (147, vs CPU, 15 reds). The bot bounds the new keys and caps a break at 155; it is pushed before the client |
+| XP | Vs CPU win, easy→pro: 15 reds 90/120/150/180; 10 reds 75/100/125/150; 6 reds 60/80/100/120. Loss 20. Break bonus vs CPU: +10 for 50+, +25 for 100+, +50 for a 147, best break only. At most 230 a frame (the bot allows 250). 2 Players and tournaments pay as pool (80/15). No per-pot XP |
+| Selector | Pool / Snooker in the ⚙️ settings tab |
+| Harness | **The existing harnesses host both games** (see *One space, two games*) |
+
+### Implementer's calls (each is easy to flip)
+
+| # | Call | Why |
+|---|---|---|
+| 1 | Ball ids: 0 is the cue; a colour's id is its value (yellow 2 … black 7); reds are 8…22 (8…17 for 10 reds, 8…13 for 6) | Value lookups are free, and no id is shared with pool's meaning of 8 |
+| 2 | Everything belongs to the selected game. Separate records, tournaments and cabinets; switching parks the frame in progress, and switching back restores it | The setting then means one thing: which game the panel is |
+| 3 | Snooker quick frames survive a reload (`snookerFrame` at every shot boundary, removed before the award). Pool keeps today's behaviour | A 15-red frame is long |
+| 4 | Shot clock 45 s in snooker quick play; tournaments offer 30 / 45 / 60 / off | Aiming at true scale in 3D is slower |
+| 5 | Adaptive never climbs to Pro in snooker either | Pro is a challenge you choose, as in pool |
+| 6 | A foul committed before nominating costs 7 (WPBSA). Only a timeout can cause it, because the gauge is padlocked | The rule book's value |
+| 7 | On a tie, the black is re-spotted and played from the D; a seeded lot decides who goes first | Reproducible, like the rest of the frame |
+| 8 | *Snookered behind the free ball* is a foul, except when only pink and black remain | Cheap to judge, and it is the rule |
+| 9 | A touching ball that is a ball on counts as hit. There is no push-shot foul | The physics cannot tell a push |
+| 10 | No diamonds on the snooker table | Snooker tables have no sights |
+| 11 | Concede is offered to a human who needs snookers, with a confirmation. The CPU concedes by tier | 15-red frames can be long after they are decided |
+| 12 | The break bonus pays on wins and losses vs CPU. Achievement XP: Century 150, Maximum 300, inside `AC_MAX_XP_PER_ACHIEVEMENT` (600), which is separate from the per-game budget | The sync gate counts achievements on their own |
+| 13 | Tournament copy says *best of 2N−1* in snooker; `raceTo` is still what is stored | Snooker's convention, with no change to the model |
+| 14 | Out of scope: miss, re-racks, nap, push/jump/double-hit fouls, "angled" free balls | The physics cannot produce most of them, and each would be an extra prompt |
+
+### What the design specifies (revision `1790715495-3a1b`, 2026-09-30)
+
+The user added snooker to the same Claude Design canvas from the prompt in
+[Appendix B](#appendix-b-design-prompt-for-snooker). It is frozen in `pool-dev/ref/design/` beside
+pool's artboards (56 files; `pool-dev/ref/README.md`). As with pool, **layout, components,
+copy and table geometry are followed; colour and type map to the Glassmorphic and Cyberpunk
+tokens** (*Theme mapping*). Pool's artboards are byte-identical in this revision; the shared
+components only gained snooker branches.
+
+**Artboard inventory.** 27 `Snk*` artboards, drawn as `snooker` variants of the existing
+components:
+
+| Row | Artboards | Component (variant) |
+|---|---|---|
+| In match (compact 400 × 640) | S1 Break-off in the D · S2 On a red, 3D · S3a/b Nominate (tap a colour / on the pink) · S4a/b Foul choice (CPU table / 2 Players, hand-off first) · S5a/b Free ball (three choices / nominate) · S6a/b Snookers required / Concede · S7 The colours · S8a/b Frame over win / loss · S9a Century notice · S9b Re-spotted black · S10 2D overview at true scale | `InMatch` (`snk*`), `Table` (`snooker-*` layouts) |
+| Sheet and tournament | S11 Game mode sheet · S12 Setup · S13a/b Bracket compact / full · S14 Match intro · S15 Match in progress · S16 Match result · S17 Trophy cabinet | `InMatch` (`snkMode`, `snkLive`), `TournamentSetup`, `BracketCompact`, `BracketFull`, `BracketTree` (`format: 'bestof'`), `MatchIntro`, `MatchResult`, `TrophyCabinet` (`game: 'snooker'`) |
+| Full view (1280 × 800) | S18 On a red · S19 Nominate · S20 Frame over | `Max` (`snkRed`, `snkNom`, `snkOver`) |
+
+**The table** (`Table.dc.html`, layouts `snooker`, `snooker-break`, `-nominate`, `-free`,
+`-late`, `-colours`, `-black`, `-empty`). The design's y is down-screen; ours is up, so its
++y is our −y:
+
+| | Design | Notes |
+|---|---|---|
+| Balls | R 7.36, plain; red `#B3202A`, yellow `#E8C21E`, green `#1F7A3F`, brown `#6B3F22`, blue `#1F4FB5`, pink `#E88FA8`, black `#121314` | materials, theme-independent |
+| Markings | baulk line x −293.5 across the bed; D r 81.8 (a 24-segment half-circle toward the baulk cushion); six 2 u spots: brown (−293.5, 0), yellow (−293.5, −81.8 ours), green (−293.5, +81.8 ours), blue (0, 0), pink (250, 0), black (409.2, 0); no diamonds | in faint ivory, as pool's spots |
+| Corner pocket | hole at (±503, ±253), r 17; cushion noses end 17 u from the corner (mouth 17·√2 ≈ 24 u) | **replaces** the plan's estimate (throat 24.1, cut r 7, jaw 45°, offset 7, r 13.5) |
+| Middle pocket | hole at (0, ±259), r 15.5; noses end 14.5 u either side of centre (mouth 29 u) | **replaces** throat 29.4, cut r 10, jaw 75°, offset 9, r 14.5 |
+| Cushion ends | a **quarter-round of radius 12** (the cushion's depth) at every nose end, centred on the rail line behind the nose, from the nose tip to the rail | the rounded cut; the arc colliders model exactly this |
+| Heights | rail top 16, nose 10: **pool's**, unscaled | the plan's `railZ 16k / noseZ 10k` is dropped; 10 u is 1.36 R, close to a real snooker nose |
+| Camera and cue | the chase camera's 110 → 420 distance and pool's cue (width 3.3 → 8, pull-back 8 + 1.1·power, lift R + 1.5), **unscaled** | S0 scaled both by R/14; S1 takes that back for snooker (pool is k = 1 either way) |
+| Shadows | offset (R·0.29, R·0.36), r 1.08 R | = S0's ×k; pool keeps its exact (4, 5) |
+| Nominated ball | an accent ring of radius r + max(3 px, 0.4 r) | |
+| Ball in hand | the D tinted and outlined like the kitchen; the note *Inside the D only* | the clamp keeps it unreachable, as pool's kitchen note is |
+| Rack | apex 265.7, rows 12.75 apart, 14.8 across | illustrative; the physics rack is touching (`psRack`) |
+
+**The compact panel** (`InMatch`):
+- **Vertical rhythm.** Snooker's panel is tighter so the tracker row fits in 640: padding
+  12 / 16, gaps 8, header 32, footer 48; the table viewport stays 368 × 412.
+- **Header.** A red-ball mark, *Snooker*, and the wins pill.
+- **Cards** (72 px). Name, record, and a third line with the tag (*TO BREAK*, *FOUL*,
+  *YOUR CHOICE*, *BALL IN HAND*) or *BREAK 34*. The score sits at 28 px on the outer side, in
+  the accent's light tone when active. *FRAMES* is 44 px wide.
+- **Tracker row** (20 px).
+  - Left: a red dot with *REDS × 9* (dimmed at 0), then six 9 px colour dots (0.22 once
+    potted, an accent ring on the ball on).
+  - Right: *99 REMAINING*. With snookers needed it reads *43 LEFT*, with a hot
+    *SNOOKERS REQ. 1* chip and a *Concede* button. The row's aria label reads it all out.
+- **Chips.**
+  - A 160 px card in the bottom-right slot: a 3 × 2 grid of 44 px rows, 30 px balls carrying
+    their value (dark ink on yellow and pink, light on the rest).
+  - The caption reads *Tap a colour*, then *Drag to shoot*.
+  - While it shows, the gauge moves up to top 118 with the padlock at 96, and the hint is
+    hidden.
+- **Pill.** *Break-off · in the D* · *On a red* · *Nominate a colour* → *On the pink* ·
+  *Free ball* → *Free ball · Pink* · *On the yellow* · *Re-spotted black*.
+- **Foul toast.** It is replaced by the choice while the choice is pending.
+  - Text: *Foul · 6 to Bilal* / *Hit the pink first*.
+  - Buttons: a row of 44 px buttons, the first (*Play*) primary. The free-ball case reads
+    *Snookered on every red · free ball*, with *Play* · *Free ball* · *Make Ayesha play
+    again*.
+  - In 2 Players the hand-off comes first; the toast reads *Bilal chooses how play
+    continues* until *BILAL'S READY*.
+- **Frame over.**
+  - Reasons: *Potted the black.* / *CPU won on the re-spotted black.*
+  - A two-up stat row: *SCORE 72–41* and *HIGH BREAK 58 · You*.
+  - Record and delta, the adaptive note, *NEW FRAME* and *Change difficulty*, with slightly
+    tighter padding (16 / 10).
+- **Notices.**
+  - Century: a trophy icon in the accent, *Century break · 104* / *Ayesha keeps the break
+    going*.
+  - Re-spot, an info toast: *Scores level · re-spotted black* / *Ayesha has ball in hand in
+    the D*.
+- **Concede.**
+  - An alert dialog: *Concede the frame?* / *Bilal wins 68–22*.
+  - Actions: *CONCEDE* (hot) and *Keep playing*.
+- **Game mode sheet.** Easy *Pots the simple ones · leaves chances*; Normal *Builds small breaks ·
+  plays some safe*; Hard *Plays position and safety · regular 50s*; Pro *Hardly misses ·
+  centuries*.
+
+**Max** (`Max`). Cards 250 px wide with an avatar and a 34 px score; the tracker row centred under
+the header; chips in a 212 px card (58 px rows, 42 px balls); padding 12 / 24 / 16, gaps 8;
+the pill *Bilal's shot · On a red*.
+
+**Tournament.**
+- **Setup.**
+  - The kicker reads *SNOOKER · HUMANS ONLY*.
+  - *FRAMES PER ROUND · BEST OF*, offering 1 / 3 / 5 / 7 / 9. Defaults: 4 players 3 / 5,
+    8 players 1 / 3 / 5, 16 players 1 / 1 / 3 / 5. These are race-to 1–5, and pool's own
+    defaults.
+  - Shot clock 30s / 45s / 60s / Off; *Reds* 15 / 10 / 6 in place of *Call pocket*.
+- **Bracket.** *CITY OPEN · SNOOKER*, *BEST OF 3* (`BracketTree` `format: 'bestof'` prints
+  2N − 1); the full view reads *SNOOKER · 8 PLAYERS*.
+- **Intro.** *Ayesha breaks off*, *Best of 3*, *· 15 reds*.
+- **Result.** One row per frame (*FRAME 1 · Ayesha · 74–32*), a *HIGH BREAK · Ayesha · frame 3 ·
+  61* row, and a 112 px mini tree.
+- **Cabinet.** Titled *Snooker*, with the kicker *TROPHY CABINET · THIS COMPUTER*.
+
+**Calls the artboards leave open** (decided here):
+
+1. **The CPU as the chooser.** The design shows a human choosing. When you foul against the
+   CPU, the CPU's card tag reads *CHOOSING* for its 700 ms beat, then a notice names the
+   choice (*CPU plays on* / *CPU takes the free ball* / *CPU puts you back in*).
+2. **Concede's touch target.** The drawn button is 20 px tall inside the 20 px row. It keeps
+   that look with a 44 px hit area (an invisible pad reaching into the gaps above and below),
+   so the rule of 44 px targets holds.
+3. **Narrow labels (316 px column).** The long choice *Make Ayesha play again* falls back to
+   *Put back* when the row would overflow, as *BILAL'S READY* falls back to *READY*.
+   *SNOOKERS REQ. n* keeps its full form; *n LEFT* is already the short form of
+   *n REMAINING*.
+4. **Shot clock default.** Tournament setup defaults to 30s, as drawn. Quick play keeps
+   45 s (implementer's call 4).
+5. **The rack.** Drawn = played still holds: the renderer draws the physics rack, which is
+   touching as a real rack is, so the design's 1 u gaps are not copied.
+
+### Architecture
+
+**Files**
+
+| File | Change |
+|---|---|
+| `pool-physics.js` | + `ppBuildRoundedTable`, chosen when `cfg.pocketStyle === 'rounded'` <br> + `table.arcs` colliders in `ppNextEvent` / `ppSubStep` / `ppSeparate`, each guarded by `if (t.arcs)` <br> + `cfg.clusterGap`, falling back to `PP_CLUSTER_GAP` <br> + `cfg.railZ: 16`, `cfg.noseZ: 10` <br> Pool's path is untouched |
+| `pool-rules.js` | `prCanPlace` / `prClampPlace` gain zone `'D'`: refused when `x > baulkX` or outside the circle; the clamp projects onto the baulk line or radially onto the arc |
+| **new** `pool-snooker.js` (`ps*` / `PS_*`) | `PS_TABLE`, `psCreateWorld(reds)`, `psRack`, marks, rules, spotting, the snookered test, copy |
+| `pool-ai.js` | game seam `paGame(frame)`: the pool profile is today's code verbatim |
+| **new** `pool-snooker-ai.js` (`paSn*` / `PA_SNOOKER_*`) | the snooker CPU profile |
+| `pool-render.js`, `pool-camera.js` | `pgBallLook`, marks, zone tint, rounded cushions and shafts, a ring on the nominated ball, R-relative sizes, the variant in the cache key |
+| `pool-hud.js`, `pool-theme.css` | `phModel` reads `g.status`; `phPoolParts` / `phSnookerParts`; tracker row, colour chips, toast actions, dialog stats |
+| `pool-game.js` | `POOL_GAMES` dispatch, `poolUseGame`, `poolSetVariant`, parking, nomination, choices, concede, snooker XP and records |
+| `pool-tour.js`, `pool-tour-ui.js` | `t.game`, keys per game, normalised settings, `m.points`, `ptRaceText` |
+| `load.js` | `FILES` = physics, rules, **snooker**, tour, camera, render, hud, tour-ui, ai, **snooker-ai**, game (still one engine block, since `reinsert.js` reads `FILES`); `PREFIX` gains `ps(?=[A-Z])\|PS_`; loaders `snooker()` and `snookerAi()` |
+| `pool-table.html`, `pool-harness.html` | the game switch (see *One space, two games*) |
+| **new** `snooker-verify.js`, `snooker-balance.js`, `snooker-break-tune.js` (offline) | tests, balance, the break-off script search |
+| host `AttendanceTimeCheckerPlus.js` | ⚙️ rows and listener, `poolTitle()` in `updateGameTitle`, the switcher tooltip, `#snooker-lb-btn`, storage, `awardGameXP('snooker')`, achievements, `LB_BOARDS.snooker`, sync keys, `BUILD_LABEL` v10 |
+
+The prefix `ps` has 0 hits for `\bps[A-Z]` and `PS_` in the userscript. `sr` is a live local
+(`const sr` in `ppBuildTable`) and `sk` has 94 hits, so neither was used.
+
+**The seam (S0): `POOL_GAMES` in `pool-game.js`.**
+
+`const poolRules = () => POOL_GAMES[poolS.game] || POOL_GAMES.pool`. Each profile carries:
+
+- **Identity:** `id`, `title`, `icon`, `lb`, `xpType`, `diffPref`, `clock`, and
+  `keys{cpuRec, byTier, tour, cab, frame}`.
+- **Table:** `world()`, `rack(w, rng, reds)`, `cueHome(w)`, `ballCount(f)`, `tracksPot(id)`.
+- **Rules:** `newFrame(o)`, `status(f, w, seat)`, `judge(f, w, {call, nominate})`,
+  `apply(w, v)` (pool re-spots the 8, snooker runs `psApplySpots`), `timeout`, `text`,
+  `legal(f, w, id, nom)`, `validFrame`, and snooker's `choose` and `concede`.
+- **Placement:** `canPlace`, `clampPlace`, `placeCue`.
+- **CPU:** `cpu{tiers, names, plan, place, tierFor, adaptive, choose, concede}`.
+- **Results:** `xp(ctx)`, `fileResult(ctx)`, `tourDefaults`.
+
+These call sites route through it:
+
+- the config build (159, 179, 698, which become `poolUseGame`)
+- `poolNewFrame` 160–168, `poolLockTier` / `poolDifficulty` / the CPU record (94–139)
+- `poolEndFrame` 200–226, with `poolAwardPots` for pool only
+- `poolAfterTurn` / `poolSettle` 255–293, `poolLegalTarget` 296–302
+- the CPU tick 332–342, the pot filter 393, the timeout 404
+- `poolDraw` 437–457, `poolPlace` 535, `poolOnDown` 549, `poolOnUp` 589
+- the tournament keys, snapshot and restore 778–849 (dropping the `=== 16` and `id !== 8` checks)
+- the setup defaults 943 and 980, and the titles 1105 and 1123
+
+`poolUseGame(game)` sets `S.game` and `S.cfg = R.world().cfg`, clears
+`S.director / cache / W / H / drawKey / guide`, and selects `S.tour = S.tours[game]`.
+
+- **HUD.** `phModel` stops calling `prStatusFrom` (104). It reads `g.status`, the difficulty
+  list is `g.diffs || PH_DIFFS`, and the title is `vm.title`.
+- **Renderer.**
+  - `pgBallLook(variant, id)` returns `{cue, colour, stripe, number}` and is cached.
+    `pgDrawBall` skips the caps, the discs and the digits when both are false.
+  - The marks come from `table.marks` when it is present, else pool's two spots, so pool's
+    table object does not change.
+  - The diamonds are drawn unless `cfg.diamonds === false`.
+  - The zone tint comes from `scene.zone`, with `scene.kitchen` kept as an alias.
+  - The cache key is `[pose, felt, dpr, cfg.game || 'pool']`.
+- **R-relative sizes** (k = R/14, so pool's k = 1 draws identically):
+  - camera `top = cfg.railZ`
+  - chase near distance `110k`
+  - cue width and ferrule ×k, pull-back `(8 + 1.1·power)·k` (render 615, game 439)
+  - shadow offset ×k, pocket rings `r + 12k`, `pgPocketMarks` projected at `railZ`
+  - **revised by the design (2026-09-30):** the chase camera and the cue stay pool's size in
+    snooker, so S1 takes the ×k off both, which changes nothing for pool; the shadow keeps it,
+    and snooker sets `railZ` 16 so the wide shots fit the real rail
+
+**Pool fingerprints** are taken on `main` before any change and hardcoded in
+`snooker-verify.js` §0:
+
+- a SHA-256 of `JSON.stringify(ppBuildTable(PP_DEFAULTS))`
+- the final ball states of 20 seeded breaks and 50 fuzz shots
+- `paPlan` shots for 4 tiers × 10 positions, with their `prJudge` verdicts
+
+The `snapshot.js` PNGs must also be pixel-identical to `main`'s across all 56 scenes.
+
+**Table and physics (`PS_TABLE`, 3.569 mm per unit)**
+
+| Key | Value |
+|---|---|
+| Ball and cloth | `ballR` 7.36 (the design's) · `gravity` 2749 · `maxSpeed` 2240 (8 m/s) · `muRoll` 0.011 (tune 0.009–0.013) · `cushionE` 0.8 (tune toward 0.75) · `clusterGap` 0.26 · `railZ` 16 and `noseZ` 10 (pool's, as designed) · `diamonds` false |
+| Unchanged (dimensionless) | `muSlide`, `muSpin`, `ballE`, `muBall`, `squirt`, `maxTip`, `noseRise`; `railWidth` 48 and `cushionWidth` 12, so the camera framing is unchanged |
+| Corner pocket | `pocketStyle: 'rounded'` (the design's, 2026-09-30): nose ends 17 u from the corner (mouth ≈ 24 u), hole centre offset 3 (at ±503, ±253), capture r 17 |
+| Middle pocket | nose ends 14.5 u from centre (mouth 29 u), hole offset 9 (at 0, ±259), r 15.5 |
+| Cushion ends | a quarter-round of radius `cushionWidth` (12) at every nose end, centred on the rail line behind the nose |
+| Markings | baulk line x −293.5; D r 81.8; brown (−293.5, 0); **yellow (−293.5, −81.8)**, on the right of the D seen from the baulk end; green (−293.5, +81.8); blue (0, 0); pink (250, 0); black (409.2, 0) |
+| Rack `psRack(w, rng, reds)` | a 5-, 4- or 3-row pyramid with its apex at 250 + 2R + 0.05; only the reds are jittered; the colours sit exactly on their spots; the cue ball starts at (baulkX − 15, −40) with ball in hand `'D'` |
+
+- **Rounded cut** (as designed). Each cushion runs straight to its nose end. There a
+  quarter circle of radius 12, centred on the rail line directly behind the nose, turns the
+  cushion from the nose tip back to the rail, and the arc ends inside the pocket's hole. The
+  builder throws if an arc misses its hole, as pool's does for a jaw.
+- **Arc colliders, not a polyline.** The arcs are true circle colliders. A polyline would
+  give up to 2.8° of normal error and make every near-rail event check about 5× more
+  expensive.
+- **Pocket sizes come from the design** (2026-09-30), not from estimates. The acceptance
+  windows in the tests measure how they play, and any tuning goes in the Decision log.
+- **Absolute constants re-derived for R = 7.355** (snooker profile only):
+  - `paClear` slack `2R − 0.26`
+  - `paPocketTol` fitted from the measured windows
+  - rail-hit clearances 30 / 25
+  - `paBaseSpeed` floor 120
+  - finish speed floor 40
+  - safety speeds from `muRoll·g`
+  - spotting analytic, not in 0.5 u steps
+
+**Rules (`pool-snooker.js`)**
+
+```
+frame = { v:1, game:'snooker', reds, breaker, turn, isBreak, lot, scores:{1,2}, brk,
+  high:{1,2}, fouls:{1,2}, shots, phase:'reds'|'colour'|'clearance', next:2..7,
+  freeBall, ballInHand:'D'|null, touching:[ids],
+  pending:null|{offender, chooser, options:['play','back'(,'free')]},
+  respotBlack, over, winner, conceded }
+```
+
+- **Frame and judging:**
+  - `psNewFrame({breaker, reds, seed})`
+  - `psSummarize(log)` returns `{firstT, first:[ids sharing the first contact's t], pots,
+    cueDown}`
+  - `psJudge(state, world, nominated)`
+  - `psApplySpots(world, v.spots)`
+- **Choices and endings:**
+  - `psChoose(state, 'play'|'back'|'free')`
+  - `psTimeout(state, world)`
+  - `psConcede(state, seat)`
+- **Geometry:** `psSnookered(world, onIds)`, `psSpotPositions`
+- **Copy:** `psText(v, names)`, `psChoiceText`
+- **Status:** `psStatus(state, world, seat)` returns `{on:{ids, value, freeId},
+  needsNomination, nominable, remaining, snookersRequired:{1,2}, pending, scores, brk,
+  phase, next, redsLeft, colours:[{id, down}], high}`
+
+The verdict is `{shooter, foul, fouls, reason, penalty, points, scored, frameOver, winner,
+continues, nextTurn, ballInHand, options, freeBall, respotBlack, spots, notice, on, summary,
+next}`. It is a superset of what the AI reads (`frameOver`, `winner`, `foul`, `continues`,
+`next`).
+
+| Situation | Ruling |
+|---|---|
+| Break-off | Ball in hand in the D, on reds; no other break rule |
+| On reds | Hit a red first (reds hit together are fine); 1 point per red potted; then nominate a colour |
+| On a colour | Hit the nominated colour first; score its value; it is re-spotted; back to reds |
+| Last red potted legally | Any colour, nominated, which is re-spotted; then the clearance starts at yellow |
+| Clearance | Yellow → black in order; potted balls stay down |
+| Foul penalty | `min(7, max(4, ball on, every ball involved))`, never a sum. A foul before nominating is 7. The offender scores nothing; reds stay down; colours are re-spotted |
+| After a foul | The incoming player picks **Play**, **Put back** (the offender plays from where the ball lies) or, if `psSnookered` after the re-spots, **Free ball**. They are on reds if any remain, else the lowest colour |
+| Cue ball in-off | Ball in hand in the D for whoever plays next; no free ball |
+| Free ball, reds remain | The nominated colour acts as a red: hit it first, it scores 1 and is re-spotted, then a colour. A free ball and reds potted together score 1 each |
+| Free ball, clearance | Scores the value of the ball on, is re-spotted, and the same ball stays on. With the ball on also potted, it scores once |
+| Snookered test | For each ball on, both tangent lines from the cue ball; a line is blocked by any ball not on within 2R. Snookered if every ball on has a blocked side. Cushions are ignored |
+| Re-spot | Its own spot; else the highest-value free spot; else the nearest free point behind its own spot toward the top cushion; else in front. Highest value first, each placed ball occupying its spot |
+| Frame end | The table is empty, or a foul on the last black. The higher score wins. A tie re-spots the black, played from the D, with the first player by seeded lot. Concession also ends it |
+| Points remaining / snookers | Reds phase 8r + 27; the colour phase adds 7; clearance Σ next…7. Snookers = ⌈(lead − remaining) / max(4, lowest ball on)⌉ |
+| Shot clock | A foul worth max(4, ball on), or 7 if no colour was nominated; the usual options |
+
+Copy is in `prText`'s style: *Foul · 4 to Bilal* / *Hit the pink first* (· *Free ball*),
+*Ayesha wins* / *74–51 · potted the black*, *CPU puts you back in*.
+
+**CPU (`pool-snooker-ai.js` on the `paPlan` pipeline)**
+
+- **Targets.** `paSnTargets` returns `[{ball, nominate}]`. The nomination rides with the
+  candidate, and the CPU nominates its line.
+- **Pot value.** EV = `p·(points + γ·Pos) − (1−p)·M − f·(penalty+3)`.
+  - `Pos` weights the next ball on by its value: after a red, black and pink win; after a
+    colour, a red is worth about 4.
+  - `M` is the opponent's threat when the pot misses.
+  - `f` is the foul rate in the noisy replays.
+- **Safety.** EV = `−Threat + 1.5·[opponent snookered] − f·(penalty+3)`, with a 0.75 factor on
+  the make probability when the cue ball is near a cushion. The candidates are the 3 nearest
+  balls on × contact fractions × 4 speeds, followed by a refine pass.
+- **Break-off.** A scripted `{place, cut, speed, tip}` for each reds count, plus its mirror.
+  `snooker-break-tune.js` finds it offline; at runtime 1–2 trials verify it, with a local
+  search of at most 24 trials as the fallback.
+- **Choose** (`paSnChoose`): free ball, play or put back, by best make chance and safety EV.
+- **Concede** (`paSnConcede`): easy never; normal when it needs more than 2 snookers in the
+  clearance; hard and pro when they need more than 1, or more than 2 with 3 or fewer reds left.
+- **Placement** (`paSnPlace`): a grid over the D. After N safeties in a row, an attack bias
+  kicks in so frames don't stall.
+- **Tiers.**
+  - Aim σ is about ¼ of pool's: easy 0.30°, normal 0.12°, hard 0.05°, pro 0.02° (never 0).
+  - Each tier also sets top/keep, spins, robust and `safeTrials`. There is no `callEvery`.
+  - Slices are 4 ms. Target time per shot: easy 60 ms, normal 200, hard 450, pro 800.
+
+`snooker-balance.js` target bands:
+
+| Tier | Win vs casual | Mean break | Centuries / 100 frames | 147s / 100 frames | Fouls / visit |
+|---|---|---|---|---|---|
+| easy | 30–50% | 2–5 | – | – | ≤18% |
+| normal | 55–75% | 5–10 | – | – | ≤10% |
+| hard | 80–92% | 10–20 | 2–10 | – | ≤5% |
+| pro | ≥92% | 20–40 | 15–50 | 0.3–3 | ≤2% |
+
+**Controller and input (`pool-game.js`)**
+
+- **State.** `poolS` gains `game`, `nom` (−1), `parked{pool, snooker}`, `tours{pool, snooker}`
+  and `confirm`. The pending choice lives in the frame state, so it survives snapshots and the
+  CPU.
+- **Nomination.**
+  - While a nomination is needed, the power press is refused and the gauge padlocks.
+  - The main way in is the **DOM colour chips** (`poolOn.nominate(id)`). In 3D and Max, a
+    press on a nominable ball also works. Its hit radius is `max(12 px, R·scale)`, and it only
+    applies while nothing is nominated, so it never swallows a power press.
+  - The CPU nominates through `shot.call`.
+- **Choices.**
+  - When the CPU fouls, the toast shows the buttons at once. In hot-seat the hand-off comes
+    first.
+  - A CPU chooser takes a 700 ms beat, then shows a notice toast.
+  - `poolCanAct` is false while a choice or the concede confirmation is open, and the clock
+    pauses.
+- **Ball in hand in the D.** The break-off and an in-off start in phase `'bih'`, zone `'D'`.
+  The camera cuts to 2D as it does today, and *Move cue ball* is unchanged.
+- **Precision at true scale.** Shift fine aim is 0.0125°/px and ←/→ is 0.025°. The power curve
+  is tuned in the prototype for soft shots.
+- **Switching game** (`poolSetVariant`).
+  - It works while pool is detached and closes Max first.
+  - A shot in flight is simulated to rest and settled first.
+  - It then parks the frame through `poolSnapshotTable()` (the general form of
+    `poolTourSnapshot`: game, reds, mode, tier), and restores the other game's parked or saved
+    frame, or racks a new one.
+  - Finally `poolSyncChrome()` updates `#game-title` (`poolTitle()`: *🎱 8-Ball Pool* or
+    *🔴 Snooker*), the switcher tooltip, the wins button and the Max title.
+
+**HUD (`phSnookerParts`)**
+
+- **Cards.** Name, record or tier, tag, the **score** in large numerals, and **Break 34** on
+  the active card.
+- **Tracker row** (about 20 px, under the cards).
+  - Reds × n and six colour dots (dimmed when down, with a ring on the ball on).
+  - *35 remaining*, a hot *SNOOKERS REQ. n* chip and **Concede**, with an aria label.
+- **Pill.** In priority order:
+  1. *Ball in hand · the D* or *Break-off · in the D*
+  2. *Free ball*
+  3. *Nominate a colour*
+  4. *On the pink*
+  5. *Snookers required: n*
+  6. *On a red* / *On the yellow*
+
+  Max prefixes it with *Bilal's shot ·*.
+- **Chips.** A 3 × 2 grid in the call card's slot and footprint, in both 2D and 3D, captioned
+  *Tap a colour* / *Drag to shoot* / *Release · n%*.
+- **Foul toast.** It gains actions: *Play* / *Make Ayesha play again* (*Put back* when narrow) /
+  *Free ball*. It also carries notices such as *Century break*.
+- **Frame-over dialog.** It gains stats: *SCORE 72–41*, *HIGH BREAK 58 · You*.
+- **Max.** The tracker spans the top bar.
+- **Colours.** The HUD uses `--pool-*` tokens only. Ball and chip colours are materials set
+  inline from `pgBallLook`, and the chip ink passes 4.5:1.
+
+**⚙️ and the host**
+
+- **Defaults** (`userPreferences` :271–299): `poolVariant: 'pool'`, `snookerReds: 15`,
+  `snookerDifficulty: 'adaptive'`.
+- **New rows** after *Pool CPU* (:21499), in the existing select pattern:
+  - 🎱 *Cue Game* (8-Ball Pool / Snooker)
+  - 🔴 *Snooker Reds* (15 full / 10 / 6 quick)
+  - 🔴 *Snooker CPU*
+- **The listener** (:21574) adds `snookerReds` to `numericPrefs`.
+  - `poolVariant` calls `poolSetVariant(v)`.
+  - `snookerReds` and `snookerDifficulty` call `poolOnPrefChange(pref)`. It applies on a fresh
+    frame, else from the next frame, like the difficulty does.
+- **Stale controls.** `toggleSettingsModal` re-syncs every `[data-pref]` control on open.
+- **Title.** `updateGameTitle` (nested at :24050) calls the exported `poolTitle()`.
+- **Wins button.** `#pool-scoreboard` gains `#snooker-lb-btn` / `#snooker-wins`, which show
+  in place of pool's.
+
+**Tournament**
+
+- **Saves.** Separate `snookerTournament` and `snookerTrophyCabinet` keys, plus a `t.game`
+  field.
+- **Validation.** `ptValidate(x, game)` rejects a save for the other game. It normalises the
+  settings:
+  - the race has one entry per round, each 1–5
+  - clock is one of {0, 30, 45, 60}
+  - pool keeps `call`; snooker has `reds` of {6, 10, 15}
+- **Setup.** Snooker's setup shows a **Reds** segment and hides *Call pocket*.
+- **Frame scores.** `m.points` stores `[a, b]` per frame, parallel to `frames`, via
+  `ptRecordFrame(t, id, winner, {points})`. The result screen lists them.
+- **Wording.** `ptRaceText(t, n)` replaces every "race to" (`puMatchCard`, `puIntroHTML`,
+  `puResultHTML`, the setup labels, `poolTourHead`, `poolTourResult`). Snooker's intro says
+  *breaks off*.
+
+**Progression, leaderboard, bot**
+
+- **Storage.** These live in the block, and the host reads them inline:
+  - `snookerWinsByMode {cpu, pvp}`
+  - `snookerWinsByTier`
+  - `snookerRecord`
+  - `snookerCpuRecord`
+  - `snookerHighBreak`: vs CPU, written at every frame end, including losses and concessions
+- **XP.** `awardGameXP('snooker', {won, vsCPU, tier, reds, highBreak, tour, xp})` gets its own
+  case, clamped to `AC_MAX_XP_PER_GAME`. It pays the XP table above, once per rack.
+- **Achievements.** `snookerCentury` 💯 (150) and `snookerMaximum` 🏅 (300), both vs CPU. They
+  are checked live and backfilled from `snookerHighBreak`; a break of 147 or more implies a
+  15-red frame.
+- **Board.** `LB_BOARDS.snooker = {icon:'🔴', unit:'wins', units:{highBreak:'pts'}, notes:{…},
+  modes:{pro, hard, normal, easy, cpu, pvp, highBreak}}`.
+  - `lbBoardRowsHtml` (:1484) uses `cfg.units?.[mode] || cfg.unit`, and the footer note uses
+    `cfg.notes[mode]`.
+  - `gameLbMode` and `refreshGameScoreBtn` both get a `'snooker'` case.
+- **Sync.** `collectGameModeBests` emits `snooker:{easy, normal, hard, pro, cpu, pvp,
+  highBreak}`. The restore only raises values and clamps the high break at 155.
+- **Bot** (`github-actions-bot/.github/workflows/sync.yml`), pushed first:
+  - bound the growth of `snooker:{easy…pro, cpu, pvp}` against the `gameSessions` delta
+  - `snooker:highBreak` is at most 155 and rises only when the `gameSessions` delta is ≥ 1
+  - the key regex already passes
+- **Release.** `BUILD_LABEL` becomes `'v10'`, following the release steps at host lines 8–11.
+
+### Progress
+
+> **Where snooker stands (2026-09-30):** S0–S5 done and tested by the user: the table (the
+> design's revision `1790749498-5862` pockets), the rules and call pocket, the widget, the CPU and
+> tournaments. S6 (XP, Century and Maximum, the Snooker board, the sync keys, the bot, v10) is
+> done and tested too, the bot pushed with the v10 label. S7 (polish) is done, checked by the user
+> on the portal. verify-all is 2,497 / 0, and pool's fingerprints hold.
+
+Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verify-all.js`,
+with `reinsert --check` passing. Run everything on Node 22
+(`"C:/Program Files/nodejs/node.exe"`), because the default `node` is 10.
+
+#### Phase S0: the seam, no behaviour change — done 2026-09-29
+- [x] Branch `feat/snooker` from `main`; this section compiled into the plan
+      (2026-09-29).
+- [x] **Pool fingerprints, taken on `main` before any change** (`pool-fingerprint.js`, held in
+      `snooker-verify.js` §0). They cover:
+  - the table
+  - 20 seeded breaks, 50 shots played on from them, and the verdict on each
+  - the four tiers' plans on 10 positions
+  - the draw calls of 12 scenes (a recording canvas: 2,400–4,800 calls a scene, no browser)
+  - three whole frames through the controller, with their XP and records
+
+  A mutation check proves they bite: drawing sizes at R/13.9 instead of R/14 moves the render
+  digest.
+- [x] **The seam.**
+  - `pool-game.js`:
+    - `POOL_GAMES.pool` holds everything the controller asks of a game: table and rack, the
+      rules, the CPU, storage keys, `frameXP` / `potXP`, `fileResult`, `wins`, title, icon,
+      difficulty list.
+    - `poolRules()` is the one in `poolS.game`; `poolUseGame(game)` swaps the table config and
+      drops the camera and cache.
+    - 52 edits route every call site through it, including the tournament keys and the
+      snapshot checks: `=== 16` and `id !== 8` are now the profile's `ballCount` and
+      `tracksPot`.
+  - `pool-hud.js`:
+    - `phModel` reads `g.status` (no rules calls), `g.game`, `g.title` and `g.diffs`
+    - the sheet's difficulty words follow the model
+    - dots go through `pgBallLook`
+  - `pool-render.js`:
+    - `pgBallLook(game, id)`; a plain ball skips the stripe, discs and digits
+    - marks come from `table.marks`, else pool's two spots (`pgMarks` / `pgDrawMarks`, with
+      lines and arcs ready for S1)
+    - diamonds unless `cfg.diamonds === false`
+    - `scene.zone`, with `kitchen` kept as an alias
+    - the game in the cache key
+    - every size drawn round a ball ×`pgK` = R/14: cue width, tip and ferrule, pull-back,
+      lift, shadow offset, rings, pocket marks
+    - rail and nose heights from the table when it sets them
+  - `pool-camera.js`: the chase camera's near distance ×R/14; broadcast and survey fit
+    `pcRailTop(cfg)` (the table's `railZ`, else R + 2 as before).
+  - `load.js`: `PREFIX` takes `ps` / `PS_` for `pool-snooker.js`.
+- [x] Harnesses:
+  - `pool-table.html`:
+    - a *Game* select: Snooker is listed but disabled until S1; it writes `poolVariant` and
+      calls `poolSetVariant` when that exists
+    - *Reds*, shown for snooker; *Call every shot*, shown for pool only
+    - `?game=`, and snooker's prefs in its stub
+  - `pool-harness.html`: a *Preset* select over a `PRESETS` map (defaults, knobs, rack), pool
+    only.
+- [x] Tests:
+  - `pool-verify.js` *Game seam* (+12):
+    - `POOL_GAMES` is the one place a game's rules, CPU, rack and storage are named
+    - the HUD calls no rules, and ball colours go only through `pgBallLook`
+    - the profile is complete, with pool's keys; `pgBallLook('pool')` is pool's balls
+    - sizes are exact at k = 1; rail heights; pool's marks; `poolUseGame`
+  - `snooker-verify.js` §0 (8), in `verify-all.js` as *Snooker*: **2,158 assertions, 0 failed**
+  - `snapshot.js --check`: **2,434 / 2,434** across 125 scenes. PNG identity with `main` is not
+    a usable gate (Decision log). Of the 59 scenes that render identically twice on `main`, the
+    rest differ by at most 2/255 (the rig page's own layout), or in the shot clock's bar,
+    which also differs between two renders of `main`
+  - `perf-check.js` (Phase 9 was 1.8 ms):
+
+    | view | repaint | rolling | unchanged frame |
+    |---|---|---|---|
+    | 3D | 1.4 ms median (2.0 p95) | 0.6 ms | 0 |
+    | 2D | 1.2 ms | 0.6 ms | 0 |
+
+    The 60 and 30 FPS caps are kept.
+  - `host-run.js`: 140–147 checks; its one failure is the same as on `main` (below)
+  - `theme-verify.js --quick`: the same one failure as on `main` (below)
+- [x] Found on the way, fixed:
+  - Chrome is no longer installed on this machine. `browser.js` finds Chrome, else Edge
+    (`POOL_BROWSER` overrides), for `snapshot`, `theme-verify`, `perf-check` and `host-run`.
+  - `host-run.js` closed ⚙️ and waited a fixed 400 ms. The overlay's 0.3 s fade can take longer
+    in a busy headless browser, and until it ends the overlay takes the clicks meant for the
+    panel, so the Game mode sheet and the tournament flow failed in a cascade (4 of 6 runs,
+    `main` included). It now waits for the overlay to be hidden; 3 of 3 runs clean.
+- [ ] Found on the way, **not fixed (they fail on `main` too, outside pool)**:
+  - `host-run` light mode: the widget's *🎉 Congratulations! You'…* completion banner reads
+    2.23:1. It shows once the workday is done, so it depends on the time of day.
+  - `theme-verify`: the Max champion screen's name and meta read 1.00:1 in Glassmorphic dark,
+    most likely measured while its 0.7 s rise-in (from opacity 0) is still running.
+- [x] Not done in S0; moved to the phase that has a second game to shape it (Decision log):
+      the CPU's internal game seam (`paGame`, S4) and splitting the HUD's pool parts into
+      `phPoolParts` (S3). The controller already picks the CPU and rules per game.
+
+#### Phase S1: the snooker table
+- [x] The design: 27 snooker artboards reviewed and frozen in `pool-dev/ref/design/` (revision
+      `1790715495-3a1b`, 2026-09-30); see *What the design specifies*.
+- [x] **The table** (2026-09-30).
+  - **`pool-snooker.js`** (`ps*` / `PS_*`, spliced after the rules):
+    - `PS_TABLE` on the design's numbers
+    - ball ids and values (`psValue`, `psIsRed`, `psName`), `PS_SPOTS`
+    - `psMarks`: the baulk line, the D and the six 2 u spots, plus `baulkX` / `dR` / `spotOf` for
+      the rules
+    - `psCreateWorld`
+    - `psRack(w, rng, reds)`: 5, 4 or 3 rows, apex 0.05 u behind the pink, colours exactly on
+      their spots, the cue ball at the design's break-off spot in the D
+  - **`pool-physics.js`:**
+    - `ppBuildRoundedTable` for `pocketStyle: 'rounded'`: six cushion runs and twelve
+      quarter-round **arc colliders** (radius 12, centred on the rail line behind each nose,
+      only the quarter that is there, `ppOnArc`), each checked to end inside its hole
+    - the arcs in `ppNextEvent`, `ppSubStep` and `ppSeparate`, all behind `if (t.arcs)`
+    - `cfg.clusterGap`
+  - **`pool-rules.js`:** zone `'D'` in `prCanPlace` / `prClampPlace` (`prInD`), stopping at the
+    baulk line and sliding round the arc.
+  - **`pool-render.js`:**
+    - `PG_LOOKS.snooker`: plain balls, the design's colours
+    - `pgCushions` returns `{ top, nose, ends }`, and `pgRoundedCushions` draws the
+      quarter-rounds; pool's quads are the same draw calls
+    - the D tinted and outlined for ball in hand
+    - `scene.ring`: the nominated ball's accent ring, r + max(3, 0.4 r)
+  - **As designed, S0's ×k is taken off the chase camera and the cue.** Pool is unchanged
+    either way.
+- [x] Harnesses:
+  - **`pool-harness.html`, Preset *Snooker*:**
+    - its knobs, including the pocket radii, and *Reds* 15 / 10 / 6
+    - the arcs, the D, the baulk line and spots drawn
+    - *Break-off (50%)*, thinning the back red
+    - *Acceptance*: lines into a corner and a middle pocket, 0–10 u off centre, slow and fast
+    - `?preset=snooker`
+  - **`pool-table.html`, `?look=snooker`:**
+    - the real camera and renderer on the snooker table in the panel's viewport: compact, the
+      316 px column, or Max 1232 × 672
+    - the design's six layouts, 3D (move to aim, wheel to lean) or 2D, and a draggable ball in
+      hand in the D
+    - reachable from the rig's *Game* select until snooker has its controller (S3), with its
+      own audit for `snapshot.js --check`
+- [x] Tests:
+  - **`snooker-verify.js` §1 (+44, 52 in all):**
+    - **Geometry:** the design's holes, noses, quarter-rounds, tangency, arcs ending in their
+      holes, no hole reaching a resting ball, pool's table untouched; markings and spots; ball
+      ids.
+    - **The rack** for 15, 10 and 6 reds: counts, nothing touching, apex, the black clear, the
+      cue in the D, seeded.
+    - **The D:** refusals, 400 clamped drags, stops at the line and slides round the arc.
+    - **The pockets, measured:**
+
+      | pocket | line | drops |
+      |---|---|---|
+      | corner | down the diagonal | clean within ±2 u, off a cushion end at ±4, out from ±6, at 300 and 1500 u/s |
+      | middle | square on | takes ±4 u |
+      | middle | at 30° / 45° / 60° | the window narrows: 5 / 4 / 3 of 9 lines |
+      | corner | rolling along the cushion | drops at every pace |
+
+      A ball driven into a rounded end rebounds.
+      - **Superseded 2026-09-30 by the design's revision `1790749498-5862`** (the user's update of the
+        pockets): each cushion end is now a rounded nose of radius 6 then a straight jaw to the
+        rail (square at the middle pockets, 5 u toward the corners), and the corner holes are
+        r 18 at offset 2. The physics adopted it (`noseRound`, `cornerJawBack`, `sideJawBack`;
+        the nose round is an arc collider, the jaw a segment facing the gap, each ending inside
+        its hole), and the pockets measure wider: a corner down its diagonal clean within ±6 u,
+        off a jaw at ±8; a middle square on takes all of ±8 u, and 9 / 8 / 5 of 9 lines at 30° /
+        45° / 60°; rolling along the cushion still drops at every pace. The CPU's pocket model
+        (`paSnPocketTol`) follows.
+    - **40 break-offs** settle within 9 s of table time, at 9 ms each to simulate.
+    - **A 300-shot fuzz:** energy never rises, the worst overlap is 2e-6 u, no NaN, 0 escapes,
+      and everything settles.
+  - **`render-verify.js` (+15, 88):**
+    - snooker frames draw: 2D with the D, 3D, broadcast, survey, the ring, a drop, Max
+    - plain balls
+    - the game in the table cache key
+    - no diamonds; the black on its spot; the D tinted
+    - rounded cushion ends
+    - pool's cue and camera distance
+  - **`snapshot.js`:** 18 snooker scenes (and 3 in the 316 px column). The look audit is
+    72 / 72, and the whole suite runs with every pool scene as before.
+  - **Pool is unchanged:** the fingerprints (§0) all hold; `verify-all.js` **2,217 assertions,
+    0 failed**.
+- [ ] The user's test by feel:
+  - the pockets and cloth in `pool-harness.html?preset=snooker`
+  - the look in `pool-table.html?look=snooker` (compact, the 316 px column, Max; 2D and 3D)
+
+#### Phase S2: the rules — done 2026-09-30
+- [x] **`pool-snooker.js` rules**, pure as pool's are (a verdict and the next frame from the physics
+  log; the caller applies the re-spots and places the cue ball):
+  - `psNewFrame`, `psJudge`, `psApplySpots`, `psChoose`, `psTimeout`, `psConcede`
+  - `psStatus`: the ball on (`psBallOn`: ids, the balls a free ball may go with, the foul value),
+    what may be nominated, points remaining, snookers required, the tracker's colours
+  - `psSummarize` (the first contact, several at one instant; contacts with a touching ball left
+    out), `psTouching`, `psSnookered` (`'free'`: no ball on hittable on both edges; `'full'`: no
+    part of any), `psSpotPositions` (solved on the line, not stepped)
+  - copy: `psText` (*Foul · 6 to Bilal* / *Potted the pink* · *Free ball*, *You win* / *57–40 ·
+    potted the black*, *Re-spotted black*, *Century break*, *Maximum break*), `psChoiceText` (*Play* /
+    *Make Bilal play again*, short *Put back* / *Free ball*), `psChoiceNotice` (*CPU puts you back
+    in*)
+  - the verdict is the planned superset: `frameOver`, `winner`, `foul`, `continues`, `next` for
+    the CPU, plus `fouls`, `penalty`, `points`, `scored`, `options`, `spots`, `notice`, `on`
+- [x] **`snooker-verify` §2–6 (+76, 128 in all):**
+  - **a row per ruling:** reds and colours (12), fouls and the choice (12, touching ball
+    included), the free ball (10), re-spotting (6), the end of the frame (8: cleared, a foul on the
+    last black, the tie and its seeded lot, the re-spotted black, concession), points remaining,
+    snookers, the clock and the copy (10)
+  - **the snookered test** (7), including the free-ball offer after the re-spots
+  - **real shots on the physics:** a red into the corner, an in-off, the blue in the way,
+    10 break-offs that all meet a red first
+  - **a scripted 147** (15 reds and blacks, the black back on its spot each time, the century
+    and maximum noticed once) and **a free-ball 155** (159 with the foul)
+  - **whole frames fuzzed:** 30 frames at 15 / 10 / 6 reds and 16 late starts (pink and black,
+    the scores close), 1,357 shots, 726 of them on the physics; 386 fouls, 17 free balls, 177
+    put back, 2 re-spotted blacks. Every invariant holds: the scores move by exactly the points
+    and the penalty; penalties 4–7; no red comes back; the colours on the table always match the
+    phase; no overlap after the re-spots; the break and high break; every frame finishes, the
+    winner ahead. 3 s
+- [x] **`pool-table.html?look=snooker` plays a frame** (its default *Play a frame* layout; the
+  design's stills stay under their names): 2 players, drag in the D, aim as the look view
+  does, power and spin in the rig, Space to shoot; the rules judge each shot; the nominate
+  chips padlock *Shoot* until a colour is tapped; the choice after a foul as buttons; the
+  score, the break, what is on, points remaining, snookers required. Driven headless: a
+  break-off and 16 shots, no page errors
+- [x] Pool unchanged: the fingerprints hold; `verify-all.js` **2,293 assertions, 0 failed**
+- [ ] The user's test by feel: a frame in `pool-table.html?look=snooker`
+
+#### Phase S3: controller, HUD and the ⚙️ switch (2 Players playable) — done 2026-09-30
+- [x] **Controller (`pool-game.js`), all through `POOL_GAMES.snooker`:**
+  - nomination (`poolS.nom`): the padlock until a colour is tapped, the chips
+    (`poolOn.nominate`), and in 3D / Max a press on a nominable ball (`poolBallAt`, 12 px
+    minimum); the CPU nominates through its shot
+  - the choice after a foul: phase `'choice'` (the table and clock wait), the buttons in the foul
+    toast, the hand-off first in 2 Players, a CPU chooser's 700 ms beat (CHOOSING) and its notice
+    (*CPU plays on* / *takes the free ball* / *puts you back in*); `poolChoose`
+  - the D: the break-off, an in-off and the re-spotted black start in ball in hand, zone `'D'`
+    (`poolStartTurn` puts the cue ball home in the D when it is not there)
+  - concede (asked, then confirmed), the frame-over dialog's sentence, score and high break
+  - the touching balls noted before each strike (`prime`); aim steps ←/→ 0.025°, Shift 0.0125°/px;
+    the first aim of a turn at a ball on with a clear line (`aimClear`)
+  - `poolSetVariant`: closes Max, runs a shot in flight to rest and judges it, saves a tournament
+    match and leaves it, parks the frame (`poolSnapshotTable`) and brings the other game's back;
+    each game keeps its own tournament state; `poolSyncChrome` sets the title, the switcher's
+    tooltip and the wins button
+  - `snookerFrame`: saved at every shot boundary and on leaving, restored on the way in, removed
+    before the award; pool keeps no such save
+  - `poolOnPrefChange`: the game, the difficulty, and ⚙️ Reds (a fresh rack) from ⚙️
+  - records only: `snookerRecord`, `snookerWinsByMode`, `snookerWinsByTier`,
+    `snookerCpuRecord`; no XP (S6)
+  - **the stand-in CPU** (`pool-snooker.js`, `psCpu*`) until S4: ghost-ball pots checked on a copy
+    of the table through the rules, a thin break-off, a plain safety, the free ball when it has
+    one; tiers differ only in aim noise
+- [x] **HUD (`phSnookerModel`, `pool-theme.css`):** the score and third line on each card (FOUL,
+  YOUR CHOICE, CHOOSING, TO BREAK, BALL IN HAND, BREAK 34), the tracker row (reds, the six colours
+  with the ball on ringed, REMAINING or LEFT, SNOOKERS REQ. n, Concede with a 44 px target), the pill
+  in priority order, the chips (160 px; 212 in Max) with the gauge and padlock above them, the
+  toast's 44 px choice buttons (the long label falls back to *Put back*), the dialog's SCORE and
+  HIGH BREAK, *Concede the frame?*, the Max header and tracker, the tighter snooker rhythm
+- [x] **Host (`AttendanceTimeCheckerPlus.js`):** the defaults (`poolVariant`, `snookerReds`,
+  `snookerDifficulty`); ⚙️ *Cue Game*, *Snooker Reds* and *Snooker CPU* after *Pool CPU*; the
+  listener (`snookerReds` a number, `poolOnPrefChange`); every ⚙️ select re-synced on open;
+  `updateGameTitle` through `poolTitle()`; `#snooker-lb-btn` / `#snooker-wins` in the header
+- [x] **`pool-table.html`:** *Game* switches through `poolSetVariant`; *CPU* and *Reds* follow
+  the game; `?game=snooker&scene=…` sets the snk* states; S2's rig frame is gone and
+  `?look=snooker` is the stills again
+- [x] **Tests** (`verify-all.js` **2,352 assertions, 0 failed**; pool's fingerprints hold):
+  - `pool-verify` (+33): the switch and back, the padlock and chips, the CPU as chooser, the D
+    after an in-off, the hand-off before the choice, put back, free ball, snookers required,
+    concede, whole frames Vs CPU and 2 Players filed once with no XP, the reload, switching
+    mid-shot, ⚙️ Reds, out of time; the seam guard now bans snooker's names outside the profile too
+  - `hud-verify` (+26): every snk* state of InMatch and Max
+  - `snapshot` (+40 snooker scenes, 185 in all): the audit, extended to the tracker, chips, choice
+    buttons and concede question, is **3,293 / 3,293**
+  - `theme-verify` (+17 snooker states): only main's champion fade-in fails, as before
+  - `perf-check` (+2): the 22-ball rack and a snooker mid-frame repaint, 20 / 20
+  - `host-run` (+6): ⚙️ Cue Game → Snooker in the real userscript, the cue ball placed in the D
+    and the break-off by mouse, the saved frame, and back to pool's frame as it was
+- [ ] The user's test in the widget: **begun 2026-09-30**. Snooker plays in the panel (aim, drag
+  to power, release, nominate, the choice after a foul). Open items below.
+- [x] **Fixed 2026-09-30: overlays covered the table where the shot goes** (the user's screenshots, Max view,
+  2026-09-30). At true scale the balls and pockets are small and sit near the cushions, so the
+  fixed overlay corners land on play:
+  1. **Top left: the camera toggle (2D TOP-DOWN / 3D AIM) covers the top-left corner pocket.** A
+     green on the top cushion was aimed into that pocket, and the pocket and the object ball's
+     path ran under the toggle.
+  2. **Bottom right: the colour chips (212 px card) cover the bottom-right corner.** A black cut
+     toward the bottom right had its line run under the chips while *Drag to shoot* was up.
+  3. **Bottom left: the spin control covers the bottom-left corner pocket.** A red close to that
+     pocket and its path to the pocket sat under SPIN · Center.
+
+  Pool shares the corners but its larger balls and pockets rarely end there. What was found and
+  done (both games):
+  - **Where it happened: Max's 2D view.** There the table fills the viewport and the four corner
+    overlays sit on the four corner pockets (measured: a pot into each corner runs under the
+    toggle, the pill, spin and the chips or hint). Compact 2D keeps them in the margins, and the
+    chase camera's far cushion sits below the top overlays at every lean; there, only a path
+    across the lean slider was found.
+  - **Done: out of the way of the shot.** `poolShotPath` projects the shot each frame (the aim
+    line from the cue ball, the object ball's path to the pocket it heads for or else the
+    cushion, and the contact, object ball and pocket as circles); `phShy` marks each overlay it
+    passes under (`data-shy`) and the theme fades it to 0.22. It stays a working control; in 3D
+    it comes back under the pointer, in 2D (where the pointer is the aim, often out toward the
+    pocket) it stays see-through. The cue ball is not a circle of its own: in 3D it always sits
+    bottom centre, beside the hint, which would never show. A prompt still waiting on the
+    player (the open chips, pool's call card before a pocket) never fades.
+  - **Done: the chips fold once a colour is nominated** to that chip and the caption (*Drag to
+    shoot*, *Release · n%*); pressing it opens the six again, and a colour picked folds them.
+  - **Tests:** `hud-verify` (+7: the hit test, the fold); `pool-verify` (+5: the chip opens and
+    folds, the shot path into the pocket); `snapshot` (+11 scenes, `?pot=0..5&cut=`: each corner
+    of Max 2D, the open chips kept, 3D, compact, Cyberpunk and light), whose audit now checks on
+    every scene that exactly the overlays over the shot fade: **3,697 / 3,697** across 196
+    scenes. `theme-verify` skips faded overlays, lets a fade-in finish and holds the hot clock's
+    pulse at full strength before measuring: 4 / 4 on all 434 loads (this also clears the
+    champion fade-in failure S0 found on `main`). `verify-all` **2,392, 0 failed**;
+    `perf-check` 20 / 20; `host-run` 148 / 149, its one failure the completion banner, as on `main`.
+  - **Then, from the user's test (2026-09-30): Max moves them off the table.** Aim stops while
+    the pointer is on a control, so a faded overlay over the shot still got in the way. In Max
+    the table now sits between a bar above (camera toggle, pill) and a bar below (spin, Move cue
+    ball centred, and the hint, the six chips in a row or pool's call card in a row); only the
+    lean slider and the power gauge stay on it (the user's call: Max only, the sides as they
+    were). The canvas is sized between the bars: 1232 × 544 in the 1232 × 672 view, so the 2D
+    table is about 20% smaller. Compact keeps its overlays on the table, and the fade.
+    `snapshot`'s audit adds *Max: the corner overlays are off the table* on every Max scene
+    (**3,725 / 3,725**); `host-run` checks the canvas is the view less the bars (**150 / 150**);
+    `theme-verify` measures text in the bars against the view's backdrop (4 / 4, 434 loads).
+  - **Then (the user, 2026-09-30): both, as a setting, and the full table back as the default.**
+    ⚙️ *Max View*: *Full table* (the design's 1232 × 672; the default) or *Table between bars*.
+    On the full table the overlays sit on the long cushions between a corner and the middle
+    pocket, a quarter of the way in (camera toggle and spin on the left, the pill and the hint,
+    chips or call card on the right; Move cue ball and the spin picker above spin), and still
+    fade out of the shot's way. `snapshot`'s audit checks, in Max 2D, that none sits on a pocket.
+- [x] **⚙️ Aim Guide (the user, 2026-09-30): Long / Medium / Short**, the object ball's (purple)
+      line only: 150 / 100 / 60 table units (Long is the guide as it was; the tournament's *Short*
+      guide is the 60 it always was). Both games.
+- [x] **Snooker's call pocket (the user, 2026-09-30)**, as it is played where the user is from.
+      Three variants, a frame rule (`frame.call`): *Off* (the rules as written), *Colours* (every
+      colour is called, reds are not: after a red, in the clearance, and a free ball standing for
+      a colour) and *All balls*. The break-off is never called.
+  - **A ball on potted with none in the pocket called is a foul** (`wrongPocket`) on its value, 4
+    at least, with the choice after a foul (the user's call); colours come back, reds stay down.
+    A second red that drops beside one in the called pocket still scores. Toast: *Potted the
+    pink in the wrong pocket*.
+  - **Vs CPU, with the difficulty (the user's call):** a picked Hard calls the colours and a
+    picked Pro every ball, for both seats; Easy and Normal none. Adaptive hands no rule change
+    (as pool's never reaches Pro), and 2 Players has no calls. The sheet and ⚙️ say so (*Position
+    and safety · call the colours*, *Hardly misses · call every ball*). Each profile's
+    `lockCall` sets the rule when the tier locks.
+  - **Tournaments:** snooker's setup offers *Call pocket: Off / Colours / All balls*
+    (`tourDefaults.calls`), and its matches play by it.
+  - **At the table:** on a red (*All balls*) or a clearance colour, pool's call card in 3D and the
+    hint in 2D; with a colour to nominate, the folded chip carries the call (*Tap a pocket*, and
+    in 3D the pocket map beside it; compact stacks the caption under them). The power padlocks
+    until the pocket is called. A press on a colour nominates it before any call is read.
+  - **The stand-in CPU** calls the pocket of the pot it plays (and the nearest one on a safety).
+  - **Tests:** `snooker-verify` +14 (the variants, the fouls, the toast, the tiers, a CPU pot
+    into the pocket it called); `pool-verify` +5 (the tier mapping, the tournament choice);
+    `hud-verify` +6; `snapshot` +17 scenes (**4,086 / 4,086**, 213 scenes); `host-run` 147 / 147,
+    its contrast check now skipping faded overlays as `theme-verify` does; `verify-all` **2,417,
+    0 failed**; `theme-verify` 4 / 4 (434 loads); `perf-check` 20 / 20. Pool's fingerprints hold.
+
+  The options that were weighed:
+  - **Get out of the way of the shot.** Each corner overlay (toggle, pill, spin, chips, hint) fades
+    to about 0.25 and lets the pointer through while the aim line, the object ball's path, the
+    cue ball, or the target pocket passes under it. The guide's segments and the pocket rings are
+    already known in screen space.
+  - **Move them off the felt in Max.** Max has spare height (the tracker row and the 1232 × 672
+    viewport leave room): the toggle and pill could go in the header strip, spin and chips in a
+    rail below or beside the table, so nothing overlays the bed. Compact keeps them on the table
+    (no room) and uses the fade.
+  - **Chips: collapse after nominating.** Once a colour is picked, the chips could shrink to a single
+    chip (the nominated ball plus *Drag to shoot*) that expands on tap, freeing the corner for the
+    stroke.
+  - **Tests:** a snapshot audit rule, "no overlay covers the aim line, the object ball's path or the
+    target pocket", over scenes with shots aimed into each corner (compact and Max, 2D and 3D).
+
+#### Phase S4: the CPU — done 2026-09-30
+- [x] **`pool-snooker-ai.js`** (`paSn*` / `PA_SN_*`, spliced after `pool-ai.js`, whose helpers it
+      borrows: `paClear`, `paMakeProb`, `paBaseSpeed`, `paRefine`, `paFirstContact`, `PA_TIPS`). It
+      replaces S3's stand-in (`psCpu*`, gone from `pool-snooker.js`; `psCueHome` stays).
+  - **Candidates:** every ball on (or each colour that may be nominated, with that nomination, and
+    the pocket called when the frame's call rule asks) into every pocket that takes it, by the
+    ghost ball, with the make probability against snooker's pockets as S1 measured them
+    (`paSnPocketTol`: about ±3 u down a corner's diagonal, ±4 square into a middle pocket and
+    closing fast with the angle). Ordered by a steady player's odds (0.12°).
+  - **Stages** (time-sliced like `paPlan`): A plays each out (aim corrected for throw first) and
+    judges it with `psJudge`; B tries the survivors with the tier's spins and paces; R replays the
+    best three with the tier's noise for fouls and the leave on a miss; the pot is valued in
+    points, `p·(points + γ·Pos) − (1−p)·M − f·(penalty + 3)`. S tries safeties (the three
+    nearest balls on, full, half and thin either side, each contact checked on its own line, and
+    one-rail kicks, at four paces) scored by the opponent's best shot after them (0.75 with the
+    cue ball on a cushion, +1.5 for a snooker), refines the best and replays it for fouls. K, when
+    nothing legal is found: pool's sweep for the gaps that meet a ball on (pro every degree, hard
+    1.5°, normal 3°, easy 6°). Pot over safety when its value plus the tier's attack bias wins;
+    after 3 safeties in a row (`poolS.cpuSafeRun`) it leans to the pot.
+  - **The break-off:** a script per reds count, `PA_SN_BREAKS`, from `snooker-break-tune.js` (a
+    coarse grid of 2,160 on one rack, the best 40 on 4 racks × ±0.1° × both sides: no foul in 24
+    for each). At the table one or two trials confirm it; else a local search, at most 24.
+  - **Choose** (`paSnChoose`): the free ball when it has one with a shot; put the offender back in
+    when the table is snookered or holds nothing for it; else play on. **Concede**
+    (`paSnConcede`): easy never; normal in the clearance needing more than 2 snookers; hard and
+    pro in the clearance needing more than 1, or more than 2 with 3 reds or fewer (the controller
+    asks at the start of its turn). **Placement** (`paSnPlace`): the break-off script's spot, else
+    the best pot from a grid over the D.
+  - **Time:** each tier caps its trials (easy 16, normal 36, hard 70, pro 120) and, once a legal
+    shot is in hand, its thinking (250 / 600 / 1,000 / 1,400 ms). A trial is 5–8 ms at 22 balls,
+    so snooker thinks in 12 ms slices (`cpu.slice`; the table stands still, so a frame costs next
+    to nothing to draw). On screen, from its turn to the cue turning, through the real controller:
+    about 0.5 s median for every tier; the worst, an escape from a snooker, 0.6 s (easy) to 1.75 s
+    (pro).
+  - **Tiers** (`PA_SN_TIERS`, execution σ): easy 0.28°, normal 0.20°, hard 0.09°, pro 0.04° (re-tuned
+    for the design's revision `1790749498-5862` pockets; they were 0.12° / 0.05° / 0.02°), with
+    their power σ, candidates, spins, paces, noisy replays, safety trials and position weight.
+    The sheet, ⚙️ *Snooker CPU* and adaptive difficulty from `snookerCpuRecord` were in place from
+    S3; Adaptive still never reaches Pro.
+- [x] **`snooker-balance.js`**, 15 reds, against scripted humans (the hard planner with aim and pace
+      error on top, as `balance-check.js`): *casual* aims as easy does (0.3°), *skilled* as normal
+      (0.12°). Seed 7, no time cap (the numbers do not depend on the machine):
+
+      | tier | vs casual (20) | vs skilled (12) | mean break | high | fouls / shot | safeties |
+      |---|---|---|---|---|---|---|
+      | easy | 25.0% [11–47] | 0% | 3.4 ✓ | 13 | 4.5% ✓ | 36% |
+      | normal | 100% [84–100] | 58.3% [32–81] | 5.0 ✓ | 28 | 2.1% ✓ | 31% |
+      | hard | 100% [84–100] | 100% | 12.8 ✓ | 70 | 0.7% ✓ | 28% |
+      | pro | 100% [84–100] ✓ | 100% | 23.3 ✓ | 89 | 0.4% ✓ | 20% |
+
+      Against the bands: **the mean breaks and the foul rates are all in band.** The win rates
+      against casual are not: easy is at the bottom (25%, band 30–50; other seeds gave 15–60% at
+      0.26–0.30°, 20 frames are not enough to split them), and normal and hard beat a 0.3° player
+      every time. Loosening their aim does not fix it: normal at 0.22° wins 60% but its mean break
+      falls to 3.7, hard at 0.12° still wins every frame with a mean break of 5.1. The casual model
+      loses on safety and fouls, not on potting, so one aim number cannot meet both bands; the
+      tiers keep the aim that gives their breaks (Decision log). **Centuries fall short:** pro made
+      2 in 58 frames over four seeds (about 3 per 100, band 15–50), its high breaks 77–127; hard none
+      (band 2–10). Both pot reliably; what is missing is building a break over many shots
+      (position a shot ahead is all it plans). Tried and not kept: a leave valued by its best two
+      pots, softer paces, a heavier position weight (no better at 12 frames). Left for S7's final
+      balance numbers.
+  - **Re-tuned the same day for the new pockets** (the design's revision `1790749498-5862`: wider
+    mouths, so at the old aims every tier's breaks ran over their bands: normal 14.2, hard 29.2,
+    pro 42.4). Normal 0.20°, hard 0.09°, pro 0.04°, the pocket model to the new windows and the
+    10-red break-off script re-found. Seed 9:
+
+    | tier | vs casual (20) | vs skilled (12) | mean break | high | centuries / 100 | fouls / shot |
+    |---|---|---|---|---|---|---|
+    | easy | 45.0% [26–66] ✓ | 0% | 4.7 ✓ | 22 | – | 4.6% ✓ |
+    | normal | 95.0% [76–99] | 16.7% | 7.1 ✓ | 41 | – | 2.8% ✓ |
+    | hard | 95.0% [76–99] | 66.7% | 19.4 ✓ | 73 | 0 (hard 0.08° gave 14.3) | 1.3% ✓ |
+    | pro | 100% ✓ | 83.3% | 41.3 (20–40, a hair over) | 126 | 20.0 ✓ | 0.5% ✓ |
+
+    Every mean break and foul rate is in band now, easy's win rate too, and pro's centuries;
+    normal and hard still beat the casual model more often than their bands (as before).
+- [x] **Tests:** `snooker-verify` +15 (*Snooker CPU*: the break-off for 15, 10 and 6 reds, legal and
+      home in a trial or two; a pot by pro and by easy; the colour it nominates is the one it
+      pots; a fair safety with nothing on; a fair escape when snookered; the trial caps; time
+      slicing; the choice after a foul three ways; conceding by tier; placement in the D) and the
+      call-pocket CPU test on the new planner, 157 in all; `pool-verify` +2 (the CPU concedes at its
+      turn through the controller; the 12 ms slice), and seat 1 of its snooker frames now plays the
+      new planner's easy shots; `host-run`: the CPU takes its turn after the break-off in the real
+      userscript (or, when the break-off fouled, makes its choice). Pool is unchanged: the
+      fingerprints hold.
+- [x] The user's test against the CPU (2026-09-30): "doing pretty well".
+
+#### Phase S5: tournaments ✅ (2026-09-30)
+- [x] **The model (`pool-tour.js`):** `t.game` ('pool' or 'snooker'; a save from before has none and
+      is pool's). `ptSettings` normalises for the game: a race of 1–5 per round, a clock of 0 / 30 /
+      45 (and 60 in snooker), the guideline; pool's call (the 8 only / every shot), snooker's reds
+      (15 / 10 / 6) and call pocket (off / the colours / every ball, the user's addition in S3).
+      `ptValidate(x, game)` resumes only its own game's save, with the settings normalised.
+      `ptRecordFrame(t, id, winner, { points, high })` keeps each frame's score by line
+      (`m.points`) and the match's high break (`m.high`: slot, frame, value). `ptRaceText(t, n)`:
+      *Race to n* in pool, *Best of 2n − 1* in snooker; `raceTo` is still what is stored.
+- [x] **The screens (`pool-tour-ui.js`), the design's snooker variants:** setup *SNOOKER · HUMANS
+      ONLY*, *FRAMES PER ROUND · BEST OF* (1 / 3 / 5 / 7 / 9), a 30 / 45 / 60 s / Off clock, *Reds*,
+      and *Call pocket: Off / Colours / All balls* (the design swaps Call pocket for Reds; the
+      user asked for both); the bracket *CITY OPEN · SNOOKER* and *BEST OF 3* on every card and
+      column, the full view *· SNOOKER · 8 PLAYERS*; the intro *Best of 3*, *Ayesha breaks off ·
+      15 reds*; the result a row per frame (*FRAME 1 · Ayesha · 74–32*, the loser's frames muted)
+      and *HIGH BREAK · Sana · frame 3 · 61*, over a 112 px tree; the cabinet *Snooker*, *TROPHY
+      CABINET · THIS COMPUTER*. The HUD's header and the frame-over dialog say *best of* too.
+- [x] **The controller:** each game's tournament and cabinet under its own keys (from S3); a
+      tournament's frames rack its own reds (`framesReds`), play to its clock (60 s included)
+      and call rule; each finished frame hands the bracket its points and breaks
+      (`tourFrame`). Found on the way: in Cyberpunk the compact break-off pill (*Break-off · in
+      the D*) met the toggle's *2D · AUTO* by 2 px; the toggle says *2D* there, as in the column.
+- [x] **Tests:** `tour-verify` +9 (the game, the settings by game and normalised, `ptRaceText`,
+      the game check on resume, points and the high break, pool unchanged), 50 in all;
+      `pool-verify` +6 (a snooker tournament through the controller from setup to champion, a reload mid-frame,
+      its 6 reds, 60 s and calls at the table, the points and high break kept, snooker's own
+      cabinet); `snapshot` +9 snooker screens (setup, bracket, intro, result, a match, champion,
+      cabinet, Max bracket, Cyberpunk result; **4,345 / 4,345** across 224 scenes); `host-run`: the
+      snooker setup by mouse (150 / 150). `verify-all` **2,448, 0 failed**.
+- [x] The user's test (2026-09-30): "the rest is good", apart from the lean slider going
+      missing in some cases, which is fixed in S6.
+
+#### Phase S6: progression and the bot ✅ (2026-09-30)
+- [x] **The lean slider stays when a call is due** (the user's S5 test: "in some cases the lean bar
+      disappears"). It hid whenever a pocket was to be called, as the design's 4a has it, so it
+      went missing on every shot at Pro and on the colours at Hard (and in pool on the 8, and every
+      shot at pool's Pro). The design hid it because its call map sat top left, the slider's side;
+      ours sits bottom right (the call card, or the folded chips in snooker), so nothing needs the
+      slider's side any more. It still steps aside while balls run, for the sheet and for the choice
+      after a foul.
+- [x] **XP** (`pool-game.js`, `POOL_SNK_WIN_XP`): a CPU win by the reds and the tier (15 reds
+      90 / 120 / 150 / 180, 10 reds 75–150, 6 reds 60–120), a loss 20, plus the bonus for your best
+      break of the frame against the CPU, won or lost (+10 from 50, +25 from 100, +50 for 147): at
+      most 230. 2 Players and tournament matches pay as pool (80 / 15); no pot pays. The profile's
+      new `xpPerf(frame)` hands the award the reds and the break (pool's hands nothing), and
+      `fileResult` gets the frame. `awardGameXP('snooker')` has its own case, re-clamped to
+      `AC_MAX_XP_PER_GAME`. Tournaments paid nothing in S5 (no `'snooker'` case yet); they do now.
+- [x] **Records:** `snookerHighBreak`, your best break against the CPU at every frame end, lost
+      and conceded frames too, never past 155; 2 Players' breaks are not kept (either seat is this
+      account). The player snapshot carries `snookerRecord` as it does `poolRecord`.
+- [x] **Achievements:** 💯 *Century* (150 XP) and 🏅 *Maximum* (300 XP), breaks against the CPU,
+      live from the award and backfilled from `snookerHighBreak`. Snooker's own case in
+      `checkGameAchievements`, so a Pro snooker win never unlocks pool's *Called It*.
+- [x] **The board:** `LB_BOARDS.snooker`: Pro, Hard, Normal, Easy, All-time, Hot-seat and 💯 High
+      break (in *pts*; `units`), each board's foot note from `notes` (pool's and Ludo's All-time notes
+      moved there). `gameLbMode` and `refreshGameScoreBtn` know snooker; the wins button opens it on
+      the tier being played. With seven boards the tab strip scrolls, so the board shown is now
+      scrolled into view.
+- [x] **Sync:** `collectGameModeBests` emits `snooker:{easy, normal, hard, pro, cpu, pvp, highBreak}`
+      (the break clamped at 155); the restore only raises them, the break never past 155.
+- [x] **The bot** (`github-actions-bot/.github/workflows/sync.yml`, not pushed): snooker's tier wins
+      bounded by games played as pool's, and its all-time and hot-seat wins as a group of their own
+      (they started with the split, unlike pool's); `snooker:highBreak` over 155 is dropped, and it
+      rises only in a sync that played a game. Budgets unchanged: 230 a frame is inside 250 a
+      game, Maximum's 300 inside 500 an achievement.
+- [x] **`BUILD_LABEL` v10** (the seed unchanged, as for v9).
+- [x] **Tests:** `pool-verify` +14 (the XP table by reds and tier, the loss, the bonus's steps, won or
+      lost, only your break, the 230 ceiling, 2 Players, `xpPerf`, a Pro win and loss through the
+      controller with the High break kept, tournament matches paid as snooker XP), 257 in all;
+      `host-smoke` +18 (Century and Maximum live and backfilled, never *Called It*, never from 2
+      Players, the clamp, the sync keys, the raise-only restore and the 155 clamp, the board), 95 in
+      all; `sync-verify` +12 (the snooker bounds, 155, the session rule), 40 in all; `host-run` +4
+      (a Pro snooker win with a century through the real host, its XP and Century, the button and
+      the sync keys, the board's seven tabs, the shown one in view), 160 in all; `hud-verify` +1
+      (the lean with a call due). `verify-all` **2,494, 0 failed**.
+- [x] **The user's test (2026-09-30): passed.**
+- [x] **The release label is set in the workflow file, not a secret.** The user could not find
+      `BUILD_LABEL_CURRENT` being set anywhere, and it cannot be set from here (no `gh`). It is the
+      banner's text, so nothing about it is secret: `sync.yml` now carries `BUILD_LABEL_CURRENT: v10`
+      in its env block, and `sync-verify` fails unless it matches the userscript's `BUILD_LABEL`
+      (41 in all). Release step 4 in the host's header says so. The bot is pushed with it; clients
+      still on v9 are told to update (their token is unchanged, so the server still takes them).
+
+#### Phase S7: polish ✅ (2026-09-30)
+- [x] **Theme pass: every snooker state × theme × shape.** `theme-verify` has its own list of 40
+      snooker states (the snk* artboards, the choice and hand-off, the call pocket, the folded chips,
+      the tournament screens, Max in both views), each in Glassmorphic dark and light and in
+      Cyberpunk under all four shapes, the preset turning over from state to state: 240 loads more,
+      648 in all. **Found:** in Cyberpunk, *SNOOKERS REQ.* and *Concede* overflowed the tracker row
+      by 12 px (its label face is wider); there the colour dots give way, as they already did in the
+      316 px column.
+- [x] **Performance.** The repaint (from S3): snooker 3D 1.8 ms median, 2D the 22-ball rack, both
+      under the 4 ms bar. **The CPU per shot**, now in `perf-check` (real Chrome, three mid-frame
+      positions, the controller's 12 ms slices): at most 36 / 172 / 429 / 877 ms a shot for easy /
+      normal / hard / pro on a red, well inside their 250 / 600 / 1,000 / 1,400 ms caps. **Found:**
+      slices ran to 20–24 ms (p95) and once 31 ms, because a slice finished the trial it had
+      started; a slice now stops before a trial its recent cost (`job.trialMs`) says would overrun
+      it, always after one: 12–16 ms p95, 23 ms at most. The bar: 95% within 20 ms, none past 30.
+- [x] **Accessibility.** The chips had their names already (*Pink, 6 points*; the call pad's
+      *Call top left pocket*). The tracker is now read out: a polite live region (`.ph-sr`,
+      never seen) says, once each shot is over, what is on, the score and the tracker (*On a red.
+      Ayesha 34, CPU 21. Reds left 9, colours …, 99 points remaining.*); it holds while balls run,
+      so a pot mid-shot does not interrupt. The contrast audits skip it.
+- [x] **Final balance** (seed 9, vs casual; easy and normal from the re-tune above, 20 frames;
+      hard and pro 30 frames). **Pro's aim 0.04° → 0.0425°**, which brings its mean break into band:
+
+      | tier | aim | vs casual | mean break | high | centuries / 100 | fouls / visit |
+      |---|---|---|---|---|---|---|
+      | easy | 0.28° | 45.0% ✓ | 4.7 ✓ | 22 | – | 4.6% ✓ |
+      | normal | 0.20° | 95.0% (55–75) | 7.1 ✓ | 41 | – | 2.8% ✓ |
+      | hard | 0.09° | 96.7% (80–92) | 17.7 ✓ | 73 | 0 (2–10) | 1.6% ✓ |
+      | pro | 0.0425° | 100% ✓ | 36.8 ✓ | 141 | 20.0 ✓ | 1.2% ✓ |
+
+      Every mean break and foul rate is in band, and pro's centuries. What stays out of band is
+      what S4 found: normal and hard beat the casual model more often than their bands (it loses on
+      safety and fouls, not on potting), and hard makes no centuries: sharper aim buys none before
+      its mean break leaves the band (0.085°: 20.6, still no century in 30 frames). Centuries at hard
+      need break-building (position more than one shot ahead), which is new CPU work, not tuning.
+      147s are too rare to measure in 30 frames (pro's band is 0.3–3 per 100).
+- [x] **Tests:** `theme-verify` 648 loads; `perf-check` +24 (the CPU per tier in three positions),
+      44 in all; `hud-verify` +2 (the readout, and held while balls run); `host-run` +1 (the readout in
+      the real userscript after the break-off).
+- [x] Portal verification on `globalportal.mtbc.com` (the user's, with v10 installed, 2026-09-30):
+      satisfactory. A question it raised, answered: a human concedes from the tracker row, where
+      *Concede* shows beside *SNOOKERS REQ.* once the frame can no longer be won on pots alone
+      (implementer's call 11); an always-available *Concede frame* in the Game mode sheet is
+      offered as a follow-up, not built.
+
+### Verification
+
+```
+node pool-dev/reinsert.js --check
+node pool-dev/snooker-verify.js 300        # pool fingerprints, table, rules, 147/155, fuzz
+node pool-dev/pool-verify.js               # seam guards + the snooker match headless
+node pool-dev/hud-verify.js && node pool-dev/render-verify.js && node pool-dev/tour-verify.js
+node pool-dev/snapshot.js --check          # every scene incl. snooker:, layout audit
+node pool-dev/theme-verify.js              # WCAG AA across themes and shapes, both games
+node pool-dev/perf-check.js                # 22-ball repaint, CPU slices
+node pool-dev/snooker-balance.js 20        # tier bands
+node pool-dev/host-run.js                  # real userscript: ⚙️ switch, the D, chips, put back, reload, board
+node pool-dev/sync-verify.js               # the bot's script (needs github-actions-bot/ checked out)
+node ludo-dev/verify-all.js                # every suite
+```
+
+To play by hand: `node pool-dev/host-run.js --open` for the fake portal, `start
+pool-dev/pool-table.html?game=snooker`, then the real portal once v10 is installed.
+
+### Risks and tuning
+- **Pocket templates** are estimates. Throat, cut radius, jaw angle and depth are tuned
+  against the acceptance windows, and "fast along the cushion rattles" may need a
+  speed-dependent capture.
+- **Snooker cloth and cushions** are unmeasured: `muRoll`, `cushionE`, `noseRise`.
+- **CPU cost with 22 balls** is unknown (~4–8 ms a trial). Trials are capped per tier and
+  measured early in S4.
+- **The break-off script drifts** if the rack or the physics changes; re-run
+  `snooker-break-tune.js`.
+- **The pool fingerprints break if `ppNextEvent`'s tie order changes.** Do not reorder it.
+- **Soft-shot power and fine aim** at true scale are tuned by feel in the prototype.
+
+### The original note (superseded, kept for reference)
+
+> The user's review of the Phase 3 table: it is good enough to carry snooker rules. Carries
+> over: the physics, the cameras and director, the renderer's table and ball drawing, the
+> event log, ball in hand with a clamp, the hot-seat hand-off, the tournament bracket and the
+> theme layer; the playfield stays 1000 × 500. New: a table config (R ≈ 7.4, narrower pockets
+> with rounded cuts), the markings (baulk line ≈ 206.5 from the baulk cushion, D r ≈ 81.8, six
+> spots, a `'d'` zone for `prClampPlace`), the rules as a sibling of `pool-rules.js` (red then
+> colour, re-spots, clearance, 1–7 points, fouls max(4, value), free ball, re-spotted black;
+> no miss or re-rack), a HUD of scores, break, ball on, points remaining and snookers required,
+> nomination in place of the pocket call, and a CPU with a snooker (safety) evaluation. Open
+> then: ball size on the compact panel.
 
 ---
 
@@ -1128,6 +2263,9 @@ carries over and what would be new:
    to portrait (R≈5px) or slim the rails?~~ Settled by use: the landscape fit stayed through
    the user's tests of Phases 3–9 with no call to change it.
 2. ~~***Called It* achievement** for beating the pro CPU: add it or not?~~ Added in Phase 8 (📣, 120 XP).
+3. ~~**Snooker ball size on the compact panel**~~ True scale, no zoom; Max is the clear view (the user, 2026-09-29).
+4. **Is the Phase 8 sync-bot change live?** The box is unticked, but v9 has shipped. Snooker's bot change (S6) stacks on it, and again has to go out before the client does.
+5. **Snooker implementer's calls** (the *Implementer's calls* table in *Snooker*): the 45 s clock, adaptive never reaching Pro, 7 for a foul before nominating, the seeded lot on a re-spotted black, concede only when snookers are needed. Each is easy to flip.
 
 ---
 
@@ -1203,6 +2341,53 @@ carries over and what would be new:
 | 2026-09-29 | **Contrast is WCAG AA (4.5:1, large text 3:1)**, not a flat 4.5:1 | Large text (the frame count, titles) is held to 3:1 by WCAG itself; everything else meets 4.5 |
 | 2026-09-29 | **Text colours on dark surfaces are mixed toward white (`color-mix`)** rather than new fixed colours | The accent follows the widget's aurora colours and the user's Cyberpunk picks; a mix keeps following them. Chrome 111 or later (the portal's browsers are) |
 | 2026-09-29 | **No keyboard shooting** (power, Enter to shoot, pocket keys, ball-in-hand keys, `[` `]`): built, then removed | The user's test: confusing, and nobody would shoot with keys; pool is a mouse game. The plan's *keyboard-only play is possible* is dropped. ←/→ fine aim stays as it was |
+| 2026-09-29 | **Snooker scheduled** as Phases S0–S7 on `feat/snooker`, cut from `main` after the v2 merge. The plan is compiled into this document, not a separate one | v2 has shipped, which was the precondition. The user asked for one plan document |
+| 2026-09-29 | **Pool and snooker coexist in one space**: one engine block, one `#pool-root` panel, one switcher button, one Max modal, and ⚙️ *Cue Game* choosing which game the panel is. The existing harnesses (`pool-table.html`, `pool-harness.html`, `snapshot.js`, `theme-verify.js`, `perf-check.js`, `host-run.js`, `load.js`) gain a game switch; no pages are forked | The user's call. One controller and renderer means the two cannot drift, and every pool test keeps guarding the shared code |
+| 2026-09-29 | **Snooker at true scale** (R ≈ 7.36, authentic rounded pockets), no zoom in compact 2D, Max as the clear view | The user's call. It answers the old ❓ on ball size |
+| 2026-09-29 | **Snooker fouls**: standard values; the incoming player may put the offender back in (and take a free ball when snookered); no miss rule; in-off → the D, otherwise play from where the ball lies | The user's call. The put-back choice is one prompt, on the foul toast; the miss rule's judgement of a "good attempt" is left out |
+| 2026-09-29 | **Tap to nominate every colour**, with DOM colour chips (canvas taps in 3D and Max too) | The user's call. At true scale a ball is ~2 px in compact 2D, too small to tap |
+| 2026-09-29 | **Reds 15 / 10 / 6; XP scaled to frame length; own Snooker board with a High break tab; Century and Maximum achievements** | The user's calls. Frame XP of at most 230 fits the bot's 250 per game; achievement XP has its own 600 budget in the sync gate |
+| 2026-09-29 | **Snooker uses its own XP type, `'snooker'`** | The `'pool'` case unlocks *Called It* on any win with `tier === 'pro'`, which a Pro snooker win would trigger |
+| 2026-09-29 | **Pool fingerprints before the seam** (table hash, seeded breaks, fuzz shots, CPU plans, PNGs identical to `main`) | S0 reroutes every 8-ball call site. Fingerprints prove, not just argue, that pool plays exactly as it does today |
+| 2026-09-29 | **Revised: the draw-call fingerprint replaces PNG identity with `main`** as S0's rendering gate | Two renders of `main` itself match on only 59 of 125 scenes: the prototype racks from `Date.now()` and some scenes are timed. The headless digest of every canvas call in 12 scenes is exact and fast, and a planted 0.7% size change moves it. The PNGs were still compared (at most 2/255 off where `main` is stable) and the in-browser audit still runs on every scene |
+| 2026-09-29 | **`paGame` (S0 → S4) and `phPoolParts` (S0 → S3) are built with snooker, not before it** | With one game there is nothing to shape the split against, and the controller already chooses the CPU and the rules per game through `POOL_GAMES`. Built beside snooker's profile, each seam takes exactly what the second game needs |
+| 2026-09-29 | **The browser tools find Chrome, else Edge** (`browser.js`, `POOL_BROWSER` overrides) | Chrome was uninstalled from this machine; Edge is Chromium with the same DevTools protocol, and every suite ran on it unchanged |
+| 2026-09-30 | **Snooker design received and frozen** (revision `1790715495-3a1b`, 27 artboards from Appendix B). Its table geometry is authoritative, as pool's is: corner holes r 17 at (±503, ±253), middle r 15.5 at (0, ±259), noses 17 / 14.5 u from the pocket, quarter-round cushion ends of radius 12. These replace the plan's WPBSA estimates | The same rule as pool: what is drawn is what plays |
+| 2026-09-30 | **Snooker keeps pool's rail and nose heights, chase-camera distance and cue size**; only the shadow scales with the ball | The design draws them unscaled, and at true scale a nose at 10 u is 1.36 R, close to a real table. S0's ×k on the chase camera and the cue is taken back in S1; pool is k = 1 either way |
+| 2026-09-30 | **Snooker's compact panel is tighter** (padding 12 / 16, gaps 8, header 32, footer 48) so the 20 px tracker row fits and the table stays 368 × 412 | As designed |
+| 2026-09-30 | **Snooker's pockets play as measured** (S1): a corner takes a line within ±2 u clean and ±4 u off a cushion end (the ball is 14.7 u across, the mouth 24); a middle pocket ±4 u square on, narrowing with the angle. Rolling along a cushion into a corner drops at every pace, since the capture circle takes any speed | The design's geometry, measured, not tuned. A pace-dependent rattle is a tuning item for the user's test in the harness, not a geometry change |
+| 2026-09-30 | **`pool-table.html` shows snooker's table through `?look=snooker` until S3**, not through the controller | Snooker has no rules, HUD model or controller profile before S2–S3. The look view uses the real camera, renderer, rack, markings and placement clamp in the panel's viewport, so the table can be judged by feel now; S3 replaces it with the real game |
+| 2026-09-30 | **Free ball: the nominated ball must be hit first** (or together with the ball on). With reds left, a red hit first is a foul (4). A free ball and reds potted together score 1 each; in the clearance the free ball scores the ball on's value once, even with the ball on potted too, and comes back | WPBSA's free-ball rule. The rules table said *hit it first*; this pins the case of a red hit first |
+| 2026-09-30 | **Touching ball:** the controller records the balls touching the cue ball at rest (within 0.1 u) before each shot. Playing away from one is not a hit and not a miss when it is on; a ball not on hit after playing away is a foul. No push shots | Implementer's call 9, made exact: the physics can log a contact with a ball it is leaving, so those contacts are ignored |
+| 2026-09-30 | **Snookered behind the free ball means a full snooker the free ball causes:** no part of any ball on is hittable, and would be without the free ball | The rule's words (*snookered by the free ball*); a partial snooker, or one another ball makes as well, is not a foul |
+| 2026-09-30 | **A colour's spot is taken when the ball would touch another** (2R + 0.02 u, the rack's gap). Every spot taken: the nearest free point behind its own spot toward the top cushion, else in front, solved exactly on the line | Real tables re-spot by eye; exact keeps the fuzz free of overlaps |
+| 2026-09-30 | **Out of time on the break-off is a foul** (4); the cue ball stays in hand in the D and the chooser picks Play or Put back. Pool passes its break across without one | Snooker has no special break rule; the clock is a foul everywhere else |
+| 2026-09-30 | **`?look=snooker` opens on a playable frame** (the *Play a frame* layout: 2 players, the rules; the design's stills keep their layout names, so `snapshot.js` is unchanged). Amends the row above: the view is still replaced by the real controller in S3 | The user found the S1 view could not play the break-off; S2's rules are what it needed |
+| 2026-09-30 | **The choice after a foul lives in the foul toast on the table** (S3). S2's rig showed it in the side panel, so the table looked frozen after a foul; the rig frame is removed and `?look=snooker` is the stills again | The user's test of S2 |
+| 2026-09-30 | **A stand-in CPU plays snooker from S3** (`psCpu*`: ghost-ball pots checked through the rules, a thin break-off, a plain safety, the free ball when offered; tiers differ only in aim), and ⚙️ gets *Snooker CPU* now rather than in S4 | Vs CPU is the panel's default mode; S4's planner replaces the stand-in behind the same profile |
+| 2026-09-30 | **Snooker files records from S3 but pays no XP until S6.** The wins button shows snooker's wins and opens no board until `LB_BOARDS.snooker` exists | XP and the board go in with the bot's bounds (S6) |
+| 2026-09-30 | **The free-ball toast keeps the foul's reason** (*No ball hit · Free ball*), not the design's *Snookered on every red · free ball* | The reason says what the foul was; *Free ball* on the button says the rest |
+| 2026-09-30 | **While the choice is open the lean slider is hidden**, and the first aim of a snooker turn goes to a ball on with a clear line (from the D the nearest red is behind the brown) | The slider covered the toast's first button; aiming through the brown made the obvious break-off a foul |
+| 2026-09-30 | **The tracker row fits the compact panel:** with SNOOKERS REQ. and Concede showing it drops the word REDS (the dot and count stay), and in the 316 px column the colour dots too. The high break in the dialog wraps rather than being cut | Our fonts run wider than the design's; the audit found both |
+| 2026-09-30 | **Switching game during a tournament match** saves the match (its snapshot) and leaves tournament mode; it is resumed from the Game mode sheet as after *Leave for now* | A match is never parked twice |
+| 2026-09-30 | **Open issue logged: the fixed overlay corners cover shots at snooker's scale** (the camera toggle over the top-left pocket, the chips over the bottom-right, spin over the bottom-left; the user's Max screenshots). Fix before S7: fade them out of the shot's way, move them off the felt in Max, collapse the chips once a colour is picked; see S3 | Found in the user's first test of S3 |
+| 2026-09-30 | **The design's revision `1790749498-5862` is adopted, table geometry included**: rounded noses (r 6) and straight jaws at every cushion end, corner holes r 18 at offset 2, and the hole drawn as the design draws it (its lip at rail height over the rail and at felt level across the gap, the cushions drawn again in front). It replaces the real-hole drawing below | The user updated the snooker pockets in the design after the middle pockets looked unfinished. What is drawn is what plays, so the physics took the new jaws and holes; the pockets now take more (corner ±6 clean, middle ±8 square on), which raised every tier's breaks, and the tiers were re-tuned |
+| 2026-09-30 | ~~**Snooker's pockets drawn as real holes**~~ (superseded the same day by the design's revision above) (the rail's inner face cut at each hole's chord, the hole's silhouette in black down the gap before the cushions, a lit edge on the cut through the rail), not the design's flat post | The user's test: the middle pockets looked unfinished. The design's own renderer, run at the same camera, draws the same post (the rail's inner wall between the quarter-round cushion ends: at true scale the hole does not reach across the gap); the user chose the real-snooker look. Pool's pockets are unchanged (its render fingerprints hold) |
+| 2026-09-30 | **Snooker's CPU tiers keep the aim that gives their breaks** (easy 0.28°, normal 0.12°, hard 0.05°, pro 0.02°), not the one that would put their win rate against the casual model in band | Against a 0.3° player picking shots as hard does, normal and hard win every frame; loosening them brings the win rate down only by taking their breaks out of band (normal 0.22°: 60%, mean break 3.7). The model loses on tactics, so the bands' win column and break column cannot both hold with one aim number. The user's test decides the feel |
+| 2026-09-30 | **The snooker CPU thinks in 12 ms slices, capped by tier (250–1,400 ms once a legal shot is in hand)** | A trial is 5–8 ms at 22 balls, twice pool's; at pool's 3 ms one trial a frame took up to 3 s on screen. The table is still while it thinks, so the bigger slice does not cost frames |
+| 2026-09-30 | **Every snooker tier sweeps for an escape when snookered** (pro 1°, easy 6°), not only hard and pro | Without it normal fouled on 11 of 11 blind rolls and easy on 16 of 19, which gave frames away for nothing; the coarse sweep keeps easy's escapes imperfect |
+| 2026-09-30 | **Max View is a setting: the full table (default) or the table between bars** | The user's test of the bars: aim stops over a control, so overlays over the table got in the way; but the full 1232 × 672 table was missed. On the full table the overlays sit between the corner and middle pockets |
+| 2026-09-30 | **Snooker gets a call pocket: off / colours / all balls; a wrong pocket is a foul on the ball's value** | Played that way where the user is from. With the difficulty in Vs CPU (a picked Hard: colours; Pro: all), chosen in tournaments; Adaptive and 2 Players play without, as a rule change should be chosen |
+| 2026-09-30 | **⚙️ Aim Guide shortens only the object ball's line** (150 / 100 / 60) | The user's call: the line to the ghost ball is how you aim, the purple one is the help |
+| 2026-09-30 | **The lean slider stays when a pocket is to be called**, in both games | The user's S5 test: it went missing on every call. The design hid it because its call map sat on the slider's side; ours sits bottom right |
+| 2026-09-30 | **Snooker's all-time and hot-seat wins are bounded by games played; pool's are not** | Snooker's keys start with v10, so there are no older wins to explain a jump; pool's all-time count predates the split |
+| 2026-09-30 | **Pro's aim 0.0425°; hard stays at 0.09° without centuries** | Pro at 0.04° ran its mean break over 40, at 0.045° its centuries under 15; 0.0425° meets both. Hard cannot make centuries by aim alone without its mean break leaving 10–20; that needs break-building, left out of this branch |
+| 2026-09-30 | **A CPU slice stops before a trial it cannot finish in its budget** | Slices of 12 ms ran to 20–31 ms finishing a long trial; the recent trial cost predicts the next |
+| 2026-09-30 | **Snooker's tracker is read out after each shot, by a polite live region** | The row is a picture to a screen reader otherwise; reading it mid-shot would talk over every pot |
+| 2026-09-30 | **The bot's release label lives in `sync.yml`, not in a secret** | It is shown on the banner, so it is not secret; a value in the file ships with the bot and a test can hold it to the userscript's `BUILD_LABEL` |
+| 2026-09-30 | **A high break over 155 is dropped, not clamped, by the bot** | No real frame can make one (the client clamps too); clamping would hand a forged record 155 |
+| 2026-09-30 | **Gaps in the artboards, decided:** a CPU chooser shows *CHOOSING*, then a notice; *Concede* keeps its 20 px look with a 44 px hit area; long choice labels fall back to *Put back* in the 316 px column; tournament setup defaults the clock to 30s as drawn, quick play keeps 45 s; the physics rack (touching) is drawn, not the design's gapped one | The design shows a human choosing only, draws a button under the 44 px rule, and is drawn at 368 px |
+| 2026-09-29 | **`host-run.js` waits for ⚙️ to be hidden instead of 400 ms** | The fade could outlast the wait, leaving the overlay over the panel: 4 of 6 runs failed in a cascade from the Game mode sheet onward, `main` included |
 
 ---
 
@@ -1240,3 +2425,28 @@ Rules for all of these:
 - Real buttons and inputs, touch targets of at least 44px, and text contrast of at least 4.5:1.
 - Keep the table the hero on in-match screens; overlays must not cover the cue ball or the aim line.
 - Title each artboard clearly and group the two rows with row titles.
+```
+
+---
+
+## Appendix B: design prompt for snooker
+
+Pasted into the same canvas on 2026-09-29; the 27 artboards it produced are revision
+`1790715495-3a1b` (*What the design specifies*, in *Snooker*).
+
+```text
+Add a SNOOKER set of screens to this canvas, as three new rows below the existing ones. Snooker is a second game on the same table component; pool and snooker share one panel, and the player picks the game in the widget's settings, not in this panel. Match the existing Main, Max and Table artboards exactly (palette, type, radii, icons, the component layout: header, two 72px player cards with FRAMES between them, the 368×412 table viewport, the 3-button footer; compact 400×640, full view 1280×800). Reuse the existing InMatch and Table components and add variants for snooker rather than new one-offs. The title reads "Snooker" wherever "8-Ball Pool" appears.
+
+THE TABLE (a Table variant, layout "snooker"): true-scale plain balls, radius 7.36 (red #B3202A, yellow #E8C21E, green #1F7A3F, brown #6B3F22, blue #1F4FB5, pink #E88FA8, black #121314); the baulk line at x = −293.5, the D (radius 81.8), six spots (brown (−293.5, 0), yellow and green at (−293.5, ±81.8) with yellow on the right from the baulk end, blue (0, 0), pink (250, 0), black (409.2, 0)); 15 reds in a triangle behind the pink; narrower snooker pockets with rounded cushion cuts (corner mouth about 24, middle about 29); no diamonds; the tiny 2D balls drawn at true scale, not enlarged.
+
+ROW S1, in match (compact): 1 break-off, ball in hand in the D · 2 on a red, 3D: scores on the cards, BREAK 34, a 20px tracker row (REDS × 9, six colour dots, 67 REMAINING) · 3 nominate a colour: the gauge padlocked, six colour chips (value on each, at least 24px) in the call card's slot, "Tap a colour"; and pink chosen · 4 foul with a choice ("Foul · 6 to Bilal" / "Hit the blue first", Play / Make Ayesha play again), and the 2 Players hand-off first · 5 free ball (Play / Free ball / Make Ayesha play again), then "Free ball" with the chips · 6 snookers required (SNOOKERS REQ. 1, Concede) and the concede confirmation · 7 the colours (REDS × 0, the ball on ringed, "On the yellow") · 8 frame over vs CPU, win and loss, with SCORE and HIGH BREAK rows · 9 notices: "Century break · 104", "Scores level · re-spotted black" · 10 the compact 2D overview at true scale.
+
+ROW S2: 11 the Game mode sheet with snooker's difficulty lines · 12 tournament setup (Reds 15 · 10 · 6 in place of Call pocket; 30s / 45s / 60s / off; best of 1 / 3 / 5) · 13 bracket compact and full ("Best of 3") · 14 match intro ("Ayesha breaks off", "15 reds") · 15 match in progress · 16 match result with each frame's points and the high break · 17 the snooker trophy cabinet.
+
+ROW S3 (1280×800): 18 Max on a red · 19 Max nominate · 20 Max frame over.
+
+Rules: no emoji; real buttons and inputs; touch targets of at least 44px (chips at least 24px in a 44px row); text contrast of at least 4.5:1, chip digits included; the table stays the hero and the tracker row never sits on the felt; artboards titled "S3 Nominate" and so on, under the row titles "Snooker · in match", "Snooker · sheet and tournament", "Snooker · full view".
+```
+
+The full text as pasted is in the session that wrote it; this is its substance, kept with
+the design it produced.

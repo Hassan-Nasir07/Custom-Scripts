@@ -18,8 +18,7 @@ const ROOT = path.join(__dirname, '..');
 const OPEN = process.argv.includes('--open');
 const OUT = path.resolve(process.argv.slice(2).find(a => !a.startsWith('--')) || path.join(os.tmpdir(), 'pool-host-run'));
 const PORTAL = 'https://globalportal.mtbc.com/#/time-absence/attendence-record';
-const CHROME = ['C:', 'Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'].join(path.sep);
-const CHROME_ALT = ['C:', 'Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'].join(path.sep);
+const CHROME = require('./browser').browserPath();     // Chrome, else Edge, or POOL_BROWSER
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function page() {
@@ -57,7 +56,7 @@ window.$ = sel => ({ before: el => { const t = document.querySelector(sel); if (
 
 async function main() {
     fs.mkdirSync(OUT, { recursive: true });
-    const exe = fs.existsSync(CHROME) ? CHROME : CHROME_ALT;
+    const exe = CHROME;
     const port = 9300 + Math.floor(Math.random() * 400);
     const args = ['--remote-debugging-port=' + port, '--user-data-dir=' + fs.mkdtempSync(path.join(os.tmpdir(), 'pool-host-')),
         '--no-first-run', '--no-default-browser-check', '--window-size=1400,1000', 'about:blank'];
@@ -106,6 +105,14 @@ async function main() {
         const r = await send('Runtime.evaluate', { expression: e, returnByValue: true, awaitPromise: true });
         if (r.result && r.result.exceptionDetails) throw new Error(e.slice(0, 80) + ': ' + (r.result.exceptionDetails.exception?.description || r.result.exceptionDetails.text));
         return r.result?.result?.value;
+    };
+    // ⚙️ fades out over 0.3 s (visibility included), and a busy headless browser can take far
+    // longer: until it has, its overlay still takes the clicks meant for the panel under it.
+    const settingsClosed = async () => {
+        for (let i = 0; i < 50; i++) {
+            if (await ev("(() => { const o = document.getElementById('settings-modal-overlay'); return !o || getComputedStyle(o).visibility === 'hidden'; })()")) return;
+            await sleep(100);
+        }
     };
     let pass = 0, fail = 0;
     const ok = (name, cond, detail) => {
@@ -178,7 +185,9 @@ async function main() {
         const bad = [];
         const els = [root, ...root.querySelectorAll('*')];
         for (const el of els) {
-            if (!el.getClientRects().length || el.closest('[hidden]')) continue;
+            // An overlay faded out of the way of the shot (data-shy) is meant to be see-through.
+            // …and screen-reader text (.ph-sr) is never seen.
+            if (!el.getClientRects().length || el.closest('[hidden]') || el.closest('[data-shy]') || el.closest('.ph-sr')) continue;
             const own = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
             if (!own) continue;
             // Emoji carry their own colour; text with a dark shadow carries its own contrast.
@@ -355,9 +364,11 @@ async function main() {
     await click('#pool-root [data-ph=max]');
     await sleep(500);
     const mx = await ev(`(() => { const f = document.querySelector('.pool-modal-overlay .pool-max-frame'); const S = window.__probe.S;
-        return { frame: !!f, canvasIn: !!(f && f.contains(S.canvas)), maximized: window.__probe.maximized, W: S.W, H: S.H,
+        return { frame: !!f, canvasIn: !!(f && f.contains(S.canvas)), maximized: window.__probe.maximized, W: S.W, H: S.H, VH: S.canvas.parentElement.clientHeight,
             header: !!document.querySelector('.pool-modal-overlay .pool-modal-header'), size: f && [f.getBoundingClientRect().width | 0, f.getBoundingClientRect().height | 0] }; })()`);
-    ok('Max opens the design\'s full view with the table moved into it', mx.frame && mx.canvasIn && mx.maximized && Math.abs(mx.W - 1230) <= 2 && Math.abs(mx.H - 670) <= 2, mx);
+    // ⚙️ Max View's default: the whole 1232 × 672 view is the table (the bars would take 128 px of it).
+    ok('Max opens the design\'s full view with the table moved into it, the whole view the table', mx.frame && mx.canvasIn && mx.maximized && Math.abs(mx.W - 1230) <= 2 &&
+       Math.abs(mx.VH - 670) <= 3 && Math.abs(mx.H - mx.VH) <= 1, mx);
     ok('…inside the shared modal, without its canvas header', !mx.header, mx);
     await report('Max, Glassmorphic dark');
     await shot('host-max-dark', '.pool-max-frame');
@@ -414,7 +425,7 @@ async function main() {
         await shot('host-settings-light', '.settings-modal');
         const sb = await contrast('.settings-modal');
         ok('light: ⚙️ settings text is readable', !sb.length, sb.slice(0, 8).join(' | '));
-        await ev('window.__probe.toggleSettingsModal()'); await sleep(400);
+        await ev('window.__probe.toggleSettingsModal()'); await settingsClosed();
     }
     await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
 
@@ -423,7 +434,9 @@ async function main() {
     head('Game mode sheet');
     const pre = await ev(`(() => { const S = window.__probe.S, m = document.querySelector('#pool-root [data-ph=mode]'), b = m.getBoundingClientRect();
         const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
-        return { phase: S.phase, sheet: S.sheet.open, handoff: S.handoff, footHidden: !!m.closest('[hidden]'), top: top && (top.className || top.tagName), maxed: window.__probe.maximized }; })()`);
+        const ov = document.getElementById('settings-modal-overlay'), oc = ov && getComputedStyle(ov);
+        return { phase: S.phase, sheet: S.sheet.open, handoff: S.handoff, footHidden: !!m.closest('[hidden]'), top: top && (top.className || top.tagName), maxed: window.__probe.maximized,
+            overlay: ov ? ov.className + ' · ' + oc.visibility + ' · ' + oc.opacity : 'none' }; })()`);
     const clicked = await click('#pool-root [data-ph=mode]');
     const sh1 = await ev(`(() => { const S = window.__probe.S, h = document.querySelector('#pool-root [data-ph=sheet]');
         return { open: S.sheet.open, shown: !!h && !h.closest('[hidden]'), tab: S.sheet.mode, rows: [...document.querySelectorAll('#pool-root [data-ph-diff] .ph-sheet-dn > span:first-child')].map(b => b.textContent) }; })()`);
@@ -535,8 +548,103 @@ async function main() {
         const dsel = await ev(`(() => { const s = document.querySelector('select[data-pref="poolDifficulty"]'); if (!s) return null; s.value = 'hard'; s.dispatchEvent(new Event('change', { bubbles: true })); return [...s.options].map(o => o.value); })()`);
         ok('⚙️ has the Pool CPU pin, and it sets userPreferences.poolDifficulty', dsel && dsel.join() === 'adaptive,easy,normal,hard,pro' && (await ev('window.__probe.prefs.poolDifficulty')) === 'hard', dsel);
         await ev('window.__probe.toggleSettingsModal()');
-        await sleep(300);
+        await settingsClosed();
     } else ok('⚙️ settings modal reachable', false, 'toggleSettingsModal not found');
+
+    // ── Snooker, through ⚙️ (POOL_V2_PLAN.md, Snooker, S3) ────────────
+    head('Snooker, through ⚙️');
+    if (await ev('!!window.__probe.toggleSettingsModal')) {
+        await waitFor('!["moving","strike"].includes(window.__probe.S.phase)', 20000);
+        await ev('window.__probe.toggleSettingsModal()'); await sleep(400);
+        // The pool frame as it stands, and the switch, in one step (so the CPU cannot move a ball between).
+        const sw = await ev(`(() => { const S = window.__probe.S, out = { balls: JSON.stringify(S.world.balls.map(b => [b.id, b.x, b.y, b.state])) };
+            ['poolVariant', 'snookerReds', 'snookerDifficulty'].forEach(p => { const s = document.querySelector('select[data-pref="' + p + '"]'); out[p] = s ? [...s.options].map(o => o.value).join() : null; });
+            const s = document.querySelector('select[data-pref="poolVariant"]'); s.value = 'snooker'; s.dispatchEvent(new Event('change', { bubbles: true })); return out; })()`);
+        await ev('window.__probe.toggleSettingsModal()'); await settingsClosed(); await sleep(300);
+        ok('⚙️ offers Cue Game, Snooker Reds and Snooker CPU', sw.poolVariant === 'pool,snooker' && sw.snookerReds === '15,10,6' && sw.snookerDifficulty === 'adaptive,easy,normal,hard,pro', sw);
+        const sn = await ev(`(() => { const S = window.__probe.S, h = S.hud.el; return { game: S.game, balls: S.world.balls.length, title: document.getElementById('game-title').textContent,
+            poolBtn: getComputedStyle(document.getElementById('pool-lb-btn')).display, snkBtn: getComputedStyle(document.getElementById('snooker-lb-btn')).display,
+            dg: h.getAttribute('data-game'), track: !h.querySelector('[data-ph=track]').hidden, pref: window.__probe.prefs.poolVariant, zone: S.frame.ballInHand, phase: S.phase,
+            tip: document.getElementById('game-switch-pool').title }; })()`);
+        ok('Cue Game → Snooker: the panel plays snooker: its title, wins button and tracker, 22 balls, ball in hand in the D',
+           sn.game === 'snooker' && sn.balls === 22 && sn.title === '🔴 Snooker' && sn.poolBtn === 'none' && sn.snkBtn !== 'none' && sn.dg === 'snooker' && sn.track && sn.pref === 'snooker' && sn.zone === 'D' && sn.phase === 'bih' && sn.tip === 'Snooker', sn);
+        await shot('host-snooker-break', '.snake-game-container');
+        // In the D by mouse, then the break-off by the power drag.
+        const cb = await ev('(() => { const S = window.__probe.S, v = window.__probe.pcView(S.director.pose), q = window.__probe.pcProject(v, [-335, 25, S.cfg.ballR]), r = S.canvas.getBoundingClientRect(), k = r.width / S.W; return [r.left + q[0] * k, r.top + q[1] * k, r.left + r.width / 2, r.top + r.height - 70]; })()');
+        await mouse('mouseMoved', cb[0], cb[1]); held = true; await mouse('mousePressed', cb[0], cb[1]); await mouse('mouseMoved', cb[0] + 2, cb[1]); await sleep(30);
+        held = false; await mouse('mouseReleased', cb[0] + 2, cb[1]); await sleep(200);
+        const pl = await ev('(() => { const S = window.__probe.S, c = S.world.balls[0]; return { phase: S.phase, inD: window.__probe.prCanPlace(S.world, c.x, c.y, "D") === null, x: c.x, y: c.y }; })()');
+        ok('the cue ball is placed in the D by mouse', pl.phase === 'aim' && pl.inD, pl);
+        await mouse('mouseMoved', cb[2], cb[3]); held = true; await mouse('mousePressed', cb[2], cb[3]);
+        for (let i = 1; i <= 8; i++) { await mouse('mouseMoved', cb[2], cb[3] - i * 10); await sleep(16); }
+        held = false; await mouse('mouseReleased', cb[2], cb[3] - 80);
+        ok('press, drag and release breaks off', await waitFor('["moving","strike"].includes(window.__probe.S.phase) || window.__probe.S.frame.shots > 0', 2000));
+        const done = await waitFor('!["moving","strike"].includes(window.__probe.S.phase) && window.__probe.S.frame.shots > 0', 20000);
+        const af = await ev('(() => { const S = window.__probe.S, saved = JSON.parse(localStorage.getItem("snookerFrame") || "null"); return { shots: S.frame.shots, phase: S.phase, saved: !!saved && saved.frame.shots >= 1 }; })()');
+        ok('the break-off is judged, and the frame is saved for a reload', done && af.shots >= 1 && af.saved, af);
+        const live = await ev(`(() => { const e = document.querySelector('#pool-root [data-ph=trlive]'); return e && { text: e.textContent, polite: e.getAttribute('aria-live'), w: e.getBoundingClientRect().width }; })()`);
+        ok('the tracker is read out once the shot is over (a polite live region, never seen)', !!live && live.polite === 'polite' && /points remaining\.$/.test(live.text) && live.w <= 1, live);
+        // The CPU at the table (S4): it plans in slices, turns the cue and plays its shot; or, when
+        // the break-off fouled, makes its choice (play on, the free ball, or you back in).
+        if (await ev('window.__probe.S.frame.turn === 2 && window.__probe.mode === "cpu"')) {
+            const chose = await ev('!!window.__probe.S.frame.pending');
+            const took = await waitFor(chose ? '!window.__probe.S.frame.pending && window.__probe.S.phase !== "choice"'
+                : 'window.__probe.S.frame.shots >= 2 && !["moving","strike"].includes(window.__probe.S.phase)', 40000);
+            const cp = await ev('(() => { const S = window.__probe.S; return { shots: S.frame.shots, phase: S.phase, turn: S.frame.turn }; })()');
+            ok(chose ? 'the break-off fouled: the snooker CPU makes its choice' : 'the snooker CPU takes its turn after the break-off (plans, turns the cue, plays)', took, cp);
+        }
+        await shot('host-snooker-after', '.snake-game-container');
+        // A snooker tournament's setup by mouse (S5): its words, best of, a 60 s clock, Reds and the call pocket.
+        await click('#pool-root [data-ph=mode]'); await sleep(200);
+        await click('#pool-root [data-ph-mode="tour"]'); await sleep(150);
+        await click('#pool-root [data-ph=sheettourgo]'); await sleep(250);
+        const stp = await ev(`(() => { const s = document.querySelector('#pool-root .pu-screen-in'); if (!s) return null;
+            const segs = [...s.querySelectorAll('.pu-seg-row')].map(r => r.getAttribute('aria-label') + ':' + [...r.querySelectorAll('button')].map(b => b.textContent).join('/'));
+            return { kicker: (s.querySelector('.pu-kicker') || {}).textContent, races: (s.querySelector('.pu-group .pu-kicker') || {}).textContent,
+                opts: [...s.querySelectorAll('select[data-pu-in="race:0"] option')].map(o => o.textContent).join(), segs }; })()`);
+        ok('snooker\'s tournament setup by mouse: SNOOKER · HUMANS ONLY, best of 1–9, a 60 s clock, Reds and the call pocket',
+           !!stp && stp.kicker === 'SNOOKER · HUMANS ONLY' && /BEST OF/.test(stp.races) && stp.opts === '1,3,5,7,9' && stp.segs.includes('Shot clock:30s/45s/60s/Off') &&
+           stp.segs.includes('Reds:15/10/6') && stp.segs.includes('Call pocket:Off/Colours/All balls'), stp);
+        await click('#pool-root [data-pu-act=close]'); await sleep(200);
+        // Snooker's progression through the real host (S6): a Pro win with a 104 break pays its XP
+        // and Century, files the win and the break, and the Snooker board opens on Pro.
+        const snk = await ev(`(() => { const P = window.__probe, S = P.S, xp0 = P.xp.totalXP, s0 = P.xp.gameSessions || 0, called0 = P.xp.achievements.includes('calledIt');
+            P.prefs.snookerDifficulty = 'pro'; P.poolNewFrame(1);
+            P.poolEndFrame({ winner: 1, next: Object.assign({}, S.frame, { high: { 1: 104, 2: 0 } }) });
+            P.toggleGameLeaderboard('snooker', true);
+            const box = document.getElementById('game-lb-overlay');
+            const tabs = [...box.querySelectorAll('.game-lb-tab')].map(b => b.textContent.replace('•', '').trim());
+            const active = (box.querySelector('.game-lb-tab.is-active') || {}).textContent || '';
+            const head = (box.querySelector('.game-lb-head') || {}).textContent || '';
+            window.setGameLeaderboardMode('highBreak');
+            const foot = (box.querySelector('.game-lb-foot') || {}).textContent || '';
+            const g = P.collectGameModeBests(), byTier = JSON.parse(localStorage.getItem('snookerWinsByTier') || '{}');
+            const res = { tier: P.tier, gained: P.xp.totalXP - xp0, sessions: (P.xp.gameSessions || 0) - s0, century: P.xp.achievements.includes('snookerCentury'),
+                calledIt: P.xp.achievements.includes('calledIt') !== called0, wins: document.getElementById('snooker-wins').textContent, pro: byTier.pro || 0,
+                tabs, active, head, foot, shown: box.style.display, high: localStorage.getItem('snookerHighBreak'), sync: g['snooker:pro'], syncHigh: g['snooker:highBreak'] };
+            P.toggleGameLeaderboard('snooker', false); P.prefs.snookerDifficulty = 'adaptive'; P.poolNewFrame(1);
+            return res; })()`);
+        ok('a Pro snooker win with a 104 break pays 180 + 25 (and Century\'s 150), one session, and never Called It',
+           snk.tier === 'pro' && snk.gained >= 205 && snk.sessions === 1 && snk.century && !snk.calledIt, snk);
+        ok('…the win and the break are filed: the wins button shows Pro\'s wins, the sync snapshot carries them and the 104',
+           snk.pro >= 1 && snk.wins === String(snk.pro) && snk.sync === snk.pro && snk.high === '104' && snk.syncHigh === 104, snk);
+        ok('the Snooker board: the four tiers, All-time, Hot-seat and High break, opening on the tier being played',
+           snk.shown === 'flex' && /Snooker/.test(snk.head) && snk.tabs.join() === '🎯 Pro,🔥 Hard,⚔️ Normal,🌱 Easy,📚 All-time,👥 Hot-seat,💯 High break' && /Pro/.test(snk.active) && /best break/.test(snk.foot), snk);
+        await click('#snooker-lb-btn'); await sleep(250);
+        await ev(`window.setGameLeaderboardMode('highBreak')`); await sleep(100);
+        await shot('host-snooker-board', '.snake-game-container');
+        const tabFit = await ev(`(() => { const box = document.getElementById('game-lb-overlay'), r = box.getBoundingClientRect();
+            const b = box.querySelector('.game-lb-tab.is-active'), q = b && b.getBoundingClientRect();
+            return !!q && q.width > 0 && q.left >= r.left - 0.5 && q.right <= r.right + 0.5 && /High break/.test(b.textContent); })()`);
+        ok('…opened by its wins button; the strip scrolls, and the board shown (High break, the last) is in view', tabFit && (await ev(`document.getElementById('game-lb-overlay').style.display`)) === 'flex');
+        await ev(`window.closeGameLeaderboard()`); await sleep(100);
+        // Back to pool: its frame as it was left.
+        await ev('window.__probe.toggleSettingsModal()'); await sleep(300);
+        await ev(`(() => { const s = document.querySelector('select[data-pref="poolVariant"]'); s.value = 'pool'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+        await ev('window.__probe.toggleSettingsModal()'); await settingsClosed(); await sleep(300);
+        const back = await ev(`(() => { const S = window.__probe.S; return { game: S.game, balls: JSON.stringify(S.world.balls.map(b => [b.id, b.x, b.y, b.state])), title: document.getElementById('game-title').textContent, poolBtn: getComputedStyle(document.getElementById('pool-lb-btn')).display }; })()`);
+        ok('…and back to 8-Ball Pool: its frame as it was left, its title and wins button', back.game === 'pool' && back.balls === sw.balls && /8-Ball Pool/.test(back.title) && back.poolBtn !== 'none', { game: back.game, title: back.title, same: back.balls === sw.balls });
+    }
     const award = await ev(`(() => { const P = window.__probe, before = +(localStorage.getItem('poolGamesWon') || 0), xp0 = P.xp.totalXP, s0 = P.xp.gameSessions || 0;
         P.poolNewFrame(1); const tier = P.tier;
         P.poolEndFrame({ winner: 1 }); P.poolEndFrame({ winner: 1 });

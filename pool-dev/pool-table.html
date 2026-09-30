@@ -70,7 +70,16 @@
             <label><input id="narrow" type="checkbox"> The widget's 316 px column</label>
             <div class="hint">Light or dark Glassmorphic follows your OS setting, as the widget does.</div>
         </fieldset>
+        <fieldset id="lookRig" hidden><legend>Snooker table (Phase S1)</legend>
+            <label>Camera <select id="lookCam"><option value="3d">3D</option><option value="2d">2D</option></select></label>
+            <label>Layout <select id="lookLayout"><option value="break">Break-off, in the D</option><option value="mid">Mid-frame</option><option value="nominate">Nominate</option><option value="late">Late, two reds</option><option value="colours">The colours</option><option value="black">Re-spotted black</option></select></label>
+            <label>Lean <input id="lookLean" type="range" min="0" max="100" value="35"></label>
+            <label>View <select id="lookSize"><option value="">Compact</option><option value="narrow">The 316 px column</option><option value="max">Max (1232 × 672)</option></select></label>
+            <div class="hint">The real camera and renderer on the snooker table, before snooker has its controls (Phase S3). 3D: move the mouse to aim, wheel to lean. 2D: point to aim. The break-off shows ball in hand in the D (drag it). Rack uses the Reds select.</div>
+        </fieldset>
         <fieldset><legend>Match</legend>
+            <label>Game <select id="game"><option value="pool">8-Ball Pool</option><option value="snooker">Snooker</option></select></label>
+            <label>Reds <select id="reds"><option value="15">15 · full</option><option value="10">10</option><option value="6">6 · quick</option></select></label>
             <label>Mode <select id="mode"><option value="cpu">Vs CPU</option><option value="pvp">2 Players</option></select></label>
             <label>CPU <select id="diff"><option value="adaptive">Adaptive</option><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option><option value="pro">Pro</option></select></label>
             <label><input id="every" type="checkbox"> Call every shot</label>
@@ -87,7 +96,7 @@
             <div id="xplog">No frames finished yet.</div>
         </fieldset>
         <div class="hint">
-            This page runs the widget's own controller (pool-game.js) and CPU (pool-ai.js), on stand-ins for the host. The CPU select is the same setting as ⚙️ Pool CPU.
+            This page runs the widget's own controller (pool-game.js) and CPUs (pool-ai.js, pool-snooker-ai.js), on stand-ins for the host. The CPU select is the same setting as ⚙️ Pool CPU.
             3D: move the mouse sideways to aim (Shift for fine); it keeps aiming past the table's edge. 2D: point to aim.
             Press, then pull back or push forward along the shot line for power, and release. Return to the start or press Esc to cancel.
             Spin: drag the red dot on SPIN, or click SPIN for the big picker (letting go confirms).
@@ -108,6 +117,10 @@ var userPreferences = Object.assign({
     cyberPanelTint: '#00e5ff', cyberText: '#fff200', cyberGlow: '#fff200', cyberBorder: '#fff200',
     cyberGlowIntensity: 0.6, cyberPanelShape: 'notched', gameFps: 60,
     poolTableColor: 'green', poolCamera: '3d', poolLean: 35, poolShotCam: 'overhead',
+    // The game the panel plays, as ⚙️ Cue Game sets it in the widget, and snooker's own settings.
+    poolVariant: 'pool', snookerReds: 15, snookerDifficulty: 'adaptive',
+    // ⚙️ Aim Guide and ⚙️ Max View.
+    poolGuideLen: 'long', poolMaxLayout: 'full',
 }, (() => { try { return JSON.parse(localStorage.getItem('poolProtoPrefs') || '{}'); } catch (_) { return {}; } })());
 var isPipActive = false, pipWindow = null;
 var currentGame = 'pool', lbDisplayName = 'Ayesha', xpSystemReady = false;
@@ -121,7 +134,8 @@ function updateGameScoreBtn(game, cur, best) { const el = document.getElementByI
 function awardGameXP(type, perf) {
     const log = document.getElementById('xplog');
     if (log) log.textContent = (log.textContent === 'No frames finished yet.' ? '' : log.textContent + '\n') +
-        new Date().toLocaleTimeString() + '  ' + (perf.won ? 'won' : 'lost') + ': +' + (perf.xp || 0) + ' XP' + (perf.tier ? ' (' + perf.tier + ')' : '');
+        new Date().toLocaleTimeString() + '  ' + type + ' ' + (perf.won ? 'won' : 'lost') + ': +' + (perf.xp || 0) + ' XP' + (perf.tier ? ' (' + perf.tier + ')' : '') +
+        (perf.highBreak ? ', best break ' + perf.highBreak : '');
 }
 function loadPoolHighScore() {
     const saved = localStorage.getItem('poolGamesWon');
@@ -176,12 +190,14 @@ function toggleGameMaxModal(cfg) {
 <script src="../cyber-dev/cyber-hud.js"></script>
 <script src="pool-physics.js"></script>
 <script src="pool-rules.js"></script>
+<script src="pool-snooker.js"></script>
 <script src="pool-tour.js"></script>
 <script src="pool-camera.js"></script>
 <script src="pool-render.js"></script>
 <script src="pool-hud.js"></script>
 <script src="pool-tour-ui.js"></script>
 <script src="pool-ai.js"></script>
+<script src="pool-snooker-ai.js"></script>
 <script src="pool-game.js"></script>
 <script>
 (() => {
@@ -219,13 +235,142 @@ function toggleGameMaxModal(cfg) {
         if (save) savePreferences();
     }
 
+    // ── Snooker's table (Phase S1) ────────────────────────────────────
+    // ?look=snooker draws the snooker table through the real camera and renderer, in the
+    // panel's viewport, before snooker has a controller (Phase S3). Query: camera=2d|3d,
+    // lean, aim (the design's degrees, y down), layout, reds, max=1, narrow=1, ring=<id>.
+    if (Q.get('look') === 'snooker') { poolSnookerLook(); return; }
+    function poolSnookerLook() {
+        document.body.classList.add('is-look');
+        $('lookRig').hidden = false;
+        $('game').value = 'snooker';
+        // The stills view: the Game select loads the real controller on that game.
+        $('game').onchange = e => { location.search = 'game=' + e.target.value; };
+        $('reds').parentElement.hidden = false; $('every').parentElement.hidden = true;
+        $('reds').value = Q.get('reds') || String(userPreferences.snookerReds || 15);
+        $('game-title').textContent = '🔴 Snooker';
+        const max = Q.has('max');
+        const root = $('pool-root');
+        root.innerHTML = '';
+        const host = document.createElement('div');
+        // .pool-hud so the theme tokens resolve (the renderer's accent comes from them).
+        host.className = 'pool-hud' + (max ? ' pool-max-frame' : '');
+        host.style.cssText = 'position: relative; display: block; box-sizing: content-box; padding: 0; border: 0; transform: none; ' + (max ? 'position: fixed; left: 24px; top: 24px; z-index: 50; width: 1232px; height: 672px; margin: 0;' : 'width: 100%;');
+        const cv = document.createElement('canvas');
+        cv.style.cssText = 'display: block; width: 100%; border-radius: 14px; touch-action: none; cursor: crosshair';
+        cv.setAttribute('aria-label', 'Snooker table');
+        host.appendChild(cv);
+        if (max) { document.body.appendChild(host); root.parentElement.style.display = 'none'; } else root.appendChild(host);
+        const ctx = cv.getContext('2d'), cache = {};
+        const makeCanvas = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+        // The design's layouts (Table.dc.html, snooker-*), in its y-down frame; flipped here.
+        const mid8 = [[318, -8], [330, 10], [305, 18], [342, -20], [290, -30], [60, 150], [-120, -60], [420, 120]];
+        const LAYOUTS = {
+            mid: { reds: mid8.concat([[160, -120]]), cue: [-60, -10], aim: -26.9 },
+            nominate: { reds: mid8, cue: [180, -60], aim: 39.8 },
+            late: { reds: [[330, 40], [-150, 120]], cue: [100, -150], aim: 39 },
+            colours: { reds: [], cue: [-150, -30], aim: 142.2 },
+            black: { reds: [], only: [7], cue: [-330, 20], aim: 0, bih: true },
+            break: { rack: true, aim: -6.8, bih: true },
+        };
+        const st = {
+            camera: Q.get('camera') === '2d' ? '2d' : '3d', lean: Q.has('lean') ? +Q.get('lean') : 35,
+            layout: LAYOUTS[Q.get('layout')] ? Q.get('layout') : 'break', aim: 0, world: null,
+        };
+        const build = () => {
+            const L = LAYOUTS[st.layout];
+            const w = psCreateWorld();
+            if (L.rack) psRack(w, ppRandom(7), +$('reds').value);
+            else {
+                w.balls = [ppMakeBall(0, L.cue[0], -L.cue[1])];
+                (L.only || PS_COLOURS).forEach(id => w.balls.push(ppMakeBall(id, PS_SPOTS[id][0], PS_SPOTS[id][1])));
+                L.reds.forEach((p, i) => w.balls.push(ppMakeBall(PS_RED + i, p[0], -p[1])));
+            }
+            st.world = w;
+            st.aim = -(Q.has('aim') ? +Q.get('aim') : L.aim) * DEG;
+        };
+        const draw = () => {
+            const W = Math.round(host.clientWidth) || 368, H = max ? 672 : Math.round(W * 412 / 368);
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+            cv.style.height = H + 'px';
+            const w = st.world, cfg = w.cfg, c = w.balls[0], L = LAYOUTS[st.layout];
+            const view = pcView(st.camera === '2d' || L.bih ? pcOrtho(W, H, cfg) : pcChase([c.x, c.y], st.aim, st.lean, W, H, cfg));
+            const aim = L.bih ? null : { angle: st.aim, power: 0 };
+            pgRender(ctx, {
+                view, world: w, felt: userPreferences.poolTableColor || 'green', dpr, cache, makeCanvas, theme: phThemeTokens({ el: host }),
+                aim, guide: aim ? pgGuide(w, { angle: st.aim, speed: cfg.maxSpeed * 0.35, tipX: 0, tipY: 0 }) : null, guideMode: 'full',
+                zone: L.bih ? 'D' : null, bih: L.bih ? { x: c.x, y: c.y, valid: !prCanPlace(w, c.x, c.y, 'D') } : null,
+                ring: Q.has('ring') ? +Q.get('ring') : null,
+            });
+        };
+        const local = ev => { const r = cv.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+        let lastX = null, dragging = false;
+        cv.addEventListener('pointerdown', ev => {
+            if (!LAYOUTS[st.layout].bih) return;
+            dragging = true; cv.setPointerCapture(ev.pointerId); place(ev);
+        });
+        const place = ev => {
+            const W = cv.clientWidth, H = cv.clientHeight, p = pcView(pcOrtho(W, H, st.world.cfg)).unproject(...local(ev));
+            const q = prClampPlace(st.world, p[0], p[1], 'D');
+            prPlaceCue(st.world, q[0], q[1]); draw();
+        };
+        window.addEventListener('pointerup', () => { dragging = false; });
+        cv.addEventListener('pointermove', ev => {
+            if (dragging) { place(ev); return; }
+            if (LAYOUTS[st.layout].bih) return;
+            const [sx, sy] = local(ev), c = st.world.balls[0];
+            if (st.camera === '3d') { if (lastX !== null) st.aim -= (sx - lastX) * (ev.shiftKey ? 0.05 : 0.3) * DEG; lastX = sx; }
+            else {
+                const p = pcView(pcOrtho(cv.clientWidth, cv.clientHeight, st.world.cfg)).unproject(sx, sy, st.world.cfg.ballR);
+                if (p && Math.hypot(p[0] - c.x, p[1] - c.y) > 2) st.aim = Math.atan2(p[1] - c.y, p[0] - c.x);
+            }
+            draw();
+        });
+        cv.addEventListener('pointerleave', () => { lastX = null; });
+        cv.addEventListener('wheel', ev => { ev.preventDefault(); st.lean = Math.max(0, Math.min(100, st.lean - Math.sign(ev.deltaY) * 5)); $('lookLean').value = st.lean; draw(); }, { passive: false });
+        $('lookCam').value = st.camera; $('lookCam').onchange = ev => { st.camera = ev.target.value; draw(); };
+        $('lookLayout').value = st.layout; $('lookLayout').onchange = ev => { st.layout = ev.target.value; build(); draw(); };
+        $('lookLean').value = st.lean; $('lookLean').oninput = ev => { st.lean = +ev.target.value; draw(); };
+        $('lookSize').value = max ? 'max' : Q.has('narrow') ? 'narrow' : '';
+        $('lookSize').onchange = ev => {
+            const q = new URLSearchParams(location.search); q.delete('max'); q.delete('narrow');
+            if (ev.target.value) q.set(ev.target.value, '1');
+            q.set('camera', st.camera); q.set('layout', st.layout); q.set('lean', String(st.lean));
+            location.search = q.toString();
+        };
+        $('reds').onchange = ev => { userPreferences.snookerReds = +ev.target.value; savePreferences(); build(); draw(); };
+        $('felt').value = userPreferences.poolTableColor; $('felt').onchange = ev => { userPreferences.poolTableColor = ev.target.value; savePreferences(); Object.keys(cache).forEach(k => delete cache[k]); draw(); };
+        window.addEventListener('resize', draw);
+        build(); draw();
+        // snapshot.js --check: what a browser can check about this view.
+        window.__hudAudit = () => {
+            const out = [], ok = (n, c, d) => out.push([n, !!c, d === undefined ? '' : String(d)]);
+            const dpr = Math.min(window.devicePixelRatio || 1, 2), W = cv.clientWidth, H = cv.clientHeight;
+            ok('snooker look: backing store is CSS size × dpr', cv.width === Math.round(W * dpr) && cv.height === Math.round(H * dpr), cv.width + '×' + cv.height + ' for ' + W + '×' + H);
+            ok('snooker look: the viewport keeps ' + (max ? '1232:672' : '368:412'), max ? W === 1232 && H === 672 : Math.abs(H - Math.round(W * 412 / 368)) <= 1, W + '×' + H);
+            let el = cv, bad = '';
+            while (el && el !== document.body) { const cs = getComputedStyle(el); if ((cs.filter && cs.filter !== 'none') || (cs.clipPath && cs.clipPath !== 'none')) bad = el.className || el.tagName; el = el.parentElement; }
+            ok('snooker look: no filter or clip-path on the canvas or any ancestor', !bad, bad);
+            const tok = getComputedStyle(host).getPropertyValue('--pool-felt-accent').trim();
+            ok('snooker look: the accent comes from the theme tokens', !!tok && phThemeTokens({ el: host }).accent === phColour(tok, ''), tok);
+            return out;
+        };
+        const done = () => { draw(); window.__ready = true; };
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(done); else done();
+    }
+
     // ── The widget's own controller ───────────────────────────────────
+    // ?game= picks the game for this load (snapshot.js's snooker: scenes); else the setting.
+    const game = Q.get('game') || userPreferences.poolVariant;
+    poolUseGame(POOL_GAMES[game] ? game : 'pool');
     if (Q.get('mode') === 'pvp') poolMode = 'pvp';
     S.guideMode = Q.get('guides') || 'full';
     S.callEvery = Q.has('every');
     applyTheme(false);
-    // A still is one scene: no tournament saved by an earlier load is offered back.
-    if (still) S.tour.checked = true;
+    // A still is one scene: no tournament saved by an earlier load is offered back, and no
+    // snooker frame saved by one comes back either.
+    if (still) { S.tour.checked = true; try { localStorage.removeItem('snookerFrame'); } catch (_) {} }
     initPoolGame();                                     // builds the HUD, racks, attaches, starts the loop
     if (still) { S.running = false; if (S.raf) cancelAnimationFrame(S.raf); S.raf = null; }
 
@@ -254,11 +399,108 @@ function toggleGameMaxModal(cfg) {
         if (name === 'bihbad') { const b = w.balls.find(o => o.id === 3); prPlaceCue(w, b.x + 10, b.y + 6); }
     }
 
+    // Snooker's scenes (InMatch.dc.html's snk* states), from the design's layouts
+    // (Table.dc.html, snooker-*), y flipped: ?game=snooker&scene=red|nominate|nominatePink|
+    // foul|foulHand|free|freeNom|snookers|concede|colours|century|respot|win|loss (the
+    // break-off in the D is the default).
+    const mid8 = [[318, -8], [330, 10], [305, 18], [342, -20], [290, -30], [60, 150], [-120, -60], [420, 120]];
+    const SNK_LAYOUTS = {
+        mid: { reds: mid8.concat([[160, -120]]), cue: [-60, -10], aim: -26.9 },
+        nominate: { reds: mid8, cue: [180, -60], aim: 39.8 },
+        free: { reds: mid8, cue: [-420, -70], aim: -5.3 },
+        late: { reds: [[330, 40], [-150, 120]], cue: [100, -150], aim: 39 },
+        colours: { reds: [], cue: [-150, -30], aim: 142.2 },
+        black: { reds: [], only: [7], cue: [-330, 20], aim: 0 },
+        empty: { reds: [], only: [], cue: [60, 80], aim: 0 },
+    };
+    const SNK_SCENES = {
+        red: { layout: 'mid', sc: [34, 21], brk: 34 },
+        nominate: { layout: 'nominate', sc: [35, 21], brk: 35, phase: 'colour' },
+        nominatePink: { layout: 'nominate', sc: [35, 21], brk: 35, phase: 'colour', nom: 6 },
+        foul: { layout: 'nominate', pvp: true, sc: [35, 33], turn: 2, fouled: 1, choice: ['play', 'back'], penalty: 6, toast: 'Hit the pink first' },
+        foulHand: { layout: 'nominate', pvp: true, sc: [35, 33], turn: 2, fouled: 1, choice: ['play', 'back'], penalty: 6, toast: 'Hit the pink first', handoff: 2 },
+        free: { layout: 'free', pvp: true, sc: [35, 31], turn: 2, fouled: 1, choice: ['play', 'back', 'free'], penalty: 4, toast: 'No ball hit · Free ball' },
+        freeNom: { layout: 'free', pvp: true, sc: [35, 31], turn: 2, free: true },
+        snookers: { layout: 'late', pvp: true, sc: [22, 68] },
+        concede: { layout: 'late', pvp: true, sc: [22, 68], confirm: true },
+        colours: { layout: 'colours', sc: [56, 41], brk: 22, phase: 'clearance', next: 2 },
+        century: { layout: 'late', sc: [104, 0], brk: 104, notice: ['Century break · 104', 'Ayesha keeps the break going', 'trophy'] },
+        respot: { layout: 'black', sc: [61, 61], phase: 'clearance', next: 7, respot: true, notice: ['Scores level · re-spotted black', 'Ayesha has ball in hand in the D'] },
+        win: { layout: 'empty', sc: [72, 41], over: 1, high: [58, 30] },
+        loss: { layout: 'empty', sc: [60, 67], over: 2, high: [40, 47], respotted: true },
+    };
+    function snkScene(name) {
+        const D = SNK_SCENES[name];
+        if (!D) return;
+        if (D.pvp && poolMode !== 'pvp') togglePoolMode();
+        poolNewFrame(1);
+        const L = SNK_LAYOUTS[D.layout], w = psCreateWorld(), reds = S.frame.reds;
+        w.balls = [ppMakeBall(0, L.cue[0], -L.cue[1])];
+        PS_COLOURS.forEach(id => {
+            const b = ppMakeBall(id, PS_SPOTS[id][0], PS_SPOTS[id][1]);
+            if (L.only ? L.only.indexOf(id) < 0 : L.reds.length === 0 && D.layout !== 'colours') b.state = 'pocketed';
+            w.balls.push(b);
+        });
+        for (let i = 0; i < reds; i++) {
+            const p = L.reds[i], b = ppMakeBall(PS_RED + i, p ? p[0] : 0, p ? -p[1] : 0);
+            if (!p) b.state = 'pocketed';
+            w.balls.push(b);
+        }
+        S.world = w;
+        const f = Object.assign(S.frame, {
+            isBreak: false, ballInHand: null, shots: 20, turn: D.turn || 1, scores: { 1: D.sc[0], 2: D.sc[1] }, brk: D.brk || 0,
+            high: { 1: D.high ? D.high[0] : Math.max(D.brk || 0, 12), 2: D.high ? D.high[1] : 9 },
+            phase: D.phase || 'reds', next: D.next || 2, freeBall: !!D.free, respotBlack: !!D.respot,
+        });
+        S.down = new Set(w.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+        S.aim = -(Q.has('aim') ? +Q.get('aim') : L.aim) * DEG;
+        S.phase = 'aim'; S.guideKey = ''; S.nom = D.nom || -1; S.placed = false;
+        if (D.choice) {
+            f.pending = { offender: 1, chooser: 2, options: D.choice, penalty: D.penalty };
+            S.phase = 'choice'; S.fouled = 1;
+            S.toast = { kind: 'foul', title: 'Foul · ' + D.penalty + ' to ' + poolNames()[2], sub: D.toast }; S.toastMs = 0;
+            S.handoff = D.handoff || 0;
+        }
+        if (D.respot) { f.ballInHand = 'D'; S.phase = 'bih'; }
+        if (D.notice) { S.toast = { kind: 'notice', title: D.notice[0], sub: D.notice[1].replace('Ayesha', poolNames()[1]), icon: D.notice[2] || '' }; S.toastMs = 0; }
+        if (D.confirm) S.confirm = true;
+        if (D.over) {
+            const win = D.over;
+            poolAfterTurn({
+                frameOver: true, winner: win, shooter: win, reason: null, foul: null, freeBall: false,
+                next: Object.assign({}, f, { over: true, winner: win, respotBlack: !!D.respotted }),
+            });
+        }
+    }
+
     const sc = Q.get('scene') || 'rack';
-    if (sc !== 'rack' && sc !== 'break') scene(sc);
-    if (sc === 'rack' && still && !Q.has('bihbreak')) { S.phase = 'aim'; S.aim = 0; }
+    if (S.game === 'snooker') { if (SNK_SCENES[sc]) snkScene(sc); }
+    else if (sc !== 'rack' && sc !== 'break') scene(sc);
+    if (S.game === 'pool' && sc === 'rack' && still && !Q.has('bihbreak')) { S.phase = 'aim'; S.aim = 0; }
+    // ?pot=0..5 (snooker): the ball on (the colour nominated, else a red) ?od u (110) out from that
+    // pocket (Top left, Top side, Top right, Bottom left, Bottom side, Bottom right) and the
+    // cue ball ?cd u (260) behind it, ?cut degrees off the line, aimed at the pot; balls in the
+    // way step aside. For the audit's out-of-the-way-of-the-shot check.
+    if (S.game === 'snooker' && Q.has('pot')) {
+        const p = S.world.table.pockets[+Q.get('pot')], R = S.cfg.ballR, live = S.world.balls.filter(b => b.state !== 'pocketed');
+        const ob = S.nom >= 0 ? live.find(b => b.id === S.nom) : live.find(b => psIsRed(b.id)), cue = poolCueBall();
+        const L = Math.hypot(p.x, p.y), ux = -p.x / L, uy = -p.y / L, a = (+Q.get('cut') || 0) * DEG;
+        const od = Q.has('od') ? +Q.get('od') : 110, cd = Q.has('cd') ? +Q.get('cd') : 260;
+        ob.x = p.x + ux * (p.r + od); ob.y = p.y + uy * (p.r + od);
+        const cx = ux * Math.cos(a) - uy * Math.sin(a), cy = ux * Math.sin(a) + uy * Math.cos(a);
+        cue.x = ob.x + cx * cd; cue.y = ob.y + cy * cd;
+        const gx = ob.x + ux * 2 * R, gy = ob.y + uy * 2 * R;
+        const near = (b, ax, ay, bx, by) => { const dx = bx - ax, dy = by - ay, t = Math.max(0, Math.min(1, ((b.x - ax) * dx + (b.y - ay) * dy) / (dx * dx + dy * dy))); return Math.hypot(b.x - ax - t * dx, b.y - ay - t * dy); };
+        live.forEach(b => { if (b !== ob && b !== cue && (near(b, p.x, p.y, ob.x, ob.y) < 3 * R || near(b, ob.x, ob.y, cue.x, cue.y) < 3 * R)) { b.x = -b.x * 0.5; b.y = -b.y * 0.5 - 40; } });
+        S.aim = Math.atan2(gy - cue.y, gx - cue.x); S.guideKey = '';
+    }
     if (Q.has('power')) { S.power = +Q.get('power'); S.drag = { kind: 'power', x: 0, y: 0, ax: [0, -1], reach: 140 }; }
     if (Q.has('call')) S.called = +Q.get('call');
+    // ?snkcall=off|colours|all: snooker's call rule for this frame; ?guidelen=short|medium|long
+    // (⚙️ Aim Guide); ?maxlayout=full|bars (⚙️ Max View). Not kept in the page's saved prefs.
+    if (Q.has('snkcall') && S.frame) S.frame.call = Q.get('snkcall');
+    userPreferences.poolGuideLen = Q.get('guidelen') || 'long';
+    userPreferences.poolMaxLayout = Q.get('maxlayout') || 'full';
     // ?spin=i picks a preset, ?tipx=&tipy= any tip, ?spinopen=1 opens the picker.
     if (Q.has('spin')) { const p = PH_SPINS[+Q.get('spin') % PH_SPINS.length]; S.tip = { x: p.x, y: p.y }; }
     if (Q.has('tipx') || Q.has('tipy')) S.tip = phClampTip(+Q.get('tipx') || 0, +Q.get('tipy') || 0);
@@ -269,8 +511,16 @@ function toggleGameMaxModal(cfg) {
     // tournament of ?n players (6 by default) with ?played matches decided, the better
     // seed winning bar every third match; ?tframe=1 plays a frame of the next match first.
     const NAMES = ['Ayesha', 'Bilal', 'Hamza', 'Sana', 'Usman', 'Zara', 'Omar', 'Hira', 'Ali', 'Fatima', 'Imran', 'Mariam', 'Noor', 'Saad', 'Taha', 'Yusra'];
+    // In snooker (?game=snooker) the tournament is snooker's, 15 reds, and each frame keeps its
+    // points and breaks (the result screen lists them).
+    const SNK_PTS = [[74, 32, 41], [66, 51, 30], [88, 12, 61], [71, 40, 35], [59, 27, 22]];
+    const demoFrame = (m, w, i) => {
+        if (S.game !== 'snooker') return null;
+        const [hi, lo, brk] = SNK_PTS[i % SNK_PTS.length];
+        return { points: w === m.a ? [hi, lo] : [lo, hi], high: w === m.a ? [brk, 12] : [12, brk] };
+    };
     function demoTour(n, played) {
-        let t = ptCreate({ names: NAMES.slice(0, n), you: 0, seed: 7, created: Date.UTC(2026, 8, 26, 12), settings: {} });
+        let t = ptCreate({ game: S.game, names: NAMES.slice(0, n), you: 0, seed: 7, created: Date.UTC(2026, 8, 26, 12), settings: S.game === 'snooker' ? { reds: 15 } : {} });
         t.current = null;
         for (let k = 0; k < played; k++) {
             const m = ptNext(t);
@@ -278,8 +528,8 @@ function toggleGameMaxModal(cfg) {
             const better = t.slots[m.a].seed < t.slots[m.b].seed ? m.a : m.b, worse = better === m.a ? m.b : m.a;
             const w = k % 3 === 2 ? worse : better, l = w === m.a ? m.b : m.a;
             // The loser takes a frame when the race allows it: 2–1, 3–2.
-            for (let i = 0; i < m.raceTo - 1 && i < 1; i++) t = ptRecordFrame(t, m.id, l).t;
-            while (ptById(t, m.id).status !== 'done') t = ptRecordFrame(t, m.id, w).t;
+            for (let i = 0; i < m.raceTo - 1 && i < 1; i++) t = ptRecordFrame(t, m.id, l, demoFrame(m, l, ptById(t, m.id).frames.length)).t;
+            while (ptById(t, m.id).status !== 'done') t = ptRecordFrame(t, m.id, w, demoFrame(m, w, ptById(t, m.id).frames.length)).t;
         }
         return t;
     }
@@ -329,19 +579,19 @@ function toggleGameMaxModal(cfg) {
     }
     if (Q.has('max')) togglePoolMaximize();
     if (Q.has('placed') && S.phase === 'bih') { S.placed = true; S.phase = 'aim'; poolAimAtNearest(); }
-    if (sc === 'foul') {
+    if (S.game === 'pool' && sc === 'foul') {
         poolMode = 'pvp';
         const v = prJudge(S.frame, Object.assign({}, S.world, { log: [{ type: 'strike' }, { type: 'ball', a: 0, b: 12 }, { type: 'cushion', ball: 0 }] }), -1);
         poolShowToast(prText(v, poolNames())); poolAfterTurn(v);
         userPreferences.poolCamera = '2d';
     }
-    if (sc === 'clock') { poolMode = 'pvp'; S.clockLeft = Q.has('hot') ? 4 : 18; }
-    if (sc === 'win' || sc === 'loss') {
+    if (S.game === 'pool' && sc === 'clock') { poolMode = 'pvp'; S.clockLeft = Q.has('hot') ? 4 : 18; }
+    if (S.game === 'pool' && (sc === 'win' || sc === 'loss')) {
         const w = sc === 'win' ? 1 : 2;
         poolAfterTurn({ frameOver: true, winner: w, shooter: 1, reason: sc === 'win' ? 'eightPotted' : 'eightScratch', foul: sc === 'loss' ? 'scratch' : null,
             next: Object.assign({}, S.frame, { over: true, winner: w }) });
     }
-    if (sc === 'break') {
+    if (S.game === 'pool' && sc === 'break') {
         S.phase = 'aim';
         if (Q.has('aim')) S.aim = -(+Q.get('aim')) * DEG;
         poolFit(); pcDirect(S.director, poolCamInput(), 0);    // the camera sees the aim before the strike
@@ -368,14 +618,36 @@ function toggleGameMaxModal(cfg) {
     $('shape').value = userPreferences.cyberPanelShape;
     $('shape').onchange = e => { userPreferences.cyberPanelShape = e.target.value; applyTheme(true); };
     $('narrow').checked = Q.has('narrow'); $('narrow').onchange = e => setNarrow(e.target.checked);
+    // Game: the same setting as ⚙️ Cue Game, switched through poolSetVariant() as ⚙️ does:
+    // the frame on the table is parked and the other game's comes back. The CPU select is
+    // the game's own difficulty; Reds and Call every shot belong to one game each. The scene
+    // buttons show the game's own states.
+    const SNK_BUTTONS = { mid: ['red', 'On a red'], eight: ['colours', 'The colours'], bih: ['respot', 'Re-spotted black'] };
+    const syncGame = () => {
+        $('game').value = S.game;
+        $('reds').parentElement.hidden = S.game !== 'snooker';
+        $('every').parentElement.hidden = S.game !== 'pool';
+        $('diff').value = userPreferences[poolRules().diffPref] || 'adaptive';
+        document.querySelectorAll('[data-scene]').forEach(b => {
+            if (!b.dataset.pool) b.dataset.pool = b.textContent;
+            b.textContent = S.game === 'snooker' ? SNK_BUTTONS[b.dataset.scene][1] : b.dataset.pool;
+        });
+    };
+    $('game').onchange = e => {
+        userPreferences.poolVariant = e.target.value; savePreferences();
+        poolSetVariant(e.target.value);
+        syncGame();
+    };
+    $('reds').value = String(userPreferences.snookerReds || 15);
+    $('reds').onchange = e => { userPreferences.snookerReds = +e.target.value; savePreferences(); if (typeof poolOnPrefChange === 'function') poolOnPrefChange('snookerReds'); };
+    syncGame();
     $('mode').value = poolMode; $('mode').onchange = e => { if (e.target.value !== poolMode) togglePoolMode(); };
-    $('diff').value = userPreferences.poolDifficulty || 'adaptive';
-    $('diff').onchange = e => { userPreferences.poolDifficulty = e.target.value; savePreferences(); if (poolFrameFresh()) poolLockTier(); };
+    $('diff').onchange = e => { const pref = poolRules().diffPref; userPreferences[pref] = e.target.value; savePreferences(); poolOnPrefChange(pref); };
     $('every').checked = S.callEvery; $('every').onchange = e => { S.callEvery = e.target.checked; S.frame.callEvery = S.callEvery; };
     $('shotcam').value = userPreferences.poolShotCam; $('shotcam').onchange = e => { userPreferences.poolShotCam = e.target.value; savePreferences(); };
     $('guides').value = S.guideMode; $('guides').onchange = e => { S.guideMode = e.target.value; };
     $('felt').value = userPreferences.poolTableColor; $('felt').onchange = e => { userPreferences.poolTableColor = e.target.value; savePreferences(); };
-    document.querySelectorAll('[data-scene]').forEach(b => b.onclick = () => scene(b.dataset.scene));
+    document.querySelectorAll('[data-scene]').forEach(b => b.onclick = () => (S.game === 'snooker' ? snkScene(SNK_BUTTONS[b.dataset.scene][0]) : scene(b.dataset.scene)));
     // The HUD's Vs CPU button switches the mode too; keep the rig's select in step.
     setInterval(() => { if ($('mode').value !== poolMode) $('mode').value = poolMode; }, 300);
 
@@ -391,7 +663,9 @@ function toggleGameMaxModal(cfg) {
         if (hud.layout === 'compact') {
             const cards = hud.el.querySelector('.ph-cards').getBoundingClientRect().height;
             ok('cards row is 72 px', Math.abs(cards - 72) < 0.5, cards);
-            if (visible(hud.foot)) ok('footer is 52 px', Math.abs(hud.foot.getBoundingClientRect().height - 52) < 0.5);
+            // Snooker's panel is tighter (48), so the tracker row fits.
+            const footH = S.game === 'snooker' ? 48 : 52;
+            if (visible(hud.foot)) ok('footer is ' + footH + ' px', Math.abs(hud.foot.getBoundingClientRect().height - footH) < 0.5);
             ok('viewport keeps the design\'s 368:412', Math.abs(vr.width / vr.height - 368 / 412) < 0.01, (vr.width / vr.height).toFixed(4));
         } else {
             // The hand-off strip takes its row under the table, so the table gives up that height.
@@ -405,12 +679,38 @@ function toggleGameMaxModal(cfg) {
          ['gauge', 'hint'], ['lock', 'pill'], ['gauge', 'pill'], ['spinpop', 'spin'], ['spinpop', 'hint'], ['spinpop', 'pill'], ['spinpop', 'cam']].forEach(([a, b]) => {
             if (hud[a] && hud[b] && visible(hud[a]) && visible(hud[b])) ok(a + ' and ' + b + ' do not overlap', !hit(hud[a], hud[b]));
         });
+        // Out of the way of the shot: every overlay the aim line, the object ball's path, the
+        // contact or the target pocket passes under is faded (a prompt still
+        // waiting on the player excepted), and none is faded that the shot misses.
+        {
+            const aiming = (S.phase === 'aim' || S.phase === 'strike') && !S.handoff;
+            const cr = S.canvas.getBoundingClientRect(), shot = aiming ? poolShotPath(poolView()) : null, rects = {}, k = cr.width / (S.canvas.clientWidth || cr.width);
+            const keep = { chips: visible(hud.chips) && !hud.chips.hasAttribute('data-fold'), mini: visible(hud.mini) && S.called < 0 };
+            PH_SHY.forEach(n => { if (hud[n] && visible(hud[n]) && !keep[n]) { const r = hud[n].getBoundingClientRect(); rects[n] = { x: (r.left - cr.left) / k, y: (r.top - cr.top) / k, w: r.width / k, h: r.height / k }; } });
+            const under = phShyHits(shot, rects), wrong = PH_SHY.filter(n => hud[n] && hud[n].hasAttribute('data-shy') !== under.includes(n));
+            ok('overlays over the shot fade, and only those', !wrong.length, wrong.join() + (under.length ? ' (under: ' + under.join() + ')' : ''));
+            window.__shy = under;
+            // Max's full table (2D, where the pockets hold still): no corner overlay on a pocket.
+            if (hud.layout === 'max' && !hud.el.hasAttribute('data-bars') && userPreferences.poolCamera === '2d' && S.phase !== 'over') {
+                const marks = pgPocketMarks(poolView(), S.world.table, S.cfg);
+                const onPocket = ['cam', 'pill', 'spin', 'hint', 'mini', 'chips', 'replace'].filter(n => hud[n] && visible(hud[n]) && (() => {
+                    const r = hud[n].getBoundingClientRect(), x0 = (r.left - cr.left) / k, y0 = (r.top - cr.top) / k, x1 = x0 + r.width / k, y1 = y0 + r.height / k;
+                    return marks.some(m => Math.hypot(m.x - Math.max(x0, Math.min(x1, m.x)), m.y - Math.max(y0, Math.min(y1, m.y))) < m.r * 0.7);
+                })());
+                ok('Max, full table: the overlays sit between the pockets, none on one', !onPocket.length, onPocket.join());
+            }
+            // Max: the corner overlays sit in the bars, off the table; only lean and the gauge are over it.
+            if (hud.layout === 'max' && hud.el.hasAttribute('data-bars')) {
+                const on = ['cam', 'pill', 'spin', 'hint', 'mini', 'chips', 'replace'].filter(n => hud[n] && visible(hud[n]) && (() => { const r = hud[n].getBoundingClientRect(); return r.bottom > cr.top + 0.5 && r.top < cr.bottom - 0.5; })());
+                ok('Max: the camera toggle, pill, spin, hint, chips, call card and Move cue ball are off the table, in its bars', !on.length, on.join());
+            }
+        }
         // Every control a keyboard or a screen reader can reach has a name.
         const nameless = Array.from(hud.el.querySelectorAll('button, input, select, textarea, [tabindex], [role="img"]')).filter(visible)
             .filter(el => !((el.getAttribute('aria-label') || '').trim() || el.getAttribute('aria-labelledby') || el.textContent.trim() ||
                 (el.id && hud.el.querySelector('label[for="' + el.id + '"]')) || el.closest('label')));
         ok('every control has an accessible name', !nameless.length, nameless.map(e => e.tagName + '.' + e.className).join(', '));
-        const clipped = Array.from(hud.el.querySelectorAll('.ph-name, .ph-tag, .ph-hint span, .ph-pill span, .ph-cam span, .ph-frames-n, .ph-toast-title, .ph-dialog-title, .ph-btn span, .ph-replace span, .ph-spinpop-read, .ph-spinpop-chips .ph-btn, .ph-spin-v, .ph-handoff-to, .ph-handoff-from, .ph-handoff .ph-primary, .ph-sheet-dn, .ph-sheet-dd, .ph-sheet-chip, .ph-sheet-mode span, .ph-sheet-title, .ph-mini-cap, .ph-tourhead-k, .ph-tourhead-n, .ph-tourhead-f, .ph-primary-sub, .ph-sheet-links .ph-btn span'))
+        const clipped = Array.from(hud.el.querySelectorAll('.ph-name, .ph-tag, .ph-l3, .ph-score, .ph-chips-cap, .ph-dialog-stat-v, .ph-hint span, .ph-pill span, .ph-cam span, .ph-frames-n, .ph-toast-title, .ph-dialog-title, .ph-btn span, .ph-replace span, .ph-spinpop-read, .ph-spinpop-chips .ph-btn, .ph-spin-v, .ph-handoff-to, .ph-handoff-from, .ph-handoff .ph-primary, .ph-sheet-dn, .ph-sheet-dd, .ph-sheet-chip, .ph-sheet-mode span, .ph-sheet-title, .ph-mini-cap, .ph-tourhead-k, .ph-tourhead-n, .ph-tourhead-f, .ph-primary-sub, .ph-sheet-links .ph-btn span'))
             .filter(visible).filter(el => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).display !== 'inline');
         ok('no label is cut off', !clipped.length, clipped.map(e => e.className + ' "' + e.textContent + '"').join(', '));
         if (Q.has('spinopen')) {
@@ -427,7 +727,37 @@ function toggleGameMaxModal(cfg) {
                [r.top - er.top, er.bottom - r.bottom, sh.scrollHeight, sh.clientHeight].map(v => v.toFixed ? v.toFixed(0) : v).join());
         }
         // The trackers dim exactly the balls that are down, and an open table lists each seat's pots.
+        if (S.game === 'snooker') {
+            // Snooker: the tracker row holds its content; the chips, toast buttons and concede
+            // question stay on the table, clear of each other; the scores are the frame's.
+            if (visible(hud.track)) {
+                const t = hud.track, er = hud.el.getBoundingClientRect(), tr = t.getBoundingClientRect();
+                ok('the tracker row holds its content, inside the panel', t.scrollWidth <= t.clientWidth + 1 && tr.left >= er.left - 1 && tr.right <= er.right + 1, t.scrollWidth + ' in ' + t.clientWidth);
+                ok('the tracker row is 20 px', Math.abs(tr.height - 20) < 0.5, tr.height);
+                const cut = Array.from(t.querySelectorAll('.ph-track-reds, .ph-track-snk, .ph-track-rem, .ph-track-concede')).filter(visible).filter(el => el.scrollWidth > el.clientWidth + 1);
+                ok('no tracker label is cut off', !cut.length, cut.map(e => e.className).join());
+                const dots = t.querySelectorAll('.ph-track-dot');
+                if (visible(t.querySelector('.ph-track-dots'))) ok('six colour dots, dimmed exactly when down', dots.length === 6 && Array.from(dots).every((d, j) => d.classList.contains('is-down') === !S.world.balls.some(b => b.id === j + 2 && b.state !== 'pocketed')));
+                if (visible(hud.trconcede)) { const c = hud.trconcede.getBoundingClientRect(); ok('Concede keeps a 44 px target', c.width >= 30 && c.height + 24 >= 44); }
+            }
+            hud.cards.forEach((r, i) => ok('the card of seat ' + (i + 1) + ' shows the frame score', r.score.textContent === String(S.frame.scores[i + 1]), r.score.textContent));
+            if (visible(hud.chips)) {
+                const cr = hud.chips.getBoundingClientRect();
+                ok('the chips sit on the table', cr.left >= vr.left - 1 && cr.right <= vr.right + 1 && cr.top >= vr.top - 1 && cr.bottom <= vr.bottom + 1);
+                const clash = ['gauge', 'lock', 'spin', 'hint', 'replace', 'pill', 'lean'].filter(n => hud[n] && visible(hud[n]) && hit(hud.chips, hud[n]));
+                ok('the chips clear the gauge, padlock, spin, hint and Move cue ball', !clash.length, clash.join());
+                ok('every chip is a 44 px target', hud.chipButtons.filter(visible).every(b => b.getBoundingClientRect().height >= 43.5));
+                if (S.nom >= 0 && !S.chipsOpen) ok('nominated, the chips fold to that colour', hud.chips.hasAttribute('data-fold') && hud.chipButtons.filter(visible).length === 1 && hud.chipButtons.filter(visible)[0].getAttribute('data-ph-nom') === String(S.nom));
+            }
+            if (visible(hud.toastacts)) {
+                const a = hud.toastacts;
+                ok('the choice buttons fit the toast', a.scrollWidth <= a.clientWidth + 1 && Array.from(a.children).every(b => b.getBoundingClientRect().height >= 43.5), a.scrollWidth + ' in ' + a.clientWidth);
+                ok('the choice buttons are not covered', !['lean', 'cam', 'pill', 'spin', 'gauge'].some(n => hud[n] && visible(hud[n]) && hit(a, hud[n])));
+            }
+            if (visible(hud.cscrim)) { const d = hud.cdlg.getBoundingClientRect(); ok('the concede question sits inside the table and holds its content', d.top >= vr.top && d.bottom <= vr.bottom && hud.cdlg.scrollHeight <= hud.cdlg.clientHeight + 1); }
+        }
         hud.cards.forEach((r, i) => {
+            if (S.game !== 'pool') return;
             const seat = i + 1, grp = S.frame.groups[seat], down = id => S.world.balls.some(b => b.id === id && b.state === 'pocketed');
             if (grp) {
                 const ids = grp === 'solids' ? [1, 2, 3, 4, 5, 6, 7] : [9, 10, 11, 12, 13, 14, 15];

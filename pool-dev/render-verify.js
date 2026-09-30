@@ -10,6 +10,8 @@
 //   5. The guides on the real physics: squirt, throw, draw bending back.
 //   6. Whole frames through the headless rasterizer: every scene draws
 //      without throwing, and the pixels land where they should.
+//   7. Snooker's table (POOL_V2_PLAN.md, Snooker, S1): its frames, its plain balls, its
+//      markings and the D, and the table cache telling the two games apart.
 // What it looks like is judged with snapshot.js in real Chrome.
 const P = require('./load').render();
 const { Raster, Ctx } = require('../ludo-dev/preview.js');
@@ -314,6 +316,61 @@ function frame(scene, w, h) {
     ok('3D: above the far rail is the (cleared) backdrop', sky.every(c => c < 10), sky.join(','));
     const hidden = frame({ view: ortho, world: rack, bih: { x: 0, y: 0, valid: true } }).px(...at(rack.table.headX, 0));
     ok('ball in hand hides the real cue ball', !ivory(hidden), hidden.join(','));
+}
+
+// ── 7. Snooker's table ────────────────────────────────────────────────
+head('Snooker table');
+{
+    const snk = P.psRack(P.psCreateWorld(), P.ppRandom(7), 15), scfg = snk.cfg;
+    const ortho = P.pcView(P.pcOrtho(W, H, scfg));
+    const chase = P.pcView(P.pcChase([snk.balls[0].x, snk.balls[0].y], 0.1, 35, W, H, scfg));
+    const guide = P.pgGuide(snk, { angle: 0.1, speed: 800 });
+    const scenes = {
+        'snooker 2D, the break-off in the D': { view: ortho, world: snk, zone: 'D', bih: { x: snk.balls[0].x, y: snk.balls[0].y, valid: true } },
+        'snooker 3D aim with guides': { view: chase, world: snk, aim: { angle: 0.1, power: 30 }, guide, guideMode: 'full' },
+        'snooker broadcast': { view: P.pcView(P.pcBroadcast(W, H, scfg)), world: snk },
+        'snooker survey': { view: P.pcView(P.pcSurvey(0.4, W, H, scfg)), world: snk },
+        'snooker nominated ring (pink)': { view: chase, world: snk, aim: { angle: 0.1, power: 0 }, ring: 6 },
+        'snooker pocket drop': { view: chase, world: snk, drops: [{ ball: snk.balls[3], pocket: 2, t: 0.5 }] },
+        'snooker Max size': { view: P.pcView(P.pcChase([-320, -30], 0.1, 35, 1232, 672, scfg)), world: snk, aim: { angle: 0.1, power: 20 }, size: [1232, 672] },
+    };
+    Object.entries(scenes).forEach(([name, s]) => {
+        let err = null;
+        try { frame(s, s.size && s.size[0], s.size && s.size[1]); } catch (ex) { err = ex; }
+        ok(name + ' draws', !err, err ? err.stack.split('\n').slice(0, 2).join(' ') : undefined);
+    });
+    let plain = true;
+    [0, 2, 3, 4, 5, 6, 7, 8, 15, 22].forEach(id => {
+        const l = P.pgBallLook('snooker', id);
+        if (id === 0 ? !l.cue : l.stripe || l.number || !/^#[0-9A-F]{6}$/i.test(l.colour)) plain = false;
+    });
+    ok('snooker\'s balls are plain: no stripes, no numbers; reds from id 8, colours by value', plain &&
+       P.pgBallLook('snooker', 8).colour === P.pgBallLook('snooker', 22).colour && P.pgBallLook('snooker', 6).colour === '#E88FA8' && P.pgBallLook('snooker', 2).colour === '#E8C21E');
+    ok('the renderer knows the ball set from the table (cfg.game)', scfg.game === 'snooker' && !P.ppCreateWorld().cfg.game);
+    // The table layer is cached by pose; the game is part of the key, so the same pose on
+    // the other game's table redraws it.
+    // (A new key's first frame is drawn straight to the screen, as while the camera moves; the
+    // second caches it.)
+    const cache = {}, fakeCanvas = () => ({ width: W, height: H, getContext: () => new Ctx(new Raster(W, H), 1) });
+    const draw = world => frame({ view: P.pcView(P.pcOrtho(W, H, world.cfg)), world, cache, makeCanvas: fakeCanvas });
+    const pool = P.ppRack(P.ppCreateWorld(), P.ppRandom(1));
+    draw(pool); const k1 = cache.key; draw(snk); const seen = cache.lastKey; draw(snk); const k3 = cache.key;
+    ok('the same pose on the other game\'s table is another table: the game is in the cache key', /"pool"/.test(k1) && /"snooker"/.test(seen) && k3 === seen && k3 !== k1);
+    // Pixels (the 2D view): no diamonds on snooker's rails, the black on its spot.
+    const so = P.pcView(P.pcOrtho(W, H, scfg)), s = so.pose.s, at = (x, y) => [W / 2 + s * x, H / 2 - s * y];
+    const dia = [125, 250 + scfg.cushionWidth + (scfg.railWidth - scfg.cushionWidth) / 2];
+    const snkRail = frame({ view: so, world: P.psCreateWorld() }).px(...at(dia[0], dia[1]));
+    const poolRail = frame({ view: P.pcView(P.pcOrtho(W, H, cfg)), world: P.ppCreateWorld() }).px(...at(dia[0], dia[1]));
+    ok('a diamond on pool\'s rail, plain wood on snooker\'s', poolRail[0] > 150 && snkRail[0] < 150, poolRail.join(',') + ' vs ' + snkRail.join(','));
+    const black = frame({ view: so, world: snk }).px(...at(409.2, 0)), felt = frame({ view: so, world: snk }).px(...at(409.2, 60));
+    ok('2D: the black sits on its spot (dark, not felt)', black.every(c => c < 60) && felt[1] > 60, black.join(',') + ' / felt ' + felt.join(','));
+    const dIn = frame({ view: so, world: P.psCreateWorld(), zone: 'D' }).px(...at(-330, 0)), dOut = frame({ view: so, world: P.psCreateWorld() }).px(...at(-330, 0));
+    ok('ball in hand tints the D in the theme accent', dIn.join() !== dOut.join(), dIn.join(',') + ' vs ' + dOut.join(','));
+    const rounded = P.pgCushions(scfg), square = P.pgCushions(cfg);
+    ok('snooker\'s cushions curve into the pockets (each end a 9-point rounded nose and a straight jaw, the design revision 1790749498-5862), pool\'s end in straight jaws',
+       rounded.length === 6 && rounded.every(c => c.ends.length === 18) && square.length === 6 && square.every(c => c.ends.length === 2 && c.top.length === 4));
+    ok('the cue is pool\'s size on the snooker table (as designed); the shadow shrinks with the ball',
+       P.pgK(scfg) < 0.53 && P.pcChase([0, 0], 0, 0, W, H, scfg).eye[2] - scfg.ballR === P.pcChase([0, 0], 0, 0, W, H, cfg).eye[2] - cfg.ballR);
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

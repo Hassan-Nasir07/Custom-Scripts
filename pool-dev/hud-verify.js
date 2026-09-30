@@ -39,7 +39,7 @@ function table(downIds) {
 }
 function game(o) {
     const frame = Object.assign(P.prNewFrame({ breaker: 1, callEvery: !!o.every }), { isBreak: false, ballInHand: null, groups: { 1: 'solids', 2: 'stripes' } }, o.frame);
-    return Object.assign({
+    const g0 = Object.assign({
         layout: 'compact', mode: 'cpu',
         names: o.mode === 'pvp' ? { 1: 'Ayesha', 2: 'Bilal' } : { 1: 'Ayesha', 2: 'CPU' },
         records: { 1: '478W · 68L', 2: o.mode === 'pvp' ? '112W · 97L' : 'Adaptive · Normal' },
@@ -47,6 +47,8 @@ function game(o) {
         phase: 'aim', camera: '3d', lean: 35, power: 0, dragging: false, spin: 0, called: -1,
         clock: null, toast: null, fouled: 0, handoff: 0, bih: null, result: null,
     }, o, { frame });
+    // The controller hands the HUD the shooter's status from the game's rules (pool's prStatus).
+    return Object.assign(g0, { status: o.status || P.prStatus(g0.frame, g0.world) });
 }
 const vm = o => P.phModel(game(o));
 {
@@ -106,7 +108,7 @@ const vm = o => P.phModel(game(o));
     const c3 = vm({ down: SOLIDS.concat([10, 13]) });
     ok('on the 8: the pill says the state, "On the 8", and nothing about calling', c3.pill.text === 'On the 8');
     ok('3D: one call card, bottom right, "Tap a pocket"; the hint steps aside for it', c3.mini.show && c3.mini.caption === 'Tap a pocket' && c3.mini.tone === 'call' && !c3.hint.show && c3.mini.called === -1);
-    ok('on the 8, uncalled: the gauge locks, lean hides', c3.gauge.locked && !c3.lean.show);
+    ok('on the 8, uncalled: the gauge locks, the lean stays', c3.gauge.locked && c3.lean.show);
     const c3c = vm({ down: SOLIDS, called: 2 });
     ok('called: the card says "Drag to shoot" (the lit pocket names the call), gauge unlocked', c3c.mini.caption === 'Drag to shoot' && c3c.mini.tone === '' && !c3c.gauge.locked && c3c.mini.called === 2);
     const c3d = vm({ down: SOLIDS, called: 2, dragging: true, power: 90 });
@@ -168,6 +170,119 @@ const vm = o => P.phModel(game(o));
     ok('the picker opens only while you aim',
        vm({ spinOpen: true }).spin.open && !vm({ spinOpen: true, cpuTurn: true }).spin.open && !vm({ spinOpen: true, phase: 'moving' }).spin.open &&
        !vm({ spinOpen: true, dragging: true, power: 20 }).spin.open && !vm({ spinOpen: true, handoff: 2 }).spin.open);
+}
+
+// ── 1b. Snooker's states (InMatch.dc.html and Max.dc.html, snk*) ────────
+head("Snooker's in-match states");
+{
+    // A snooker table and frame as the controller hands them over: the status from the rules.
+    const COL = { 2: [-293.5, -81.8], 3: [-293.5, 81.8], 4: [-293.5, 0], 5: [0, 0], 6: [250, 0], 7: [409.2, 0] };
+    const snkGame = o => {
+        const w = P.psCreateWorld();
+        w.balls = [P.ppMakeBall(0, -60, 10)];
+        [2, 3, 4, 5, 6, 7].forEach(id => w.balls.push(Object.assign(P.ppMakeBall(id, COL[id][0], COL[id][1]), (o.down || []).includes(id) ? { state: 'pocketed' } : {})));
+        for (let i = 0; i < 15; i++) w.balls.push(Object.assign(P.ppMakeBall(8 + i, 300 + 16 * (i % 5), -40 + 16 * Math.floor(i / 5)), i < (o.reds === undefined ? 9 : o.reds) ? {} : { state: 'pocketed' }));
+        const frame = Object.assign(P.psNewFrame({ reds: 15, seed: 1 }), { isBreak: false, ballInHand: null, scores: { 1: 34, 2: 21 }, brk: 34, high: { 1: 34, 2: 12 } }, o.frame);
+        const g = Object.assign({
+            layout: 'compact', game: 'snooker', title: 'Snooker', mode: 'cpu', names: { 1: 'Ayesha', 2: 'CPU' }, records: { 1: '36W · 21L', 2: 'Adaptive · Normal' },
+            frames: [0, 0], trophies: 0, frame, world: w, phase: 'aim', camera: '3d', lean: 35, power: 0, dragging: false, tip: { x: 0, y: 0 }, called: -1,
+            clock: null, toast: null, fouled: 0, handoff: 0, bih: null, result: null, nom: -1, confirm: false, choice: null, diffs: P.PH_SNK_DIFFS,
+        }, o, { frame });
+        g.status = P.psStatus(frame, w, frame.turn, g.nom);
+        return P.phModel(g);
+    };
+    let m = snkGame({});
+    ok('snkRed: the scores on the cards, BREAK 34 on the active one, no pool trackers', m.cards[0].score === '34' && m.cards[1].score === '21' && m.cards[0].tag === 'BREAK 34' && m.cards[1].tag === '' &&
+       !m.cards[0].group.length && !m.cards[0].open && m.game === 'snooker');
+    ok('snkRed: the pill "On a red"; the tracker: REDS × 9, six colours, 99 REMAINING, no snookers', m.pill.text === 'On a red' && m.track.show && m.track.reds === 9 && m.track.dots.length === 6 &&
+       m.track.rem === '99 REMAINING' && !m.track.snookers && !m.track.concede && m.track.aria === 'Reds left 9, colours yellow, green, brown, blue, pink, black, 99 points remaining');
+    ok('snkRed: no chips, the gauge unlocked, the usual hint', !m.chips.show && !m.gauge.locked && m.hint.text === 'Press and drag for power');
+    // The tracker read out (S7): once the shot is over, what is on, the score and the tracker.
+    ok('snkRed: the readout says what is on, the score and the tracker',
+       m.track.say === 'On a red. Ayesha 34, CPU 21. Reds left 9, colours yellow, green, brown, blue, pink, black, 99 points remaining.', m.track.say);
+    ok('…and holds its last reading while balls run (null: nothing new to read)', snkGame({ phase: 'moving' }).track.say === null && snkGame({ phase: 'strike' }).track.say === null);
+    m = snkGame({ frame: { phase: 'colour', brk: 35 } });
+    ok('snkNom: the chips (Tap a colour), the padlock, no hint; the pill "Nominate a colour"', m.chips.show && m.chips.caption === 'Tap a colour' && m.chips.items.length === 6 && m.chips.items.every(c => c.live) &&
+       m.gauge.locked && !m.hint.show && m.pill.text === 'Nominate a colour' && m.chips.label === 'Nominate a colour');
+    m = snkGame({ frame: { phase: 'colour' }, nom: 6 });
+    ok('snkNomPink: the pink checked, "Drag to shoot", the pill "On the pink", the gauge free, the pink ringed in the tracker',
+       m.chips.items.find(c => c.id === 6).checked && m.chips.caption === 'Drag to shoot' && m.pill.text === 'On the pink' && !m.gauge.locked && m.track.dots.find(d => d.id === 6).on);
+    m = snkGame({ frame: { phase: 'colour' }, nom: 6, dragging: true, power: 90 });
+    ok('…dragging: "Release · 90%", hot', m.chips.caption === 'Release · 90%' && m.chips.tone === 'hot');
+    // The call pocket with a colour: the folded chips carry the call, in 3D with the map.
+    m = snkGame({ frame: { phase: 'colour', call: 'colours' }, nom: 6 });
+    ok('called colours, the pink nominated: the folded chip asks for a pocket (the map in 3D), the power padlocked, no call card beside it',
+       m.chips.folded && m.chips.caption === 'Tap a pocket' && m.chips.tone === 'call' && m.chips.pad && m.gauge.locked && !m.mini.show);
+    m = snkGame({ frame: { phase: 'colour', call: 'colours' }, nom: 6, called: 5 });
+    ok('…called: "Drag to shoot", the pocket lit, the padlock open', m.chips.caption === 'Drag to shoot' && m.chips.called === 5 && !m.gauge.locked);
+    ok('…in 2D no map: the pockets are tapped on the table', !snkGame({ frame: { phase: 'colour', call: 'colours' }, nom: 6, camera: '2d' }).chips.pad);
+    m = snkGame({ frame: { call: 'all' } });
+    ok('called on a red (all): no chips, pool\'s call card in 3D, the padlock', !m.chips.show && m.mini.show && m.mini.caption === 'Tap a pocket' && m.gauge.locked);
+    ok('…in 2D, the hint asks for it', snkGame({ frame: { call: 'all' }, camera: '2d' }).hint.text === 'Tap a pocket to call it');
+    // The user's test: the lean slider went missing whenever a call was due (Hard, Pro, a
+    // tournament calling pockets). It stays, before the call and after.
+    ok('with a call due the lean stays: on a red (all), on a colour (colours), and once called',
+       m.lean.show && snkGame({ frame: { phase: 'colour', call: 'colours' }, nom: 6 }).lean.show &&
+       snkGame({ frame: { call: 'all' }, called: 2 }).lean.show && snkGame({ frame: { call: 'all' }, layout: 'max' }).lean.show);
+    m = snkGame({ frame: { phase: 'colour' }, nom: 6, dragging: true, power: 90 });
+    ok('⚙️ Max View: bars only in Max, and only when picked', vm({ layout: 'max', maxBars: true }).maxBars && !vm({ layout: 'max' }).maxBars && !vm({ maxBars: true }).maxBars);
+    ok('nominated, the chips fold to the pink, and say how to change it', m.chips.folded && m.chips.label === 'Nominated: the pink. Press it to change');
+    ok('…open again (chipsOpen), the six; before a colour, never folded', !snkGame({ frame: { phase: 'colour' }, nom: 6, chipsOpen: true }).chips.folded &&
+       !snkGame({ frame: { phase: 'colour' } }).chips.folded && snkGame({ frame: { turn: 1, freeBall: true }, nom: 6 }).chips.label === 'Free ball: the pink. Press it to change');
+    ok('the chips never show for the CPU, in the hand-off, under a toast or the sheet', !snkGame({ frame: { phase: 'colour', turn: 2 }, cpuTurn: true }).chips.show &&
+       !snkGame({ frame: { phase: 'colour' }, handoff: 1 }).chips.show && !snkGame({ frame: { phase: 'colour' }, toast: { kind: 'notice', title: 'x' } }).chips.show &&
+       !snkGame({ frame: { phase: 'colour' }, sheet: { open: true } }).chips.show);
+    // The choice after a foul.
+    const pend = { offender: 1, chooser: 2, options: ['play', 'back'], penalty: 6 };
+    const foul = o => snkGame(Object.assign({ mode: 'pvp', names: { 1: 'Ayesha', 2: 'Bilal' }, phase: 'choice', fouled: 1, frame: { turn: 2, pending: pend, brk: 0 },
+        toast: { kind: 'foul', title: 'Foul · 6 to Bilal', sub: 'Hit the pink first' },
+        choice: { chooser: 2, cpu: false, options: P.psChoiceText(pend, { 1: 'Ayesha', 2: 'Bilal' }) } }, o));
+    m = foul({});
+    ok('snkFoul: FOUL on the offender, YOUR CHOICE on the chooser, the toast\'s buttons Play (primary) and Make Ayesha play again',
+       m.cards[0].tag === 'FOUL' && m.cards[0].tagHot && m.cards[1].tag === 'YOUR CHOICE' && m.toast.foul && m.toast.choices.map(c => c.label).join('|') === 'Play|Make Ayesha play again' &&
+       m.toast.choices[0].primary && m.toast.choices[1].short === 'Put back' && m.toast.chooser === 'Bilal, choose how play continues');
+    ok('…the lean steps aside, and nothing to aim with', !m.lean.show && !m.gauge.show && !m.chips.show);
+    m = foul({ handoff: 2 });
+    ok('snkFoulHand: in the hand-off the toast says who chooses, and no buttons yet', !m.toast.choices.length && m.toast.sub === 'Bilal chooses how play continues');
+    m = foul({ mode: 'cpu', names: { 1: 'Ayesha', 2: 'CPU' }, cpuTurn: true, choice: { chooser: 2, cpu: true, options: [] } });
+    ok('the CPU choosing: its card reads CHOOSING, and no buttons', m.cards[1].tag === 'CHOOSING' && !m.toast.choices.length);
+    m = snkGame({ mode: 'pvp', names: { 1: 'Ayesha', 2: 'Bilal' }, frame: { turn: 2, freeBall: true, brk: 0 } });
+    ok('snkFreeNom: the free ball to nominate: the chips, "Nominate the free ball", the pill "Free ball"', m.chips.show && m.chips.label === 'Nominate the free ball' && m.pill.text === 'Free ball');
+    ok('…nominated: "Free ball · Pink"', snkGame({ frame: { turn: 1, freeBall: true }, nom: 6 }).pill.text === 'Free ball · Pink');
+    // Snookers required, concede.
+    m = snkGame({ mode: 'pvp', names: { 1: 'Ayesha', 2: 'Bilal' }, reds: 2, frame: { scores: { 1: 22, 2: 68 }, brk: 0 } });
+    ok('snkSnookers: SNOOKERS REQ. 1, 43 LEFT, and Concede for the player at the table', m.track.snookers === 1 && m.track.rem === '43 LEFT' && m.track.concede && /Ayesha needs 1 snooker$/.test(m.track.aria));
+    ok('…not for the CPU, nor in the hand-off', !snkGame({ reds: 2, frame: { turn: 2, scores: { 1: 68, 2: 22 } }, cpuTurn: true }).track.concede && !snkGame({ reds: 2, frame: { scores: { 1: 22, 2: 68 } }, handoff: 1 }).track.concede);
+    m = snkGame({ mode: 'pvp', names: { 1: 'Ayesha', 2: 'Bilal' }, reds: 2, frame: { scores: { 1: 22, 2: 68 } }, confirm: true });
+    ok('snkConcede: "Bilal wins 68–22", the chips and Concede out of the way', m.concede.show && m.concede.text === 'Bilal wins 68–22' && !m.track.concede);
+    // The colours, the re-spotted black, ball in hand, frame over.
+    m = snkGame({ reds: 0, frame: { phase: 'clearance', next: 2, scores: { 1: 56, 2: 41 }, brk: 22 } });
+    ok('snkColours: "On the yellow", 27 REMAINING, the yellow ringed', m.pill.text === 'On the yellow' && m.track.rem === '27 REMAINING' && m.track.dots[0].on && m.track.reds === 0);
+    m = snkGame({ reds: 0, down: [2, 3, 4, 5, 6], phase: 'bih', frame: { phase: 'clearance', next: 7, respotBlack: true, ballInHand: 'D', scores: { 1: 61, 2: 61 }, brk: 0 }, bih: { valid: true, placed: false } });
+    ok('snkRespot: "Re-spotted black", BALL IN HAND, "Place the cue ball in the D", 7 REMAINING, the black ringed', m.pill.text === 'Re-spotted black' && m.cards[0].tag === 'BALL IN HAND' &&
+       m.hint.text === 'Place the cue ball in the D' && m.track.rem === '7 REMAINING' && m.track.dots[5].on);
+    m = snkGame({ phase: 'bih', reds: 15, frame: { isBreak: true, ballInHand: 'D', scores: { 1: 0, 2: 0 }, brk: 0 }, bih: { valid: true, placed: false } });
+    ok('snkBreak: "Break-off · in the D", TO BREAK, 147 REMAINING', m.pill.text === 'Break-off · in the D' && m.cards[0].tag === 'TO BREAK' && m.track.rem === '147 REMAINING');
+    ok('ball in hand outside the D: "Inside the D only"', snkGame({ phase: 'bih', frame: { ballInHand: 'D' }, bih: { valid: false, reason: 'D', sx: 100, sy: 100, sr: 3 } }).bihNote.text === 'Inside the D only');
+    m = snkGame({ phase: 'over', reds: 0, down: [2, 3, 4, 5, 6, 7], frames: [1, 0], result: { win: true, title: 'Ayesha wins', reason: 'Potted the black.', recordLabel: 'AYESHA · RECORD', record: '37W · 21L', delta: '+1 WIN', note: '',
+        stats: [{ label: 'SCORE', value: '72–41' }, { label: 'HIGH BREAK', value: '58 · Ayesha' }] } });
+    ok('snkWin: the dialog with SCORE and HIGH BREAK two up, 0 REMAINING, no tags', m.dialog.show && m.dialog.reason === 'Potted the black.' && m.dialog.stats.length === 2 && m.dialog.stats[1].value === '58 · Ayesha' &&
+       m.track.rem === '0 REMAINING' && m.cards.every(c => !c.tag));
+    ok('snkMaxRed: the Max pill "Bilal\'s shot · On a red"', snkGame({ layout: 'max', mode: 'pvp', names: { 1: 'Ayesha', 2: 'Bilal' }, frame: { turn: 2 } }).pill.text === "Bilal's shot · On a red");
+    ok('the century notice carries the trophy', snkGame({ toast: { kind: 'notice', icon: 'trophy', title: 'Century break · 104', sub: 'Ayesha keeps the break going' } }).toast.icon === 'trophy');
+    // Out of the way of the shot (phShyHits): the boxes a segment or a circle reaches.
+    {
+        const boxes = { cam: { x: 10, y: 10, w: 100, h: 36 }, spin: { x: 10, y: 300, w: 120, h: 44 }, chips: { x: 250, y: 300, w: 120, h: 50 } };
+        const hits = shot => P.phShyHits(shot, boxes).sort().join();
+        ok('a line into the top-left corner fades the camera toggle, and nothing else', hits({ segs: [[200, 200, 20, 20]], dots: [] }) === 'cam');
+        ok('a line that passes beside a box leaves it (6 px pad)', hits({ segs: [[0, 60, 200, 60]], dots: [] }) === '' && hits({ segs: [[0, 50, 200, 50]], dots: [] }) === 'cam');
+        ok('a circle reaching a box fades it: the cue ball, the pocket', hits({ segs: [], dots: [[180, 320, 60]] }) === 'spin' && hits({ segs: [], dots: [[380, 360, 20]] }) === 'chips');
+        ok('a line crossing two boxes fades both; no shot, none', hits({ segs: [[0, 320, 400, 320]], dots: [] }) === 'chips,spin' && hits(null) === '');
+        ok('a segment wholly inside a box counts', hits({ segs: [[20, 20, 30, 30]], dots: [] }) === 'cam');
+    }
+    ok('pool\'s model has the snooker parts, all hidden', !vm({}).track.show && !vm({}).chips.show && !vm({}).concede.show && vm({}).toast.choices.length === 0);
+    ok('the snooker sheet\'s words are the design\'s', P.PH_SNK_DIFFS.map(d => d.desc).join('|') === 'Matches your form, frame by frame|Pots the simple ones · leaves chances|Builds small breaks · plays some safe|Position and safety · call the colours|Hardly misses · call every ball');
+    ok('chip ink passes: dark on yellow and pink, light on the rest', ['#101214', '#ffffff', '#ffffff', '#ffffff', '#101214', '#ffffff'].every((ink, i) => P.phInkOn(P.pgBallLook('snooker', i + 2).colour) === ink));
 }
 
 // ── 2. The theme contract ─────────────────────────────────────────────

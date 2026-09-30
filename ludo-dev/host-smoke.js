@@ -168,6 +168,7 @@ const EXPORTS = `
         toggleGameMaxModal, awardGameXP, checkGameAchievements,
         revalidateAchievements, collectGameBests, buildPlayerSnapshot,
         applyPlayerRecordToLocal, ACHIEVEMENTS, ACHIEVEMENT_XP,
+        collectGameModeBests, applySnakeModeBests, LB_BOARDS,
         AC_MAX_XP_PER_GAME, LUDO_CANVAS_W, LUDO_CANVAS_H, LUDO_SAFE_RING,
         get userXP() { return userXP; },
         get prefs() { return userPreferences; },
@@ -216,9 +217,10 @@ ok('each has an icon and a name',
 ok('each has an XP value',
    ['ludoChamp', 'ludoFlawless', 'ludoHunter'].every(k => H.ACHIEVEMENT_XP[k] > 0));
 // 30 before Snake v2, which added six (snakeEndless, snakeWalled,
-// snakeGourmand, snakeCampaign, snakeConqueror, snakeLong); Pool v2 added Called It.
+// snakeGourmand, snakeCampaign, snakeConqueror, snakeLong); Pool v2 added Called It, and
+// snooker (S6) Century and Maximum.
 const total = Object.keys(H.ACHIEVEMENTS).length;
-ok('achievement grid total is 37', total === 37, 'got ' + total);
+ok('achievement grid total is 39', total === 39, 'got ' + total);
 
 head('Boot and play through the host');
 H.initLudoGame();
@@ -324,6 +326,62 @@ ok('revalidate restores Called It from poolWinsByTier', H.userXP.achievements.in
     const xp1 = H.userXP.totalXP;
     H.awardGameXP('pool', { won: true, vsCPU: true, tier: 'easy' });
     ok('an award without an xp figure pays nothing (every pool call site computes one)', H.userXP.totalXP === xp1);
+}
+
+// Snooker (S6): its own XP type, Century and Maximum, the High break board and sync keys.
+head('Snooker progression');
+ok('Century (150 XP) and Maximum (300 XP) are registered with icons and names',
+   ['snookerCentury', 'snookerMaximum'].every(k => H.ACHIEVEMENTS[k] && H.ACHIEVEMENTS[k].icon && H.ACHIEVEMENTS[k].name) &&
+   H.ACHIEVEMENT_XP.snookerCentury === 150 && H.ACHIEVEMENT_XP.snookerMaximum === 300);
+delete store.poolWinsByTier;
+H.userXP.achievements = [];
+H.checkGameAchievements('snooker', { vsCPU: true, won: true, tier: 'pro', highBreak: 40 });
+H.awardGameXP('snooker', { won: true, vsCPU: true, tier: 'pro', reds: 15, highBreak: 40, xp: 180 });
+ok('a Pro snooker win never unlocks pool\'s Called It', H.userXP.achievements.indexOf('calledIt') === -1, H.userXP.achievements.join());
+H.checkGameAchievements('snooker', { vsCPU: false, won: true, highBreak: 147 });
+ok('2 Players breaks unlock nothing (either seat is this account)', !H.userXP.achievements.some(a => /^snooker/.test(a)), H.userXP.achievements.join());
+H.checkGameAchievements('snooker', { vsCPU: true, won: false, highBreak: 99 });
+ok('a 99 is no century', H.userXP.achievements.indexOf('snookerCentury') === -1);
+H.checkGameAchievements('snooker', { vsCPU: true, won: false, highBreak: 104 });
+ok('a century against the CPU unlocks Century, even in a lost frame', H.userXP.achievements.indexOf('snookerCentury') !== -1 && H.userXP.achievements.indexOf('snookerMaximum') === -1);
+H.checkGameAchievements('snooker', { vsCPU: true, won: true, highBreak: 147 });
+ok('a 147 unlocks Maximum', H.userXP.achievements.indexOf('snookerMaximum') !== -1);
+H.userXP.achievements = [];
+store.snookerHighBreak = '112';
+H.revalidateAchievements();
+ok('revalidate restores Century from snookerHighBreak (112), not Maximum', H.userXP.achievements.indexOf('snookerCentury') !== -1 && H.userXP.achievements.indexOf('snookerMaximum') === -1);
+store.snookerHighBreak = '147';
+H.revalidateAchievements();
+ok('…and Maximum from a 147', H.userXP.achievements.indexOf('snookerMaximum') !== -1 && H.userXP.achievements.indexOf('calledIt') === -1);
+{
+    const xp0 = H.userXP.totalXP, s0 = H.userXP.gameSessions || 0;
+    H.awardGameXP('snooker', { won: true, vsCPU: true, tier: 'pro', reds: 15, highBreak: 147, xp: 999 });
+    ok('a snooker award is clamped to AC_MAX_XP_PER_GAME and counts one session', H.userXP.totalXP - xp0 <= H.AC_MAX_XP_PER_GAME && (H.userXP.gameSessions || 0) === s0 + 1, H.userXP.totalXP - xp0);
+    const xp1 = H.userXP.totalXP;
+    H.awardGameXP('snooker', { won: true, vsCPU: false, tour: true, round: 'Final', xp: 80 });
+    ok('a tournament match pays its 80', H.userXP.totalXP - xp1 === 80);
+}
+{
+    store.snookerWinsByMode = JSON.stringify({ cpu: 7, pvp: 2 });
+    store.snookerWinsByTier = JSON.stringify({ easy: 3, normal: 0, hard: 3, pro: 1 });
+    store.snookerHighBreak = '400';
+    const g = H.collectGameModeBests();
+    ok('the snapshot carries snooker:{cpu, pvp, easy, hard, pro} (no zeros) and the high break, clamped at 155',
+       g['snooker:cpu'] === 7 && g['snooker:pvp'] === 2 && g['snooker:easy'] === 3 && g['snooker:pro'] === 1 && !('snooker:normal' in g) && g['snooker:highBreak'] === 155, JSON.stringify(g));
+    ok('every snooker key passes the bot\'s key pattern', Object.keys(g).filter(k => /^snooker:/.test(k)).every(k => /^[a-z]+:[a-zA-Z]+$/.test(k)));
+    store.snookerHighBreak = '60';
+    H.applySnakeModeBests({ 'snooker:cpu': 9, 'snooker:pvp': 1, 'snooker:normal': 4, 'snooker:pro': 0, 'snooker:highBreak': 999 });
+    const byMode = JSON.parse(store.snookerWinsByMode), byTier = JSON.parse(store.snookerWinsByTier);
+    ok('the restore only raises: all-time 7 → 9, hot-seat stays 2, Normal 0 → 4, Pro stays 1', byMode.cpu === 9 && byMode.pvp === 2 && byTier.normal === 4 && byTier.pro === 1, JSON.stringify({ byMode, byTier }));
+    ok('…and the high break never past 155', store.snookerHighBreak === '155', store.snookerHighBreak);
+    H.applySnakeModeBests({ 'snooker:highBreak': 80 });
+    ok('…nor down', store.snookerHighBreak === '155');
+    store.snookerRecord = JSON.stringify({ p1Wins: 5, p1Losses: 2, p2Wins: 2, p2Losses: 5 });
+    ok('the player snapshot carries snooker\'s seat record', JSON.stringify(H.buildPlayerSnapshot().snookerRecord) === store.snookerRecord);
+    const B = H.LB_BOARDS.snooker;
+    ok('the Snooker board: Pro, Hard, Normal, Easy, All-time, Hot-seat and High break, points on the last',
+       Object.keys(B.modes).join() === 'pro,hard,normal,easy,cpu,pvp,highBreak' && B.unit === 'wins' && B.units.highBreak === 'pts' && B.notes.highBreak && B.icon === '🔴');
+    ok('pool\'s and Ludo\'s boards keep their All-time notes', /predate/.test(H.LB_BOARDS.pool.notes.cpu) && /predate/.test(H.LB_BOARDS.ludo.notes.cpu));
 }
 
 head('Settings toggles reach the rules engine');

@@ -21,9 +21,14 @@ body{margin:0;background:#07090A}
 <div style="width: 1280px; height: 800px; box-sizing: border-box; padding: 24px; display: flex; flex-direction: column; gap: 16px; background: radial-gradient(ellipse 70% 50% at 50% 0%, #162022 0%, #0B0E10 70%); border-radius: 20px; font-family: 'Sora', system-ui, sans-serif; color: #ECE8DF">
 <div style="height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 24px">
 <div style="display: flex; align-items: center; gap: 14px">
+<sc-if value="{{isPool}}" hint-placeholder-val="{{true}}">
 <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#141516" stroke="#2C3337" stroke-width="1"></circle><circle cx="12" cy="11.4" r="4.8" fill="#F3EEE2"></circle><text x="12" y="13.9" text-anchor="middle" font-family="Chakra Petch, sans-serif" font-size="7" font-weight="700" fill="#141516">8</text><circle cx="8" cy="6.6" r="1.6" fill="#FFFFFF" fill-opacity="0.35"></circle></svg>
+</sc-if>
+<sc-if value="{{isSnk}}" hint-placeholder-val="{{false}}">
+<svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#B3202A" stroke="#2C3337" stroke-width="1"></circle><circle cx="12" cy="12" r="11" fill="none" stroke="#000000" stroke-opacity="0.25" stroke-width="3"></circle><circle cx="8.2" cy="7.4" r="2.4" fill="#FFFFFF" fill-opacity="0.45"></circle></svg>
+</sc-if>
 <div style="display: flex; flex-direction: column; gap: 2px">
-<span style="font-family: 'Chakra Petch', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">OFFICE CUP · {{sizeLabel}}</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">{{kicker}}</span>
 <span style="font-family: 'Chakra Petch', sans-serif; font-size: 24px; font-weight: 600; line-height: 1.1">{{stageLabel}}</span>
 </div>
 </div>
@@ -40,16 +45,18 @@ body{margin:0;background:#07090A}
 </div>
 </div>
 <div style="width: 1232px; height: 672px">
-<dc-import name="BracketTree" scenario="{{scenario}}" width="1232" height="672" hint-size="1232px,672px"></dc-import>
+<dc-import name="BracketTree" scenario="{{scenario}}" format="{{format}}" width="1232" height="672" hint-size="1232px,672px"></dc-import>
 </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"size":{"editor":"enum","options":["8","16"],"default":"8"},"$preview":{"width":1280,"height":800}}'>
+<script type="text/x-dc" data-dc-script data-props='{"size":{"editor":"enum","options":["8","16"],"default":"8"},"game":{"editor":"enum","options":["pool","snooker"],"default":"pool"},"$preview":{"width":1280,"height":800}}'>
 class Component extends DCLogic {
   renderVals() {
     const big = String(this.props.size) === '16';
+    const snk = this.props.game === 'snooker';
     return {
-      scenario: big ? 'office16' : 'office8',
+      scenario: big ? 'office16' : 'office8', format: snk ? 'bestof' : 'race', isPool: !snk, isSnk: snk,
+      kicker: 'OFFICE CUP · ' + (snk ? 'SNOOKER · ' : '') + (big ? '16 PLAYERS' : '8 PLAYERS'),
       sizeLabel: big ? '16 PLAYERS' : '8 PLAYERS',
       stageLabel: big ? 'Round of 16 · 5 of 8 played' : 'Semi-finals',
       pathLabel: big ? 'Completed path · Zara' : 'Completed path · Zara',

@@ -9,11 +9,13 @@
 // behind it (the stack of backgrounds; over the table, the canvas pixels under it),
 // against WCAG AA: 4.5:1, or 3:1 for large text (24 px, or 18.66 px bold). Then a
 // theme switch mid-frame, which must repaint the canvas with no reload.
-// --quick runs one Cyberpunk shape per preset instead of all four.
+// Snooker (S7): every snooker state in Glassmorphic dark and light and in Cyberpunk under
+// each of the four shapes, the colour preset turning over from state to state.
+// --quick runs one Cyberpunk shape per preset (and per snooker state) instead of all four.
 const { spawn } = require('child_process');
 const fs = require('fs'), os = require('os'), path = require('path');
 
-const CHROME = 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
+const CHROME = require('./browser').browserPath();     // Chrome, else Edge, or POOL_BROWSER
 const QUICK = process.argv.includes('--quick');
 const page = 'file:///' + path.join(__dirname, 'pool-table.html').replace(/\\/g, '/').replace(/ /g, '%20');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -27,10 +29,25 @@ const STATES = [
     'tour=match&n=8&played=4&tframe=1&camera=3d', 'tour=result&n=8&played=5', 'tour=champion&n=6', 'tour=cabinet', 'tour=cabinet&empty=1',
     'tour=resume&n=8&played=4&tframe=1', 'tour=abandon&n=8&played=4', 'tour=pause&n=8&played=4&camera=3d',
 ];
+// Snooker's states (the snk* artboards, the call pocket, its tournament), compact and Max.
+const SNOOKER = [
+    'camera=3d', 'scene=red&camera=3d', 'scene=red&camera=2d', 'scene=nominate&camera=3d', 'scene=nominate&camera=2d', 'scene=nominatePink&camera=3d',
+    'scene=nominatePink&camera=3d&power=62', 'scene=nominatePink&camera=3d&pot=3&cut=-30', 'scene=foul&camera=3d', 'scene=foulHand&camera=3d',
+    'scene=free&camera=3d', 'scene=freeNom&camera=3d', 'scene=snookers&camera=3d', 'scene=concede&camera=3d', 'scene=colours&camera=3d',
+    'scene=century&camera=3d', 'scene=respot&camera=3d', 'scene=win&camera=3d', 'scene=loss&camera=3d', 'scene=red&camera=3d&sheet=cpu',
+    'scene=red&camera=3d&mode=pvp', 'scene=red&camera=3d&snkcall=all', 'scene=nominatePink&camera=3d&snkcall=colours',
+    'scene=nominatePink&camera=3d&snkcall=colours&call=5', 'scene=nominatePink&camera=2d&snkcall=colours',
+    'tour=setup', 'tour=bracket&n=6&played=2', 'tour=intro&n=6&played=2', 'tour=result&n=6&played=3', 'tour=match&n=6&played=2',
+    'tour=champion&n=6', 'tour=cabinet',
+    'scene=red&camera=3d&mode=pvp&max=1', 'scene=nominate&camera=3d&mode=pvp&max=1', 'scene=foul&camera=3d&max=1', 'scene=win&camera=3d&max=1',
+    'scene=nominatePink&camera=3d&mode=pvp&max=1&snkcall=colours', 'scene=red&camera=3d&mode=pvp&max=1&maxlayout=bars',
+    'scene=nominatePink&camera=2d&mode=pvp&max=1&maxlayout=bars', 'tour=bracket&n=8&played=5&max=1',
+].map(q => 'game=snooker&' + q);
 const MAX = ['scene=mid&camera=3d&max=1', 'scene=mid&camera=3d&max=1&sheet=cpu', 'scene=win&max=1', 'scene=eight&camera=3d&aim=-20&lean=55&max=1',
     'tour=bracket&n=8&played=5&max=1', 'tour=champion&n=8&max=1', 'tour=match&n=8&played=4&tframe=1&camera=3d&max=1', 'tour=setup&n=6&max=1'];
 const CYBER_STATES = ['scene=mid&camera=3d', 'scene=win', 'scene=mid&camera=3d&sheet=cpu', 'scene=eight&camera=3d&aim=-20&lean=55', 'scene=foul&mode=pvp',
-    'tour=bracket&n=8&played=5&tab=1', 'tour=champion&n=6', 'tour=setup&n=6', 'scene=mid&camera=3d&max=1', 'tour=bracket&n=8&played=5&max=1'];
+    'tour=bracket&n=8&played=5&tab=1', 'tour=champion&n=6', 'tour=setup&n=6', 'scene=mid&camera=3d&max=1', 'tour=bracket&n=8&played=5&max=1',
+    'game=snooker&scene=nominatePink&camera=3d', 'game=snooker&scene=free&camera=3d', 'game=snooker&scene=concede&camera=3d', 'game=snooker&scene=win&camera=3d'];
 const SHAPES = ['notched', 'chamfered', 'stepped', 'rounded'];
 const PALETTES = ['yellowCyan', 'bladeAmber', 'magentaNoir', 'acidGreen', 'ghostMono', 'violetHaze'];
 
@@ -38,6 +55,13 @@ const loads = [];
 STATES.concat(MAX).forEach(q => { loads.push({ q, light: false, label: 'glass dark' }); loads.push({ q, light: true, label: 'glass light' }); });
 PALETTES.forEach((pal, pi) => (QUICK ? [SHAPES[pi % 4]] : SHAPES).forEach(shape => CYBER_STATES.forEach(q =>
     loads.push({ q: q + '&theme=cyber&shape=' + shape + '&palette=' + pal, light: false, label: 'cyber ' + pal + '/' + shape }))));
+SNOOKER.forEach((q, i) => {
+    loads.push({ q, light: false, label: 'snooker glass dark' }, { q, light: true, label: 'snooker glass light' });
+    (QUICK ? [SHAPES[i % 4]] : SHAPES).forEach((shape, si) => {
+        const pal = PALETTES[(i + si) % PALETTES.length];
+        loads.push({ q: q + '&theme=cyber&shape=' + shape + '&palette=' + pal, light: false, label: 'snooker cyber ' + pal + '/' + shape });
+    });
+});
 
 // In the page: WCAG contrast of every visible text against what is behind it.
 const CONTRAST = `(() => {
@@ -66,7 +90,9 @@ const CONTRAST = `(() => {
     const pageBg = parse(getComputedStyle(document.body).backgroundColor) || [0, 0, 0, 1];
     const out = { checked: 0, bad: [] };
     for (const el of [root, ...root.querySelectorAll('*')]) {
-        if (!el.getClientRects().length || el.closest('[hidden]')) continue;
+        // An overlay faded out of the way of the shot (data-shy) is meant to be see-through.
+        // …and screen-reader text (.ph-sr) is never seen.
+        if (!el.getClientRects().length || el.closest('[hidden]') || el.closest('[data-shy]') || el.closest('.ph-sr')) continue;
         const text = [...el.childNodes].filter(c => c.nodeType === 3).map(c => c.textContent).join('');
         if (!/[\\p{L}\\p{N}]/u.test(text)) continue;
         const cs = getComputedStyle(el);
@@ -83,7 +109,8 @@ const CONTRAST = `(() => {
                 const stops = (baseLayer(s.backgroundImage).match(/rgba?\\([^)]+\\)|color\\(srgb[^)]+\\)|#[0-9a-fA-F]{6}/g) || []).map(v => v[0] === '#' ? [parseInt(v.slice(1, 3), 16), parseInt(v.slice(3, 5), 16), parseInt(v.slice(5, 7), 16), 1] : parse(v)).filter(Boolean);
                 if (stops.length) { const avg = [0, 1, 2, 3].map(i => stops.reduce((t, p) => t + p[i], 0) / stops.length); stack.push(avg); if (avg[3] >= 0.999) break; }
             }
-            if (n.classList && n.classList.contains('ph-layer')) { base = over(under(el.getBoundingClientRect()), pageBg); break; }
+            // Over the table the canvas is the base; in Max's bars (off the canvas) the view's own backdrop is.
+            if (n.classList && n.classList.contains('ph-layer')) { const r = el.getBoundingClientRect(); if (r.bottom > cr.top && r.top < cr.bottom) { base = over(under(r), pageBg); break; } }
             n = n.parentElement;
         }
         let bg = base || pageBg;
@@ -128,6 +155,9 @@ const CONTRAST = `(() => {
         if (!ready) { layoutFails++; console.log('  ✗ not ready: ' + L.label + ' ' + L.q); continue; }
         const audit = (await evaluate('window.__hudAudit ? window.__hudAudit() : []')) || [];
         audit.forEach(([n, pass, d]) => { layoutChecks++; if (!pass) { layoutFails++; console.log('  ✗ ' + L.label + ' ' + L.q + ' — ' + n + (d ? ' — ' + d : '')); } });
+        // Measure what stays on screen: a screen still fading in (the champion's 0.7 s rise) is
+        // let finish, and a loop (the hot clock's pulse) is held at its first frame, full strength.
+        await evaluate('(() => { const all = document.getAnimations(), loop = a => a.effect && a.effect.getTiming().iterations === Infinity; all.filter(loop).forEach(a => { a.pause(); a.currentTime = 0; }); return Promise.all(all.filter(a => !loop(a)).map(a => a.finished.catch(() => {}))); })()');
         const c = await evaluate(CONTRAST);
         textChecks += c.checked;
         c.bad.forEach(b => { const k = b.replace(/ [\d.]+( \(large\))?$/, ''); if (!lowContrast.has(k)) lowContrast.set(k, []); lowContrast.get(k).push(L.label + ' ' + b.match(/[\d.]+( \(large\))?$/)[0] + ' · ' + L.q); });

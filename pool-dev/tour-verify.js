@@ -154,5 +154,35 @@ head('Trophy cabinet');
     ok('a broken cabinet starts over rather than throwing', P.ptCabinetAdd({ v: 7 }, a).recent.length === 1);
 }
 
+head('Snooker tournaments (S5)');
+{
+    const names = ['Ayesha', 'Bilal', 'Hamza', 'Sana'];
+    const s = P.ptCreate({ game: 'snooker', names, seed: 5, settings: { race: [2, 3], clock: 60, reds: 10, call: 'colours' } });
+    const p = P.ptCreate({ names, seed: 5, settings: { race: [2, 3], clock: 60, reds: 10, call: 'colours' } });
+    ok('a tournament knows its game; one made without says pool', s.game === 'snooker' && p.game === 'pool');
+    ok('settings are the game\'s: snooker keeps 60 s, its reds and its call; pool drops 60 s to 30 and the call to "8", and has no reds',
+       s.settings.clock === 60 && s.settings.reds === 10 && s.settings.call === 'colours' && p.settings.clock === 30 && p.settings.call === '8' && p.settings.reds === undefined);
+    const bad = P.ptCreate({ game: 'snooker', names, seed: 5, settings: { clock: 50, reds: 7, call: 'every', race: [9, 0] } });
+    ok('…and anything else is normalised: clock 30, reds 15, call off, races 1–5', bad.settings.clock === 30 && bad.settings.reds === 15 && bad.settings.call === 'off' && bad.settings.race.join() === '5,1');
+    ok('"Best of 3" in snooker is race to 2; pool says race to', P.ptRaceText(s, 2) === 'Best of 3' && P.ptRaceText(s, 1) === 'Best of 1' && P.ptRaceText(s, 5) === 'Best of 9' && P.ptRaceText(p, 2) === 'Race to 2');
+    const json = t => JSON.parse(JSON.stringify(t));
+    ok('a save is only resumed by its own game (an old save with no game is pool\'s)', P.ptValidate(json(s), 'snooker') && !P.ptValidate(json(s), 'pool') && P.ptValidate(json(p), 'pool') && !P.ptValidate(json(p), 'snooker') &&
+       P.ptValidate(Object.assign(json(p), { game: undefined }), 'pool') && !!P.ptValidate(json(s)));
+    const tamper = Object.assign(json(s), { settings: { race: [2, 3], clock: 99, reds: 12, call: 'x' } });
+    const v = P.ptValidate(tamper, 'snooker');
+    ok('…and its settings come back normalised', v && v.settings.clock === 30 && v.settings.reds === 15 && v.settings.call === 'off');
+    // Frames with their points and breaks.
+    let t = s;
+    const m0 = P.ptNext(t);
+    t = P.ptRecordFrame(t, m0.id, m0.a, { points: [74, 32], high: [41, 12] }).t;
+    t = P.ptRecordFrame(t, m0.id, m0.b, { points: [51, 66], high: [22, 30] }).t;
+    const r = P.ptRecordFrame(t, m0.id, m0.a, { points: [88, 12], high: [61, 8] });
+    const m1 = P.ptById(r.t, m0.id);
+    ok('each frame keeps its points by line, and the match its high break (61 · frame 3)', r.matchOver && JSON.stringify(m1.points) === '[[74,32],[51,66],[88,12]]' &&
+       m1.high.slot === m0.a && m1.high.frame === 3 && m1.high.value === 61);
+    ok('…a saved match with points validates; broken points do not', !!P.ptValidate(json(r.t), 'snooker') && !P.ptValidate(Object.assign(json(r.t), { matches: json(r.t).matches.map((mm, i) => (i === 0 ? Object.assign(mm, { points: [['a', 1]] }) : mm)) }), 'snooker'));
+    ok('pool\'s frames record as before, with no points', P.ptById(P.ptRecordFrame(p, P.ptNext(p).id, P.ptNext(p).a).t, P.ptNext(p).id).points.length === 0);
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

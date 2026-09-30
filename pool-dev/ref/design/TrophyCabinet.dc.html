@@ -22,8 +22,8 @@ body{margin:0;background:#07090A}
 <a href="Champion.dc.html" class="tc-btn" aria-label="Back" style="width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #1C2327; border: 1px solid rgba(255, 255, 255, 0.07); color: #ECE8DF">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg></a>
 <div style="display: flex; flex-direction: column; gap: 1px">
-<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">SAVED ON THIS COMPUTER</span>
-<span style="font-family: 'Chakra Petch', sans-serif; font-size: 18px; font-weight: 600; line-height: 1.1">Trophy cabinet</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">{{kicker}}</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 18px; font-weight: 600; line-height: 1.1">{{title}}</span>
 </div>
 </div>
 
@@ -68,10 +68,13 @@ body{margin:0;background:#07090A}
 </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":640}}'>
+<script type="text/x-dc" data-dc-script data-props='{"game":{"editor":"enum","options":["pool","snooker"],"default":"pool"},"$preview":{"width":400,"height":640}}'>
 class Component extends DCLogic {
   renderVals() {
-    const rows = [['Ayesha', 2, 3, 1], ['Sana', 3, 1, 0], ['Zara', 0, 1, 1], ['Bilal', 1, 1, 0], ['Hamza', 1, 0, 0]];
+    const snk = this.props.game === 'snooker';
+    const rows = snk
+      ? [['Bilal', 1, 2, 1], ['Ayesha', 2, 1, 0], ['Hira', 1, 1, 0], ['Omar', 0, 1, 0], ['Sana', 1, 0, 0]]
+      : [['Ayesha', 2, 3, 1], ['Sana', 3, 1, 0], ['Zara', 0, 1, 1], ['Bilal', 1, 1, 0], ['Hamza', 1, 0, 0]];
     const col = (v) => v ? '#ECE8DF' : '#5A6468';
     return {
       titles: rows.map((r, i) => ({
@@ -80,7 +83,15 @@ class Component extends DCLogic {
         total: r[1] + r[2] + r[3], crown: i === 0 ? 1 : 0,
         line: i === 0 ? '0 solid transparent' : '1px solid rgba(255, 255, 255, 0.05)'
       })),
-      recent: [
+      kicker: snk ? 'TROPHY CABINET · THIS COMPUTER' : 'SAVED ON THIS COMPUTER',
+      title: snk ? 'Snooker' : 'Trophy cabinet',
+      recent: snk ? [
+        { name: 'City Open', meta: 'Sep 29, 2026 · 6 players', size: '8', champ: 'Ayesha' },
+        { name: 'Long Pot Classic', meta: 'Sep 22, 2026 · 8 players', size: '8', champ: 'Bilal' },
+        { name: 'Friday Frames', meta: 'Sep 12, 2026 · 4 players', size: '4', champ: 'Hira' },
+        { name: 'Break Builders', meta: 'Aug 30, 2026 · 12 players', size: '16', champ: 'Bilal' },
+        { name: 'Baulk Line Open', meta: 'Aug 14, 2026 · 7 players', size: '8', champ: 'Omar' }
+      ] : [
         { name: 'City Open', meta: 'Sep 25, 2026 · 6 players', size: '8', champ: 'Ayesha' },
         { name: 'Friday Frames', meta: 'Sep 18, 2026 · 4 players', size: '4', champ: 'Sana' },
         { name: 'Lunch League', meta: 'Sep 11, 2026 · 8 players', size: '8', champ: 'Ayesha' },

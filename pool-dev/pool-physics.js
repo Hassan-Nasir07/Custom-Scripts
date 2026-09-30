@@ -66,6 +66,7 @@
     // angle, until they meet the pocket's capture circle, which closes the
     // throat: a ball in the throat either drops or comes back out.
     function ppBuildTable(cfg) {
+        if (cfg.pocketStyle === 'rounded') return ppBuildRoundedTable(cfg);
         const HL = cfg.halfLength, HW = cfg.halfWidth;
         const segments = [], points = [], pockets = [];
 
@@ -146,6 +147,85 @@
             headX: -HL / 2, footX: HL / 2,             // head string and foot spot
             limitX: HL + cfg.railWidth, limitY: HW + cfg.railWidth,
         };
+    }
+
+    // Snooker's table (pocketStyle 'rounded', the design's Table.dc.html): each cushion runs
+    // straight along its nose, rounds off in a nose of radius noseRound, then a straight jaw
+    // goes back to the rail (square to it at the middle pockets, leaning sideJawBack /
+    // cornerJawBack toward the pocket). The rounded nose is an arc collider (a ball meets it
+    // at R + noseRound from its centre, only on the quarter that is there), tangent to the nose
+    // so there is no tip; the jaw is a cushion segment facing the gap, and every jaw ends at
+    // the rail inside its pocket's hole, which closes the throat. Only a table built with
+    // pocketStyle 'rounded' has arcs; pool's never does.
+    function ppBuildRoundedTable(cfg) {
+        const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth, RHO = cfg.noseRound;
+        const c = cfg.cornerNose, s = cfg.sideNose;
+        const segments = [], pockets = [], arcs = [];
+        const addSeg = (ax, ay, bx, by, nx, ny, kind) => {
+            const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
+            segments.push({ ax, ay, bx, by, tx: dx / len, ty: dy / len, len, nx, ny, kind: kind || 'cushion' });
+        };
+        const corner = (sx, sy) => {
+            const k = cfg.cornerPocketOffset;
+            return { kind: 'corner', x: sx * (HL + k), y: sy * (HW + k), r: cfg.cornerPocketR, sx, sy, jaws: [], cuts: [] };
+        };
+        const side = sy => ({ kind: 'side', x: 0, y: sy * (HW + cfg.sidePocketOffset), r: cfg.sidePocketR, sx: 0, sy, jaws: [], cuts: [] });
+        pockets.push(corner(-1, 1), side(1), corner(1, 1), corner(-1, -1), side(-1), corner(1, -1));
+
+        // The noses, each stopping one nose radius short of its end.
+        [1, -1].forEach(sy => {
+            const y = sy * HW;
+            addSeg(-HL + c + RHO, y, -s - RHO, y, 0, -sy);
+            addSeg(s + RHO, y, HL - c - RHO, y, 0, -sy);
+        });
+        [-1, 1].forEach(sx => addSeg(sx * HL, -HW + c + RHO, sx * HL, HW - c - RHO, -sx, 0));
+
+        // A cushion end at (ex, ey) on the nose line: (ox, oy) points off the table, (dx, dy)
+        // along the cushion toward the pocket; jb is how far the jaw leans toward it at the rail.
+        const addEnd = (ex, ey, ox, oy, dx, dy, jb, pocket) => {
+            const cx = ex - dx * RHO + ox * RHO, cy = ey - dy * RHO + oy * RHO;
+            const a0 = Math.atan2(-oy, -ox), a1 = Math.atan2(dy, dx);
+            let sp = a1 - a0;
+            sp -= 2 * Math.PI * Math.round(sp / (2 * Math.PI));
+            const arc = { cx, cy, r: RHO, mid: a0 + sp / 2, half: Math.abs(sp) / 2, pocket: pockets.indexOf(pocket) };
+            arcs.push(arc);
+            pocket.cuts.push(arc);
+            // The jaw, from where the nose's round ends back to the rail; it faces the gap.
+            const jx0 = ex + ox * RHO, jy0 = ey + oy * RHO, jx1 = ex + dx * jb + ox * CU, jy1 = ey + dy * jb + oy * CU;
+            if ((jx1 - pocket.x) ** 2 + (jy1 - pocket.y) ** 2 >= pocket.r * pocket.r) {
+                throw new Error('snooker table: a jaw misses its pocket; check the pocket settings');
+            }
+            const D = CU - RHO, L = Math.hypot(jb, D);
+            addSeg(jx0, jy0, jx1, jy1, (dx * D - ox * jb) / L, (dy * D - oy * jb) / L, 'jaw');
+            pocket.jaws.push(segments[segments.length - 1]);
+        };
+        pockets.forEach(p => {
+            if (p.kind === 'corner') {
+                const ax = p.sx * (HL - c), ay = p.sy * HW;          // on the long cushion
+                const bx = p.sx * HL, by = p.sy * (HW - c);          // on the short cushion
+                addEnd(ax, ay, 0, p.sy, p.sx, 0, cfg.cornerJawBack, p);
+                addEnd(bx, by, p.sx, 0, 0, p.sy, cfg.cornerJawBack, p);
+                p.mouth = [ax, ay, bx, by];
+            } else {
+                const y = p.sy * HW;
+                addEnd(-s, y, 0, p.sy, 1, 0, cfg.sideJawBack, p);
+                addEnd(s, y, 0, p.sy, -1, 0, cfg.sideJawBack, p);
+                p.mouth = [-s, y, s, y];
+            }
+        });
+
+        return {
+            halfLength: HL, halfWidth: HW, R: cfg.ballR, segments, points: [], arcs, pockets,
+            headX: -HL / 2, footX: HL / 2,
+            limitX: HL + cfg.railWidth, limitY: HW + cfg.railWidth,
+        };
+    }
+
+    // Is (x, y) off the arc's centre in a direction the quarter-round really covers?
+    function ppOnArc(a, x, y) {
+        let d = Math.atan2(y - a.cy, x - a.cx) - a.mid;
+        d -= 2 * Math.PI * Math.round(d / (2 * Math.PI));
+        return Math.abs(d) <= a.half + 1e-9;
     }
 
     // ── World ─────────────────────────────────────────────────────────
@@ -392,7 +472,8 @@
     const PP_CLUSTER_MAX_T = 5e-3;    // give up on the micro-sim after this, s
 
     function ppCluster(w, A, B) {
-        const R2 = 2 * w.cfg.ballR + PP_CLUSTER_GAP;
+        // A table with smaller balls sets its own gap (snooker's scales with R).
+        const R2 = 2 * w.cfg.ballR + (w.cfg.clusterGap !== undefined ? w.cfg.clusterGap : PP_CLUSTER_GAP);
         const live = w.balls.filter(b => b.state !== 'pocketed');
         const members = [A, B], seen = new Set([A, B]);
         for (let i = 0; i < members.length; i++) {
@@ -557,6 +638,10 @@
                     const tt = ppToiCircle(A.x, A.y, A.vx, A.vy, p.x, p.y, R);
                     if (tt < best.t) best = { t: tt, kind: 'point', a: A, p };
                 }
+                if (t.arcs) for (const arc of t.arcs) {
+                    const tt = ppToiCircle(A.x, A.y, A.vx, A.vy, arc.cx, arc.cy, arc.r + R);
+                    if (tt < best.t && ppOnArc(arc, A.x + A.vx * tt, A.y + A.vy * tt)) best = { t: tt, kind: 'arc', a: A, arc };
+                }
                 for (let k = 0; k < t.pockets.length; k++) {
                     const p = t.pockets[k];
                     const tt = ppToiCircle(A.x, A.y, A.vx, A.vy, p.x, p.y, p.r);
@@ -611,6 +696,12 @@
                 const dx = A.x - p.x, dy = A.y - p.y, d = Math.hypot(dx, dy);
                 if (d <= R + PP_CONTACT && d > 0 && ppResolveCushion(A, dx / d, dy / d, cfg)) {
                     w.log.push({ type: 'cushion', t: w.t, ball: A.id, kind: p.kind });
+                }
+            } else if (ev.kind === 'arc') {
+                const c = ev.arc;
+                const dx = A.x - c.cx, dy = A.y - c.cy, d = Math.hypot(dx, dy);
+                if (d <= c.r + R + PP_CONTACT && d > 0 && ppResolveCushion(A, dx / d, dy / d, cfg)) {
+                    w.log.push({ type: 'cushion', t: w.t, ball: A.id, kind: 'jaw' });
                 }
             } else if (ev.kind === 'pocket') {
                 // Resolved here rather than by the distance test: at the exact
@@ -674,6 +765,13 @@
                     b.x = p.x + dx / d * R; b.y = p.y + dy / d * R;
                     moved = true;
                     if (ppResolveCushion(b, dx / d, dy / d, cfg)) w.log.push({ type: 'cushion', t: w.t, ball: b.id, kind: p.kind });
+                }
+                if (t.arcs) for (const arc of t.arcs) {
+                    const dx = b.x - arc.cx, dy = b.y - arc.cy, d = Math.hypot(dx, dy), D2 = arc.r + R;
+                    if (d >= D2 - 1e-9 || d === 0 || !ppOnArc(arc, b.x, b.y)) continue;
+                    b.x = arc.cx + dx / d * D2; b.y = arc.cy + dy / d * D2;
+                    moved = true;
+                    if (ppResolveCushion(b, dx / d, dy / d, cfg)) w.log.push({ type: 'cushion', t: w.t, ball: b.id, kind: 'jaw' });
                 }
             }
             if (!moved) break;

@@ -30,7 +30,7 @@ body{margin:0;background:#07090A}
 <a href="Main.dc.html" class="ts-btn" aria-label="Back" style="width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #1C2327; border: 1px solid rgba(255, 255, 255, 0.07); color: #ECE8DF">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg></a>
 <div style="display: flex; flex-direction: column; gap: 1px">
-<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">TOURNAMENT · HUMANS ONLY</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">{{kicker}}</span>
 <span style="font-family: 'Chakra Petch', sans-serif; font-size: 18px; font-weight: 600; line-height: 1.1">New tournament</span>
 </div>
 </div>
@@ -68,11 +68,12 @@ body{margin:0;background:#07090A}
 </div>
 
 <div style="display: flex; flex-direction: column; gap: 6px">
-<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">FRAMES PER ROUND · RACE TO</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">{{framesLabel}}</span>
 <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
 <sc-for list="{{races}}" as="r" hint-placeholder-count="3">
 <label style="position: relative; display: block">
 <span style="position: absolute; left: 12px; top: 6px; font-size: 10px; font-weight: 600; color: #9CA5A8; pointer-events: none">{{r.label}}</span>
+<sc-if value="{{isPool}}" hint-placeholder-val="{{true}}">
 <select class="ts-sel" aria-label="{{r.aria}}" value="{{r.value}}" onChange="{{r.set}}" style="appearance: none; -webkit-appearance: none; width: 100%; height: 48px; box-sizing: border-box; padding: 18px 28px 0 12px; border-radius: 12px; background: #161C1F; border: 1px solid rgba(255, 255, 255, 0.08); color: #ECE8DF; font-family: 'Chakra Petch', sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">
 <option value="1">1</option>
 <option value="2">2</option>
@@ -80,6 +81,16 @@ body{margin:0;background:#07090A}
 <option value="4">4</option>
 <option value="5">5</option>
 </select>
+</sc-if>
+<sc-if value="{{isSnk}}" hint-placeholder-val="{{false}}">
+<select class="ts-sel" aria-label="{{r.aria}}" value="{{r.value}}" onChange="{{r.set}}" style="appearance: none; -webkit-appearance: none; width: 100%; height: 48px; box-sizing: border-box; padding: 18px 28px 0 12px; border-radius: 12px; background: #161C1F; border: 1px solid rgba(255, 255, 255, 0.08); color: #ECE8DF; font-family: 'Chakra Petch', sans-serif; font-size: 15px; font-weight: 700; cursor: pointer">
+<option value="1">1</option>
+<option value="3">3</option>
+<option value="5">5</option>
+<option value="7">7</option>
+<option value="9">9</option>
+</select>
+</sc-if>
 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9CA5A8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="position: absolute; right: 10px; top: 18px; pointer-events: none"><path d="M6 9l6 6 6-6"></path></svg>
 </label>
 </sc-for>
@@ -110,14 +121,15 @@ body{margin:0;background:#07090A}
 </div>
 </div>
 
-<a href="BracketCompact.dc.html" class="ts-pri" style="height: 52px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 12px; background: #F0B44C; color: #1B1406; font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: 0.08em; text-decoration: none; box-shadow: 0 6px 18px rgba(240, 180, 76, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.35)">
+<a href="{{bracketHref}}" class="ts-pri" style="height: 52px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 12px; background: #F0B44C; color: #1B1406; font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: 0.08em; text-decoration: none; box-shadow: 0 6px 18px rgba(240, 180, 76, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.35)">
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h5v5H3M3 14h5v5H3M8 7.5h4v9H8M12 12h4M16 9h5v6h-5z"></path></svg>START TOURNAMENT</a>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":640}}'>
+<script type="text/x-dc" data-dc-script data-props='{"game":{"editor":"enum","options":["pool","snooker"],"default":"pool"},"$preview":{"width":400,"height":640}}'>
 class Component extends DCLogic {
   renderVals() {
     const s = this.state || {};
+    const snk = this.props.game === 'snooker';
     // Slot 1 is the signed-in portal user, prefilled from their profile name.
     const you = this.props.userName || 'Han';
     const pool = [you, 'Ayesha', 'Hamza', 'Sana', 'Bilal', 'Zara', 'Omar', 'Hira', 'Faisal', 'Maryam', 'Ali', 'Noor', 'Saad', 'Iqra', 'Danish', 'Rabia'];
@@ -126,10 +138,10 @@ class Component extends DCLogic {
     const sizes = n <= 4 ? 4 : n <= 8 ? 8 : 16;
     const byes = sizes - n;
     const roundNames = sizes === 4 ? ['Semi', 'Final'] : sizes === 8 ? ['Quarter', 'Semi', 'Final'] : ['Round 1', 'Quarter', 'Semi', 'Final'];
-    const raceDefault = sizes === 4 ? [2, 3] : sizes === 8 ? [1, 2, 3] : [1, 1, 2, 3];
+    const raceDefault = snk ? (sizes === 4 ? [3, 5] : sizes === 8 ? [1, 3, 5] : [1, 1, 3, 5]) : (sizes === 4 ? [2, 3] : sizes === 8 ? [1, 2, 3] : [1, 1, 2, 3]);
     const race = s.race && s.race.length === roundNames.length ? s.race : raceDefault;
     const shown = roundNames.length > 3 ? [0, roundNames.length - 2, roundNames.length - 1] : roundNames.map((x, i) => i);
-    const clock = s.clock ?? '30s', guide = s.guide ?? 'Full', call = s.call ?? '8 only';
+    const clock = s.clock ?? '30s', guide = s.guide ?? 'Full', call = s.call ?? '8 only', reds = s.reds ?? '15';
     const shuffle = s.shuffle ?? false;
     const seg = (label, opts, cur, key) => ({
       label, cols: 'repeat(' + opts.length + ', minmax(0, 1fr))', opts: opts.map((o) => ({
@@ -150,14 +162,17 @@ class Component extends DCLogic {
         edit: (e) => { const next = names.slice(); next[i] = e.target.value; this.setState({ names: next }); }
       })),
       races: shown.map((ri) => ({
-        label: roundNames[ri], aria: roundNames[ri] + ', race to', value: String(race[ri]),
+        label: roundNames[ri], aria: roundNames[ri] + (snk ? ', best of' : ', race to'), value: String(race[ri]),
         set: (e) => { const next = race.slice(); next[ri] = parseInt(e.target.value, 10) || 1; this.setState({ race: next }); }
       })),
       segs: [
-        seg('Shot clock', ['30s', '45s', 'Off'], clock, 'clock'),
+        seg('Shot clock', snk ? ['30s', '45s', '60s', 'Off'] : ['30s', '45s', 'Off'], clock, 'clock'),
         seg('Guideline', ['Full', 'Short', 'Off'], guide, 'guide'),
-        seg('Call pocket', ['8 only', 'Every shot'], call, 'call')
+        snk ? seg('Reds', ['15', '10', '6'], reds, 'reds') : seg('Call pocket', ['8 only', 'Every shot'], call, 'call')
       ],
+      isPool: !snk, isSnk: snk, bracketHref: snk ? 'SnkBracket.dc.html' : 'BracketCompact.dc.html',
+      kicker: snk ? 'SNOOKER · HUMANS ONLY' : 'TOURNAMENT · HUMANS ONLY',
+      framesLabel: snk ? 'FRAMES PER ROUND · BEST OF' : 'FRAMES PER ROUND · RACE TO',
       shuffleA: shuffle ? 'true' : 'false', togBg: shuffle ? '#F0B44C' : '#2E373B', togX: shuffle ? 21 : 3,
       toggleShuffle: () => this.setState({ shuffle: !shuffle })
     };

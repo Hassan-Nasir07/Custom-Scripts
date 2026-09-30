@@ -19,17 +19,24 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 .pm-shoot{cursor:pointer;transition:filter .15s ease,transform .1s ease}
 .pm-shoot:hover{filter:brightness(1.07)}
 .pm-shoot:active{transform:translateY(1px)}
+.pm-chip{cursor:pointer}.pm-chip:focus-visible{outline:2px solid #F0B44C;outline-offset:2px}
 .pm-rng:focus-within .pm-thumb{box-shadow:0 0 0 4px rgba(240,180,76,.35),0 2px 6px rgba(0,0,0,.5) !important}
 </style>
 </helmet>
-<div style="width: 1280px; height: 800px; box-sizing: border-box; padding: 24px; display: flex; flex-direction: column; gap: 16px; background: radial-gradient(ellipse 70% 50% at 50% 0%, #162022 0%, #0B0E10 70%); border-radius: 20px; font-family: 'Sora', system-ui, sans-serif; color: #ECE8DF">
+<div style="width: 1280px; height: 800px; box-sizing: border-box; padding: {{rootPad}}; display: flex; flex-direction: column; gap: {{rootGap}}px; background: radial-gradient(ellipse 70% 50% at 50% 0%, #162022 0%, #0B0E10 70%); border-radius: 20px; font-family: 'Sora', system-ui, sans-serif; color: #ECE8DF">
 
-<div style="height: 64px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 24px">
+<div style="height: 64px; flex-shrink: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 24px">
 <div style="display: flex; align-items: center; gap: 12px">
+<sc-if value="{{isPool}}" hint-placeholder-val="{{true}}">
 <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#141516" stroke="#2C3337" stroke-width="1"></circle><circle cx="12" cy="11.4" r="4.8" fill="#F3EEE2"></circle><text x="12" y="13.9" text-anchor="middle" font-family="Chakra Petch, sans-serif" font-size="7" font-weight="700" fill="#141516">8</text><circle cx="8" cy="6.6" r="1.6" fill="#FFFFFF" fill-opacity="0.35"></circle></svg>
-<div style="font-family: 'Chakra Petch', sans-serif; font-size: 24px; font-weight: 600; letter-spacing: 0.01em">8-Ball Pool</div>
+</sc-if>
+<sc-if value="{{isSnk}}" hint-placeholder-val="{{false}}">
+<svg width="34" height="34" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#B3202A" stroke="#2C3337" stroke-width="1"></circle><circle cx="12" cy="12" r="11" fill="none" stroke="#000000" stroke-opacity="0.25" stroke-width="3"></circle><circle cx="8.2" cy="7.4" r="2.4" fill="#FFFFFF" fill-opacity="0.45"></circle></svg>
+</sc-if>
+<div style="font-family: 'Chakra Petch', sans-serif; font-size: 24px; font-weight: 600; letter-spacing: 0.01em">{{gameTitle}}</div>
 </div>
 
+<sc-if value="{{isPool}}" hint-placeholder-val="{{true}}">
 <div style="display: flex; align-items: stretch; gap: 12px; height: 64px">
 <div style="box-sizing: border-box; width: 220px; padding: 10px 14px; border-radius: 14px; background: #161C1F; border: 1px solid rgba(240, 180, 76, 0.45); box-shadow: 0 0 28px rgba(240, 180, 76, 0.12); display: flex; align-items: center; gap: 12px">
 <div style="width: 38px; height: 38px; border-radius: 50%; background: #F0B44C; color: #1B1406; display: flex; align-items: center; justify-content: center; font-family: 'Chakra Petch', sans-serif; font-size: 14px; font-weight: 700; flex-shrink: 0">P1</div>
@@ -66,25 +73,63 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 </div>
 </div>
 </div>
+</sc-if>
+<sc-if value="{{isSnk}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; align-items: stretch; gap: 12px; height: 64px">
+<div style="box-sizing: border-box; width: 250px; padding: 10px 14px; border-radius: 14px; background: #161C1F; border: 1px solid {{k1.border}}; box-shadow: {{k1.glow}}; display: flex; flex-direction: row; align-items: center; gap: 12px">
+<div style="width: 38px; height: 38px; border-radius: 50%; background: {{k1.avBg}}; color: {{k1.avFg}}; display: flex; align-items: center; justify-content: center; font-family: 'Chakra Petch', sans-serif; font-size: 15px; font-weight: 700; flex-shrink: 0">{{k1.av}}</div>
+<div style="display: flex; flex-direction: column; gap: 3px; flex-grow: 1; min-width: 0; align-items: flex-start">
+<span style="font-size: 14px; font-weight: 600">{{k1.name}}</span>
+<span style="font-size: 11px; color: #9CA5A8; white-space: nowrap">{{k1.rec}}</span>
+<span style="min-height: 12px; font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: #F0B44C">{{k1.l3}}</span>
+</div>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: {{k1.scC}}">{{k1.sc}}</span>
+</div>
+<div style="width: 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px">
+<div style="font-family: 'Chakra Petch', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: 0.02em; line-height: 1">{{frames}}</div>
+<div style="font-size: 10px; font-weight: 600; letter-spacing: 0.14em; color: #9CA5A8">FRAMES</div>
+</div>
+<div style="box-sizing: border-box; width: 250px; padding: 10px 14px; border-radius: 14px; background: #161C1F; border: 1px solid {{k2.border}}; box-shadow: {{k2.glow}}; display: flex; flex-direction: row-reverse; align-items: center; gap: 12px">
+<div style="width: 38px; height: 38px; border-radius: 50%; background: {{k2.avBg}}; color: {{k2.avFg}}; display: flex; align-items: center; justify-content: center; font-family: 'Chakra Petch', sans-serif; font-size: 15px; font-weight: 700; flex-shrink: 0">{{k2.av}}</div>
+<div style="display: flex; flex-direction: column; gap: 3px; flex-grow: 1; min-width: 0; align-items: flex-end">
+<span style="font-size: 14px; font-weight: 600">{{k2.name}}</span>
+<span style="font-size: 11px; color: #9CA5A8; white-space: nowrap">{{k2.rec}}</span>
+<span style="min-height: 12px; font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: #F0B44C">{{k2.l3}}</span>
+</div>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: {{k2.scC}}">{{k2.sc}}</span>
+</div>
+</div>
+</sc-if>
 
 <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px">
 <div style="display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 18px; background: #1A2024; border: 1px solid rgba(240, 180, 76, 0.28); color: #F0B44C">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>
-<span style="font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: 700; color: #F4E3BF">478</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: 700; color: #F4E3BF">{{rating}}</span>
 </div>
 <button type="button" class="pm-btn" onClick="{{toggleMode}}" style="height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; font-family: 'Sora', sans-serif; font-size: 12px; font-weight: 600">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"></circle><path d="M3.5 19c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8"></path><circle cx="17" cy="9" r="2.6"></circle><path d="M16 14.3c2.4.1 4 1.6 4.5 4.2"></path></svg>{{modeLabel}}</button>
 <button type="button" class="pm-btn" onClick="{{reset}}" aria-label="Reset rack" title="Reset rack" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; padding: 0">
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path></svg></button>
-<a href="Main.dc.html" class="pm-btn" aria-label="Exit full view" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #1C2327; border: 1px solid rgba(255, 255, 255, 0.07); color: #ECE8DF">
+<a href="{{exitHref}}" class="pm-btn" aria-label="Exit full view" style="width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #1C2327; border: 1px solid rgba(255, 255, 255, 0.07); color: #ECE8DF">
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"></path></svg>
 </a>
 </div>
 </div>
 
+<sc-if value="{{isSnk}}" hint-placeholder-val="{{false}}">
+<div style="height: 20px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 16px">
+<span style="display: flex; align-items: center; gap: 6px; font-family: 'Chakra Petch', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; color: #C9CFCF"><span style="width: 10px; height: 10px; border-radius: 50%; background: #B3202A"></span>REDS × {{tr.reds}}</span>
+<div role="img" aria-label="{{tr.aria}}" style="display: flex; align-items: center; gap: 6px">
+<sc-for list="{{tr.dots}}" as="d" hint-placeholder-count="6">
+<span style="width: 11px; height: 11px; border-radius: 50%; background: {{d.bg}}; opacity: {{d.op}}; box-shadow: {{d.ring}}"></span>
+</sc-for>
+</div>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; color: #9CA5A8">{{tr.rem}} REMAINING</span>
+</div>
+</sc-if>
 <div style="position: relative; width: 1232px; height: 672px; border-radius: 18px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.06); box-sizing: border-box; flex-shrink: 0">
 <div style="position: absolute; left: -1px; top: -1px">
-<dc-import name="Table" camera="{{camera}}" aim="{{aim}}" power="{{power}}" striking="{{striking}}" lean="{{lean}}" width="1232" height="672" hint-size="1232px,672px"></dc-import>
+<dc-import name="Table" camera="{{camera}}" aim="{{aim}}" power="{{power}}" striking="{{striking}}" lean="{{lean}}" layout="{{layout}}" show-aim="{{showAim}}" ring-ball="{{ringBall}}" width="1232" height="672" hint-size="1232px,672px"></dc-import>
 </div>
 <div aria-label="Table: move to aim, press and drag to add power, release to shoot" onMouseMove="{{onMove}}" onMouseDown="{{onDown}}" onMouseUp="{{onUp}}" onMouseLeave="{{onLeave}}" style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; cursor: {{cursor}}; user-select: none"></div>
 <div style="position: absolute; right: 20px; top: 226px; width: 10px; height: 220px; border-radius: 5px; background: rgba(8, 10, 11, 0.7); border: 1px solid rgba(255, 255, 255, 0.12); overflow: hidden; opacity: {{gaugeOp}}; pointer-events: none">
@@ -97,7 +142,7 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"></path><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"></path></svg>3D AIM</button>
 </div>
 <div style="position: absolute; right: 16px; top: 16px; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 17px; background: rgba(8, 10, 11, 0.66); border: 1px solid rgba(255, 255, 255, 0.10); backdrop-filter: blur(10px); font-size: 12px; font-weight: 500; pointer-events: none">
-<span style="width: 8px; height: 8px; border-radius: 50%; background: #F0B44C; box-shadow: 0 0 8px #F0B44C"></span>Your shot · Solids</div>
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #F0B44C; box-shadow: 0 0 8px #F0B44C"></span>{{pill}}</div>
 <sc-if value="{{show3d}}" hint-placeholder-val="{{true}}">
 <div style="position: absolute; left: 16px; top: 150px; width: 48px; height: 360px; box-sizing: border-box; padding: 10px 0; display: flex; flex-direction: column; align-items: center; gap: 6px; border-radius: 24px; background: rgba(8, 10, 11, 0.66); border: 1px solid rgba(255, 255, 255, 0.10); backdrop-filter: blur(8px)">
 <label for="pm-lean" style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">LEAN</label>
@@ -124,22 +169,89 @@ a{color:#F0B44C}a:hover{color:#F6C978}
 <span style="font-size: 16px; font-weight: 600">{{spinLabel}}</span>
 </span>
 </button>
+<sc-if value="{{showHint}}" hint-placeholder-val="{{true}}">
 <div style="pointer-events: none; position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 17px; background: rgba(8, 10, 11, 0.66); border: 1px solid rgba(255, 255, 255, 0.10); backdrop-filter: blur(10px)">
 <span style="font-family: 'Chakra Petch', sans-serif; font-size: 13px; font-weight: 600; color: {{hintColor}}">{{hint}}</span>
 </div>
+</sc-if>
+<sc-if value="{{showChips}}" hint-placeholder-val="{{false}}">
+<div role="group" aria-label="Nominate a colour" style="position: absolute; right: 16px; bottom: 16px; box-sizing: border-box; width: 212px; padding: 12px 12px 14px; border-radius: 14px; background: rgba(8, 10, 11, 0.66); border: 1px solid {{chipBorder}}; backdrop-filter: blur(10px); display: flex; flex-direction: column; gap: 6px">
+<div role="radiogroup" aria-label="Nominate a colour" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 58px">
+<sc-for list="{{chips}}" as="k" hint-placeholder-count="6">
+<button type="button" role="radio" aria-checked="{{k.checked}}" aria-label="{{k.aria}}" class="pm-chip" onClick="{{k.pick}}" style="height: 58px; padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center">
+<span style="width: 42px; height: 42px; border-radius: 50%; background: {{k.bg}}; box-shadow: {{k.ring}}; color: {{k.fg}}; display: flex; align-items: center; justify-content: center; font-family: 'Chakra Petch', sans-serif; font-size: 18px; font-weight: 700">{{k.val}}</span>
+</button>
+</sc-for>
+</div>
+<span style="text-align: center; font-family: 'Chakra Petch', sans-serif; font-size: 14px; font-weight: 600; color: {{chipCapC}}">{{chipCap}}</span>
+</div>
+</sc-if>
+<sc-if value="{{locked}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; right: 16px; top: 198px; width: 18px; height: 20px; display: flex; align-items: center; justify-content: center; color: #9CA5A8; pointer-events: none">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+</div>
+</sc-if>
+<sc-if value="{{showOver}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: rgba(7, 9, 10, 0.62); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center">
+<div role="dialog" aria-label="Frame over" style="width: 420px; box-sizing: border-box; padding: 26px; border-radius: 14px; background: #161C1F; border: 1px solid rgba(240, 180, 76, 0.45); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6); display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; align-items: center; gap: 14px">
+<span style="width: 52px; height: 52px; flex-shrink: 0; border-radius: 50%; background: rgba(240, 180, 76, 0.14); color: #F0B44C; display: flex; align-items: center; justify-content: center">
+<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>
+</span>
+<span style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">FRAME OVER · {{frames}}</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 30px; font-weight: 700; line-height: 1.1">Ayesha wins</span>
+</span>
+</div>
+<div style="font-size: 14px; color: #C9CFCF">Potted the black.</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<div style="padding: 10px 14px; border-radius: 12px; background: #1C2327; display: flex; flex-direction: column; gap: 3px">
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">SCORE</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 22px; font-weight: 600">72–41</span>
+</div>
+<div style="padding: 10px 14px; border-radius: 12px; background: #1C2327; display: flex; flex-direction: column; gap: 3px">
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">HIGH BREAK</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 22px; font-weight: 600">58 · You</span>
+</div>
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 12px; background: #1C2327">
+<span style="display: flex; flex-direction: column; gap: 3px">
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">AYESHA · RECORD</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 20px; font-weight: 600">37W · 21L</span>
+</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #F0B44C">+1 WIN</span>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #9CA5A8">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"></path></svg>Adaptive steps up to Hard next frame</div>
+<div style="display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 10px">
+<button type="button" class="pm-shoot" style="height: 52px; border: 0; border-radius: 12px; background: #F0B44C; color: #1B1406; font-family: 'Chakra Petch', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: 0.08em; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35)">NEW FRAME</button>
+<button type="button" class="pm-btn" style="height: 52px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #1C2327; color: #ECE8DF; font-family: 'Sora', sans-serif; font-size: 14px; font-weight: 600">Change difficulty</button>
+</div>
+</div>
+</div>
+</sc-if>
 </div>
 
 
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"camera":{"editor":"enum","options":["3d","2d"],"default":"3d"},"$preview":{"width":1280,"height":800}}'>
+<script type="text/x-dc" data-dc-script data-props='{"camera":{"editor":"enum","options":["3d","2d"],"default":"3d"},"variant":{"editor":"enum","options":["","snkRed","snkNom","snkOver"],"default":""},"$preview":{"width":1280,"height":800}}'>
 class Component extends DCLogic {
   componentWillUnmount() { clearTimeout(this._strike); }
   renderVals() {
     const VW = 1232, VH = 672;
     const s = this.state || {};
+    // Snooker full-view variants: snkRed, snkNom, snkOver (pool when empty).
+    const variant = this.props.variant || '';
+    const snkG = variant.indexOf('snk') === 0;
+    const SV = {
+      snkRed: { layout: 'snooker', aim: -26.9, sc: [18, 41], active: 2, brk: 23, tr: { reds: 9, rem: 99 }, pill: "Bilal's shot · On a red", pvp: true },
+      snkNom: { layout: 'snooker-nominate', aim: 39.8, sc: [18, 42], active: 2, brk: 24, tr: { reds: 8, rem: 98 }, pill: "Bilal's shot · Nominate a colour", chips: true, pvp: true },
+      snkOver: { layout: 'snooker-empty', aim: 0, sc: [72, 41], active: 0, tr: { reds: 0, rem: 0, potted: [1, 1, 1, 1, 1, 1] }, pill: 'Frame over', over: true, frames: '1–0' }
+    };
+    const v = SV[variant] || null;
     const camera = s.camera ?? (this.props.camera === '2d' ? '2d' : '3d');
-    const aim = s.aim ?? -6.8;
+    const aim = s.aim ?? (v ? v.aim : -6.8);
     const power = s.power ?? 0;
     const spin = s.spin ?? 0;
     const vsCpu = s.vsCpu ?? true;
@@ -163,7 +275,46 @@ class Component extends DCLogic {
     const solid = (c, on) => ({ bg: hi + ', ' + c, op: on ? 1 : 0.2 });
     const stripe = (c, on) => ({ bg: hi + ', linear-gradient(180deg, ' + IV + ' 0%, ' + IV + ' 28%, ' + c + ' 28%, ' + c + ' 72%, ' + IV + ' 72%, ' + IV + ' 100%)', op: on ? 1 : 0.2 });
     const powerColor = power >= 85 ? '#EC6A3D' : '#F0B44C';
+    const SNK = [['yellow', '#E8C21E', 2, '#15191B'], ['green', '#1F7A3F', 3, '#F3EEE2'], ['brown', '#6B3F22', 4, '#F3EEE2'], ['blue', '#1F4FB5', 5, '#F3EEE2'], ['pink', '#E88FA8', 6, '#15191B'], ['black', '#121314', 7, '#F3EEE2']];
+    const chipSel = s.chip ?? -1;
+    const trc = v ? v.tr : { reds: 0, rem: 0 };
+    const potted = trc.potted || [0, 0, 0, 0, 0, 0];
+    const hiB = 'radial-gradient(circle at 35% 30%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 50%)';
+    const card = (n) => {
+      const on = v && v.active === n;
+      const names = v && v.pvp ? ['Ayesha', 'Bilal'] : ['Ayesha', 'CPU'];
+      const recs = v && v.pvp ? ['36W · 21L', '28W · 30L'] : ['37W · 21L', 'Adaptive · Normal'];
+      return {
+        name: names[n - 1], rec: recs[n - 1], av: n === 1 ? 'A' : (v && v.pvp ? 'B' : 'C'),
+        avBg: on ? '#F0B44C' : '#2A3438', avFg: on ? '#1B1406' : '#ECE8DF',
+        sc: v ? String(v.sc[n - 1]) : '', scC: on ? '#F4E3BF' : '#ECE8DF',
+        l3: on && v.brk ? 'BREAK ' + v.brk : '',
+        border: on ? 'rgba(240, 180, 76, 0.45)' : 'rgba(255, 255, 255, 0.06)',
+        glow: on ? '0 0 28px rgba(240, 180, 76, 0.12)' : 'none'
+      };
+    };
+    const chipsOn = !!(v && v.chips);
+    const lockedNow = chipsOn && chipSel < 0;
     return {
+      exitHref: snkG ? 'SnkRed.dc.html' : 'Main.dc.html',
+      isPool: !snkG, isSnk: snkG, gameTitle: snkG ? 'Snooker' : '8-Ball Pool', rating: snkG ? '412' : '478',
+      rootPad: snkG ? '12px 24px 16px' : '24px', rootGap: snkG ? 8 : 16,
+      k1: card(1), k2: card(2), frames: v && v.frames ? v.frames : '0–0',
+      tr: { reds: trc.reds, rem: trc.rem,
+        dots: SNK.map((b, i) => ({ bg: b[1], op: potted[i] ? 0.22 : 1, ring: 'none' })),
+        aria: 'Reds left ' + trc.reds + ', ' + trc.rem + ' points remaining' },
+      layout: v ? v.layout : 'mid', showAim: v && v.over ? 'false' : 'true',
+      ringBall: chipsOn && chipSel >= 0 ? SNK[chipSel][0] : '',
+      pill: v ? (chipsOn && chipSel >= 0 ? "Bilal's shot · On the " + SNK[chipSel][0] : v.pill) : 'Your shot · Solids',
+      chips: SNK.map((b, i) => ({
+        val: String(b[2]), bg: hiB + ', ' + b[1], fg: b[3],
+        ring: i === chipSel ? '0 0 0 3px #0E1113, 0 0 0 5px #F0B44C' : 'inset 0 0 0 1px rgba(0, 0, 0, 0.25)',
+        checked: i === chipSel ? 'true' : 'false', aria: b[0].charAt(0).toUpperCase() + b[0].slice(1) + ', ' + b[2] + ' points',
+        pick: () => this.setState({ chip: i })
+      })),
+      showChips: chipsOn, locked: lockedNow, showOver: !!(v && v.over), showHint: !chipsOn && !(v && v.over),
+      chipCap: chipSel >= 0 ? 'Drag to shoot' : 'Tap a colour', chipCapC: chipSel >= 0 ? '#F4E3BF' : '#ECE8DF',
+      chipBorder: chipSel >= 0 ? 'rgba(240, 180, 76, 0.55)' : 'rgba(255, 255, 255, 0.10)',
       camera, aim, power, striking,
       lean, show3d: camera === '3d',
       leanPct: lean,
@@ -198,7 +349,7 @@ class Component extends DCLogic {
           this._lx = p[0];
         }
       },
-      onDown: (e) => { this._drag = local(e); this._pw = 0; this.setState({ dragging: true, power: 0 }); },
+      onDown: (e) => { if (lockedNow || (v && v.over)) return; this._drag = local(e); this._pw = 0; this.setState({ dragging: true, power: 0 }); },
       onUp: () => {
         if (!this._drag) return;
         this._drag = null;
@@ -215,7 +366,7 @@ class Component extends DCLogic {
         if (this._drag) { this._drag = null; this.setState({ dragging: false, power: 0 }); }
       },
       powerPct: power, powerColor,
-      gaugeOp: dragging ? 1 : 0.45,
+      gaugeOp: lockedNow ? 0.3 : dragging ? 1 : 0.45,
       hint: dragging ? 'Release to shoot · ' + power + '%' : 'Press and drag for power',
       hintColor: dragging ? powerColor : '#C9CFCF',
       spinLabel: sp.label, spinL: 50 + sp.x * 50, spinT: 50 + sp.y * 50,

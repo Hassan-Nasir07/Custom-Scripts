@@ -43,7 +43,7 @@ body{margin:0;background:#0E1113}
 </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"scenario":{"editor":"enum","options":["city-sf","city-sf1","city-final","office8","office16"],"default":"office8"},"width":{"editor":"int","default":900},"height":{"editor":"int","default":520},"mini":{"editor":"boolean","default":false},"$preview":{"width":900,"height":520}}'>
+<script type="text/x-dc" data-dc-script data-props='{"scenario":{"editor":"enum","options":["city-sf","city-sf1","city-final","office8","office16"],"default":"office8"},"width":{"editor":"int","default":900},"height":{"editor":"int","default":520},"mini":{"editor":"boolean","default":false},"format":{"editor":"enum","options":["race","bestof"],"default":"race"},"$preview":{"width":900,"height":520}}'>
 class Component extends DCLogic {
   renderVals() {
     const W = parseFloat(this.props.width ?? 900) || 900;
@@ -138,7 +138,7 @@ class Component extends DCLogic {
     if (isHi('champ')) hiLines += cd; else lines += cd;
     const heads = mini ? [] : rounds.map((round, r) => ({
       l: fx(r * (cardW + gap)), w: fx(cardW), color: '#9CA5A8',
-      label: names[r].toUpperCase() + ' · RACE TO ' + races[r]
+      label: names[r].toUpperCase() + (this.props.format === 'bestof' ? ' · BEST OF ' + (2 * races[r] - 1) : ' · RACE TO ' + races[r])
     })).concat([{ l: fx(chX), w: fx(champW), color: '#9CA5A8', label: 'CHAMPION' }]);
     return {
       w: W, h: H, label: 'Tournament bracket', heads, cards, lines, hiLines, lw: mini ? 1.25 : 1.5,

@@ -26,7 +26,7 @@ body{margin:0;background:#07090A}
 <a href="Main.dc.html" class="bc-btn" aria-label="Back to table" style="width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #1C2327; border: 1px solid rgba(255, 255, 255, 0.07); color: #ECE8DF">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg></a>
 <div style="display: flex; flex-direction: column; gap: 1px; flex-grow: 1">
-<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">CITY OPEN</span>
+<span style="font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #9CA5A8">{{kicker}}</span>
 <span style="font-family: 'Chakra Petch', sans-serif; font-size: 18px; font-weight: 600; line-height: 1.1">Bracket</span>
 </div>
 <span style="display: flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 15px; background: #1A2024; border: 1px solid rgba(255, 255, 255, 0.08); font-family: 'Chakra Petch', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; color: #C9CFCF">6 PLAYERS</span>
@@ -65,17 +65,19 @@ body{margin:0;background:#07090A}
 </sc-if>
 </div>
 
-<a href="MatchIntro.dc.html" class="bc-pri" style="height: 52px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; border-radius: 12px; background: #F0B44C; color: #1B1406; text-decoration: none; box-shadow: 0 6px 18px rgba(240, 180, 76, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.35)">
+<a href="{{introHref}}" class="bc-pri" style="height: 52px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; border-radius: 12px; background: #F0B44C; color: #1B1406; text-decoration: none; box-shadow: 0 6px 18px rgba(240, 180, 76, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.35)">
 <span style="font-family: 'Chakra Petch', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: 0.08em">PLAY NEXT MATCH</span>
 <span style="font-size: 11px; font-weight: 600; color: #3A2A0C">Ayesha vs Bilal · Semi-final</span>
 </a>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":640}}'>
+<script type="text/x-dc" data-dc-script data-props='{"game":{"editor":"enum","options":["pool","snooker"],"default":"pool"},"$preview":{"width":400,"height":640}}'>
 class Component extends DCLogic {
   renderVals() {
     const s = this.state || {};
     const tab = s.tab ?? 1;
+    const snk = this.props.game === 'snooker';
+    const fmt = (r) => snk ? 'BEST OF ' + (2 * r - 1) : 'RACE TO ' + r;
     const AMB = '#F0B44C';
     const chipMap = {
       LIVE: ['rgba(236, 106, 61, 0.16)', 'rgba(236, 106, 61, 0.7)', '#F6A585'],
@@ -100,16 +102,16 @@ class Component extends DCLogic {
     const pages = [
       [
         M('QF 1 · BYE', 'BYE', [row('1', 'Ayesha', '', true), row('', 'Advances to semi-final', '', false, false, true)]),
-        M('QF 2 · RACE TO 1', 'DONE', [row('4', 'Bilal', 1, true), row('5', 'Zara', 0, false, true)]),
-        M('QF 3 · RACE TO 1', 'DONE', [row('3', 'Sana', 1, true), row('6', 'Usman', 0, false, true)]),
+        M('QF 2 · ' + fmt(1), 'DONE', [row('4', 'Bilal', 1, true), row('5', 'Zara', 0, false, true)]),
+        M('QF 3 · ' + fmt(1), 'DONE', [row('3', 'Sana', 1, true), row('6', 'Usman', 0, false, true)]),
         M('QF 4 · BYE', 'BYE', [row('2', 'Hamza', '', true), row('', 'Advances to semi-final', '', false, false, true)])
       ],
       [
-        M('SF 1 · RACE TO 2', 'NEXT', [row('1', 'Ayesha', 0), row('4', 'Bilal', 0)]),
-        M('SF 2 · RACE TO 2 · AFTER SF 1', '', [row('3', 'Sana', ''), row('2', 'Hamza', '')])
+        M('SF 1 · ' + fmt(2), 'NEXT', [row('1', 'Ayesha', 0), row('4', 'Bilal', 0)]),
+        M('SF 2 · ' + fmt(2) + ' · AFTER SF 1', '', [row('3', 'Sana', ''), row('2', 'Hamza', '')])
       ],
       [
-        M('FINAL · RACE TO 3', '', [row('', 'Winner SF 1', '', false, false, true), row('', 'Winner SF 2', '', false, false, true)])
+        M('FINAL · ' + fmt(3), '', [row('', 'Winner SF 1', '', false, false, true), row('', 'Winner SF 2', '', false, false, true)])
       ]
     ];
     return {
@@ -119,6 +121,7 @@ class Component extends DCLogic {
         pick: () => this.setState({ tab: i })
       })),
       matches: pages[tab],
+      kicker: snk ? 'CITY OPEN · SNOOKER' : 'CITY OPEN', introHref: snk ? 'SnkMatchIntro.dc.html' : 'MatchIntro.dc.html',
       showOverview: tab > 0
     };
   }

@@ -66,7 +66,7 @@
   .left-panel, .right-panel { width: 240px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; }
   .main-attendance-content { flex: 1 1 auto; min-width: 0; }
   .snake-game-container, .quotes-container, .xp-container, .image-box-container { padding: 13px; border-radius: 16px; }
-  .snake-game-title, .quotes-title, .xp-title, .image-box-title { font-size: .72rem; margin: 0 0 9px; font-weight: 700; }
+  .snake-game-title, .quotes-title, .xp-title { font-size: .72rem; margin: 0 0 9px; font-weight: 700; }
   .snake-canvas { display: block; width: 100%; height: 120px; }
   .xp-progress-bar { height: 9px; background: rgba(255,255,255,.08); border-radius: 5px; overflow: hidden; margin: 8px 0; }
   .xp-progress-fill { height: 100%; }
@@ -75,9 +75,29 @@
   .quote-text { font-style: italic; font-size: .8rem; }
   .quote-author { font-size: .72rem; display: block; margin-top: 6px; }
   .level-badge { padding: 3px 9px; font-size: .68rem; border-radius: 9px; }
-  .snake-btn, .game-switch-btn, .quote-add-btn, .aspect-ratio-btn, .xp-achievements-view-all {
+  .snake-btn, .game-switch-btn, .quote-add-btn, .xp-achievements-view-all {
     font: inherit; font-size: .7rem; padding: 6px 9px; cursor: pointer; border: 1px solid transparent; border-radius: 8px;
   }
+  /* Image Box: the host's layout rules only; its colours are the theme's. The
+     menu is position:absolute over the image in the widget and static here, so
+     the rig shows it without a right-click. */
+  .image-display { position: relative; width: 100%; aspect-ratio: 16 / 9; min-height: 196px; overflow: hidden; }
+  .ib-drop { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; }
+  .ib-drop-icon { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+  .ib-drop-title { font-size: 15px; font-weight: 600; }
+  .ib-drop-note { font-size: 12px; }
+  .ib-browse, .ib-link-btn, .ib-ratio, .ib-mi { font: inherit; cursor: pointer; border: 0; }
+  .ib-browse { height: 36px; padding: 0 16px; font-size: 13px; font-weight: 600; }
+  .ib-link-btn { padding: 0; background: none; text-decoration: underline; }
+  .ib-menu { margin-top: 10px; padding: 6px; }
+  .ib-menu-label { padding: 8px 10px 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .ib-ratios { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 0 6px 8px; }
+  .ib-ratio { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; height: 52px; font-size: 11px; }
+  .ib-ratio-icon { display: block; box-sizing: border-box; border: 1.6px solid currentColor; }
+  .ib-sep { height: 1px; margin: 2px 4px; }
+  .ib-mi { display: flex; align-items: center; gap: 10px; width: 100%; height: 38px; padding: 0 10px; font-size: 13px; text-align: left; }
+  .ib-mi-text { flex-grow: 1; }
+  .ib-mi-state { font-size: 11px; }
   .game-controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 9px; }
   .game-switch-row { display: flex; gap: 5px; margin-bottom: 9px; flex-wrap: wrap; }
   .developer-info, .settings-button, .pip-button {
@@ -278,12 +298,27 @@
           <div style="margin-top:10px"><button class="xp-achievements-view-all">View All (25/36)</button></div>
         </div>
         <div class="image-box-container">
-          <div class="image-box-title">🖼 Image</div>
-          <div class="row">
-            <button class="aspect-ratio-btn active">◻</button>
-            <button class="aspect-ratio-btn">▬</button>
-            <button class="aspect-ratio-btn">▭</button>
-            <button class="aspect-ratio-btn">▯</button>
+          <div class="image-display ib-empty">
+            <div class="ib-drop">
+              <div class="ib-drop-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
+              <div class="ib-drop-title">Drop an image here</div>
+              <button type="button" class="ib-browse">Browse files</button>
+              <div class="ib-drop-note">PNG, JPG, GIF or WebP · <button type="button" class="ib-link-btn">paste a link</button></div>
+            </div>
+          </div>
+          <div class="ib-menu" role="menu" aria-label="Image options">
+            <div class="ib-menu-label">Aspect ratio</div>
+            <div class="ib-ratios">
+              <button type="button" class="ib-ratio" aria-pressed="false"><span class="ib-ratio-icon" style="width: 12px; height: 12px"></span><span>1:1</span></button>
+              <button type="button" class="ib-ratio" aria-pressed="true"><span class="ib-ratio-icon" style="width: 16px; height: 9px"></span><span>16:9</span></button>
+              <button type="button" class="ib-ratio" aria-pressed="false"><span class="ib-ratio-icon" style="width: 18px; height: 8px"></span><span>21:9</span></button>
+              <button type="button" class="ib-ratio" aria-pressed="false"><span class="ib-ratio-icon" style="width: 9px; height: 12px"></span><span>3:4</span></button>
+            </div>
+            <div class="ib-sep"></div>
+            <button type="button" class="ib-mi" role="menuitem"><span class="ib-mi-text">Replace image…</span></button>
+            <button type="button" class="ib-mi" role="menuitem"><span class="ib-mi-text">Fit whole image</span><span class="ib-mi-state">Filling</span></button>
+            <div class="ib-sep"></div>
+            <button type="button" class="ib-mi ib-mi-danger" role="menuitem"><span class="ib-mi-text">Remove image</span></button>
           </div>
         </div>
       </div>

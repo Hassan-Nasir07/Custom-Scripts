@@ -1364,8 +1364,7 @@
 
             .attendance-summary.retro-theme .snake-game-title,
             .attendance-summary.retro-theme .quotes-title,
-            .attendance-summary.retro-theme .xp-title,
-            .attendance-summary.retro-theme .image-box-title {
+            .attendance-summary.retro-theme .xp-title {
                 color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 letter-spacing: 0.12em !important;
@@ -1494,17 +1493,160 @@
                 color: var(--rt-bg-1) !important;
             }
 
-            .attendance-summary.retro-theme .aspect-ratio-btn {
-                background: transparent !important;
+            /* IMAGE BOX — the frame, its kebab and hint, the drop zone, the options menu and
+               the Undo toast. Selected states invert to a text fill, as every Cyberpunk
+               toggle does; Remove takes the accent because it is the one action aimed at
+               something, and the theme has no fixed red to spend on it. */
+
+            .attendance-summary.retro-theme .image-display {
+                background: var(--rt-bg-1) !important;
+                border-radius: var(--rt-radius) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-kebab,
+            .attendance-summary.retro-theme .ib-hint {
+                background: var(--rt-panel-strong) !important;
                 border: 1px solid var(--rt-border) !important;
-                border-radius: 0 !important;
+                border-radius: var(--rt-radius) !important;
+                color: var(--rt-text) !important;
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+            }
+
+            .attendance-summary.retro-theme .ib-kebab:hover {
+                border-color: var(--rt-border-strong) !important;
+                box-shadow: var(--rt-glow-soft);
+            }
+
+            .attendance-summary.retro-theme .ib-hint {
+                font-family: 'Share Tech Mono', monospace;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                font-size: 10px;
+            }
+
+            .attendance-summary.retro-theme .ib-drag .ib-stage::after {
+                border: 1px dashed var(--rt-border-strong);
+                border-radius: var(--rt-radius);
+                background: rgba(var(--rt-text-rgb), 0.08);
+            }
+
+            .attendance-summary.retro-theme .ib-drop {
+                background: transparent !important;
+                border: 1px dashed var(--rt-border) !important;
+                border-radius: var(--rt-radius) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-drop:hover,
+            .attendance-summary.retro-theme .ib-drag .ib-drop {
+                border-color: var(--rt-border-strong) !important;
+                background: rgba(var(--rt-text-rgb), 0.05) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-drop-icon {
+                background: transparent !important;
+                border: 1px solid var(--rt-border);
+                border-radius: var(--rt-radius) !important;
+                color: var(--rt-accent) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-drop-title {
+                color: var(--rt-text) !important;
+                font-family: 'Orbitron', sans-serif;
+                font-size: 12px;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                text-shadow: var(--rt-glow-soft);
+            }
+
+            .attendance-summary.retro-theme .ib-drop-note,
+            .attendance-summary.retro-theme .ib-menu-label,
+            .attendance-summary.retro-theme .ib-mi-state {
+                color: var(--rt-text-dim) !important;
+                font-family: 'Share Tech Mono', monospace;
+                letter-spacing: 0.08em;
+            }
+
+            .attendance-summary.retro-theme .ib-link-btn {
                 color: var(--rt-text) !important;
             }
 
-            .attendance-summary.retro-theme .aspect-ratio-btn.active {
+            .attendance-summary.retro-theme .ib-browse,
+            .attendance-summary.retro-theme .ib-undo {
+                background: var(--rt-text) !important;
+                color: var(--rt-bg-1) !important;
+                border-radius: var(--rt-radius) !important;
+                font-family: 'Share Tech Mono', monospace;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .attendance-summary.retro-theme .ib-browse:hover,
+            .attendance-summary.retro-theme .ib-undo:hover {
+                box-shadow: var(--rt-glow-soft);
+            }
+
+            .attendance-summary.retro-theme .ib-menu,
+            .attendance-summary.retro-theme .ib-toast {
+                background: var(--rt-panel-strong) !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: var(--rt-radius) !important;
+                color: var(--rt-text) !important;
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+                box-shadow: 0 14px 32px rgba(0, 0, 0, 0.55) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-toast {
+                font-family: 'Share Tech Mono', monospace;
+                letter-spacing: 0.08em;
+            }
+
+            .attendance-summary.retro-theme .ib-ratio {
+                background: transparent !important;
+                border: 1px solid var(--rt-border) !important;
+                border-radius: var(--rt-radius) !important;
+                color: var(--rt-text) !important;
+                font-family: 'Share Tech Mono', monospace;
+            }
+
+            .attendance-summary.retro-theme .ib-ratio[aria-pressed="true"] {
                 background: var(--rt-text) !important;
                 border-color: var(--rt-text) !important;
                 color: var(--rt-bg-1) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-sep {
+                background: var(--rt-border) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-mi {
+                border-radius: var(--rt-radius) !important;
+                color: var(--rt-text) !important;
+                font-family: 'Share Tech Mono', monospace;
+                letter-spacing: 0.04em;
+            }
+
+            .attendance-summary.retro-theme .ib-mi:hover,
+            .attendance-summary.retro-theme .ib-mi:focus-visible {
+                background: rgba(var(--rt-text-rgb), 0.12) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-mi-danger {
+                color: var(--rt-accent) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-mi-danger:hover,
+            .attendance-summary.retro-theme .ib-mi-danger:focus-visible {
+                background: rgba(var(--rt-accent-rgb), 0.14) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-kebab:focus-visible,
+            .attendance-summary.retro-theme .ib-browse:focus-visible,
+            .attendance-summary.retro-theme .ib-link-btn:focus-visible,
+            .attendance-summary.retro-theme .ib-ratio:focus-visible,
+            .attendance-summary.retro-theme .ib-undo:focus-visible {
+                outline-color: var(--rt-border-strong);
             }
 
             /* GAME CONTROLS */

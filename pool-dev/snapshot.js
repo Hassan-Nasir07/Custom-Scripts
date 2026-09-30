@@ -194,6 +194,9 @@ const SCENES = {
     'snk-guide-short': 'game=snooker&scene=red&camera=2d&guidelen=short',
     'snk-guide-medium': 'game=snooker&scene=red&camera=2d&guidelen=medium',
     'snk-tour-setup': 'game=snooker&tour=setup',
+    // Snooker's pockets up close: the hole seen down the gap between the cushion ends, and the lit cut in the rail.
+    'max-snk-midpocket': 'game=snooker&scene=nominatePink&camera=3d&pot=1&cut=8&od=18&cd=55&lean=15&max=1&mode=pvp',
+    'max-snk-cornerpocket': 'game=snooker&scene=nominatePink&camera=3d&pot=0&cut=25&od=30&cd=90&lean=40&max=1&mode=pvp',
 };
 
 const CHROME = require('./browser').browserPath();     // Chrome, else Edge, or POOL_BROWSER

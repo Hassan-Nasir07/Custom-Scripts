@@ -245,11 +245,31 @@
         const cush = pgCushions(cfg);
         if (eye) {
             const ri = [];
-            if (eye[0] < IX) ri.push(P([[IX, -IY, TZ], [IX, IY, TZ], [IX, IY, 0], [IX, -IY, 0]]));
-            if (eye[0] > -IX) ri.push(P([[-IX, -IY, TZ], [-IX, IY, TZ], [-IX, IY, 0], [-IX, -IY, 0]]));
-            if (eye[1] < IY) ri.push(P([[-IX, IY, TZ], [IX, IY, TZ], [IX, IY, 0], [-IX, IY, 0]]));
-            if (eye[1] > -IY) ri.push(P([[-IX, -IY, TZ], [IX, -IY, TZ], [IX, -IY, 0], [-IX, -IY, 0]]));
+            // Snooker's rounded pockets cut through the rail's inner face (at true scale the hole
+            // does not reach across the gap between the cushions' quarter-rounds, and a whole face
+            // would stand in it as a flat post): the face is drawn either side of each hole's chord.
+            const rounded = cfg.pocketStyle === 'rounded';
+            const face = (axis, v, lo, hi) => {
+                const cuts = !rounded ? [] : table.pockets.map(p => {
+                    const d = axis === 'y' ? Math.abs(p.y - v) : Math.abs(p.x - v);
+                    if (d >= p.r) return null;
+                    const w = Math.sqrt(p.r * p.r - d * d), c = axis === 'y' ? p.x : p.y;
+                    return [c - w, c + w];
+                }).filter(Boolean).sort((a, b) => a[0] - b[0]);
+                let from = lo;
+                const pieces = [];
+                cuts.forEach(([a, b]) => { if (a > from) pieces.push([from, Math.min(a, hi)]); from = Math.max(from, b); });
+                if (from < hi) pieces.push([from, hi]);
+                pieces.forEach(([a, b]) => ri.push(P(axis === 'y' ? [[a, v, TZ], [b, v, TZ], [b, v, 0], [a, v, 0]] : [[v, a, TZ], [v, b, TZ], [v, b, 0], [v, a, 0]])));
+            };
+            if (eye[0] < IX) face('x', IX, -IY, IY);
+            if (eye[0] > -IX) face('x', -IX, -IY, IY);
+            if (eye[1] < IY) face('y', IY, -IX, IX);
+            if (eye[1] > -IY) face('y', -IY, -IX, IX);
             pgFill(ctx, ri, '#24150D');
+            // …and through the gap you see down the hole: its silhouette (rim to floor) in black,
+            // drawn now so the cushions and rail in front of it cover it where they should.
+            if (rounded) pgFill(ctx, table.pockets.map(p => pgHull(P(pgCirc(p.x, p.y, p.r, TZ + 0.3, 36)).concat(P(pgCirc(p.x, p.y, p.r, 0, 36))))).filter(h => h.length >= 3), '#040303');
             const jaws = [];
             cush.forEach(c => c.ends.forEach(([p, q]) => jaws.push(P([p, q, [q[0], q[1], 0], [p[0], p[1], 0]]))));
             pgFill(ctx, jaws, mat.jaw);
@@ -294,6 +314,21 @@
             return q;
         })));
         pgFill(ctx, rims, '#1A1410');
+        // Snooker: a lit edge on the cut through the rail top, so the hole reads as an opening.
+        // Only the arc that runs through the rail: over the cushions there is no rail to cut.
+        if (cfg.pocketStyle === 'rounded' && eye) {
+            ctx.beginPath();
+            table.pockets.forEach(p => {
+                const pts = pgCirc(p.x, p.y, p.r, TZ + 0.3, 72).concat([pgCirc(p.x, p.y, p.r, TZ + 0.3, 72)[0]]);
+                let prev = null;
+                pts.forEach(q => {
+                    const onRail = Math.abs(q[0]) >= IX || Math.abs(q[1]) >= IY, s = onRail ? pcProject(view, q) : null;
+                    if (s && prev) ctx.lineTo(s[0], s[1]); else if (s) ctx.moveTo(s[0], s[1]);
+                    prev = s;
+                });
+            });
+            ctx.strokeStyle = 'rgba(243, 238, 226, 0.16)'; ctx.lineWidth = 1; ctx.stroke();
+        }
         const bandZ = [[TZ + 0.3, 0], [0, -22], [-22, PG_POCKET_FLOOR]];
         const bandRGB = ['#563C29', '#302117', '#150F0B'];
         const lit = [0.55, 0.8, 1.08];

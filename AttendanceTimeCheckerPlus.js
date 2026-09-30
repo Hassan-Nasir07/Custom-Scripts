@@ -263,15 +263,29 @@
         teamPlayer:   { icon: '🤝', name: 'Team Player',       desc: 'Join the leaderboard' }
     };
 
+    // What localStorage holds for the Image Box: a link, or IMAGE_BOX_IDB_REF for an uploaded
+    // file, which lives in IndexedDB because a data: URL of a photo can outgrow localStorage.
     let currentImageURL = '';
     let currentAspectRatio = '16:9'; // Default: Widescreen ratio
+    let currentImageFit = 'cover';   // 'cover' fills the frame, 'contain' shows the whole image
+    // What the <img> shows: the link itself, or an object URL made from imageBoxBlob.
+    let imageBoxSrc = '';
+    let imageBoxBlob = null;
+    let imageBoxReady = false;  // false until the upload is read back, so the drop zone doesn't flash
+    let imageBoxFailed = false;
+    let imageBoxUndo = null;    // { ref, blob } kept for the toast's Undo
+    let imageBoxToastTimer = 0;
+    let imageBoxEventsBound = false;
 
     const aspectRatios = {
-        '1:1': { name: 'Square', icon: '◻', paddingBottom: '100%', use: 'Profile pics, badges' },
-        '16:9': { name: 'Widescreen', icon: '▬', paddingBottom: '56.25%', use: 'Videos, monitors' },
-        '4:3': { name: 'Classic', icon: '▭', paddingBottom: '75%', use: 'Old monitors, photos' },
-        '9:16': { name: 'Portrait', icon: '▯', paddingBottom: '177.78%', use: 'Phone screens, stories' }
+        '1:1':  { name: 'Square',            css: '1 / 1',  iw: 12, ih: 12 },
+        '16:9': { name: 'Landscape 16 by 9', css: '16 / 9', iw: 16, ih: 9 },
+        '21:9': { name: 'Wide 21 by 9',      css: '21 / 9', iw: 18, ih: 8 },
+        '3:4':  { name: 'Portrait 3 by 4',   css: '3 / 4',  iw: 9,  ih: 12 }
     };
+    // Ratios the old button row offered, mapped to their nearest replacement.
+    const LEGACY_ASPECT_RATIOS = { '4:3': '16:9', '9:16': '3:4' };
+    const IMAGE_BOX_IDB_REF = 'idb:customImage';
 
     let userPreferences = {
         neumorphicDepth: true,
@@ -436,16 +450,52 @@
     }
 
     function saveImageURL(url) {
-        localStorage.setItem('customImageURL', url);
+        if (url) localStorage.setItem('customImageURL', url);
+        else localStorage.removeItem('customImageURL');
     }
 
     function loadAspectRatio() {
-        return localStorage.getItem('customImageAspectRatio') || '16:9';
+        const saved = localStorage.getItem('customImageAspectRatio') || '16:9';
+        const ratio = LEGACY_ASPECT_RATIOS[saved] || saved;
+        return aspectRatios[ratio] ? ratio : '16:9';
     }
 
     function saveAspectRatio(ratio) {
         localStorage.setItem('customImageAspectRatio', ratio);
     }
+
+    function loadImageFit() {
+        return localStorage.getItem('customImageFit') === 'contain' ? 'contain' : 'cover';
+    }
+
+    function saveImageFit(fit) {
+        localStorage.setItem('customImageFit', fit);
+    }
+
+    // The uploaded image, one Blob under one key. Each call opens and closes its own
+    // connection: this runs a handful of times a session, not per frame.
+    function _imageBoxStore(mode, op) {
+        return new Promise((resolve, reject) => {
+            let open;
+            try { open = indexedDB.open('attendanceImageBox', 1); } catch (e) { reject(e); return; }
+            open.onupgradeneeded = () => open.result.createObjectStore('images');
+            open.onerror = () => reject(open.error);
+            open.onsuccess = () => {
+                const db = open.result;
+                let req;
+                try {
+                    const tx = db.transaction('images', mode);
+                    req = op(tx.objectStore('images'));
+                    tx.oncomplete = () => { db.close(); resolve(req && req.result); };
+                    tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
+                } catch (e) { db.close(); reject(e); }
+            };
+        });
+    }
+
+    function loadImageBlob()      { return _imageBoxStore('readonly',  s => s.get('custom')); }
+    function saveImageBlob(blob)  { return _imageBoxStore('readwrite', s => s.put(blob, 'custom')); }
+    function clearImageBlob()     { return _imageBoxStore('readwrite', s => s.delete('custom')); }
 
     // RefleX storage. One-time wipe of scores invalidated by the 2026-05-25 anti-cheat
     // patch (re-run 05-26). While set, applyPlayerRecordToLocal() refuses gist reflex restores.
@@ -16070,68 +16120,426 @@
     }
 
 
+    // IMAGE BOX — the image fills the card; everything else lives in a menu opened by
+    // right-clicking the image or its hover kebab. Every handler is delegated from document,
+    // because renderFullContent() can rebuild the right panel and drop per-node listeners.
+    const IB_ICONS = {
+        kebab:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="0.6"/><circle cx="12" cy="12" r="0.6"/><circle cx="19" cy="12" r="0.6"/></svg>',
+        upload: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>',
+        image:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-9 9"/></svg>',
+        link:   '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>',
+        fit:    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg>',
+        trash:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M9 7V4h6v3"/></svg>'
+    };
+
+    const IMAGE_BOX_STAGE_HTML = `
+        <div class="ib-stage">
+            <img class="image-box-img" alt="Your widget image" draggable="false">
+            <button type="button" class="ib-kebab" data-ib="kebab" aria-label="Image options" aria-haspopup="menu" aria-expanded="false">${IB_ICONS.kebab}</button>
+            <div class="ib-hint" aria-hidden="true">Right-click for options</div>
+        </div>`;
+
+    function imageBoxDropHTML(failed) {
+        return `
+        <div class="ib-drop">
+            <div class="ib-drop-icon">${IB_ICONS.upload}</div>
+            <div class="ib-drop-title">${failed ? 'That image didn’t load' : 'Drop an image here'}</div>
+            <button type="button" class="ib-browse" data-ib="browse">Browse files</button>
+            <div class="ib-drop-note">PNG, JPG, GIF or WebP · <button type="button" class="ib-link-btn" data-ib="link">paste a link</button></div>
+        </div>`;
+    }
+
+    // The container's static parts; the frame's contents come from updateImageDisplay().
+    function imageBoxHTML() {
+        const ratioButtons = Object.keys(aspectRatios).map(key => {
+            const r = aspectRatios[key];
+            return `<button type="button" class="ib-ratio" data-ib="ratio" data-ratio="${key}" aria-label="${r.name}" aria-pressed="false">
+                            <span class="ib-ratio-icon" style="width: ${r.iw}px; height: ${r.ih}px"></span>
+                            <span>${key}</span>
+                        </button>`;
+        }).join('');
+        return `
+                <div class="image-box-container">
+                    <div id="image-display" class="image-display"></div>
+                    <input type="file" accept="image/*" class="ib-file" hidden tabindex="-1" aria-hidden="true">
+                    <div class="ib-menu" role="menu" aria-label="Image options" hidden>
+                        <div class="ib-menu-label">Aspect ratio</div>
+                        <div class="ib-ratios">${ratioButtons}</div>
+                        <div class="ib-sep"></div>
+                        <button type="button" class="ib-mi" role="menuitem" data-ib="browse">${IB_ICONS.image}<span class="ib-mi-text">Replace image…</span></button>
+                        <button type="button" class="ib-mi" role="menuitem" data-ib="link">${IB_ICONS.link}<span class="ib-mi-text">Use an image link…</span></button>
+                        <button type="button" class="ib-mi" role="menuitem" data-ib="fit">${IB_ICONS.fit}<span class="ib-mi-text ib-fit-label">Fit whole image</span><span class="ib-mi-state ib-fit-state">Filling</span></button>
+                        <div class="ib-sep"></div>
+                        <button type="button" class="ib-mi ib-mi-danger" role="menuitem" data-ib="remove">${IB_ICONS.trash}<span class="ib-mi-text">Remove image</span></button>
+                    </div>
+                    <div class="ib-toast" role="status" hidden>
+                        <span class="ib-toast-text"></span>
+                        <button type="button" class="ib-undo" data-ib="undo">Undo</button>
+                    </div>
+                </div>`;
+    }
+
     function initImageBox() {
         currentImageURL = loadImageURL();
         currentAspectRatio = loadAspectRatio();
+        currentImageFit = loadImageFit();
+        initImageBoxEvents();
+
+        if (currentImageURL === IMAGE_BOX_IDB_REF) {
+            loadImageBlob().then((blob) => {
+                // A new image may have landed while this was reading.
+                if (currentImageURL !== IMAGE_BOX_IDB_REF || imageBoxBlob) return;
+                if (blob) {
+                    imageBoxBlob = blob;
+                    setImageBoxSrc(URL.createObjectURL(blob));
+                } else {
+                    currentImageURL = '';
+                    saveImageURL('');
+                }
+            }).catch(() => {
+                imageBoxFailed = true;
+            }).then(() => {
+                imageBoxReady = true;
+                updateImageDisplay();
+            });
+        } else {
+            setImageBoxSrc(currentImageURL);
+            imageBoxReady = true;
+        }
         updateImageDisplay();
-        updateAspectRatioButtons();
+    }
+
+    function setImageBoxSrc(src) {
+        if (imageBoxSrc.startsWith('blob:')) URL.revokeObjectURL(imageBoxSrc);
+        imageBoxSrc = src || '';
+        imageBoxFailed = false;
+    }
+
+    // ref is what localStorage keeps: a link, or IMAGE_BOX_IDB_REF with blob already stored.
+    function applyImage(ref, blob) {
+        if (ref !== IMAGE_BOX_IDB_REF && currentImageURL === IMAGE_BOX_IDB_REF) {
+            clearImageBlob().catch(() => {});
+        }
+        currentImageURL = ref;
+        saveImageURL(ref);
+        imageBoxBlob = blob || null;
+        setImageBoxSrc(blob ? URL.createObjectURL(blob) : ref);
+        imageBoxReady = true;
+        hideImageBoxToast();
+        closeImageBoxMenu();
+        updateImageDisplay();
+
+        if (xpSystemReady && !userXP.achievements.includes('picturePerfect')) {
+            unlockAchievement('picturePerfect');
+        }
+    }
+
+    function setImageFromFile(file) {
+        if (!file || !/^image\//.test(file.type)) {
+            showImageBoxToast('That file isn’t an image');
+            return;
+        }
+        saveImageBlob(file)
+            .then(() => applyImage(IMAGE_BOX_IDB_REF, file))
+            .catch(() => showImageBoxToast('Couldn’t save that image'));
     }
 
     function changeImage() {
-        const newURL = prompt('Enter image URL from Google Images:', currentImageURL);
-
+        closeImageBoxMenu();
+        const current = currentImageURL === IMAGE_BOX_IDB_REF ? '' : currentImageURL;
+        const newURL = prompt('Paste an image link:', current);
         if (newURL !== null && newURL.trim() !== '') {
-            currentImageURL = newURL.trim();
-            saveImageURL(currentImageURL);
-            updateImageDisplay();
-
-            if (xpSystemReady && !userXP.achievements.includes('picturePerfect')) {
-                unlockAchievement('picturePerfect');
-            }
+            applyImage(newURL.trim(), null);
         }
+    }
+
+    function openImageBoxFilePicker() {
+        closeImageBoxMenu();
+        const input = document.querySelector('.image-box-container .ib-file');
+        if (input) input.click();
+    }
+
+    function removeImage() {
+        if (!currentImageURL) return;
+        const hadFocus = !!document.activeElement && !!document.activeElement.closest('.ib-menu');
+        imageBoxUndo = { ref: currentImageURL, blob: imageBoxBlob };
+        if (currentImageURL === IMAGE_BOX_IDB_REF) clearImageBlob().catch(() => {});
+        currentImageURL = '';
+        saveImageURL('');
+        imageBoxBlob = null;
+        setImageBoxSrc('');
+        closeImageBoxMenu();
+        updateImageDisplay();
+        showImageBoxToast('Image removed', true);
+        const undo = document.querySelector('.image-box-container .ib-undo');
+        if (hadFocus && undo) undo.focus({ preventScroll: true });
+    }
+
+    function undoRemoveImage() {
+        const undo = imageBoxUndo;
+        if (!undo) return;
+        if (undo.blob) {
+            saveImageBlob(undo.blob)
+                .then(() => applyImage(IMAGE_BOX_IDB_REF, undo.blob))
+                .catch(() => showImageBoxToast('Couldn’t restore the image'));
+        } else {
+            applyImage(undo.ref, null);
+        }
+    }
+
+    function toggleImageFit() {
+        currentImageFit = currentImageFit === 'cover' ? 'contain' : 'cover';
+        saveImageFit(currentImageFit);
+        closeImageBoxMenu(true);
+        updateImageDisplay();
+    }
+
+    function showImageBoxToast(text, withUndo) {
+        const toast = document.querySelector('.image-box-container .ib-toast');
+        if (!toast) return;
+        clearTimeout(imageBoxToastTimer);
+        toast.querySelector('.ib-toast-text').textContent = text;
+        toast.querySelector('.ib-undo').hidden = !withUndo;
+        toast.hidden = false;
+        imageBoxToastTimer = setTimeout(hideImageBoxToast, 5000);
+    }
+
+    function hideImageBoxToast() {
+        clearTimeout(imageBoxToastTimer);
+        imageBoxUndo = null;
+        const toast = document.querySelector('.image-box-container .ib-toast');
+        if (toast) toast.hidden = true;
+    }
+
+    function handleImageBoxDrop(dt) {
+        if (!dt) return;
+        const file = Array.from(dt.files || []).find(f => /^image\//.test(f.type));
+        if (file) { setImageFromFile(file); return; }
+        // An image dragged out of another tab arrives as its link, not a file.
+        const link = (dt.getData('text/uri-list') || dt.getData('text/plain') || '')
+            .split(/\r?\n/).map(l => l.trim()).find(l => /^https?:\/\//i.test(l));
+        if (link) applyImage(link, null);
+        else if (dt.files && dt.files.length) showImageBoxToast('That file isn’t an image');
+    }
+
+    function getOpenImageBoxMenu() {
+        return document.querySelector('.image-box-container .ib-menu:not([hidden])');
+    }
+
+    function syncImageBoxMenu(menu) {
+        menu.querySelectorAll('.ib-ratio').forEach(btn => {
+            btn.setAttribute('aria-pressed', btn.dataset.ratio === currentAspectRatio ? 'true' : 'false');
+        });
+        menu.querySelector('.ib-fit-label').textContent = currentImageFit === 'cover' ? 'Fit whole image' : 'Fill frame';
+        menu.querySelector('.ib-fit-state').textContent = currentImageFit === 'cover' ? 'Filling' : 'Fitting';
+    }
+
+    // (clientX, clientY) is the menu's top-left, or its top-right with alignRight. It is
+    // placed inside the container, which it may overhang upwards onto the XP panel but never
+    // past the right panel: .attendance-summary clips.
+    function openImageBoxMenu(clientX, clientY, alignRight) {
+        const box = document.querySelector('.image-box-container');
+        const menu = box && box.querySelector('.ib-menu');
+        const frame = document.getElementById('image-display');
+        if (!menu || !frame || !imageBoxSrc || imageBoxFailed) return;
+
+        syncImageBoxMenu(menu);
+        menu.hidden = false;
+        const boxRect = box.getBoundingClientRect();
+        const panel = box.closest('.right-panel');
+        const minTop = panel ? panel.getBoundingClientRect().top - boxRect.top : 8;
+        const w = menu.offsetWidth, h = menu.offsetHeight;
+        let x = clientX - boxRect.left - (alignRight ? w : 0);
+        let y = clientY - boxRect.top;
+        x = Math.max(8, Math.min(x, boxRect.width - w - 8));
+        y = Math.max(minTop, Math.min(y, boxRect.height - h - 8));
+        menu.style.left = x + 'px';
+        menu.style.top = y + 'px';
+
+        frame.classList.add('ib-menu-open', 'ib-hint-seen');
+        localStorage.setItem('imageBoxHintSeen', '1');
+        const kebab = frame.querySelector('.ib-kebab');
+        if (kebab) kebab.setAttribute('aria-expanded', 'true');
+        const first = menu.querySelector('.ib-ratio[aria-pressed="true"]') || menu.querySelector('button');
+        if (first) first.focus({ preventScroll: true });
+    }
+
+    function closeImageBoxMenu(returnFocus) {
+        const menu = getOpenImageBoxMenu();
+        if (!menu) return;
+        const hadFocus = menu.contains(document.activeElement);
+        menu.hidden = true;
+        const frame = document.getElementById('image-display');
+        if (frame) frame.classList.remove('ib-menu-open');
+        const kebab = frame && frame.querySelector('.ib-kebab');
+        if (kebab) kebab.setAttribute('aria-expanded', 'false');
+        if (returnFocus && hadFocus && kebab) kebab.focus({ preventScroll: true });
+    }
+
+    function initImageBoxEvents() {
+        if (imageBoxEventsBound) return;
+        imageBoxEventsBound = true;
+
+        document.addEventListener('click', (e) => {
+            const t = e.target;
+            if (!t || !t.closest) return;
+            const act = t.closest('.image-box-container [data-ib]');
+            const menuOpen = !!getOpenImageBoxMenu();
+            if (menuOpen && !t.closest('.ib-menu') && !(act && act.dataset.ib === 'kebab')) closeImageBoxMenu();
+            if (!act) return;
+
+            switch (act.dataset.ib) {
+                case 'kebab': {
+                    if (menuOpen) { closeImageBoxMenu(true); break; }
+                    const r = act.getBoundingClientRect();
+                    openImageBoxMenu(r.right, r.bottom + 6, true);
+                    break;
+                }
+                case 'browse': openImageBoxFilePicker(); break;
+                case 'link':   changeImage(); break;
+                case 'ratio':  changeAspectRatio(act.dataset.ratio); break;
+                case 'fit':    toggleImageFit(); break;
+                case 'remove': removeImage(); break;
+                case 'undo':   undoRemoveImage(); break;
+            }
+        });
+
+        document.addEventListener('contextmenu', (e) => {
+            const t = e.target;
+            if (!t || !t.closest) return;
+            if (t.closest('.image-box-container .ib-stage')) {
+                e.preventDefault();
+                openImageBoxMenu(e.clientX, e.clientY);
+            } else if (getOpenImageBoxMenu() && !t.closest('.ib-menu')) {
+                closeImageBoxMenu();
+            }
+        });
+
+        document.addEventListener('change', (e) => {
+            const input = e.target;
+            if (!input || !input.classList || !input.classList.contains('ib-file')) return;
+            const file = input.files && input.files[0];
+            input.value = '';
+            if (file) setImageFromFile(file);
+        });
+
+        const frameOf = (e) => e.target && e.target.closest && e.target.closest('.image-box-container .image-display');
+        document.addEventListener('dragover', (e) => {
+            const frame = frameOf(e);
+            if (!frame) return;
+            e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+            frame.classList.add('ib-drag');
+        });
+        document.addEventListener('dragleave', (e) => {
+            const frame = frameOf(e);
+            if (frame && !frame.contains(e.relatedTarget)) frame.classList.remove('ib-drag');
+        });
+        document.addEventListener('drop', (e) => {
+            const frame = frameOf(e);
+            if (!frame) return;
+            e.preventDefault();
+            frame.classList.remove('ib-drag');
+            handleImageBoxDrop(e.dataTransfer);
+        });
+
+        // Capture on window so this runs before the document-level game shortcuts: Escape
+        // there resets the running game, and 1–9 switch games.
+        window.addEventListener('keydown', (e) => {
+            const menu = getOpenImageBoxMenu();
+            if (!menu) return;
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeImageBoxMenu(true);
+                return;
+            }
+            if (!menu.contains(document.activeElement)) return;
+            if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+                const items = Array.from(menu.querySelectorAll('button'));
+                let i = items.indexOf(document.activeElement);
+                if (e.key === 'Home') i = 0;
+                else if (e.key === 'End') i = items.length - 1;
+                else i = (i + (e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length;
+                items[i].focus();
+                e.preventDefault();
+            }
+            if (e.key !== 'Tab') e.stopPropagation();
+        }, true);
+
+        window.addEventListener('resize', () => closeImageBoxMenu());
     }
 
     function updateImageDisplay() {
-        const imageDisplay = document.getElementById('image-display');
-        if (!imageDisplay) return;
+        const frame = document.getElementById('image-display');
+        if (!frame) return;
 
-        const ratio = aspectRatios[currentAspectRatio];
-        if (ratio) {
-            imageDisplay.style.paddingBottom = ratio.paddingBottom;
-        }
+        const ratio = aspectRatios[currentAspectRatio] || aspectRatios['16:9'];
+        frame.style.setProperty('--ib-ratio', ratio.css);
+        frame.classList.toggle('ib-portrait', currentAspectRatio === '3:4');
+        frame.classList.toggle('ib-contain', currentImageFit === 'contain');
+        frame.classList.toggle('ib-hint-seen', localStorage.getItem('imageBoxHintSeen') === '1');
 
-        if (currentImageURL && currentImageURL !== '') {
-            imageDisplay.innerHTML = `<img src="${currentImageURL}" alt="Custom Image" class="image-box-img" onerror="this.parentElement.innerHTML='<div class=\\'image-placeholder\\'>❌ Failed to load image</div>'">`;
-        } else {
-            imageDisplay.innerHTML = '<div class="image-placeholder">📷 Click "Change Image" to add your favorite image</div>';
-        }
-    }
-
-    function changeAspectRatio(ratio) {
-        if (!aspectRatios[ratio]) return;
-
-        // Only apply aspect ratio change if an image is loaded
-        if (!currentImageURL || currentImageURL === '') {
+        if (!imageBoxReady) {
+            frame.classList.remove('ib-empty');
+            frame.innerHTML = '';
             return;
         }
 
-        currentAspectRatio = ratio;
-        saveAspectRatio(ratio);
-        updateImageDisplay();
-        updateAspectRatioButtons();
+        const showImage = !!imageBoxSrc && !imageBoxFailed;
+        frame.classList.toggle('ib-empty', !showImage);
+        if (showImage) {
+            let img = frame.querySelector('.image-box-img');
+            if (!img) {
+                frame.innerHTML = IMAGE_BOX_STAGE_HTML;
+                img = frame.querySelector('.image-box-img');
+                img.addEventListener('error', () => {
+                    if (!img.isConnected) return;
+                    imageBoxFailed = true;
+                    closeImageBoxMenu();
+                    updateImageDisplay();
+                });
+            }
+            if (img.getAttribute('src') !== imageBoxSrc) img.setAttribute('src', imageBoxSrc);
+        } else if (!frame.querySelector('.ib-drop') || frame.dataset.failed !== String(imageBoxFailed)) {
+            frame.innerHTML = imageBoxDropHTML(imageBoxFailed);
+            frame.dataset.failed = String(imageBoxFailed);
+        }
     }
 
-    function updateAspectRatioButtons() {
-        Object.keys(aspectRatios).forEach(ratio => {
-            const btn = document.getElementById(`aspect-ratio-${ratio.replace(':', '-')}`);
-            if (btn) {
-                if (ratio === currentAspectRatio) {
-                    btn.classList.add('active');
-                } else {
-                    btn.classList.remove('active');
-                }
-            }
-        });
+    // aspect-ratio doesn't transition, so pin the old size, apply, then animate to the new one.
+    function animateImageFrame(frame, apply) {
+        if (!frame) { apply(); return; }
+        const from = frame.getBoundingClientRect();
+        // Drop a running animation's pinned size, or it would be measured as the new one.
+        clearTimeout(frame._ibAnim);
+        frame.style.transition = 'none';
+        frame.style.width = frame.style.height = '';
+        apply();
+        if (!from.height || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            frame.style.transition = '';
+            return;
+        }
+        const to = frame.getBoundingClientRect();
+        if (!to.height) { frame.style.transition = ''; return; }
+        frame.style.width = from.width + 'px';
+        frame.style.height = from.height + 'px';
+        void frame.offsetWidth;
+        frame.style.transition = 'width 0.25s ease, height 0.25s ease';
+        frame.style.width = to.width + 'px';
+        frame.style.height = to.height + 'px';
+        frame._ibAnim = setTimeout(() => {
+            frame.style.transition = frame.style.width = frame.style.height = '';
+        }, 270);
+    }
+
+    function changeAspectRatio(ratio) {
+        if (!aspectRatios[ratio] || ratio === currentAspectRatio) return;
+        currentAspectRatio = ratio;
+        saveAspectRatio(ratio);
+        animateImageFrame(document.getElementById('image-display'), updateImageDisplay);
+        const menu = getOpenImageBoxMenu();
+        if (menu) syncImageBoxMenu(menu);
     }
 
     let cachedValues = {
@@ -18069,32 +18477,14 @@
                     background: rgba(0, 0, 0, 0.05);
                 }
 
-                .attendance-summary:not(.retro-theme) .quote-add-btn,
-                .attendance-summary:not(.retro-theme) .image-change-btn {
+                .attendance-summary:not(.retro-theme) .quote-add-btn {
                     background: rgba(0, 0, 0, 0.08);
                     border-color: rgba(0, 0, 0, 0.15);
                     color: rgba(0, 0, 0, 0.8);
                 }
 
-                .attendance-summary:not(.retro-theme) .quote-add-btn:hover,
-                .attendance-summary:not(.retro-theme) .image-change-btn:hover {
+                .attendance-summary:not(.retro-theme) .quote-add-btn:hover {
                     background: rgba(0, 0, 0, 0.12);
-                }
-
-                .attendance-summary:not(.retro-theme) .aspect-ratio-btn {
-                    background: rgba(0, 0, 0, 0.08);
-                    border-color: rgba(0, 0, 0, 0.15);
-                    color: rgba(0, 0, 0, 0.8);
-                }
-
-                .attendance-summary:not(.retro-theme) .aspect-ratio-btn:hover {
-                    background: rgba(0, 0, 0, 0.12);
-                }
-
-                .attendance-summary:not(.retro-theme) .aspect-ratio-btn.active {
-                    background: linear-gradient(135deg, #667eea, #764ba2);
-                    border-color: #667eea;
-                    color: white;
                 }
 
                 .attendance-summary:not(.retro-theme) .xp-stat-item {
@@ -18114,10 +18504,6 @@
                 .attendance-summary:not(.retro-theme) .settings-button:hover {
                     background: rgba(255, 255, 255, 0.9);
                     border-color: rgba(0, 0, 0, 0.2);
-                }
-
-                .attendance-summary:not(.retro-theme) .image-placeholder {
-                    color: rgba(0, 0, 0, 0.4);
                 }
 
                 .attendance-summary:not(.retro-theme) .game-switcher {
@@ -18280,10 +18666,6 @@
                 }
                 .attendance-summary:not(.retro-theme) .progress-fill {
                     box-shadow: none;
-                }
-
-                .attendance-summary:not(.retro-theme) .image-box-title {
-                    color: rgba(0,0,0,0.85);
                 }
             }
 
@@ -19872,8 +20254,7 @@
 
             .attendance-summary.retro-theme .snake-game-title,
             .attendance-summary.retro-theme .quotes-title,
-            .attendance-summary.retro-theme .xp-title,
-            .attendance-summary.retro-theme .image-box-title {
+            .attendance-summary.retro-theme .xp-title {
                 color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 letter-spacing: 0.12em !important;
@@ -20002,17 +20383,160 @@
                 color: var(--rt-bg-1) !important;
             }
 
-            .attendance-summary.retro-theme .aspect-ratio-btn {
-                background: transparent !important;
+            /* IMAGE BOX — the frame, its kebab and hint, the drop zone, the options menu and
+               the Undo toast. Selected states invert to a text fill, as every Cyberpunk
+               toggle does; Remove takes the accent because it is the one action aimed at
+               something, and the theme has no fixed red to spend on it. */
+
+            .attendance-summary.retro-theme .image-display {
+                background: var(--rt-bg-1) !important;
+                border-radius: var(--rt-radius) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-kebab,
+            .attendance-summary.retro-theme .ib-hint {
+                background: var(--rt-panel-strong) !important;
                 border: 1px solid var(--rt-border) !important;
-                border-radius: 0 !important;
+                border-radius: var(--rt-radius) !important;
+                color: var(--rt-text) !important;
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+            }
+
+            .attendance-summary.retro-theme .ib-kebab:hover {
+                border-color: var(--rt-border-strong) !important;
+                box-shadow: var(--rt-glow-soft);
+            }
+
+            .attendance-summary.retro-theme .ib-hint {
+                font-family: 'Share Tech Mono', monospace;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                font-size: 10px;
+            }
+
+            .attendance-summary.retro-theme .ib-drag .ib-stage::after {
+                border: 1px dashed var(--rt-border-strong);
+                border-radius: var(--rt-radius);
+                background: rgba(var(--rt-text-rgb), 0.08);
+            }
+
+            .attendance-summary.retro-theme .ib-drop {
+                background: transparent !important;
+                border: 1px dashed var(--rt-border) !important;
+                border-radius: var(--rt-radius) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-drop:hover,
+            .attendance-summary.retro-theme .ib-drag .ib-drop {
+                border-color: var(--rt-border-strong) !important;
+                background: rgba(var(--rt-text-rgb), 0.05) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-drop-icon {
+                background: transparent !important;
+                border: 1px solid var(--rt-border);
+                border-radius: var(--rt-radius) !important;
+                color: var(--rt-accent) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-drop-title {
+                color: var(--rt-text) !important;
+                font-family: 'Orbitron', sans-serif;
+                font-size: 12px;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                text-shadow: var(--rt-glow-soft);
+            }
+
+            .attendance-summary.retro-theme .ib-drop-note,
+            .attendance-summary.retro-theme .ib-menu-label,
+            .attendance-summary.retro-theme .ib-mi-state {
+                color: var(--rt-text-dim) !important;
+                font-family: 'Share Tech Mono', monospace;
+                letter-spacing: 0.08em;
+            }
+
+            .attendance-summary.retro-theme .ib-link-btn {
                 color: var(--rt-text) !important;
             }
 
-            .attendance-summary.retro-theme .aspect-ratio-btn.active {
+            .attendance-summary.retro-theme .ib-browse,
+            .attendance-summary.retro-theme .ib-undo {
+                background: var(--rt-text) !important;
+                color: var(--rt-bg-1) !important;
+                border-radius: var(--rt-radius) !important;
+                font-family: 'Share Tech Mono', monospace;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .attendance-summary.retro-theme .ib-browse:hover,
+            .attendance-summary.retro-theme .ib-undo:hover {
+                box-shadow: var(--rt-glow-soft);
+            }
+
+            .attendance-summary.retro-theme .ib-menu,
+            .attendance-summary.retro-theme .ib-toast {
+                background: var(--rt-panel-strong) !important;
+                border: 1px solid var(--rt-border-strong) !important;
+                border-radius: var(--rt-radius) !important;
+                color: var(--rt-text) !important;
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+                box-shadow: 0 14px 32px rgba(0, 0, 0, 0.55) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-toast {
+                font-family: 'Share Tech Mono', monospace;
+                letter-spacing: 0.08em;
+            }
+
+            .attendance-summary.retro-theme .ib-ratio {
+                background: transparent !important;
+                border: 1px solid var(--rt-border) !important;
+                border-radius: var(--rt-radius) !important;
+                color: var(--rt-text) !important;
+                font-family: 'Share Tech Mono', monospace;
+            }
+
+            .attendance-summary.retro-theme .ib-ratio[aria-pressed="true"] {
                 background: var(--rt-text) !important;
                 border-color: var(--rt-text) !important;
                 color: var(--rt-bg-1) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-sep {
+                background: var(--rt-border) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-mi {
+                border-radius: var(--rt-radius) !important;
+                color: var(--rt-text) !important;
+                font-family: 'Share Tech Mono', monospace;
+                letter-spacing: 0.04em;
+            }
+
+            .attendance-summary.retro-theme .ib-mi:hover,
+            .attendance-summary.retro-theme .ib-mi:focus-visible {
+                background: rgba(var(--rt-text-rgb), 0.12) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-mi-danger {
+                color: var(--rt-accent) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-mi-danger:hover,
+            .attendance-summary.retro-theme .ib-mi-danger:focus-visible {
+                background: rgba(var(--rt-accent-rgb), 0.14) !important;
+            }
+
+            .attendance-summary.retro-theme .ib-kebab:focus-visible,
+            .attendance-summary.retro-theme .ib-browse:focus-visible,
+            .attendance-summary.retro-theme .ib-link-btn:focus-visible,
+            .attendance-summary.retro-theme .ib-ratio:focus-visible,
+            .attendance-summary.retro-theme .ib-undo:focus-visible {
+                outline-color: var(--rt-border-strong);
             }
 
             /* GAME CONTROLS */
@@ -22652,102 +23176,409 @@
                 to { transform: translateX(0); opacity: 1; }
             }
 
+            /* IMAGE BOX — the image is the card; its options are one menu (right-click or the
+               hover kebab). Values follow the Image Display Widget artboard. The container is
+               deliberately not clipped: the menu may overhang it onto the XP panel. */
             .image-box-container {
                 background: rgba(255, 255, 255, 0.08);
                 border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 16px;
+                border-radius: 18px;
                 padding: 16px;
                 position: relative;
-                overflow: hidden;
-            }
-
-            .image-box-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 12px;
-            }
-
-            .image-change-btn {
-                padding: 6px 12px;
-                background: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                border-radius: 6px;
-                color: white;
-                font-size: 0.8rem;
-                cursor: pointer;
-                transition: all 0.3s ease;
-            }
-
-            .image-change-btn:hover {
-                background: rgba(255, 255, 255, 0.2);
-            }
-
-            .aspect-ratio-controls {
-                display: flex;
-                gap: 4px;
-                justify-content: center;
-            }
-
-            .aspect-ratio-btn {
-                padding: 4px;
-                background: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                border-radius: 6px;
-                color: white;
-                font-size: 1.1rem;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                width: 28px;
-                height: 28px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-
-            .aspect-ratio-btn:hover {
-                background: rgba(255, 255, 255, 0.2);
-                transform: translateY(-2px);
-            }
-
-            .aspect-ratio-btn.active {
-                background: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
-                border-color: var(--aurora-1);
-                box-shadow: 0 4px 12px rgba(255, 105, 180, 0.3);
             }
 
             .image-display {
-                width: 100%;
+                --ib-ratio: 16 / 9;
                 position: relative;
-                padding-bottom: 56.25%; /* Default 16:9 widescreen ratio */
+                width: 100%;
+                aspect-ratio: var(--ib-ratio);
+                margin: 0 auto;
                 border-radius: 12px;
                 overflow: hidden;
-                background: rgba(0, 0, 0, 0.2);
+                background: #111015;
+            }
+
+            /* Portrait keeps the landscape frames' height budget: as tall as the card is wide. */
+            .image-display.ib-portrait {
+                width: 75%;
+            }
+
+            .image-display.ib-empty {
+                min-height: 196px;
+            }
+
+            .ib-stage {
+                position: absolute;
+                inset: 0;
             }
 
             .image-display .image-box-img {
-                position: absolute;
-                top: 0;
-                left: 0;
+                display: block;
                 width: 100%;
                 height: 100%;
-                object-fit: cover; /* Fill container without empty spaces */
-                transition: transform 0.3s ease;
+                object-fit: cover;
             }
 
-            .image-display .image-box-img:hover {
-                transform: scale(1.02);
+            .image-display.ib-contain .image-box-img {
+                object-fit: contain;
             }
 
-            .image-placeholder {
+            .ib-kebab {
                 position: absolute;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                color: rgba(255, 255, 255, 0.4);
-                font-size: 0.875rem;
+                top: 10px;
+                right: 10px;
+                width: 36px;
+                height: 36px;
+                padding: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 999px;
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                background: rgba(20, 18, 26, 0.55);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                color: #fff;
+                cursor: pointer;
+                opacity: 0;
+                transform: translateY(-2px);
+                transition: opacity 0.16s ease, transform 0.16s ease, background 0.16s ease;
+            }
+
+            .ib-stage:hover .ib-kebab,
+            .ib-stage:focus-within .ib-kebab,
+            .ib-menu-open .ib-kebab {
+                opacity: 1;
+                transform: none;
+            }
+
+            .ib-kebab:hover {
+                background: rgba(20, 18, 26, 0.8);
+            }
+
+            .ib-hint {
+                position: absolute;
+                left: 10px;
+                bottom: 10px;
+                padding: 5px 10px;
+                border-radius: 999px;
+                background: rgba(20, 18, 26, 0.6);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                font-size: 12px;
+                color: #d9d4e6;
+                pointer-events: none;
+                opacity: 0;
+                transition: opacity 0.2s ease 0.25s;
+            }
+
+            .ib-stage:hover .ib-hint {
+                opacity: 1;
+            }
+
+            /* Once the menu has been found, the hint has done its job. */
+            .ib-hint-seen .ib-hint,
+            .ib-menu-open .ib-hint {
+                display: none;
+            }
+
+            .ib-drag .ib-stage::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                border: 2px dashed #8b78f0;
+                border-radius: 12px;
+                background: rgba(139, 120, 240, 0.18);
+                pointer-events: none;
+            }
+
+            .ib-drop {
+                position: absolute;
+                inset: 0;
+                box-sizing: border-box;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                padding: 12px;
+                border-radius: 12px;
+                border: 2px dashed #4a4558;
+                background: #1e1c25;
                 text-align: center;
-                width: 80%;
+                transition: background 0.15s ease, border-color 0.15s ease;
+            }
+
+            .ib-drop:hover {
+                border-color: #6c6480;
+            }
+
+            .ib-drag .ib-drop {
+                border-color: #8b78f0;
+                background: #2c2740;
+            }
+
+            .ib-drop-icon {
+                width: 44px;
+                height: 44px;
+                flex-shrink: 0;
+                border-radius: 12px;
+                background: #312d3b;
+                color: #b9a8ff;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .ib-drop-title {
+                font-size: 15px;
+                font-weight: 600;
+                color: #ece9f3;
+            }
+
+            .ib-browse {
+                display: inline-flex;
+                align-items: center;
+                height: 36px;
+                padding: 0 16px;
+                border: 0;
+                border-radius: 10px;
+                background: #8b78f0;
+                color: #16131f;
+                font: inherit;
+                font-size: 13px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: background 0.15s ease;
+            }
+
+            .ib-browse:hover {
+                background: #9d8bf5;
+            }
+
+            .ib-drop-note {
+                font-size: 12px;
+                color: #9b95a8;
+            }
+
+            .ib-link-btn {
+                padding: 0;
+                border: 0;
+                background: none;
+                font: inherit;
+                color: #b9a8ff;
+                text-decoration: underline;
+                text-underline-offset: 2px;
+                cursor: pointer;
+            }
+
+            .ib-link-btn:hover {
+                color: #d4c9ff;
+            }
+
+            .ib-kebab:focus-visible,
+            .ib-browse:focus-visible,
+            .ib-link-btn:focus-visible,
+            .ib-ratio:focus-visible,
+            .ib-undo:focus-visible {
+                outline: 2px solid #b9a8ff;
+                outline-offset: 2px;
+            }
+
+            .ib-menu {
+                position: absolute;
+                z-index: 30;
+                width: 236px;
+                box-sizing: border-box;
+                padding: 6px;
+                border-radius: 12px;
+                background: rgba(33, 30, 41, 0.97);
+                backdrop-filter: blur(14px);
+                -webkit-backdrop-filter: blur(14px);
+                border: 1px solid #3d3948;
+                box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+                color: #ece9f3;
+                text-align: left;
+            }
+
+            /* [hidden] loses to any display rule, the retro theme's included. */
+            .ib-menu[hidden],
+            .ib-toast[hidden],
+            .ib-undo[hidden] {
+                display: none !important;
+            }
+
+            .ib-menu-label {
+                padding: 8px 10px 6px;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                color: #9b95a8;
+            }
+
+            .ib-ratios {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 4px;
+                padding: 0 6px 8px;
+            }
+
+            .ib-ratio {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 5px;
+                height: 52px;
+                padding: 0;
+                border-radius: 8px;
+                border: 1px solid transparent;
+                background: #2a2733;
+                color: #b3adc0;
+                font: inherit;
+                font-size: 11px;
+                cursor: pointer;
+                transition: background 0.15s ease;
+            }
+
+            .ib-ratio:hover {
+                background: #34303f;
+            }
+
+            .ib-ratio[aria-pressed="true"] {
+                border-color: #8b78f0;
+                background: #342d4f;
+                color: #e4ddff;
+            }
+
+            .ib-ratio-icon {
+                display: block;
+                box-sizing: border-box;
+                border: 1.6px solid currentColor;
+                border-radius: 2px;
+            }
+
+            .ib-sep {
+                height: 1px;
+                margin: 2px 4px;
+                background: #37333f;
+            }
+
+            .ib-mi {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                width: 100%;
+                height: 38px;
+                padding: 0 10px;
+                border: 0;
+                border-radius: 8px;
+                background: transparent;
+                font: inherit;
+                font-size: 13px;
+                color: #ece9f3;
+                cursor: pointer;
+                text-align: left;
+            }
+
+            .ib-mi svg {
+                flex-shrink: 0;
+            }
+
+            .ib-mi-text {
+                flex-grow: 1;
+            }
+
+            .ib-mi-state {
+                font-size: 11px;
+                color: #9b95a8;
+            }
+
+            .ib-mi:hover,
+            .ib-mi:focus-visible {
+                background: #302c3b;
+                outline: none;
+            }
+
+            .ib-mi-danger {
+                color: #ff8a8a;
+            }
+
+            .ib-mi-danger:hover,
+            .ib-mi-danger:focus-visible {
+                background: #3a2025;
+            }
+
+            /* In flow under the frame, not over it: over a short frame's drop zone it would
+               cover the very buttons that put an image back. */
+            .ib-toast {
+                position: relative;
+                z-index: 25;
+                width: fit-content;
+                margin: 12px auto 0;
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                padding: 8px 8px 8px 16px;
+                border-radius: 12px;
+                background: #2b2734;
+                border: 1px solid #3d3948;
+                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+                font-size: 13px;
+                color: #ece9f3;
+                white-space: nowrap;
+                animation: ibToastIn 0.2s ease;
+            }
+
+            .ib-toast:has(.ib-undo[hidden]) {
+                padding: 12px 16px;
+            }
+
+            .ib-undo {
+                height: 32px;
+                padding: 0 12px;
+                border: 0;
+                border-radius: 8px;
+                background: #332f3e;
+                color: #c9bcff;
+                font: inherit;
+                font-size: 13px;
+                font-weight: 600;
+                cursor: pointer;
+            }
+
+            .ib-undo:hover {
+                background: #3a3548;
+            }
+
+            @keyframes ibToastIn {
+                from { opacity: 0; transform: translateY(-4px); }
+                to { opacity: 1; transform: none; }
+            }
+
+            /* No hover to reveal the kebab on touch, so it stays up; the hint names a
+               right-click there isn't. */
+            @media (hover: none) {
+                .ib-kebab {
+                    opacity: 1;
+                    transform: none;
+                }
+                .ib-hint {
+                    display: none;
+                }
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .ib-kebab,
+                .ib-hint,
+                .ib-drop,
+                .ib-ratio {
+                    transition: none;
+                }
+                .ib-toast {
+                    animation: none;
+                }
             }
 
             #flappy-canvas {
@@ -23164,32 +23995,82 @@
                     color: #fff;
                 }
 
-                .attendance-summary:not(.retro-theme) .image-box-title {
-                    color: rgba(0, 0, 0, 0.85);
+                /* Image Box: the frame, drop zone and menu go light. The kebab and hint sit
+                   on the image and the toast on the page, so they stay dark in both modes. */
+                .attendance-summary:not(.retro-theme) .image-display {
+                    background: #ebe8f1;
                 }
-                .attendance-summary:not(.retro-theme) .image-change-btn {
-                    background: rgba(0, 0, 0, 0.06);
-                    border-color: rgba(0, 0, 0, 0.12);
-                    color: rgba(0, 0, 0, 0.75);
+                .attendance-summary:not(.retro-theme) .ib-drop {
+                    background: #f6f4fa;
+                    border-color: #c9c3d6;
                 }
-                .attendance-summary:not(.retro-theme) .image-change-btn:hover {
-                    background: rgba(0, 0, 0, 0.10);
+                .attendance-summary:not(.retro-theme) .ib-drop:hover {
+                    border-color: #a39bb5;
                 }
-                .attendance-summary:not(.retro-theme) .aspect-ratio-btn {
-                    background: rgba(0, 0, 0, 0.06);
-                    border-color: rgba(0, 0, 0, 0.12);
-                    color: rgba(0, 0, 0, 0.72);
+                .attendance-summary:not(.retro-theme) .ib-drag .ib-drop {
+                    background: #ece7ff;
+                    border-color: #6a55dc;
                 }
-                .attendance-summary:not(.retro-theme) .aspect-ratio-btn:hover {
-                    background: rgba(0, 0, 0, 0.10);
+                .attendance-summary:not(.retro-theme) .ib-drop-icon {
+                    background: #e7e2f7;
+                    color: #5b47cf;
                 }
-                .attendance-summary:not(.retro-theme) .aspect-ratio-btn.active {
-                    background: linear-gradient(135deg, #667eea, #764ba2);
-                    border-color: #667eea;
+                .attendance-summary:not(.retro-theme) .ib-drop-title,
+                .attendance-summary:not(.retro-theme) .ib-menu,
+                .attendance-summary:not(.retro-theme) .ib-mi {
+                    color: #1f1b2a;
+                }
+                .attendance-summary:not(.retro-theme) .ib-browse {
+                    background: #6a55dc;
                     color: #fff;
                 }
-                .attendance-summary:not(.retro-theme) .image-placeholder {
-                    color: rgba(0, 0, 0, 0.60);
+                .attendance-summary:not(.retro-theme) .ib-browse:hover {
+                    background: #5b47cf;
+                }
+                .attendance-summary:not(.retro-theme) .ib-drop-note,
+                .attendance-summary:not(.retro-theme) .ib-menu-label,
+                .attendance-summary:not(.retro-theme) .ib-mi-state {
+                    color: #5f596c;
+                }
+                .attendance-summary:not(.retro-theme) .ib-link-btn {
+                    color: #5b47cf;
+                }
+                .attendance-summary:not(.retro-theme) .ib-link-btn:hover {
+                    color: #45349f;
+                }
+                .attendance-summary:not(.retro-theme) .ib-menu {
+                    background: rgba(255, 255, 255, 0.97);
+                    border-color: rgba(0, 0, 0, 0.10);
+                    box-shadow: 0 18px 44px rgba(30, 20, 60, 0.18);
+                }
+                .attendance-summary:not(.retro-theme) .ib-ratio {
+                    background: #f1eff6;
+                    color: #4d475a;
+                }
+                .attendance-summary:not(.retro-theme) .ib-ratio:hover,
+                .attendance-summary:not(.retro-theme) .ib-mi:hover,
+                .attendance-summary:not(.retro-theme) .ib-mi:focus-visible {
+                    background: #e9e6f0;
+                }
+                .attendance-summary:not(.retro-theme) .ib-ratio[aria-pressed="true"] {
+                    background: #ebe6ff;
+                    border-color: #6a55dc;
+                    color: #3b2d8f;
+                }
+                .attendance-summary:not(.retro-theme) .ib-sep {
+                    background: rgba(0, 0, 0, 0.08);
+                }
+                .attendance-summary:not(.retro-theme) .ib-mi-danger {
+                    color: #b3261e;
+                }
+                .attendance-summary:not(.retro-theme) .ib-mi-danger:hover,
+                .attendance-summary:not(.retro-theme) .ib-mi-danger:focus-visible {
+                    background: #fdecec;
+                }
+                .attendance-summary:not(.retro-theme) .ib-browse:focus-visible,
+                .attendance-summary:not(.retro-theme) .ib-link-btn:focus-visible,
+                .attendance-summary:not(.retro-theme) .ib-ratio:focus-visible {
+                    outline-color: #6a55dc;
                 }
 
                 .attendance-summary:not(.retro-theme) .pool-color-swatch {
@@ -26332,20 +27213,7 @@
                 </div>
 
                 <!-- Image Box -->
-                <div class="image-box-container">
-                    <div class="image-box-header">
-                        <div class="aspect-ratio-controls">
-                            <button id="aspect-ratio-1-1" class="aspect-ratio-btn" onclick="window.changeImageAspectRatio('1:1')" title="Square (1:1) - Profile pics, badges">◻</button>
-                            <button id="aspect-ratio-16-9" class="aspect-ratio-btn active" onclick="window.changeImageAspectRatio('16:9')" title="Widescreen (16:9) - Videos, monitors">▬</button>
-                            <button id="aspect-ratio-4-3" class="aspect-ratio-btn" onclick="window.changeImageAspectRatio('4:3')" title="Classic (4:3) - Old monitors, photos">▭</button>
-                            <button id="aspect-ratio-9-16" class="aspect-ratio-btn" onclick="window.changeImageAspectRatio('9:16')" title="Portrait (9:16) - Phone screens, stories">▯</button>
-                        </div>
-                        <button class="image-change-btn" onclick="window.changeImageBox()">Change Image</button>
-                    </div>
-                    <div id="image-display" class="image-display">
-                        <div class="image-placeholder">📷 Click "Change Image" to add your favorite image</div>
-                    </div>
-                </div>
+                ${imageBoxHTML()}
             </div>
         `;
 
@@ -26379,6 +27247,10 @@
             // First render or games not initialized - build everything
             totalTimeDiv.innerHTML = leftPanelHTML + mainContentHTML + rightPanelHTML;
         }
+
+        // A rebuilt right panel starts with an empty image frame; before the first init,
+        // initImageBox() fills it.
+        if (featuresInitialized) updateImageDisplay();
 
         // Wire emoji click → Game Mode toggle
         const _emojiToggle = totalTimeDiv.querySelector('#game-mode-emoji-toggle');

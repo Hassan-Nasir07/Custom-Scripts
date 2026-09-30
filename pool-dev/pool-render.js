@@ -576,6 +576,7 @@
     //   dpr,                                         backing-store scale of ctx
     //   aim: { angle, power, gap } | null,           null hides the cue and the guides
     //   guide: pgGuide(…) | null, guideMode: 'full' | 'short' | 'off', illegal,
+    //   guideLen: the object ball's line in full mode (150 unless ⚙️ Aim Guide shortens it),
     //   bih: { x, y, valid, reason } | null, zone: 'kitchen' | 'D' | null (kitchen: the old name),
     //   call: { called } | null, ring: the nominated ball's id (snooker) | null,
     //   drops: [{ ball, pocket, t }],
@@ -651,7 +652,7 @@
                 pgStrokeLine(ctx, view, [[g.start[0] + ux * R * 1.3, g.start[1] + uy * R * 1.3], [g.contact[0] - ux * R, g.contact[1] - uy * R]], Z, pgRgba(PG_GUIDE, 0.85), 1.5, [5, 4]);
             }
             if (g.obj) {
-                const L = short ? 60 : 150;
+                const L = short ? 60 : scene.guideLen || 150;
                 pgStrokeLine(ctx, view, [[g.obj.x + g.obj.dx * R, g.obj.y + g.obj.dy * R], [g.obj.x + g.obj.dx * (R + L), g.obj.y + g.obj.dy * (R + L)]], Z, theme.accent, 2, null, true);
             }
             if (g.after.length > 1) {

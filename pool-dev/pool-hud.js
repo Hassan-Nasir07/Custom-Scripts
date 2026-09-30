@@ -66,8 +66,8 @@
         { key: 'adaptive', name: 'Adaptive', desc: 'Matches your form, frame by frame' },
         { key: 'easy', name: 'Easy', desc: 'Pots the simple ones · leaves chances' },
         { key: 'normal', name: 'Normal', desc: 'Builds small breaks · plays some safe' },
-        { key: 'hard', name: 'Hard', desc: 'Plays position and safety · regular 50s' },
-        { key: 'pro', name: 'Pro', desc: 'Hardly misses · centuries' },
+        { key: 'hard', name: 'Hard', desc: 'Position and safety · call the colours' },
+        { key: 'pro', name: 'Pro', desc: 'Hardly misses · call every ball' },
     ];
     // Snooker's colours, by id (= value), for the tracker and the chips.
     const PH_SNK = [[2, 'yellow'], [3, 'green'], [4, 'brown'], [5, 'blue'], [6, 'pink'], [7, 'black']].map(([id, name]) => ({ id, name }));
@@ -259,6 +259,9 @@
                 ready: (g.names[g.handoff] || '').toUpperCase() + "'S READY",
             } : { show: false },
             cursor: bih ? 'placing' : g.dragging ? 'dragging' : '',
+            // The shot in view pixels (segments and circles), for phShy.
+            shot: g.shot || null,
+            maxBars: max && !!g.maxBars,
             sheet: sheetOpen ? {
                 show: true, mode: sheetMode,
                 diffs: (g.diffs || PH_DIFFS).map(d => ({ key: d.key, name: d.name, desc: d.desc, checked: (g.difficulty || 'adaptive') === d.key })),
@@ -318,13 +321,22 @@
         // The chips: while a colour is to be nominated (the gauge padlocks until one is).
         const chips = aiming && !!on.needsNomination && !g.cpuTurn && !g.handoff && !toast && !sheetOpen && !vm.spin.open && !g.confirm;
         const pw = Math.round(g.power || 0);
+        // Once a colour is nominated they fold to that one chip and the caption, freeing the
+        // corner for the stroke; the chip opens them again.
+        const folded = nom >= 0 && !g.chipsOpen, callNeeded = aiming && !!st.callRequired && !(g.called >= 0);
         vm.chips = chips ? {
-            show: true, label: st.freeBall ? 'Nominate the free ball' : 'Nominate a colour',
+            show: true, folded,
+            label: folded ? (st.freeBall ? 'Free ball: the ' : 'Nominated: the ') + phSnkName(nom) + '. Press it to change' : st.freeBall ? 'Nominate the free ball' : 'Nominate a colour',
             items: PH_SNK.map(b => ({ id: b.id, name: b.name, live: (on.nominable || []).indexOf(b.id) >= 0, checked: nom === b.id })),
-            caption: nom < 0 ? 'Tap a colour' : g.dragging ? 'Release · ' + pw + '%' : 'Drag to shoot',
-            tone: nom < 0 ? '' : g.dragging ? (pw >= PH_POWER_HOT ? 'hot' : 'power') : 'set',
+            caption: nom < 0 ? 'Tap a colour' : g.dragging ? 'Release · ' + pw + '%' : callNeeded ? 'Tap a pocket' : 'Drag to shoot',
+            tone: nom < 0 ? '' : g.dragging ? (pw >= PH_POWER_HOT ? 'hot' : 'power') : callNeeded ? 'call' : 'set',
+            // With a call to make, the folded chips carry the pocket map in 3D (2D taps the table).
+            pad: folded && !!st.callRequired && g.camera === '3d', called: g.called >= 0 ? g.called : -1,
         } : { show: false };
-        vm.gauge = Object.assign({}, vm.gauge, { locked: aiming && !!on.needsNomination && nom < 0 });
+        // The padlock: until a colour is nominated, and (pool's) until a pocket is called.
+        vm.gauge = Object.assign({}, vm.gauge, { locked: vm.gauge.locked || (aiming && !!on.needsNomination && nom < 0) });
+        // The chips hold the corner, and the call with them: no call card beside them.
+        if (chips) vm.mini = Object.assign({}, vm.mini, { show: false });
         // The hint: the D, and none while the chips carry the caption.
         if (bih && !(g.bih && (g.bih.placed || g.bih.valid === false))) vm.hint = Object.assign({}, vm.hint, { text: 'Place the cue ball in the D', tone: '' });
         if (chips) vm.hint = Object.assign({}, vm.hint, { show: false });
@@ -390,9 +402,11 @@
     }
 
     function phViewHTML(max) {
-        const mini = [[0, 0], [26, 0], [52, 0], [0, 26], [26, 26], [52, 26]]
-            .map((p, i) => '<button type="button" data-ph-call="' + i + '" style="left:' + p[0] + 'px;top:' + p[1] + 'px" aria-label="Call ' + PH_POCKETS[i].toLowerCase() + ' pocket" aria-pressed="false"><span></span></button>')
+        // The six pocket targets on a 52 × 26 table: the call card's, and the folded chips'.
+        const pad = attr => [[0, 0], [26, 0], [52, 0], [0, 26], [26, 26], [52, 26]]
+            .map((p, i) => '<button type="button" ' + attr + '="' + i + '" style="left:' + p[0] + 'px;top:' + p[1] + 'px" aria-label="Call ' + PH_POCKETS[i].toLowerCase() + ' pocket" aria-pressed="false"><span></span></button>')
             .join('');
+        const mini = pad('data-ph-call');
         return '<div class="ph-view" data-ph="view"><canvas class="ph-canvas" data-ph="canvas"></canvas><div class="ph-layer">' +
             '<div class="ph-cam ph-glass" data-ph="cam"><button type="button" class="ph-label" data-ph="cam2d" aria-pressed="false">' + PH_ICON.d2 + '<span data-ph="cam2dl">2D</span></button>' +
             '<button type="button" class="ph-label" data-ph="cam3d" aria-pressed="true">' + PH_ICON.d3 + '<span data-ph="cam3dl">3D</span></button></div>' +
@@ -424,7 +438,8 @@
             // Snooker's colour chips: a 3 × 2 grid, each ball carrying its value.
             '<div class="ph-chips ph-glass" role="group" data-ph="chips" hidden><div class="ph-chips-grid" role="radiogroup" data-ph="chipgrid">' +
             PH_SNK.map(b => '<button type="button" role="radio" class="ph-chip" data-ph-nom="' + b.id + '" aria-checked="false" aria-label="' + phCap(b.name) + ', ' + b.id + ' points"><span>' + b.id + '</span></button>').join('') +
-            '</div><span class="ph-chips-cap" data-ph="chipcap"></span></div>' +
+            '</div><span class="ph-chips-cap" data-ph="chipcap"></span>' +
+            '<div class="ph-mini-pad ph-chips-pad" data-ph="chippad" hidden><div class="ph-mini-table"></div>' + pad('data-ph-ccall') + '</div></div>' +
             '<div class="ph-scrim" data-ph="scrim" hidden><div class="ph-dialog" role="dialog" aria-label="Frame over" data-ph="dialog">' +
             '<div class="ph-dialog-head"><span class="ph-dialog-icon" data-ph="dlgi"></span><span style="display:flex;flex-direction:column;gap:2px">' +
             '<span class="ph-dialog-kicker ph-label" data-ph="dlgk"></span><span class="ph-dialog-title" data-ph="dlgt"></span></span></div>' +
@@ -524,7 +539,7 @@
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
             'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart',
             'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy',
-            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'chips', 'chipgrid', 'chipcap', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn'].forEach(n => { hud[n] = ref(n); });
+            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
@@ -606,6 +621,8 @@
             s.style.color = phInkOn(pgBallLook('snooker', id).colour);
             b.addEventListener('click', () => fire('nominate', id));
         });
+        hud.chipCallButtons = Array.prototype.slice.call(el.querySelectorAll('[data-ph-ccall]'));
+        hud.chipCallButtons.forEach(b => b.addEventListener('click', () => fire('call', +b.getAttribute('data-ph-ccall'))));
         hud.toastacts.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-ph-choose]'); if (b) fire('choose', b.getAttribute('data-ph-choose')); });
         hud.trconcede.addEventListener('click', () => fire('concede'));
         hud.cdlgy.addEventListener('click', () => fire('concedeYes'));
@@ -776,6 +793,9 @@
         // Snooker's colour chips.
         const ch = vm.chips;
         s('chips.show', !!ch.show, v => { phShow(hud.chips, v); hud.view.classList.toggle('is-nominating', v); });
+        s('chips.fold', !!(ch.show && ch.folded), v => { hud.chips.toggleAttribute('data-fold', v); hud.view.classList.toggle('is-nomfold', v); });
+        s('chips.pad', !!(ch.show && ch.pad), v => { phShow(hud.chippad, v); hud.chips.toggleAttribute('data-pad', v); hud.view.classList.toggle('is-nompad', v); });
+        s('maxbars', !!vm.maxBars, v => hud.el.toggleAttribute('data-bars', v));
         if (ch.show) {
             s('chips.label', ch.label, v => { hud.chips.setAttribute('aria-label', v); hud.chipgrid.setAttribute('aria-label', v); });
             s('chips.state', ch.items.map(it => (it.live ? 1 : 0) + '' + (it.checked ? 1 : 0)).join(''), () => hud.chipButtons.forEach((b, i) => {
@@ -784,6 +804,7 @@
                 b.setAttribute('aria-checked', it.checked ? 'true' : 'false');
             }));
             s('chips.cap', ch.caption, v => { hud.chipcap.textContent = v; });
+            s('chips.called', ch.called === undefined ? -1 : ch.called, v => hud.chipCallButtons.forEach((b, i) => b.setAttribute('aria-pressed', i === v ? 'true' : 'false')));
             s('chips.tone', ch.tone || '', v => { hud.chips.className = 'ph-chips ph-glass' + (v ? ' is-' + v : ''); });
         }
         // Concede the frame?
@@ -921,6 +942,56 @@
             hud.canvas.classList.toggle('is-dragging', v === 'dragging');
             hud.canvas.classList.toggle('is-placing', v === 'placing');
         });
+        // A prompt waiting on the player (the chips before a colour, the call card before a
+        // pocket) stays up; everything else gets out of the way of the shot.
+        phShy(hud, vm.shot, { chips: !!(vm.chips.show && !vm.chips.folded), mini: !!(vm.mini.show && vm.mini.called < 0) });
+    }
+
+    // ── Out of the way of the shot ────────────────────────────────────
+    // At snooker's true scale the pockets and the balls near them sit under the corner
+    // overlays. While the aim line (from the cue ball), the object ball's path, the contact or the
+    // target pocket passes under one, it is marked data-shy and pool-theme.css fades it (in
+    // 3D, back while the pointer is on it). Max keeps its corner overlays in bars above and
+    // below the table (pool-theme.css), so there it only ever touches the lean slider.
+    const PH_SHY = ['cam', 'pill', 'lean', 'spin', 'hint', 'mini', 'chips', 'replace'];
+    const PH_SHY_PAD = 6;
+    // Does the segment (x0, y0)–(x1, y1) cross the box { l, t, r, b }? (Liang–Barsky)
+    function phSegInBox(x0, y0, x1, y1, q) {
+        const dx = x1 - x0, dy = y1 - y0, p = [-dx, dx, -dy, dy], d = [x0 - q.l, q.r - x0, y0 - q.t, q.b - y0];
+        let t0 = 0, t1 = 1;
+        for (let i = 0; i < 4; i++) {
+            if (p[i] === 0) { if (d[i] < 0) return false; continue; }
+            const t = d[i] / p[i];
+            if (p[i] < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+            else { if (t < t0) return false; if (t < t1) t1 = t; }
+        }
+        return true;
+    }
+    // Pure: the names of the boxes ({ name: { x, y, w, h } }) the shot passes under.
+    function phShyHits(shot, rects, pad) {
+        if (!shot) return [];
+        pad = pad === undefined ? PH_SHY_PAD : pad;
+        return Object.keys(rects).filter(n => {
+            const r = rects[n], q = { l: r.x - pad, t: r.y - pad, r: r.x + r.w + pad, b: r.y + r.h + pad };
+            return shot.segs.some(s => phSegInBox(s[0], s[1], s[2], s[3], q)) ||
+                shot.dots.some(c => Math.hypot(c[0] - Math.max(q.l, Math.min(q.r, c[0])), c[1] - Math.max(q.t, Math.min(q.b, c[1]))) < c[2]);
+        });
+    }
+    function phShy(hud, shot, keep) {
+        const on = {};
+        if (shot && hud.view) {
+            // In canvas pixels, as the shot is (Max's canvas sits under its top bar), and the Max
+            // frame may be scaled to fit the window.
+            const vr = hud.canvas.getBoundingClientRect(), k = vr.width / (hud.canvas.clientWidth || vr.width || 1) || 1, rects = {};
+            PH_SHY.forEach(n => {
+                const el = hud[n];
+                if (!el || el.hidden || (keep && keep[n])) return;
+                const r = el.getBoundingClientRect();
+                if (r.width && r.height) rects[n] = { x: (r.left - vr.left) / k, y: (r.top - vr.top) / k, w: r.width / k, h: r.height / k };
+            });
+            phShyHits(shot, rects).forEach(n => { on[n] = true; });
+        }
+        PH_SHY.forEach(n => { const el = hud[n]; if (el && el.hasAttribute('data-shy') !== !!on[n]) el.toggleAttribute('data-shy', !!on[n]); });
     }
 
     // ── Canvas bridge ─────────────────────────────────────────────────

@@ -149,7 +149,8 @@
             '<div class="pu-group"><span class="pu-kicker">FRAMES PER ROUND · RACE TO</span><div class="pu-races" style="grid-template-columns:repeat(' + cols.length + ',minmax(0,1fr))">' + races + '</div></div>' +
             puSeg('Shot clock', 'clock', [[30, '30s'], [45, '45s'], [0, 'Off']], s.clock) +
             puSeg('Guideline', 'guide', [['full', 'Full'], ['short', 'Short'], ['off', 'Off']], s.guide) +
-            puSeg('Call pocket', 'call', [['8', '8 only'], ['every', 'Every shot']], s.call) +
+            // Pool: the 8 only or every shot; snooker: off, the colours, or every ball (the game's tourDefaults).
+            puSeg('Call pocket', 'call', s.calls || [['8', '8 only'], ['every', 'Every shot']], s.call) +
             '<div class="pu-count"><span class="pu-count-t"><span class="pu-strong" id="pu-shuf">Shuffle seeds</span><span class="pu-note">Off keeps the list order as seeding</span></span>' +
             '<button type="button" class="pu-switch" role="switch" aria-checked="' + (s.shuffle ? 'true' : 'false') + '" aria-labelledby="pu-shuf" data-pu-act="shuffle"><span><span></span></span></button></div>' +
             '</div>' +

@@ -118,7 +118,36 @@ frame kept for a reload), `rackPref`, `aimClear` and its aim steps. `poolSetVari
 parks the frame on the table (`poolSnapshotTable`) and restores the other game's; each game keeps
 its own tournament state. The HUD's snooker parts (`phSnookerModel`) are the score and third
 line on the cards, the tracker row, the colour chips, the toast's choice buttons, the dialog's
-stats and the concede question, all built for pool too and hidden there.
+stats and the concede question, all built for pool too and hidden there. Once a colour is
+nominated the chips fold to that one chip and the caption; pressing it opens the six again
+(`poolS.chipsOpen`).
+
+**Out of the way of the shot** (both games). Each frame `poolShotPath(view)` projects the
+shot to view pixels: the aim line from the cue ball to the first contact, the object ball's
+path on to the pocket it is heading for (else to the cushion), and as circles the contact,
+the object ball and that pocket. `phShy` marks every corner overlay it passes under
+(`data-shy`: camera toggle, pill, lean, spin, hint, call card, chips, Move cue ball) and
+the theme fades it to 0.22; it stays a working control. In 3D it comes back while the
+pointer is on it (3D aim follows the mouse's movement); in 2D the pointer is the aim, so
+it stays see-through. A prompt still waiting on the player (the open chips, the call card
+before a pocket) never fades. `pool-table.html?pot=0..5&cut=` sets up a pot into any pocket
+for the audit, which checks exactly the overlays over the shot fade.
+
+**Max keeps them off the table.** In Max the table sits between two bars (`--ph-bar-t` 60 px,
+`--ph-bar-b` 68 px; the canvas is sized between them and `poolFit` measures it): the camera
+toggle and the pill above; spin, Move cue ball (centred), and the hint, the six chips in a
+row or the call card in a row below. Only the lean slider and the power gauge stay on the
+table. Anything placed in canvas pixels on the layer (the ball-in-hand note) is offset by
+the top bar, and `phShy` works in canvas pixels. That is ⚙️ *Max View*'s *Table between bars*
+(`data-bars` on the HUD); its default, *Full table*, keeps the design's 1232 × 672 table and
+puts the overlays on the long cushions between the corner and middle pockets.
+
+⚙️ *Aim Guide* (Long / Medium / Short) sets how far the object ball's line runs (150 / 100 / 60
+u, `scene.guideLen`). **Snooker's call pocket** is a frame rule, `frame.call`: `'off'`,
+`'colours'` (reds are not called) or `'all'`; a ball on potted with none in the pocket called
+is the foul `wrongPocket`. Each profile's `lockCall(frame, tier)` sets the call rule when the
+tier locks (pool: call every shot at Pro; snooker: a picked Hard calls the colours, Pro every
+ball, and a tournament its own), and `tourDefaults.calls` lists the tournament's choices.
 
 The match lives in one object, `poolS`. A frame is recorded once per rack (`rackId` against
 `awardedRack`): Reset or a new frame is a new rack, and a finished rack cannot pay twice.

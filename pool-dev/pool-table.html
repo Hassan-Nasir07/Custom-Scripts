@@ -119,6 +119,8 @@ var userPreferences = Object.assign({
     poolTableColor: 'green', poolCamera: '3d', poolLean: 35, poolShotCam: 'overhead',
     // The game the panel plays, as ⚙️ Cue Game sets it in the widget, and snooker's own settings.
     poolVariant: 'pool', snookerReds: 15, snookerDifficulty: 'adaptive',
+    // ⚙️ Aim Guide and ⚙️ Max View.
+    poolGuideLen: 'long', poolMaxLayout: 'full',
 }, (() => { try { return JSON.parse(localStorage.getItem('poolProtoPrefs') || '{}'); } catch (_) { return {}; } })());
 var isPipActive = false, pipWindow = null;
 var currentGame = 'pool', lbDisplayName = 'Ayesha', xpSystemReady = false;
@@ -473,8 +475,30 @@ function toggleGameMaxModal(cfg) {
     if (S.game === 'snooker') { if (SNK_SCENES[sc]) snkScene(sc); }
     else if (sc !== 'rack' && sc !== 'break') scene(sc);
     if (S.game === 'pool' && sc === 'rack' && still && !Q.has('bihbreak')) { S.phase = 'aim'; S.aim = 0; }
+    // ?pot=0..5 (snooker): the ball on (the colour nominated, else a red) ?od u (110) out from that
+    // pocket (Top left, Top side, Top right, Bottom left, Bottom side, Bottom right) and the
+    // cue ball ?cd u (260) behind it, ?cut degrees off the line, aimed at the pot; balls in the
+    // way step aside. For the audit's out-of-the-way-of-the-shot check.
+    if (S.game === 'snooker' && Q.has('pot')) {
+        const p = S.world.table.pockets[+Q.get('pot')], R = S.cfg.ballR, live = S.world.balls.filter(b => b.state !== 'pocketed');
+        const ob = S.nom >= 0 ? live.find(b => b.id === S.nom) : live.find(b => psIsRed(b.id)), cue = poolCueBall();
+        const L = Math.hypot(p.x, p.y), ux = -p.x / L, uy = -p.y / L, a = (+Q.get('cut') || 0) * DEG;
+        const od = Q.has('od') ? +Q.get('od') : 110, cd = Q.has('cd') ? +Q.get('cd') : 260;
+        ob.x = p.x + ux * (p.r + od); ob.y = p.y + uy * (p.r + od);
+        const cx = ux * Math.cos(a) - uy * Math.sin(a), cy = ux * Math.sin(a) + uy * Math.cos(a);
+        cue.x = ob.x + cx * cd; cue.y = ob.y + cy * cd;
+        const gx = ob.x + ux * 2 * R, gy = ob.y + uy * 2 * R;
+        const near = (b, ax, ay, bx, by) => { const dx = bx - ax, dy = by - ay, t = Math.max(0, Math.min(1, ((b.x - ax) * dx + (b.y - ay) * dy) / (dx * dx + dy * dy))); return Math.hypot(b.x - ax - t * dx, b.y - ay - t * dy); };
+        live.forEach(b => { if (b !== ob && b !== cue && (near(b, p.x, p.y, ob.x, ob.y) < 3 * R || near(b, ob.x, ob.y, cue.x, cue.y) < 3 * R)) { b.x = -b.x * 0.5; b.y = -b.y * 0.5 - 40; } });
+        S.aim = Math.atan2(gy - cue.y, gx - cue.x); S.guideKey = '';
+    }
     if (Q.has('power')) { S.power = +Q.get('power'); S.drag = { kind: 'power', x: 0, y: 0, ax: [0, -1], reach: 140 }; }
     if (Q.has('call')) S.called = +Q.get('call');
+    // ?snkcall=off|colours|all: snooker's call rule for this frame; ?guidelen=short|medium|long
+    // (⚙️ Aim Guide); ?maxlayout=full|bars (⚙️ Max View). Not kept in the page's saved prefs.
+    if (Q.has('snkcall') && S.frame) S.frame.call = Q.get('snkcall');
+    userPreferences.poolGuideLen = Q.get('guidelen') || 'long';
+    userPreferences.poolMaxLayout = Q.get('maxlayout') || 'full';
     // ?spin=i picks a preset, ?tipx=&tipy= any tip, ?spinopen=1 opens the picker.
     if (Q.has('spin')) { const p = PH_SPINS[+Q.get('spin') % PH_SPINS.length]; S.tip = { x: p.x, y: p.y }; }
     if (Q.has('tipx') || Q.has('tipy')) S.tip = phClampTip(+Q.get('tipx') || 0, +Q.get('tipy') || 0);
@@ -645,6 +669,32 @@ function toggleGameMaxModal(cfg) {
          ['gauge', 'hint'], ['lock', 'pill'], ['gauge', 'pill'], ['spinpop', 'spin'], ['spinpop', 'hint'], ['spinpop', 'pill'], ['spinpop', 'cam']].forEach(([a, b]) => {
             if (hud[a] && hud[b] && visible(hud[a]) && visible(hud[b])) ok(a + ' and ' + b + ' do not overlap', !hit(hud[a], hud[b]));
         });
+        // Out of the way of the shot: every overlay the aim line, the object ball's path, the
+        // contact or the target pocket passes under is faded (a prompt still
+        // waiting on the player excepted), and none is faded that the shot misses.
+        {
+            const aiming = (S.phase === 'aim' || S.phase === 'strike') && !S.handoff;
+            const cr = S.canvas.getBoundingClientRect(), shot = aiming ? poolShotPath(poolView()) : null, rects = {}, k = cr.width / (S.canvas.clientWidth || cr.width);
+            const keep = { chips: visible(hud.chips) && !hud.chips.hasAttribute('data-fold'), mini: visible(hud.mini) && S.called < 0 };
+            PH_SHY.forEach(n => { if (hud[n] && visible(hud[n]) && !keep[n]) { const r = hud[n].getBoundingClientRect(); rects[n] = { x: (r.left - cr.left) / k, y: (r.top - cr.top) / k, w: r.width / k, h: r.height / k }; } });
+            const under = phShyHits(shot, rects), wrong = PH_SHY.filter(n => hud[n] && hud[n].hasAttribute('data-shy') !== under.includes(n));
+            ok('overlays over the shot fade, and only those', !wrong.length, wrong.join() + (under.length ? ' (under: ' + under.join() + ')' : ''));
+            window.__shy = under;
+            // Max's full table (2D, where the pockets hold still): no corner overlay on a pocket.
+            if (hud.layout === 'max' && !hud.el.hasAttribute('data-bars') && userPreferences.poolCamera === '2d' && S.phase !== 'over') {
+                const marks = pgPocketMarks(poolView(), S.world.table, S.cfg);
+                const onPocket = ['cam', 'pill', 'spin', 'hint', 'mini', 'chips', 'replace'].filter(n => hud[n] && visible(hud[n]) && (() => {
+                    const r = hud[n].getBoundingClientRect(), x0 = (r.left - cr.left) / k, y0 = (r.top - cr.top) / k, x1 = x0 + r.width / k, y1 = y0 + r.height / k;
+                    return marks.some(m => Math.hypot(m.x - Math.max(x0, Math.min(x1, m.x)), m.y - Math.max(y0, Math.min(y1, m.y))) < m.r * 0.7);
+                })());
+                ok('Max, full table: the overlays sit between the pockets, none on one', !onPocket.length, onPocket.join());
+            }
+            // Max: the corner overlays sit in the bars, off the table; only lean and the gauge are over it.
+            if (hud.layout === 'max' && hud.el.hasAttribute('data-bars')) {
+                const on = ['cam', 'pill', 'spin', 'hint', 'mini', 'chips', 'replace'].filter(n => hud[n] && visible(hud[n]) && (() => { const r = hud[n].getBoundingClientRect(); return r.bottom > cr.top + 0.5 && r.top < cr.bottom - 0.5; })());
+                ok('Max: the camera toggle, pill, spin, hint, chips, call card and Move cue ball are off the table, in its bars', !on.length, on.join());
+            }
+        }
         // Every control a keyboard or a screen reader can reach has a name.
         const nameless = Array.from(hud.el.querySelectorAll('button, input, select, textarea, [tabindex], [role="img"]')).filter(visible)
             .filter(el => !((el.getAttribute('aria-label') || '').trim() || el.getAttribute('aria-labelledby') || el.textContent.trim() ||
@@ -686,7 +736,8 @@ function toggleGameMaxModal(cfg) {
                 ok('the chips sit on the table', cr.left >= vr.left - 1 && cr.right <= vr.right + 1 && cr.top >= vr.top - 1 && cr.bottom <= vr.bottom + 1);
                 const clash = ['gauge', 'lock', 'spin', 'hint', 'replace', 'pill', 'lean'].filter(n => hud[n] && visible(hud[n]) && hit(hud.chips, hud[n]));
                 ok('the chips clear the gauge, padlock, spin, hint and Move cue ball', !clash.length, clash.join());
-                ok('every chip is a 44 px target', hud.chipButtons.every(b => b.getBoundingClientRect().height >= 43.5));
+                ok('every chip is a 44 px target', hud.chipButtons.filter(visible).every(b => b.getBoundingClientRect().height >= 43.5));
+                if (S.nom >= 0 && !S.chipsOpen) ok('nominated, the chips fold to that colour', hud.chips.hasAttribute('data-fold') && hud.chipButtons.filter(visible).length === 1 && hud.chipButtons.filter(visible)[0].getAttribute('data-ph-nom') === String(S.nom));
             }
             if (visible(hud.toastacts)) {
                 const a = hud.toastacts;

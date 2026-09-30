@@ -509,6 +509,49 @@ head('Snooker rules: a 147 and a 155');
     ok('…the free ball scores 1, the black after it 7, then 15 reds and blacks and the colours: a 155 break (159 with the foul)', fb === 1 && f.high[1] === 155 && f.scores[1] === 159 && v.frameOver && v.winner === 1);
 }
 
+head('Snooker rules: the call pocket');
+{
+    // Pots into given pockets: [id, pocket].
+    const fakeAt = (w, hit, pots) => {
+        w.log = [{ type: 'strike', t: 0, ball: 0 }];
+        hit.forEach(id => w.log.push({ type: 'ball', t: 0.1, a: 0, b: id }));
+        pots.forEach(([id, pk], i) => { Object.assign(w.balls.find(o => o.id === id), { state: 'pocketed', pocket: pk }); w.log.push({ type: 'pocket', t: 0.2 + i * 0.01, ball: id, pocket: pk }); });
+        return w;
+    };
+    const cj = (o, hit, pots, nom, call) => P.psJudge(frame(o), fakeAt(table([-100, 0], onSpots(P.PS_COLOURS).concat(REDS3)), hit, pots), nom === undefined ? -1 : nom, call);
+    const st = o => P.psStatus(frame(o), table([-100, 0], onSpots(P.PS_COLOURS).concat(REDS3)), 1);
+    ok('a frame plays without calls unless asked; the break-off is never called',
+       P.psNewFrame({}).call === 'off' && P.psNewFrame({ call: 'all' }).call === 'all' && P.psNewFrame({ call: 'x' }).call === 'off' &&
+       !P.psStatus(P.psNewFrame({ call: 'all' }), table([-100, 0], REDS3), 1).callRequired);
+    ok('off: nothing is called; colours: the colours and the clearance, not the reds; all: every ball',
+       !st({ phase: 'colour' }).callRequired && !st({ call: 'colours' }).callRequired && st({ call: 'colours', phase: 'colour' }).callRequired &&
+       st({ call: 'colours', phase: 'clearance', next: 2 }).callRequired && st({ call: 'all' }).callRequired);
+    ok('…a free ball on the reds stands for a red: colours does not call it, all does', !st({ call: 'colours', freeBall: true }).callRequired && st({ call: 'all', freeBall: true }).callRequired);
+    let v = cj({ call: 'colours', phase: 'colour' }, [6], [[6, 2]], 6, 2);
+    ok('colours: the pink in the pocket called scores 6', !v.foul && v.points === 6 && v.callRequired && v.called === 2);
+    v = cj({ call: 'colours', phase: 'colour' }, [6], [[6, 5]], 6, 2);
+    ok('…in another pocket: a foul on its value (6), the pink back on its spot, the choice to the other player',
+       v.foul === 'wrongPocket' && v.penalty === 6 && v.next.scores[2] === 6 && v.spots.map(s => s.id).join() === '6' && v.next.pending && v.next.pending.chooser === 2);
+    ok('…the yellow in the wrong pocket costs 4, the least a foul costs', cj({ call: 'colours', phase: 'colour' }, [2], [[2, 0]], 2, 3).penalty === 4);
+    ok('…a red is not called under colours', !cj({ call: 'colours' }, [8], [[8, 4]], -1, -1).foul);
+    ok('…the clearance is called: the yellow in the wrong pocket is a foul', cj({ call: 'colours', phase: 'clearance', next: 2 }, [2], [[2, 3]], -1, 0).foul === 'wrongPocket');
+    v = cj({ call: 'all' }, [8], [[8, 4]], -1, 1);
+    ok('all: a red in another pocket is a foul, 4 away, and it stays down', v.foul === 'wrongPocket' && v.penalty === 4 && !v.spots.length);
+    v = cj({ call: 'all' }, [8], [[8, 1], [9, 3]], -1, 1);
+    ok('…a red in the pocket called scores, and a second red elsewhere with it counts too (2)', !v.foul && v.points === 2);
+    ok('…nothing potted, nothing to judge', !cj({ call: 'all' }, [8], [], -1, -1).foul);
+    ok('the toast: "Potted the pink in the wrong pocket"', P.psText(cj({ call: 'colours', phase: 'colour' }, [6], [[6, 5]], 6, 2), NAMES).sub === 'Potted the pink in the wrong pocket');
+    ok('the tiers: hard calls the colours, pro every ball, easy and normal nothing', P.PS_CPU_TIERS.hard.call === 'colours' && P.PS_CPU_TIERS.pro.call === 'all' && !P.PS_CPU_TIERS.easy.call && !P.PS_CPU_TIERS.normal.call);
+    // The stand-in CPU calls the pocket of the pot it plays, and plans it fair under the call.
+    const w = table([-150, 60], onSpots(P.PS_COLOURS).concat([[8, 280, 150], [9, 320, -60]]));
+    const job = P.psCpuPlan(w, frame({ call: 'all' }), { tier: 'pro', noise: false });
+    while (!job.step(50));
+    const wc = P.ppCloneWorld(w); wc.log = [];
+    P.ppStrike(wc, job.shot); P.ppSimulate(wc, 40);
+    const vc = P.psJudge(frame({ call: 'all' }), wc, job.shot.nominate, job.shot.call);
+    ok('the CPU calls the pocket of the pot it plays, and it goes there', job.plan === 'pot' && job.shot.call >= 0 && !vc.foul && vc.points > 0, job.plan + ' call ' + job.shot.call + ' ' + (vc.foul || vc.points));
+}
+
 head('Snooker rules: whole frames, fuzzed');
 {
     // Frames played to the end: most shots on the real physics, aimed roughly at a ball on;

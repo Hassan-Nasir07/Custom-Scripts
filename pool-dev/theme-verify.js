@@ -72,7 +72,8 @@ const CONTRAST = `(() => {
     const pageBg = parse(getComputedStyle(document.body).backgroundColor) || [0, 0, 0, 1];
     const out = { checked: 0, bad: [] };
     for (const el of [root, ...root.querySelectorAll('*')]) {
-        if (!el.getClientRects().length || el.closest('[hidden]')) continue;
+        // An overlay faded out of the way of the shot (data-shy) is meant to be see-through.
+        if (!el.getClientRects().length || el.closest('[hidden]') || el.closest('[data-shy]')) continue;
         const text = [...el.childNodes].filter(c => c.nodeType === 3).map(c => c.textContent).join('');
         if (!/[\\p{L}\\p{N}]/u.test(text)) continue;
         const cs = getComputedStyle(el);
@@ -89,7 +90,8 @@ const CONTRAST = `(() => {
                 const stops = (baseLayer(s.backgroundImage).match(/rgba?\\([^)]+\\)|color\\(srgb[^)]+\\)|#[0-9a-fA-F]{6}/g) || []).map(v => v[0] === '#' ? [parseInt(v.slice(1, 3), 16), parseInt(v.slice(3, 5), 16), parseInt(v.slice(5, 7), 16), 1] : parse(v)).filter(Boolean);
                 if (stops.length) { const avg = [0, 1, 2, 3].map(i => stops.reduce((t, p) => t + p[i], 0) / stops.length); stack.push(avg); if (avg[3] >= 0.999) break; }
             }
-            if (n.classList && n.classList.contains('ph-layer')) { base = over(under(el.getBoundingClientRect()), pageBg); break; }
+            // Over the table the canvas is the base; in Max's bars (off the canvas) the view's own backdrop is.
+            if (n.classList && n.classList.contains('ph-layer')) { const r = el.getBoundingClientRect(); if (r.bottom > cr.top && r.top < cr.bottom) { base = over(under(r), pageBg); break; } }
             n = n.parentElement;
         }
         let bg = base || pageBg;
@@ -134,6 +136,9 @@ const CONTRAST = `(() => {
         if (!ready) { layoutFails++; console.log('  ✗ not ready: ' + L.label + ' ' + L.q); continue; }
         const audit = (await evaluate('window.__hudAudit ? window.__hudAudit() : []')) || [];
         audit.forEach(([n, pass, d]) => { layoutChecks++; if (!pass) { layoutFails++; console.log('  ✗ ' + L.label + ' ' + L.q + ' — ' + n + (d ? ' — ' + d : '')); } });
+        // Measure what stays on screen: a screen still fading in (the champion's 0.7 s rise) is
+        // let finish, and a loop (the hot clock's pulse) is held at its first frame, full strength.
+        await evaluate('(() => { const all = document.getAnimations(), loop = a => a.effect && a.effect.getTiming().iterations === Infinity; all.filter(loop).forEach(a => { a.pause(); a.currentTime = 0; }); return Promise.all(all.filter(a => !loop(a)).map(a => a.finished.catch(() => {}))); })()');
         const c = await evaluate(CONTRAST);
         textChecks += c.checked;
         c.bad.forEach(b => { const k = b.replace(/ [\d.]+( \(large\))?$/, ''); if (!lowContrast.has(k)) lowContrast.set(k, []); lowContrast.get(k).push(L.label + ' ' + b.match(/[\d.]+( \(large\))?$/)[0] + ' · ' + L.q); });

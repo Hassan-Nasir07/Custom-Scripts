@@ -247,6 +247,15 @@
                 color: var(--pool-overlay-text);
             }
             .pool-hud [hidden] { display: none !important; }
+            /* Out of the way of the shot (phShy): an overlay the shot passes under fades, and stays
+               a working control. In 3D it comes back while the pointer is on it (3D aim follows the
+               mouse's movement, so reaching it does not move the shot); in 2D the pointer is the aim,
+               often out toward the pocket, so it stays see-through. Focus brings it back in both. */
+            .pool-hud .ph-cam, .pool-hud .ph-pill, .pool-hud .ph-lean, .pool-hud .ph-spin, .pool-hud .ph-hint,
+            .pool-hud .ph-mini, .pool-hud .ph-chips, .pool-hud .ph-replace { transition: opacity 0.15s ease; }
+            .pool-hud .ph-layer > [data-shy] { opacity: 0.22; }
+            .pool-hud .ph-view:not(.is-2d) .ph-layer > [data-shy]:hover, .pool-hud .ph-layer > [data-shy]:focus-visible, .pool-hud .ph-layer > [data-shy]:has(:focus-visible) { opacity: 1; }
+            .pool-hud .ph-canvas.is-dragging ~ .ph-layer > [data-shy] { opacity: 0.22; }
 
             .pool-hud .ph-cam { left: 10px; top: 10px; display: flex; gap: 2px; padding: 3px; border-radius: 11px; pointer-events: auto; }
             .pool-hud .ph-cam button {
@@ -399,22 +408,22 @@
             .pool-hud .ph-mini.is-hot .ph-mini-cap { color: var(--pool-hot); }
             .pool-hud .ph-mini-pad { position: relative; width: 76px; height: 50px; }
             .pool-hud .ph-mini-table { position: absolute; left: 12px; top: 12px; width: 52px; height: 26px; box-sizing: border-box; border-radius: 3px; background: #1d6e55; border: 3px solid #553220; }
-            .pool-hud .ph-mini button {
+            .pool-hud .ph-mini-pad button {
                 position: absolute; width: 24px; height: 24px; padding: 0; border: 0; background: transparent;
                 display: flex; align-items: center; justify-content: center; cursor: pointer;
             }
-            .pool-hud .ph-mini button span {
+            .pool-hud .ph-mini-pad button span {
                 width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; display: flex; align-items: center; justify-content: center;
                 border: 2px solid rgba(var(--pool-accent-rgb), 0.55); background: var(--pool-overlay);
             }
-            .pool-hud .ph-mini button[aria-pressed="true"] span { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.25); }
-            .pool-hud .ph-mini button:hover span { border-color: var(--pool-accent); }
+            .pool-hud .ph-mini-pad button[aria-pressed="true"] span { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.25); }
+            .pool-hud .ph-mini-pad button:hover span { border-color: var(--pool-accent); }
             /* While the card holds the corner: the gauge and its padlock step up over it, and
                Move cue ball goes bottom left, over the spin control (the lean slider is hidden). */
             .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-gauge { bottom: 98px; height: min(140px, calc(100% - 248px)); }
             .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-lock { bottom: calc(102px + min(140px, calc(100% - 248px))); }
             .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-replace { right: auto; left: 10px; bottom: 62px; }
-            .pool-hud .ph-mini button[aria-pressed="true"] span::after { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--pool-accent); }
+            .pool-hud .ph-mini-pad button[aria-pressed="true"] span::after { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--pool-accent); }
 
             /* Frame-over dialog */
             .pool-hud .ph-scrim { inset: 0; background: rgba(7, 9, 10, 0.62); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; pointer-events: auto; }
@@ -1133,10 +1142,30 @@
             .pool-hud .ph-chips-cap { text-align: center; font-size: 12px; font-weight: 600; color: var(--pool-overlay-text); white-space: nowrap; }
             .pool-hud .ph-chips.is-set .ph-chips-cap, .pool-hud .ph-chips.is-power .ph-chips-cap { color: var(--pool-accent-lite); }
             .pool-hud .ph-chips.is-hot .ph-chips-cap { color: var(--pool-hot-lite); }
+            .pool-hud .ph-chips.is-call { border-color: rgba(var(--pool-accent-rgb), 0.6); }
+            .pool-hud .ph-chips.is-call .ph-chips-cap { color: var(--pool-accent-lite); }
+            /* Folded with a call to make (3D): the pocket map beside the chip. In compact the caption
+               goes under them (a 144 x 78 card, the widget's column included), and the gauge and its
+               padlock step up over it as they do over the call card; Max keeps it in a row. */
+            .pool-hud .ph-chips-pad { flex-shrink: 0; }
+            .pool-hud[data-layout="compact"] .ph-chips[data-fold][data-pad] {
+                display: grid; grid-template-columns: auto auto; grid-template-areas: "chip pad" "cap cap"; align-items: center; justify-items: center; gap: 2px 6px; padding: 5px 8px 6px;
+            }
+            .pool-hud[data-layout="compact"] .ph-chips[data-fold][data-pad] .ph-chips-grid { grid-area: chip; }
+            .pool-hud[data-layout="compact"] .ph-chips[data-fold][data-pad] .ph-chips-cap { grid-area: cap; }
+            .pool-hud[data-layout="compact"] .ph-chips[data-fold][data-pad] .ph-chips-pad { grid-area: pad; }
+            .pool-hud[data-layout="compact"] .ph-view.is-nompad .ph-gauge { bottom: 98px; height: min(140px, calc(100% - 248px)); }
+            .pool-hud[data-layout="compact"] .ph-view.is-nompad .ph-lock { bottom: calc(102px + min(140px, calc(100% - 248px))); }
             /* While the chips hold the corner: the gauge and padlock step up over them, and
                Move cue ball goes bottom left. */
-            .pool-hud[data-layout="compact"] .ph-view.is-nominating .ph-gauge { bottom: 146px; height: min(140px, calc(100% - 290px)); }
-            .pool-hud[data-layout="compact"] .ph-view.is-nominating .ph-lock { bottom: calc(150px + min(140px, calc(100% - 290px))); }
+            .pool-hud[data-layout="compact"] .ph-view.is-nominating:not(.is-nomfold) .ph-gauge { bottom: 146px; height: min(140px, calc(100% - 290px)); }
+            .pool-hud[data-layout="compact"] .ph-view.is-nominating:not(.is-nomfold) .ph-lock { bottom: calc(150px + min(140px, calc(100% - 290px))); }
+            /* Folded once a colour is nominated: that chip and the caption in a row, the corner
+               free for the stroke; the chip opens the six again. */
+            .pool-hud .ph-chips[data-fold] { width: max-content; flex-direction: row; align-items: center; gap: 4px; padding: 6px 14px 6px 6px; }
+            .pool-hud .ph-chips[data-fold] .ph-chips-grid { display: flex; }
+            .pool-hud .ph-chips[data-fold] .ph-chip { width: 44px; }
+            .pool-hud .ph-chips[data-fold] .ph-chip:not([aria-checked="true"]) { display: none; }
             .pool-hud[data-layout="compact"] .ph-view.is-nominating .ph-replace { right: auto; left: 10px; bottom: 62px; }
 
             /* The frame-over dialog: tighter, with SCORE and HIGH BREAK two up. */
@@ -1177,4 +1206,46 @@
             .pool-hud[data-layout="max"] .ph-chip { height: 58px; }
             .pool-hud[data-layout="max"] .ph-chip span { width: 42px; height: 42px; font-size: 18px; }
             .pool-hud[data-layout="max"] .ph-chips-cap { font-size: 14px; }
+            .pool-hud[data-layout="max"] .ph-chips[data-fold] { width: max-content; padding: 8px 18px 8px 8px; gap: 6px; }
+            .pool-hud[data-layout="max"] .ph-chips[data-fold] .ph-chip { width: 58px; }
             .pool-hud[data-layout="max"] .ph-view.is-nominating .ph-replace { right: auto; left: 16px; bottom: 100px; }
+
+            /* Max (S3 follow-up): the corner overlays leave the corners, where at true scale the
+               pockets are. ⚙️ Max View picks where they go: the full table (the design's 1232 × 672,
+               the default), with them on it between the corner and middle pockets and fading out of
+               the way of the shot (phShy); or the table between two bars (data-bars), with them off
+               it. Either way only the lean slider and the power gauge stay by the cushions. */
+            /* Both: spin, the chips and the call card in rows, 56 px tall. */
+            .pool-hud[data-layout="max"] .ph-spin { height: 56px; padding: 0 18px 0 5px; border-radius: 28px; }
+            .pool-hud[data-layout="max"] .ph-spin-ball { width: 46px; height: 46px; }
+            .pool-hud[data-layout="max"] .ph-mini { transform: none; flex-direction: row; gap: 10px; padding: 3px 6px 3px 14px; }
+            .pool-hud[data-layout="max"] .ph-mini-cap { font-size: 13px; }
+            .pool-hud[data-layout="max"] .ph-chips, .pool-hud[data-layout="max"] .ph-chips[data-fold] {
+                width: max-content; flex-direction: row; align-items: center; gap: 10px; padding: 3px 18px 3px 3px; border-radius: 28px;
+            }
+            .pool-hud[data-layout="max"] .ph-chips-grid { display: grid; grid-template-columns: repeat(6, 50px); grid-auto-rows: 50px; }
+            .pool-hud[data-layout="max"] .ph-chips[data-fold] .ph-chips-grid { display: flex; }
+            .pool-hud[data-layout="max"] .ph-chip, .pool-hud[data-layout="max"] .ph-chips[data-fold] .ph-chip { width: 50px; height: 50px; }
+            /* The full table: each centred on a long cushion between a corner and the middle
+               pocket, a quarter of the way in; Move cue ball and the spin picker above spin. */
+            .pool-hud[data-layout="max"]:not([data-bars]) .ph-cam, .pool-hud[data-layout="max"]:not([data-bars]) .ph-spin, .pool-hud[data-layout="max"]:not([data-bars]) .ph-spinpop,
+            .pool-hud[data-layout="max"]:not([data-bars]) .ph-view .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-view.is-calling .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-view.is-nominating .ph-replace { left: 25%; right: auto; transform: translateX(-50%); }
+            .pool-hud[data-layout="max"]:not([data-bars]) .ph-pill, .pool-hud[data-layout="max"]:not([data-bars]) .ph-hint, .pool-hud[data-layout="max"]:not([data-bars]) .ph-mini, .pool-hud[data-layout="max"]:not([data-bars]) .ph-chips { left: 75%; right: auto; transform: translateX(-50%); }
+            .pool-hud[data-layout="max"]:not([data-bars]) .ph-view .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-view.is-calling .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-view.is-nominating .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-spinpop { bottom: 84px; }
+            /* Between bars: the canvas is sized between them (poolFit measures it); canvas-placed
+               marks (the ball-in-hand note) are offset by the top bar. */
+            .pool-hud[data-layout="max"][data-bars] { --ph-bar-t: 60px; --ph-bar-b: 68px; }
+            .pool-hud[data-layout="max"][data-bars] .ph-canvas { top: var(--ph-bar-t); height: calc(100% - var(--ph-bar-t) - var(--ph-bar-b)); }
+            .pool-hud[data-layout="max"][data-bars] .ph-view::before {
+                content: ''; position: absolute; inset: 0; pointer-events: none;
+                background: linear-gradient(var(--pool-overlay-line), var(--pool-overlay-line)) 0 calc(var(--ph-bar-t) - 1px) / 100% 1px no-repeat,
+                    linear-gradient(var(--pool-overlay-line), var(--pool-overlay-line)) 0 calc(100% - var(--ph-bar-b)) / 100% 1px no-repeat;
+            }
+            .pool-hud[data-layout="max"][data-bars] .ph-bihnote { margin-top: var(--ph-bar-t); }
+            .pool-hud[data-layout="max"][data-bars] .ph-cam { top: 8px; }
+            .pool-hud[data-layout="max"][data-bars] .ph-pill { top: 13px; }
+            .pool-hud[data-layout="max"][data-bars] .ph-spin, .pool-hud[data-layout="max"][data-bars] .ph-mini, .pool-hud[data-layout="max"][data-bars] .ph-chips { bottom: 6px; }
+            .pool-hud[data-layout="max"][data-bars] .ph-spinpop { bottom: calc(var(--ph-bar-b) + 8px); }
+            .pool-hud[data-layout="max"][data-bars] .ph-hint { bottom: 17px; }
+            .pool-hud[data-layout="max"][data-bars] .ph-view .ph-replace, .pool-hud[data-layout="max"][data-bars] .ph-view.is-calling .ph-replace,
+            .pool-hud[data-layout="max"][data-bars] .ph-view.is-nominating .ph-replace { left: 50%; right: auto; bottom: 18px; transform: translateX(-50%); }

@@ -161,6 +161,39 @@ const SCENES = {
     'light:snk-red': 'game=snooker&scene=red&camera=3d',
     'light:snk-free': 'game=snooker&scene=free&camera=3d',
     'light:snk-win': 'game=snooker&scene=win&camera=3d',
+    // Out of the way of the shot (S3 follow-up): pots into each corner of Max's 2D view,
+    // where the table fills the viewport and every corner overlay sits on a pocket. The audit
+    // checks exactly the overlays the shot passes under are faded; the open chips (a colour
+    // still to tap) stay up. Compact 2D and 3D keep their overlays off the pockets.
+    'max-snk-pot-tl': 'game=snooker&scene=nominatePink&camera=2d&max=1&mode=pvp&pot=0&cut=20',
+    'max-snk-pot-tr': 'game=snooker&scene=nominatePink&camera=2d&max=1&mode=pvp&pot=2',
+    'max-snk-pot-bl': 'game=snooker&scene=nominatePink&camera=2d&max=1&mode=pvp&pot=3',
+    'max-snk-pot-br': 'game=snooker&scene=nominatePink&camera=2d&max=1&mode=pvp&pot=5',
+    'max-snk-pot-br-open': 'game=snooker&scene=nominate&camera=2d&max=1&mode=pvp&pot=5',
+    'max-snk-pot-br-red': 'game=snooker&scene=red&camera=2d&max=1&mode=pvp&pot=5',
+    'max-snk-pot-tl-3d': 'game=snooker&scene=nominatePink&camera=3d&max=1&mode=pvp&pot=0&cut=30',
+    'snk-pot-br': 'game=snooker&scene=nominatePink&camera=2d&pot=5',
+    'snk-fold-3d': 'game=snooker&scene=nominatePink&camera=3d&pot=3&cut=-30',
+    'cyber-max-snk-pot-tl': 'game=snooker&scene=nominatePink&camera=2d&max=1&mode=pvp&pot=0&theme=cyber&shape=chamfered',
+    'light:max-snk-pot-bl': 'game=snooker&scene=nominatePink&camera=2d&max=1&mode=pvp&pot=3',
+    // ⚙️ Max View: between bars (the full table is the default above).
+    'max-bars-snk-pot-tl': 'game=snooker&scene=nominatePink&camera=2d&max=1&mode=pvp&pot=0&cut=20&maxlayout=bars',
+    'max-bars-snk-nominate': 'game=snooker&scene=nominate&camera=3d&max=1&mode=pvp&maxlayout=bars',
+    'max-bars-call-3d': 'scene=eight&camera=3d&aim=-20&lean=55&max=1&maxlayout=bars',
+    'max-bars-bih-placed': 'scene=bih&placed=1&camera=3d&max=1&maxlayout=bars',
+    'cyber-max-bars-snk-red': 'game=snooker&scene=red&camera=2d&max=1&maxlayout=bars&theme=cyber&shape=notched',
+    // Snooker's call pocket (colours / all), and ⚙️ Aim Guide.
+    'snk-call-red-3d': 'game=snooker&scene=red&camera=3d&snkcall=all',
+    'snk-call-red-2d': 'game=snooker&scene=red&camera=2d&snkcall=all',
+    'snk-call-colour-3d': 'game=snooker&scene=nominatePink&camera=3d&snkcall=colours',
+    'snk-call-colour-called': 'game=snooker&scene=nominatePink&camera=3d&snkcall=colours&call=5',
+    'snk-call-colour-2d': 'game=snooker&scene=nominatePink&camera=2d&snkcall=colours',
+    'max-snk-call-colour-3d': 'game=snooker&scene=nominatePink&camera=3d&mode=pvp&max=1&snkcall=colours',
+    'max-snk-call-red-2d': 'game=snooker&scene=red&camera=2d&mode=pvp&max=1&snkcall=all',
+    'cyber-snk-call-colour-3d': 'game=snooker&scene=nominatePink&camera=3d&snkcall=colours&theme=cyber&shape=chamfered',
+    'snk-guide-short': 'game=snooker&scene=red&camera=2d&guidelen=short',
+    'snk-guide-medium': 'game=snooker&scene=red&camera=2d&guidelen=medium',
+    'snk-tour-setup': 'game=snooker&tour=setup',
 };
 
 const CHROME = require('./browser').browserPath();     // Chrome, else Edge, or POOL_BROWSER
@@ -174,7 +207,7 @@ const picks = ARGS.slice(1);
     'cyber-main-3d', 'cyber-call-3d', 'cyber-foul', 'light:main-3d', 'break-stay3d', 'spin-open', 'cyber-spin-open', 'sheet-cpu', 'cyber-sheet-cpu', 'sheet-pvp',
     'tracker-swap', 'open-potted', 'open-potted-4', 'call-3d-power', 'call-3d-replace', 'sheet-tour-saved', 'tour-setup', 'tour-bracket-sf', 'tour-bracket-16', 'tour-intro', 'tour-match', 'tour-result', 'tour-champion', 'tour-cabinet', 'tour-resume', 'tour-pause',
     'snooker-break-d', 'snooker-mid-3d', 'snooker-mid-2d',
-    'snk-break', 'snk-red', 'snk-nominate', 'snk-foul', 'snk-foul-handoff', 'snk-free', 'snk-snookers', 'snk-concede', 'snk-win', 'snk-respot'].forEach(n => { SCENES['narrow:' + n] = SCENES[n] + '&narrow=1'; });
+    'snk-call-colour-3d', 'snk-break', 'snk-red', 'snk-nominate', 'snk-foul', 'snk-foul-handoff', 'snk-free', 'snk-snookers', 'snk-concede', 'snk-win', 'snk-respot'].forEach(n => { SCENES['narrow:' + n] = SCENES[n] + '&narrow=1'; });
 
 const list = (picks.length ? picks : Object.keys(SCENES)).map(s => [SCENES[s] ? s : s.replace(/[^\w=-]+/g, '_'), SCENES[s] || s]);
 const page = 'file:///' + path.join(__dirname, 'pool-table.html').replace(/\\/g, '/').replace(/ /g, '%20');

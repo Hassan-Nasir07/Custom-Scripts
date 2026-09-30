@@ -800,7 +800,7 @@ const COLOURS = [2, 3, 4, 5, 6, 7].map(id => [id].concat([[-293.5, -81.8], [-293
     ok('⚙️ Cue Game → snooker: its table (6 reds from ⚙️, so 13 balls), ball in hand in the D, the 45 s clock, its title',
        S.game === 'snooker' && S.world.balls.length === 13 && S.phase === 'bih' && S.frame.ballInHand === 'D' && S.clockTotal === 45 && P.poolTitle() === '🔴 Snooker' &&
        P.prCanPlace(S.world, S.world.balls[0].x, S.world.balls[0].y, 'D') === null);
-    ok('the Game mode sheet lists snooker\'s words, and the CPU is snooker\'s', P.poolRules().diffs[3].desc === 'Plays position and safety · regular 50s' && P.poolRules().cpu.tiers.hard.label === 'Hard');
+    ok('the Game mode sheet lists snooker\'s words, and the CPU is snooker\'s', P.poolRules().diffs[3].desc === 'Position and safety · call the colours' && P.poolRules().cpu.tiers.hard.label === 'Hard');
     P.poolSetVariant('pool');
     ok('switching back brings pool\'s frame back exactly as it was left', S.game === 'pool' && JSON.stringify(S.world.balls.map(b => [b.id, b.x, b.y])) === poolBalls && S.world.balls.length === 16);
     P.poolSetVariant('snooker');
@@ -814,8 +814,41 @@ const COLOURS = [2, 3, 4, 5, 6, 7].map(id => [id].concat([[-293.5, -81.8], [-293
     P.poolOn.nominate(6);
     st = P.poolRules().status(S.frame, S.world);
     ok('tapping the pink nominates it; the padlock opens', S.nom === 6 && !st.needsNomination && st.on.ids.join() === '6');
+    // The call pocket comes with a picked tier (lockCall), in Vs CPU; Adaptive hands no rule change.
+    {
+        const callOf = diff => { const Q = L.game({ seed: 73, prefs: { snookerDifficulty: diff } }); Q.poolSetVariant('snooker'); Q.poolNewFrame(1); return Q.poolS.frame.call; };
+        ok('Vs CPU: hard calls the colours, pro every ball; easy, normal and Adaptive none', callOf('hard') === 'colours' && callOf('pro') === 'all' && callOf('easy') === 'off' && callOf('normal') === 'off' && callOf('adaptive') === 'off');
+        const Q = L.game({ seed: 74 }); Q.poolSetVariant('snooker');
+        const d = Q.poolTourSetupFresh(); Q.poolS.tour.setup = d;
+        ok('a snooker tournament offers Off / Colours / All balls, Off to start', d.call === 'off' && d.calls.map(c => c[0]).join() === 'off,colours,all');
+        Q.poolTourOn.set('call:colours'); const c1 = d.call; Q.poolTourOn.set('call:every'); const c2 = d.call;
+        ok('…a pick is kept, and pool\'s own choices are not snooker\'s', c1 === 'colours' && c2 === 'off');
+        Q.poolS.tour.t = { settings: { call: 'all', clock: 30, guide: 'full' } }; Q.poolTourApply();
+        ok('…and its matches play by it', Q.poolS.callMode === 'all' && !Q.poolS.callEvery);
+        const Pp = L.game({ seed: 75 }), dp = Pp.poolTourSetupFresh();
+        ok('pool\'s tournament keeps 8 only / every shot', dp.call === '8' && dp.calls.map(c => c[0]).join() === '8,every');
+    }
     P.poolOn.nominate(7);
-    ok('…and another colour may be tapped before the stroke', S.nom === 7);
+    ok('…and another colour may be tapped before the stroke', S.nom === 7 && !S.chipsOpen);
+    P.poolOn.nominate(7);
+    ok('the folded chip (the colour nominated) opens the chips, keeping it', S.nom === 7 && S.chipsOpen);
+    P.poolOn.nominate(7);
+    ok('…pressed again, they fold back', S.nom === 7 && !S.chipsOpen);
+    P.poolOn.nominate(7); P.poolOn.nominate(5);
+    ok('…or another colour from them, nominated, and folded', S.nom === 5 && !S.chipsOpen);
+    // The shot on screen, for the HUD to keep its overlays off: aimed at the blue on its
+    // spot, the path runs on to the pocket it is heading for, which is one of the circles.
+    {
+        const v = P.pcView({ kind: 'ortho', W: 1000, H: 520, s: 0.9 }), cue = P.poolCueBall(), blue = S.world.balls.find(b => b.id === 5);
+        const pk = S.world.table.pockets[2], L = Math.hypot(pk.x - blue.x, pk.y - blue.y), ux = (blue.x - pk.x) / L, uy = (blue.y - pk.y) / L;
+        cue.x = blue.x + ux * 200; cue.y = blue.y + uy * 200;
+        S.aim = Math.atan2(-uy, -ux); S.phase = 'aim'; S.guideKey = ''; P.poolRefreshGuide();
+        const sp = P.poolShotPath(v), end = sp && sp.segs[sp.segs.length - 1], pq = P.pcProject(v, [pk.x, pk.y, S.cfg.ballR]);
+        ok('the shot path runs from the cue ball through the blue into the top-right pocket', !!sp && sp.dots.some(d => Math.hypot(d[0] - pq[0], d[1] - pq[1]) < 0.5 && d[2] > 5) &&
+           Math.hypot(end[2] - pq[0], end[3] - pq[1]) < 0.5, sp && JSON.stringify(sp.dots.map(d => d.map(n => Math.round(n)))));
+        S.guide = null;
+        ok('…and nothing when there is no shot to show', P.poolShotPath(v) === null);
+    }
 
     // A foul by you against the CPU: it chooses, after a beat, and says what it chose.
     snkTable(P, [-100, 0], COLOURS.concat([[8, 300, 40], [9, 320, -60]]), { phase: 'reds', turn: 1 });

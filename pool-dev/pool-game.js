@@ -75,6 +75,8 @@
             newFrame: o => prNewFrame({ breaker: o.breaker, callEvery: o.callEvery }),
             status: (f, w, seat) => prStatus(f, w, seat),
             judge: (f, w, pick) => prJudge(f, w, pick.call),
+            // The frame's call rule: every shot at pro, or as the tournament sets it.
+            lockCall: (f, tier) => { f.callEvery = poolS.callEvery || (poolMode === 'cpu' && !!tier.callEvery); },
             // After the verdict, before the next turn: the 8 potted on the break comes back.
             apply: (w, v) => { if (v.respot8) prSpotBall(w, 8); },
             timeout: f => prTimeout(f),
@@ -94,7 +96,7 @@
             tracksPot: id => id > 0 && id < 16 && id !== 8,
             ballCount: () => 16,
             validFrame: f => !!f && f.v === 1 && (f.turn === 1 || f.turn === 2) && !f.over,
-            tourDefaults: { call: '8' },
+            tourDefaults: { call: '8', calls: [['8', '8 only'], ['every', 'Every shot']] },
             cpu: { tiers: PA_TIERS, names: PA_TIER_NAMES, plan: paPlan, place: paPlace, tierFor: paTierFor, adaptive: paAdaptiveTier },
             // XP a pot, for your pots against the CPU (poolAwardPots).
             potXP: POOL_POT_XP,
@@ -146,7 +148,10 @@
             cueHome: w => psCueHome(w),
             newFrame: o => psNewFrame({ breaker: o.breaker, reds: psRedsOf(+userPreferences.snookerReds), seed: o.seed }),
             status: (f, w, seat) => psStatus(f, w, seat || f.turn, poolS.nom),
-            judge: (f, w, pick) => psJudge(f, w, pick.nominate),
+            judge: (f, w, pick) => psJudge(f, w, pick.nominate, pick.call),
+            // The call pocket (off / colours / all): a picked tier's (hard the colours, pro every
+            // ball; Adaptive hands no rule change), the tournament's, and none in 2 Players.
+            lockCall: (f, tier) => { f.call = poolMode === 'tour' ? poolS.callMode : poolMode === 'cpu' && poolDifficulty() !== 'adaptive' ? (tier.call || 'off') : 'off'; },
             apply: (w, v) => psApplySpots(w, v.spots),
             timeout: (f, w) => psTimeout(f, w, poolS.nom),
             text: (v, names) => psText(v, names),
@@ -163,8 +168,8 @@
             placeCue: (w, x, y) => prPlaceCue(w, x, y),
             tracksPot: () => false,
             ballCount: f => 7 + psRedsOf(f && f.reds),
-            validFrame: f => !!f && f.v === 1 && f.game === 'snooker' && (f.turn === 1 || f.turn === 2) && !f.over && PS_REDS.indexOf(f.reds) >= 0,
-            tourDefaults: { reds: 15 },
+            validFrame: f => !!f && f.v === 1 && f.game === 'snooker' && (f.turn === 1 || f.turn === 2) && !f.over && PS_REDS.indexOf(f.reds) >= 0 && (f.call === undefined || PS_CALLS.indexOf(f.call) >= 0),
+            tourDefaults: { reds: 15, call: 'off', calls: [['off', 'Off'], ['colours', 'Colours'], ['all', 'All balls']] },
             // After a foul, and giving the frame away.
             choose: (f, id) => psChoose(f, id),
             choices: (p, names) => psChoiceText(p, names),
@@ -242,6 +247,8 @@
         // Snooker: the colour nominated for this shot (-1: none), the concede question, and
         // the frame parked by the other game while this one is on the table.
         nom: -1, confirm: false, parked: {}, tours: {},
+        // Snooker: the chips opened again after a colour was nominated (they fold to that one).
+        chipsOpen: false,
         drops: [], down: new Set(), drag: null, strikeT: 0, shot: null,
         // The object balls each seat has potted this frame (the cards show them on an open
         // table).
@@ -252,7 +259,7 @@
         cpuRec: null, sheet: { open: false, mode: 'cpu' },
         // Table settings: guide length (full | short | off) and call every shot. Fixed for
         // quick matches today; tournaments (Phase 7) and the pro tier (Phase 6) set them.
-        guideMode: 'full', callEvery: false, clockTotal: POOL_CLOCK_S,
+        guideMode: 'full', callEvery: false, callMode: 'off', clockTotal: POOL_CLOCK_S,
         // The tournament: the bracket (t, with t.current the match in progress), the screen
         // and dialog over the panel, the match on the table, setup's draft, the cabinet.
         tour: { t: null, screen: null, dialog: null, dlgBack: null, tab: 0, matchId: null, setup: null, cab: null, cabBack: null,
@@ -279,12 +286,12 @@
     }
     function poolSaveCpuRecord(r) { try { localStorage.setItem(poolRules().keys.cpuRec, JSON.stringify(r)); } catch (_) {} }
     const poolCpuRec = () => poolS.cpuRec || (poolS.cpuRec = poolLoadCpuRecord());
-    // Locks the tier for the frame; pro calls every shot, for both seats.
+    // Locks the tier for the frame, and with it the frame's call rule (for both seats).
     function poolLockTier() {
         const S = poolS;
         const cpu = poolRules().cpu;
         poolCpuTier = cpu.tierFor(poolDifficulty(), poolCpuRec());
-        S.frame.callEvery = S.callEvery || (poolMode === 'cpu' && !!cpu.tiers[poolCpuTier].callEvery);
+        poolRules().lockCall(S.frame, cpu.tiers[poolCpuTier]);
         // The wins button shows the board being played for, and that is this frame's tier.
         poolRefreshScoreBtn();
     }
@@ -516,6 +523,50 @@
         S.guideKey = key;
         S.guide = pgGuide(S.world, { angle: S.aim, speed: poolSpeedOf(p), tipX: t.x, tipY: t.y });
     }
+    // The shot on screen, for the HUD to keep its overlays off (phShy): the aim line to the
+    // first contact, the object ball's path on to the pocket it is heading for (else to the
+    // cushion), and as circles the contact, the object ball and that pocket. The cue ball is
+    // the line's start, not a circle: in 3D it always sits bottom centre, which the overlays
+    // are laid out round.
+    function poolShotPath(v) {
+        const S = poolS, g = S.guide, cfg = S.cfg, R = cfg.ballR, c = poolCueBall();
+        if (!g || !g.contact || !c || c.state === 'pocketed') return null;
+        const segs = [], dots = [], pockets = S.world.table.pockets;
+        const line = (a, b) => {
+            const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 40));
+            let prev = null;
+            for (let i = 0; i <= n; i++) {
+                const q = pcProject(v, [a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n, R]);
+                if (q && prev) segs.push([prev[0], prev[1], q[0], q[1]]);
+                prev = q;
+            }
+        };
+        const dot = (x, y, r) => { const q = pcProject(v, [x, y, R]); if (q) dots.push([q[0], q[1], r * q[2]]); };
+        line([c.x, c.y], g.contact);
+        dot(g.contact[0], g.contact[1], R);
+        if (g.pocketed) {
+            const p = pockets.slice().sort((a, b) => Math.hypot(a.x - g.contact[0], a.y - g.contact[1]) - Math.hypot(b.x - g.contact[0], b.y - g.contact[1]))[0];
+            if (p) dot(p.x, p.y, p.r);
+        }
+        if (g.obj) {
+            const o = g.obj;
+            let hit = null, best = Infinity;
+            pockets.forEach(p => {
+                const t = (p.x - o.x) * o.dx + (p.y - o.y) * o.dy, d = Math.abs((p.x - o.x) * o.dy - (p.y - o.y) * o.dx);
+                if (t > 0 && d < p.r + R && t < best) { best = t; hit = p; }
+            });
+            let end;
+            if (hit) { end = [hit.x, hit.y]; dot(hit.x, hit.y, hit.r); }
+            else {
+                const lim = (s, d, h) => d > 1e-9 ? (h - s) / d : d < -1e-9 ? (-h - s) / d : Infinity;
+                const t = Math.max(0, Math.min(lim(o.x, o.dx, cfg.halfLength - R), lim(o.y, o.dy, cfg.halfWidth - R)));
+                end = [o.x + o.dx * t, o.y + o.dy * t];
+            }
+            dot(o.x, o.y, R);
+            line([o.x, o.y], end);
+        }
+        return { segs, dots };
+    }
     // A human may act: not in the hand-off, not while the CPU plays.
     const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over' && poolS.phase !== 'choice' && !poolS.confirm && !poolS.sheet.open && !poolTourBlocked();
 
@@ -636,6 +687,8 @@
         return true;
     }
 
+    // ⚙️ Aim Guide: how far the object ball's line runs, in table units.
+    const POOL_GUIDE_LEN = { short: 60, medium: 100, long: 150 };
     function poolDraw(dt) {
         const S = poolS, R = poolRules();
         if (!poolFit()) return;
@@ -651,14 +704,14 @@
         const felt = userPreferences.poolTableColor || 'green';
         const theme = phThemeTokens(S.hud);
         // Nothing on the table moved and the camera is still: keep last frame's pixels.
-        const key = JSON.stringify([pose, S.world.t, c.x, c.y, S.aim, S.power, gap, S.phase, S.called, S.handoff, felt, theme, S.drops.length, S.guideKey, S.guideMode, S.W, S.H, S.nom]);
+        const key = JSON.stringify([pose, S.world.t, c.x, c.y, S.aim, S.power, gap, S.phase, S.called, S.handoff, felt, theme, S.drops.length, S.guideKey, S.guideMode, S.W, S.H, S.nom, userPreferences.poolGuideLen]);
         if (key !== S.drawKey || S.drops.length) {
             S.drawKey = key;
             pgRender(S.ctx, {
                 view: v, world: S.world, felt, dpr: S.dpr, cache: S.cache, theme,
                 makeCanvas: (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h }),
                 aim: aiming ? { angle: S.aim, power: S.power, gap } : null,
-                guide: aiming ? S.guide : null, guideMode: S.guideMode,
+                guide: aiming ? S.guide : null, guideMode: S.guideMode, guideLen: POOL_GUIDE_LEN[userPreferences.poolGuideLen] || POOL_GUIDE_LEN.long,
                 illegal: !!(S.guide && S.guide.hit > 0 && !poolLegalTarget(S.guide.hit)),
                 bih: S.phase === 'bih' ? { x: c.x, y: c.y, valid: !bihBad } : null,
                 zone: S.phase === 'bih' ? S.frame.ballInHand : null,
@@ -684,7 +737,10 @@
             difficulty: poolDifficulty(), adaptiveTier: R.cpu.adaptive(poolCpuRec()),
             tour: poolTourHead(), tourSheet: poolTourSheet(),
             pots: S.pots,
-            nom: S.nom, confirm: S.confirm,
+            nom: S.nom, confirm: S.confirm, chipsOpen: S.chipsOpen,
+            shot: aiming ? poolShotPath(v) : null,
+            // ⚙️ Max View: the table between bars, or the full table (the default).
+            maxBars: userPreferences.poolMaxLayout === 'bars',
             // Snooker's choice after a foul: the buttons (for a human chooser), or CHOOSING.
             choice: S.phase === 'choice' && S.frame.pending && R.choices ? {
                 chooser: S.frame.pending.chooser, cpu: cpuTurn,
@@ -762,18 +818,18 @@
         if (S.phase === 'bih') { S.drag = { kind: 'place' }; S.placed = false; poolPlace(sx, sy); return; }
         if (S.phase !== 'aim') return;
         const st = poolRules().status(S.frame, S.world);
+        // Snooker: a press on a colour that may be nominated nominates it (before any call).
+        if (st.needsNomination) {
+            const id = poolBallAt(sx, sy, st.nominable);
+            if (id >= 0) { S.nom = id; S.chipsOpen = false; return; }
+        }
         if (st.callRequired) {
             const hit = pgPocketMarks(poolView(), S.world.table, S.cfg).find(m => m.inView && Math.hypot(m.x - sx, m.y - sy) < Math.max(22, m.r));
             if (hit) { S.called = hit.i; return; }
             if (S.called < 0) return;
         }
-        // Snooker: no power until a colour is nominated (the padlock). A press on a colour
-        // that may be nominated nominates it.
-        if (st.needsNomination) {
-            const id = poolBallAt(sx, sy, st.nominable);
-            if (id >= 0) S.nom = id;
-            return;
-        }
+        // Snooker: no power until a colour is nominated (the padlock).
+        if (st.needsNomination) return;
         const ax = poolShotAxis();
         const reach = poolClamp(Math.max(poolRoom(sx, sy, ax[0], ax[1]), poolRoom(sx, sy, -ax[0], -ax[1])) - 6, 40, S.W > 1000 ? 220 : 140);
         S.drag = { kind: 'power', x: sx, y: sy, ax, reach };
@@ -911,12 +967,16 @@
             if (!(S.frame && S.frame.pending)) { S.toast = null; S.fouled = 0; }
             S.clockLeft = S.clockTotal || POOL_CLOCK_S;
         },
-        // Snooker: a colour chip (or the same colour again), before the stroke.
+        // Snooker: a colour chip, before the stroke.
         nominate: id => {
             const S = poolS;
             if (!poolCanAct() || S.phase !== 'aim' || S.drag) return;
             const st = poolRules().status(S.frame, S.world);
-            if (st.on && st.on.nominable.indexOf(id) >= 0) { S.nom = id; poolAimAtNearest(); }
+            if (!st.on || st.on.nominable.indexOf(id) < 0) return;
+            // The folded chip (the colour nominated) opens the chips again; the same colour
+            // picked from them folds them back.
+            if (id === S.nom) { S.chipsOpen = !S.chipsOpen; return; }
+            S.nom = id; S.chipsOpen = false; poolAimAtNearest();
         },
         // The choice after a foul, by the player choosing (a CPU chooses for itself).
         choose: id => { const S = poolS; if (S.phase === 'choice' && !S.handoff && !poolCpuTurn() && !poolTourBlocked()) poolChoose(id, false); },
@@ -1120,7 +1180,7 @@
             poolTourSnapshot();
             poolMode = T.prevMode === 'pvp' ? 'pvp' : 'cpu';
             T.matchId = null; T.pending = 0; T.screen = null; T.dialog = null;
-            S.guideMode = 'full'; S.callEvery = false;
+            S.guideMode = 'full'; S.callEvery = false; S.callMode = 'off';
             S.parked[S.game] = null;
         } else if (S.world) {
             S.parked[S.game] = poolSnapshotTable();
@@ -1240,6 +1300,7 @@
         const S = poolS, set = S.tour.t.settings;
         S.guideMode = set.guide === 'short' || set.guide === 'off' ? set.guide : 'full';
         S.callEvery = set.call === 'every';
+        S.callMode = set.call === 'colours' || set.call === 'all' ? set.call : 'off';
         S.clockTotal = set.clock === 45 ? 45 : set.clock === 0 ? 0 : POOL_CLOCK_S;
     }
     // Puts a match on the table: from the start, or from its snapshot.
@@ -1260,7 +1321,7 @@
         poolTourSnapshot();
         poolMode = mode === 'pvp' || mode === 'cpu' ? mode : T.prevMode === 'pvp' ? 'pvp' : 'cpu';
         T.matchId = null; T.pending = 0;
-        S.guideMode = 'full'; S.callEvery = false; S.clockTotal = poolRules().clock || POOL_CLOCK_S;
+        S.guideMode = 'full'; S.callEvery = false; S.callMode = 'off'; S.clockTotal = poolRules().clock || POOL_CLOCK_S;
         S.frames = [0, 0];
         poolNewFrame(1);
         poolRefreshScoreBtn();
@@ -1364,7 +1425,7 @@
             const k = String(arg).slice(0, i), v = String(arg).slice(i + 1);
             if (k === 'clock') d.clock = v === '45' ? 45 : v === '0' ? 0 : 30;
             else if (k === 'guide') d.guide = v === 'short' || v === 'off' ? v : 'full';
-            else if (k === 'call') d.call = v === 'every' ? 'every' : '8';
+            else if (k === 'call') { const opts = (d.calls || [['8'], ['every']]).map(c => c[0]); d.call = opts.indexOf(v) >= 0 ? v : opts[0]; }
             poolTourBump();
         },
         shuffle: () => { const d = poolS.tour.setup; if (d) { d.shuffle = !d.shuffle; poolTourBump(); } },

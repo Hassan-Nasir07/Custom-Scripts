@@ -185,7 +185,8 @@ async function main() {
         const bad = [];
         const els = [root, ...root.querySelectorAll('*')];
         for (const el of els) {
-            if (!el.getClientRects().length || el.closest('[hidden]')) continue;
+            // An overlay faded out of the way of the shot (data-shy) is meant to be see-through.
+            if (!el.getClientRects().length || el.closest('[hidden]') || el.closest('[data-shy]')) continue;
             const own = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
             if (!own) continue;
             // Emoji carry their own colour; text with a dark shadow carries its own contrast.
@@ -362,9 +363,11 @@ async function main() {
     await click('#pool-root [data-ph=max]');
     await sleep(500);
     const mx = await ev(`(() => { const f = document.querySelector('.pool-modal-overlay .pool-max-frame'); const S = window.__probe.S;
-        return { frame: !!f, canvasIn: !!(f && f.contains(S.canvas)), maximized: window.__probe.maximized, W: S.W, H: S.H,
+        return { frame: !!f, canvasIn: !!(f && f.contains(S.canvas)), maximized: window.__probe.maximized, W: S.W, H: S.H, VH: S.canvas.parentElement.clientHeight,
             header: !!document.querySelector('.pool-modal-overlay .pool-modal-header'), size: f && [f.getBoundingClientRect().width | 0, f.getBoundingClientRect().height | 0] }; })()`);
-    ok('Max opens the design\'s full view with the table moved into it', mx.frame && mx.canvasIn && mx.maximized && Math.abs(mx.W - 1230) <= 2 && Math.abs(mx.H - 670) <= 2, mx);
+    // ⚙️ Max View's default: the whole 1232 × 672 view is the table (the bars would take 128 px of it).
+    ok('Max opens the design\'s full view with the table moved into it, the whole view the table', mx.frame && mx.canvasIn && mx.maximized && Math.abs(mx.W - 1230) <= 2 &&
+       Math.abs(mx.VH - 670) <= 3 && Math.abs(mx.H - mx.VH) <= 1, mx);
     ok('…inside the shared modal, without its canvas header', !mx.header, mx);
     await report('Max, Glassmorphic dark');
     await shot('host-max-dark', '.pool-max-frame');

@@ -205,6 +205,21 @@ head("Snooker's in-match states");
        m.chips.items.find(c => c.id === 6).checked && m.chips.caption === 'Drag to shoot' && m.pill.text === 'On the pink' && !m.gauge.locked && m.track.dots.find(d => d.id === 6).on);
     m = snkGame({ frame: { phase: 'colour' }, nom: 6, dragging: true, power: 90 });
     ok('…dragging: "Release · 90%", hot', m.chips.caption === 'Release · 90%' && m.chips.tone === 'hot');
+    // The call pocket with a colour: the folded chips carry the call, in 3D with the map.
+    m = snkGame({ frame: { phase: 'colour', call: 'colours' }, nom: 6 });
+    ok('called colours, the pink nominated: the folded chip asks for a pocket (the map in 3D), the power padlocked, no call card beside it',
+       m.chips.folded && m.chips.caption === 'Tap a pocket' && m.chips.tone === 'call' && m.chips.pad && m.gauge.locked && !m.mini.show);
+    m = snkGame({ frame: { phase: 'colour', call: 'colours' }, nom: 6, called: 5 });
+    ok('…called: "Drag to shoot", the pocket lit, the padlock open', m.chips.caption === 'Drag to shoot' && m.chips.called === 5 && !m.gauge.locked);
+    ok('…in 2D no map: the pockets are tapped on the table', !snkGame({ frame: { phase: 'colour', call: 'colours' }, nom: 6, camera: '2d' }).chips.pad);
+    m = snkGame({ frame: { call: 'all' } });
+    ok('called on a red (all): no chips, pool\'s call card in 3D, the padlock', !m.chips.show && m.mini.show && m.mini.caption === 'Tap a pocket' && m.gauge.locked);
+    ok('…in 2D, the hint asks for it', snkGame({ frame: { call: 'all' }, camera: '2d' }).hint.text === 'Tap a pocket to call it');
+    m = snkGame({ frame: { phase: 'colour' }, nom: 6, dragging: true, power: 90 });
+    ok('⚙️ Max View: bars only in Max, and only when picked', vm({ layout: 'max', maxBars: true }).maxBars && !vm({ layout: 'max' }).maxBars && !vm({ maxBars: true }).maxBars);
+    ok('nominated, the chips fold to the pink, and say how to change it', m.chips.folded && m.chips.label === 'Nominated: the pink. Press it to change');
+    ok('…open again (chipsOpen), the six; before a colour, never folded', !snkGame({ frame: { phase: 'colour' }, nom: 6, chipsOpen: true }).chips.folded &&
+       !snkGame({ frame: { phase: 'colour' } }).chips.folded && snkGame({ frame: { turn: 1, freeBall: true }, nom: 6 }).chips.label === 'Free ball: the pink. Press it to change');
     ok('the chips never show for the CPU, in the hand-off, under a toast or the sheet', !snkGame({ frame: { phase: 'colour', turn: 2 }, cpuTurn: true }).chips.show &&
        !snkGame({ frame: { phase: 'colour' }, handoff: 1 }).chips.show && !snkGame({ frame: { phase: 'colour' }, toast: { kind: 'notice', title: 'x' } }).chips.show &&
        !snkGame({ frame: { phase: 'colour' }, sheet: { open: true } }).chips.show);
@@ -246,8 +261,18 @@ head("Snooker's in-match states");
        m.track.rem === '0 REMAINING' && m.cards.every(c => !c.tag));
     ok('snkMaxRed: the Max pill "Bilal\'s shot · On a red"', snkGame({ layout: 'max', mode: 'pvp', names: { 1: 'Ayesha', 2: 'Bilal' }, frame: { turn: 2 } }).pill.text === "Bilal's shot · On a red");
     ok('the century notice carries the trophy', snkGame({ toast: { kind: 'notice', icon: 'trophy', title: 'Century break · 104', sub: 'Ayesha keeps the break going' } }).toast.icon === 'trophy');
+    // Out of the way of the shot (phShyHits): the boxes a segment or a circle reaches.
+    {
+        const boxes = { cam: { x: 10, y: 10, w: 100, h: 36 }, spin: { x: 10, y: 300, w: 120, h: 44 }, chips: { x: 250, y: 300, w: 120, h: 50 } };
+        const hits = shot => P.phShyHits(shot, boxes).sort().join();
+        ok('a line into the top-left corner fades the camera toggle, and nothing else', hits({ segs: [[200, 200, 20, 20]], dots: [] }) === 'cam');
+        ok('a line that passes beside a box leaves it (6 px pad)', hits({ segs: [[0, 60, 200, 60]], dots: [] }) === '' && hits({ segs: [[0, 50, 200, 50]], dots: [] }) === 'cam');
+        ok('a circle reaching a box fades it: the cue ball, the pocket', hits({ segs: [], dots: [[180, 320, 60]] }) === 'spin' && hits({ segs: [], dots: [[380, 360, 20]] }) === 'chips');
+        ok('a line crossing two boxes fades both; no shot, none', hits({ segs: [[0, 320, 400, 320]], dots: [] }) === 'chips,spin' && hits(null) === '');
+        ok('a segment wholly inside a box counts', hits({ segs: [[20, 20, 30, 30]], dots: [] }) === 'cam');
+    }
     ok('pool\'s model has the snooker parts, all hidden', !vm({}).track.show && !vm({}).chips.show && !vm({}).concede.show && vm({}).toast.choices.length === 0);
-    ok('the snooker sheet\'s words are the design\'s', P.PH_SNK_DIFFS.map(d => d.desc).join('|') === 'Matches your form, frame by frame|Pots the simple ones · leaves chances|Builds small breaks · plays some safe|Plays position and safety · regular 50s|Hardly misses · centuries');
+    ok('the snooker sheet\'s words are the design\'s', P.PH_SNK_DIFFS.map(d => d.desc).join('|') === 'Matches your form, frame by frame|Pots the simple ones · leaves chances|Builds small breaks · plays some safe|Position and safety · call the colours|Hardly misses · call every ball');
     ok('chip ink passes: dark on yellow and pink, light on the rest', ['#101214', '#ffffff', '#ffffff', '#ffffff', '#101214', '#ffffff'].every((ink, i) => P.phInkOn(P.pgBallLook('snooker', i + 2).colour) === ink));
 }
 

@@ -138,10 +138,15 @@
     };
     // Which foul names the toast when a shot commits several: the one that set the penalty,
     // and on equal values the first here.
-    const PS_FOUL_ORDER = ['wrongFirst', 'wrongPot', 'noContact', 'inOff', 'noNomination', 'freeSnooker', 'timeout'];
+    const PS_FOUL_ORDER = ['wrongFirst', 'wrongPot', 'wrongPocket', 'noContact', 'inOff', 'noNomination', 'freeSnooker', 'timeout'];
     const PS_TOUCH_GAP = 0.1;                           // a ball this close to the cue ball is touching it
+    // The call pocket, as it is played where the user is from: 'off' (the rules as written),
+    // 'colours' (every colour is called, reds are not) or 'all' (every ball). A ball on potted
+    // with none in the pocket called is a foul on its value. The break-off is never called.
+    const PS_CALLS = ['off', 'colours', 'all'];
+    const psCallNeeded = state => !state.isBreak && (state.call === 'all' || (state.call === 'colours' && state.phase !== 'reds'));
 
-    // opts: { breaker: 1|2, reds: 15|10|6, seed }
+    // opts: { breaker: 1|2, reds: 15|10|6, seed, call: 'off'|'colours'|'all' }
     function psNewFrame(opts) {
         const o = opts || {};
         const breaker = o.breaker === 2 ? 2 : 1;
@@ -151,6 +156,7 @@
             scores: { 1: 0, 2: 0 }, brk: 0, high: { 1: 0, 2: 0 }, fouls: { 1: 0, 2: 0 }, shots: 0,
             phase: 'reds', next: 2, freeBall: false, ballInHand: 'D', touching: [],
             pending: null, respotBlack: false, over: false, winner: 0, conceded: 0,
+            call: PS_CALLS.indexOf(o.call) >= 0 ? o.call : 'off',
         };
     }
 
@@ -324,6 +330,7 @@
             redsLeft: live.filter(psIsRed).length,
             colours: PS_COLOURS.map(id => ({ id, down: live.indexOf(id) < 0 })),
             seat: seat || state.turn, turn: state.turn, ballInHand: state.ballInHand,
+            callRequired: psCallNeeded(state), call: state.call || 'off',
         };
     }
 
@@ -372,9 +379,11 @@
         next.pending = { offender: me, chooser: them, options, penalty: v.penalty };
     }
 
-    // Judges the shot that just settled. `nominated`: the colour tapped for it, or -1.
+    // Judges the shot that just settled. `nominated`: the colour tapped for it, or -1;
+    // `called`: the pocket called for it (when the frame's call rule asks), or -1.
     // Returns the verdict; verdict.next is the state to play on.
-    function psJudge(state, world, nominated) {
+    function psJudge(state, world, nominated, called) {
+        const call = Number.isInteger(called) && called >= 0 ? called : -1;
         const me = state.turn, them = 3 - me;
         const s = psSummarize(world.log, state.touching);
         const potted = new Set(s.pots.map(p => p.ball));
@@ -388,6 +397,7 @@
             frameOver: false, winner: 0, continues: false, nextTurn: them, ballInHand: s.cueDown ? 'D' : null,
             options: [], freeBall: state.freeBall, respotBlack: false, spots: [], notice: null,
             on, nominated: on.nominated, summary: s, wasBreak: state.isBreak, foulBall: -1,
+            callRequired: psCallNeeded(state), called: call,
         };
         const next = Object.assign({}, state, {
             scores: Object.assign({}, state.scores), high: Object.assign({}, state.high), fouls: Object.assign({}, state.fouls),
@@ -415,6 +425,10 @@
         const badPots = s.pots.map(p => p.ball).filter(id => id !== 0 && !legalPot.has(id));
         if (badPots.length) add('wrongPot', badPots);
         if (s.cueDown) add('inOff', []);
+        // The call: a ball on went down, and none of them in the pocket called. Other reds
+        // that drop beside a red in the called pocket still count, as reds do.
+        const onPots = s.pots.filter(p => p.ball !== 0 && legalPot.has(p.ball));
+        if (v.callRequired && onPots.length && !onPots.some(p => p.pocket === call)) add('wrongPocket', onPots.map(p => p.ball));
 
         const colourPots = s.pots.map(p => p.ball).filter(id => PS_COLOURS.indexOf(id) >= 0);
         if (fouls.length) {
@@ -538,6 +552,7 @@
         if (v.foul) {
             const why = v.foul === 'wrongFirst' ? 'Hit the ' + psName(v.foulBall) + ' first'
                 : v.foul === 'wrongPot' ? 'Potted the ' + psName(v.foulBall)
+                : v.foul === 'wrongPocket' ? 'Potted the ' + psName(v.foulBall) + ' in the wrong pocket'
                 : PS_FOUL_TEXT[v.foul];
             return {
                 kind: 'foul', title: 'Foul · ' + v.penalty + ' to ' + (you(v.nextTurn) ? 'you' : n(v.nextTurn)),
@@ -592,8 +607,9 @@
     const PS_CPU_TIERS = {
         easy:   { label: 'Easy',   aim: 0.9 },
         normal: { label: 'Normal', aim: 0.35 },
-        hard:   { label: 'Hard',   aim: 0.12 },
-        pro:    { label: 'Pro',    aim: 0.04 },
+        // Picked (not by Adaptive), hard calls the colours and pro every ball (lockCall).
+        hard:   { label: 'Hard',   aim: 0.12, call: 'colours' },
+        pro:    { label: 'Pro',    aim: 0.04, call: 'all' },
     };
     const PS_CPU_NAMES = ['easy', 'normal', 'hard', 'pro'];
     const PS_DEG = Math.PI / 180;
@@ -677,11 +693,11 @@
             ppStrike(w, { angle: s.angle, speed: s.speed, tipX: s.tipX || 0, tipY: s.tipY || 0 });
             ppSimulate(w, 40);
             job.tried++;
-            return psJudge(Object.assign({}, frame, { touching: psTouching(world.balls, R) }), w, s.nominate === undefined ? -1 : s.nominate);
+            return psJudge(Object.assign({}, frame, { touching: psTouching(world.balls, R) }), w, s.nominate === undefined ? -1 : s.nominate, s.call === undefined ? -1 : s.call);
         };
         const finish = (s, plan) => {
             const g = () => { const u = Math.max(1e-12, o.rng ? o.rng() : 0.5), v = o.rng ? o.rng() : 0.5; return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
-            const shot = Object.assign({ tipX: 0, tipY: 0, nominate: -1 }, s);
+            const shot = Object.assign({ tipX: 0, tipY: 0, nominate: -1, call: -1 }, s);
             if (o.noise !== false && o.rng) {
                 shot.angle += g() * T.aim * PS_DEG;
                 shot.speed = Math.max(150, Math.min(world.cfg.maxSpeed, shot.speed * (1 + g() * 0.04)));
@@ -698,7 +714,7 @@
             const back = reds.reduce((a, b) => (b.x > a.x + 1 || (Math.abs(b.x - a.x) <= 1 && b.y * side > a.y * side) ? b : a), reds[0]);
             [1.6, 1.75, 1.45, 1.9].forEach(k => [1000, 1150, 900].forEach(v => queue.push({ angle: Math.atan2(back.y + side * k * R - cue.y, back.x - 0.2 * R - cue.x), speed: v, plan: 'break' })));
         } else {
-            psCpuLines(world, frame, cue.x, cue.y).slice(0, 8).forEach(l => [1, 1.35, 0.8].forEach(k => queue.push({ angle: l.angle, speed: l.speed * k, nominate: l.nominate, tipY: -0.15, plan: 'pot' })));
+            psCpuLines(world, frame, cue.x, cue.y).slice(0, 8).forEach(l => [1, 1.35, 0.8].forEach(k => queue.push({ angle: l.angle, speed: l.speed * k, nominate: l.nominate, call: l.pocket, tipY: -0.15, plan: 'pot' })));
         }
         let i = 0;
         job.step = budgetMs => {
@@ -713,11 +729,13 @@
             // colour when one is needed), the softest that does not foul.
             const st = psStatus(frame, world, frame.turn, -1);
             const ids = st.on.needsNomination ? st.nominable : st.on.ids;
+            // Called, if it drops: the pocket nearest it.
+            const nearPocket = b => world.table.pockets.reduce((bi, p, pi, all) => (Math.hypot(p.x - b.x, p.y - b.y) < Math.hypot(all[bi].x - b.x, all[bi].y - b.y) ? pi : bi), 0);
             const near = world.balls.filter(b => ids.indexOf(b.id) >= 0 && b.state !== 'pocketed')
                 .sort((a, b) => Math.hypot(a.x - cue.x, a.y - cue.y) - Math.hypot(b.x - cue.x, b.y - cue.y));
             for (const b of near.slice(0, 3)) {
                 for (const v of [420, 650, 900]) {
-                    const s = { angle: Math.atan2(b.y - cue.y, b.x - cue.x), speed: v, nominate: st.on.needsNomination ? b.id : -1 };
+                    const s = { angle: Math.atan2(b.y - cue.y, b.x - cue.x), speed: v, nominate: st.on.needsNomination ? b.id : -1, call: nearPocket(b) };
                     if (!trial(s).foul) { finish(s, 'safety'); return true; }
                 }
             }

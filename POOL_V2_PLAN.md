@@ -1889,7 +1889,7 @@ with `reinsert --check` passing. Run everything on Node 22
     and the break-off by mouse, the saved frame, and back to pool's frame as it was
 - [ ] The user's test in the widget: **begun 2026-09-30**. Snooker plays in the panel (aim, drag
   to power, release, nominate, the choice after a foul). Open items below.
-- [ ] **Open: overlays cover the table where the shot goes** (the user's screenshots, Max view,
+- [x] **Fixed 2026-09-30: overlays covered the table where the shot goes** (the user's screenshots, Max view,
   2026-09-30). At true scale the balls and pockets are small and sit near the cushions, so the
   fixed overlay corners land on play:
   1. **Top left: the camera toggle (2D TOP-DOWN / 3D AIM) covers the top-left corner pocket.** A
@@ -1900,8 +1900,77 @@ with `reinsert --check` passing. Run everything on Node 22
   3. **Bottom left: the spin control covers the bottom-left corner pocket.** A red close to that
      pocket and its path to the pocket sat under SPIN · Center.
 
-  Pool shares the corners but its larger balls and pockets rarely end there. Fixes to weigh (S3
-  follow-up, before S7):
+  Pool shares the corners but its larger balls and pockets rarely end there. What was found and
+  done (both games):
+  - **Where it happened: Max's 2D view.** There the table fills the viewport and the four corner
+    overlays sit on the four corner pockets (measured: a pot into each corner runs under the
+    toggle, the pill, spin and the chips or hint). Compact 2D keeps them in the margins, and the
+    chase camera's far cushion sits below the top overlays at every lean; there, only a path
+    across the lean slider was found.
+  - **Done: out of the way of the shot.** `poolShotPath` projects the shot each frame (the aim
+    line from the cue ball, the object ball's path to the pocket it heads for or else the
+    cushion, and the contact, object ball and pocket as circles); `phShy` marks each overlay it
+    passes under (`data-shy`) and the theme fades it to 0.22. It stays a working control; in 3D
+    it comes back under the pointer, in 2D (where the pointer is the aim, often out toward the
+    pocket) it stays see-through. The cue ball is not a circle of its own: in 3D it always sits
+    bottom centre, beside the hint, which would never show. A prompt still waiting on the
+    player (the open chips, pool's call card before a pocket) never fades.
+  - **Done: the chips fold once a colour is nominated** to that chip and the caption (*Drag to
+    shoot*, *Release · n%*); pressing it opens the six again, and a colour picked folds them.
+  - **Tests:** `hud-verify` (+7: the hit test, the fold); `pool-verify` (+5: the chip opens and
+    folds, the shot path into the pocket); `snapshot` (+11 scenes, `?pot=0..5&cut=`: each corner
+    of Max 2D, the open chips kept, 3D, compact, Cyberpunk and light), whose audit now checks on
+    every scene that exactly the overlays over the shot fade: **3,697 / 3,697** across 196
+    scenes. `theme-verify` skips faded overlays, lets a fade-in finish and holds the hot clock's
+    pulse at full strength before measuring: 4 / 4 on all 434 loads (this also clears the
+    champion fade-in failure S0 found on `main`). `verify-all` **2,392, 0 failed**;
+    `perf-check` 20 / 20; `host-run` 148 / 149, its one failure the completion banner, as on `main`.
+  - **Then, from the user's test (2026-09-30): Max moves them off the table.** Aim stops while
+    the pointer is on a control, so a faded overlay over the shot still got in the way. In Max
+    the table now sits between a bar above (camera toggle, pill) and a bar below (spin, Move cue
+    ball centred, and the hint, the six chips in a row or pool's call card in a row); only the
+    lean slider and the power gauge stay on it (the user's call: Max only, the sides as they
+    were). The canvas is sized between the bars: 1232 × 544 in the 1232 × 672 view, so the 2D
+    table is about 20% smaller. Compact keeps its overlays on the table, and the fade.
+    `snapshot`'s audit adds *Max: the corner overlays are off the table* on every Max scene
+    (**3,725 / 3,725**); `host-run` checks the canvas is the view less the bars (**150 / 150**);
+    `theme-verify` measures text in the bars against the view's backdrop (4 / 4, 434 loads).
+  - **Then (the user, 2026-09-30): both, as a setting, and the full table back as the default.**
+    ⚙️ *Max View*: *Full table* (the design's 1232 × 672; the default) or *Table between bars*.
+    On the full table the overlays sit on the long cushions between a corner and the middle
+    pocket, a quarter of the way in (camera toggle and spin on the left, the pill and the hint,
+    chips or call card on the right; Move cue ball and the spin picker above spin), and still
+    fade out of the shot's way. `snapshot`'s audit checks, in Max 2D, that none sits on a pocket.
+- [x] **⚙️ Aim Guide (the user, 2026-09-30): Long / Medium / Short**, the object ball's (purple)
+      line only: 150 / 100 / 60 table units (Long is the guide as it was; the tournament's *Short*
+      guide is the 60 it always was). Both games.
+- [x] **Snooker's call pocket (the user, 2026-09-30)**, as it is played where the user is from.
+      Three variants, a frame rule (`frame.call`): *Off* (the rules as written), *Colours* (every
+      colour is called, reds are not: after a red, in the clearance, and a free ball standing for
+      a colour) and *All balls*. The break-off is never called.
+  - **A ball on potted with none in the pocket called is a foul** (`wrongPocket`) on its value, 4
+    at least, with the choice after a foul (the user's call); colours come back, reds stay down.
+    A second red that drops beside one in the called pocket still scores. Toast: *Potted the
+    pink in the wrong pocket*.
+  - **Vs CPU, with the difficulty (the user's call):** a picked Hard calls the colours and a
+    picked Pro every ball, for both seats; Easy and Normal none. Adaptive hands no rule change
+    (as pool's never reaches Pro), and 2 Players has no calls. The sheet and ⚙️ say so (*Position
+    and safety · call the colours*, *Hardly misses · call every ball*). Each profile's
+    `lockCall` sets the rule when the tier locks.
+  - **Tournaments:** snooker's setup offers *Call pocket: Off / Colours / All balls*
+    (`tourDefaults.calls`), and its matches play by it.
+  - **At the table:** on a red (*All balls*) or a clearance colour, pool's call card in 3D and the
+    hint in 2D; with a colour to nominate, the folded chip carries the call (*Tap a pocket*, and
+    in 3D the pocket map beside it; compact stacks the caption under them). The power padlocks
+    until the pocket is called. A press on a colour nominates it before any call is read.
+  - **The stand-in CPU** calls the pocket of the pot it plays (and the nearest one on a safety).
+  - **Tests:** `snooker-verify` +14 (the variants, the fouls, the toast, the tiers, a CPU pot
+    into the pocket it called); `pool-verify` +5 (the tier mapping, the tournament choice);
+    `hud-verify` +6; `snapshot` +17 scenes (**4,086 / 4,086**, 213 scenes); `host-run` 147 / 147,
+    its contrast check now skipping faded overlays as `theme-verify` does; `verify-all` **2,417,
+    0 failed**; `theme-verify` 4 / 4 (434 loads); `perf-check` 20 / 20. Pool's fingerprints hold.
+
+  The options that were weighed:
   - **Get out of the way of the shot.** Each corner overlay (toggle, pill, spin, chips, hint) fades
     to about 0.25 and lets the pointer through while the aim line, the object ball's path, the
     cue ball, or the target pocket passes under it. The guide's segments and the pocket rings are
@@ -2109,6 +2178,9 @@ pool-dev/pool-table.html?game=snooker`, then the real portal once v10 is install
 | 2026-09-30 | **The tracker row fits the compact panel:** with SNOOKERS REQ. and Concede showing it drops the word REDS (the dot and count stay), and in the 316 px column the colour dots too. The high break in the dialog wraps rather than being cut | Our fonts run wider than the design's; the audit found both |
 | 2026-09-30 | **Switching game during a tournament match** saves the match (its snapshot) and leaves tournament mode; it is resumed from the Game mode sheet as after *Leave for now* | A match is never parked twice |
 | 2026-09-30 | **Open issue logged: the fixed overlay corners cover shots at snooker's scale** (the camera toggle over the top-left pocket, the chips over the bottom-right, spin over the bottom-left; the user's Max screenshots). Fix before S7: fade them out of the shot's way, move them off the felt in Max, collapse the chips once a colour is picked; see S3 | Found in the user's first test of S3 |
+| 2026-09-30 | **Max View is a setting: the full table (default) or the table between bars** | The user's test of the bars: aim stops over a control, so overlays over the table got in the way; but the full 1232 × 672 table was missed. On the full table the overlays sit between the corner and middle pockets |
+| 2026-09-30 | **Snooker gets a call pocket: off / colours / all balls; a wrong pocket is a foul on the ball's value** | Played that way where the user is from. With the difficulty in Vs CPU (a picked Hard: colours; Pro: all), chosen in tournaments; Adaptive and 2 Players play without, as a rule change should be chosen |
+| 2026-09-30 | **⚙️ Aim Guide shortens only the object ball's line** (150 / 100 / 60) | The user's call: the line to the ghost ball is how you aim, the purple one is the help |
 | 2026-09-30 | **Gaps in the artboards, decided:** a CPU chooser shows *CHOOSING*, then a notice; *Concede* keeps its 20 px look with a 44 px hit area; long choice labels fall back to *Put back* in the 316 px column; tournament setup defaults the clock to 30s as drawn, quick play keeps 45 s; the physics rack (touching) is drawn, not the design's gapped one | The design shows a human choosing only, draws a button under the 44 px rule, and is drawn at 368 px |
 | 2026-09-29 | **`host-run.js` waits for ⚙️ to be hidden instead of 400 ms** | The fade could outlast the wait, leaving the overlay over the panel: 4 of 6 runs failed in a cascade from the Game mode sheet onward, `main` included |
 

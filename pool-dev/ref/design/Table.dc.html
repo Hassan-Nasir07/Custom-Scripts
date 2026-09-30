@@ -61,6 +61,9 @@ body{margin:0;background:#07090A}
 <path d="{{pocketDeepPath}}" fill="#020303"></path>
 </g>
 </g>
+<path d="{{jawPath2}}" fill="#0F4234"></path>
+<path d="{{noseFacePath2}}" fill="#0E3B2F"></path>
+<path d="{{cushionPath2}}" fill="#185F4B"></path>
 <path d="{{kitchenPath}}" fill="#F0B44C" fill-opacity="0.12"></path>
 <path d="{{headPath}}" fill="none" stroke="#F0B44C" stroke-opacity="0.8" stroke-width="1.5" stroke-dasharray="6 5"></path>
 <path d="{{shadowPath}}" fill="#000000" fill-opacity="0.38"></path>
@@ -285,24 +288,29 @@ class Component extends DCLogic {
       // Corner mouth = 17 * sqrt(2) = 24 units, middle mouth = 29 units.
       const NA = 8;
       const zAt = (dep) => NZ + (TZ - NZ) * dep;
-      const run = (a, b, dirA, dirB, map) => {
-        const pts = [map(a, 0)];
-        const arcB = [], arcA = [];
-        for (let i = 0; i <= NA; i++) { const t = i / NA * Math.PI / 2; arcB.push(map(b + dirB * CU * Math.sin(t), 1 - Math.cos(t))); }
-        for (let i = NA; i >= 0; i--) { const t = i / NA * Math.PI / 2; arcA.push(map(a + dirA * CU * Math.sin(t), 1 - Math.cos(t))); }
-        const poly = [map(a, 0), map(b, 0)].concat(arcB, [map(b + dirB * CU, 1), map(a + dirA * CU, 1)], arcA);
-        cushionPath += pathOf(poly);
-        noseFacePath += pathOf([map(a, 0), map(b, 0), map(b, 0, 0), map(a, 0, 0)]);
-        [arcA, arcB].forEach((arc) => { for (let i = 0; i < arc.length - 1; i++) jawQuads.push([arc[i], arc[i + 1], [arc[i + 1][0], arc[i + 1][1], 0], [arc[i][0], arc[i][1], 0]]); });
+      // Rounded nose (radius RHO) where the playing face meets the jaw, then a straight jaw back
+      // to the rail: square to the rail at the middle pockets, angled toward the corner pockets.
+      const RHO = 6;
+      const endPts = (e, dir, jb, map) => {
+        const o = [];
+        for (let i = 0; i <= NA; i++) { const t = i / NA * Math.PI / 2; o.push(map(e - dir * RHO + dir * RHO * Math.sin(t), RHO * (1 - Math.cos(t)) / CU)); }
+        o.push(map(e + dir * jb, 1));
+        return o;
+      };
+      const run = (a, b, dirA, dirB, jbA, jbB, map) => {
+        const sa = endPts(a, dirA, jbA, map), sb = endPts(b, dirB, jbB, map);
+        cushionPath += pathOf(sb.concat(sa.slice().reverse()));
+        noseFacePath += pathOf([sa[0], sb[0], [sb[0][0], sb[0][1], 0], [sa[0][0], sa[0][1], 0]]);
+        [sa, sb].forEach((arc) => { for (let i = 0; i < arc.length - 1; i++) jawQuads.push([arc[i], arc[i + 1], [arc[i + 1][0], arc[i + 1][1], 0], [arc[i][0], arc[i][1], 0]]); });
       };
       [-1, 1].forEach((sy) => {
         const m = (u, dep, z) => [u, sy * (HW + dep * CU), z === undefined ? zAt(dep) : z];
-        run(-HL + 17, -14.5, -1, 1, m);
-        run(14.5, HL - 17, -1, 1, m);
+        run(-HL + 17, -14.5, -1, 1, 5, 0, m);
+        run(14.5, HL - 17, -1, 1, 0, 5, m);
       });
       [-1, 1].forEach((sx) => {
         const m = (u, dep, z) => [sx * (HL + dep * CU), u, z === undefined ? zAt(dep) : z];
-        run(-HW + 17, HW - 17, -1, 1, m);
+        run(-HW + 17, HW - 17, -1, 1, 5, 5, m);
       });
     }
     const railPath = pathOf(rect(OX, OY, TZ)) + pathOf(rect(HL + CU, HW + CU, TZ));
@@ -325,7 +333,7 @@ class Component extends DCLogic {
       : pathOf(circ(250, 0, 3, 0.1, 10)) + pathOf(circ(-250, 0, 3, 0.1, 10));
     const markPath = snk ? seg([BX, -HW, 0.1], [BX, HW, 0.1]) + line(dArc) : '';
     const pockets = snk ? [
-      [-(HL + 3), -(HW + 3), 17], [HL + 3, -(HW + 3), 17], [-(HL + 3), HW + 3, 17], [HL + 3, HW + 3, 17],
+      [-(HL + 2), -(HW + 2), 18], [HL + 2, -(HW + 2), 18], [-(HL + 2), HW + 2, 18], [HL + 2, HW + 2, 18],
       [0, -(HW + 9), 15.5], [0, HW + 9, 15.5]
     ] : [
       [-(HL + 4), -(HW + 4), 27], [HL + 4, -(HW + 4), 27], [-(HL + 4), HW + 4, 27], [HL + 4, HW + 4, 27],
@@ -363,6 +371,41 @@ class Component extends DCLogic {
         return q;
       });
       pocketRimPath += pathOf(rim);
+      const overRail = (x, y) => Math.abs(x) > IX || Math.abs(y) > IY;
+      if (snk && mode === '3d') {
+        // Snooker pockets sit mostly behind the cushion line, so the hole's lip is at rail height
+        // only where the rail is cut; across the cushion gap it drops to the felt. The opening is
+        // that mixed-height rim, which also covers the rail face showing between the cushion ends.
+        const rimPts = [];
+        const N = 72;
+        for (let i = 0; i < N; i++) {
+          const t0 = i / N * Math.PI * 2, t1 = (i + 1) / N * Math.PI * 2;
+          const x0 = cx + pr * Math.cos(t0), y0 = cy + pr * Math.sin(t0), x1 = cx + pr * Math.cos(t1), y1 = cy + pr * Math.sin(t1);
+          const o0 = overRail(x0, y0), o1 = overRail(x1, y1);
+          rimPts.push([x0, y0, o0 ? TZ + 0.3 : 0.05]);
+          if (o0 !== o1) { const xm = (x0 + x1) / 2, ym = (y0 + y1) / 2; rimPts.push([xm, ym, o0 ? TZ + 0.3 : 0.05], [xm, ym, o1 ? TZ + 0.3 : 0.05]); }
+        }
+        const ap = pathOf(rimPts);
+        pocketPath += ap; pocketFeltPath += ap; pocketHullPath += ap;
+        pocketLipPath += pathOf(rimPts.filter((q) => q[2] > 1).length ? circ(cx, cy, pr + 2, TZ + 0.35, 36).filter((q) => overRail(q[0], q[1])) : []);
+        pocketMidPath += pathOf(circ(cx, cy, pr * 0.86, -64, 36));
+        pocketDeepPath += pathOf(circ(cx, cy, pr * 0.66, -64, 36));
+        const cl = Math.hypot(cx, cy) || 1;
+        for (let k = 0; k < NF; k++) {
+          const a0 = k / NF * Math.PI * 2, a1 = (k + 1) / NF * Math.PI * 2, am = (a0 + a1) / 2;
+          const nx = -Math.cos(am), ny = -Math.sin(am);
+          const px = cx + pr * Math.cos(am), py = cy + pr * Math.sin(am);
+          if ((camPos[0] - px) * nx + (camPos[1] - py) * ny <= 0) continue;
+          const face = Math.max(0, nx * (-cx / cl) + ny * (-cy / cl));
+          const bi = face > 0.66 ? 2 : face > 0.25 ? 1 : 0;
+          const x0 = cx + pr * Math.cos(a0), y0 = cy + pr * Math.sin(a0), x1 = cx + pr * Math.cos(a1), y1 = cy + pr * Math.sin(a1);
+          bandZ.forEach((bz, band) => {
+            if (band === 0 && !overRail(px, py)) return; // no rail wall above the felt across the gap
+            wallP[band * 3 + bi] += pathOf([[x0, y0, bz[0]], [x1, y1, bz[0]], [x1, y1, bz[1]], [x0, y0, bz[1]]]);
+          });
+        }
+        return;
+      }
       pocketPath += pathOf(circ(cx, cy, pr, TZ + 0.3, 36));
       pocketLipPath += pathOf(circ(cx, cy, pr + 2, TZ + 0.35, 36));
       // Aperture = rail cut (above) intersected with the felt cut; the ring texture lives on the floor.
@@ -529,7 +572,7 @@ class Component extends DCLogic {
         : 'radial-gradient(ellipse 75% 75% at 50% 50%, #1C2628 0%, #0B0E0F 80%)',
       tableShadow, apronPath, feltPath, cushionPath, railPath, lipPath, diamondPath, spotPath,
       pocketRimPath, pocketPath, pocketLipPath, pocketFeltPath, pocketHullPath, pocketMidPath, pocketDeepPath, noseFacePath, shadowPath,
-      wall, railInnerPath, jawPath, hullFill: mode === '2d' ? '#3A281C' : '#040303',
+      wall, railInnerPath, jawPath, jawPath2: snk ? jawPath : '', noseFacePath2: snk ? noseFacePath : '', cushionPath2: snk ? cushionPath : '', hullFill: mode === '2d' ? '#3A281C' : '#040303',
       aimPath: aimOn ? aimPath : '', deflectPath: aimOn ? deflectPath : '', objPath: aimOn ? objPath : '',
       balls: list, ghost: aimOn ? ghost : { x: 0, y: 0, r: 0 },
       cueChalk: aimOn ? stick(0, 3) : '', cueFerrule: aimOn ? stick(3, 16) : '', cueShaft: aimOn ? stick(16, 330) : '',

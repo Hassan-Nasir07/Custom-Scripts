@@ -96,7 +96,7 @@
             tracksPot: id => id > 0 && id < 16 && id !== 8,
             ballCount: () => 16,
             validFrame: f => !!f && f.v === 1 && (f.turn === 1 || f.turn === 2) && !f.over,
-            tourDefaults: { call: '8', calls: [['8', '8 only'], ['every', 'Every shot']] },
+            tourDefaults: { game: 'pool', call: '8', calls: [['8', '8 only'], ['every', 'Every shot']] },
             cpu: { tiers: PA_TIERS, names: PA_TIER_NAMES, plan: paPlan, place: paPlace, tierFor: paTierFor, adaptive: paAdaptiveTier },
             // XP a pot, for your pots against the CPU (poolAwardPots).
             potXP: POOL_POT_XP,
@@ -144,9 +144,9 @@
             rackPref: 'snookerReds',
             aimClear: true,
             world: () => psCreateWorld(),
-            rack: (w, rng) => psRack(w, rng, psRedsOf(+userPreferences.snookerReds)),
+            rack: (w, rng) => psRack(w, rng, POOL_GAMES.snooker.framesReds()),
             cueHome: w => psCueHome(w),
-            newFrame: o => psNewFrame({ breaker: o.breaker, reds: psRedsOf(+userPreferences.snookerReds), seed: o.seed }),
+            newFrame: o => psNewFrame({ breaker: o.breaker, reds: POOL_GAMES.snooker.framesReds(), seed: o.seed }),
             status: (f, w, seat) => psStatus(f, w, seat || f.turn, poolS.nom),
             judge: (f, w, pick) => psJudge(f, w, pick.nominate, pick.call),
             // The call pocket (off / colours / all): a picked tier's (hard the colours, pro every
@@ -169,7 +169,12 @@
             tracksPot: () => false,
             ballCount: f => 7 + psRedsOf(f && f.reds),
             validFrame: f => !!f && f.v === 1 && f.game === 'snooker' && (f.turn === 1 || f.turn === 2) && !f.over && PS_REDS.indexOf(f.reds) >= 0 && (f.call === undefined || PS_CALLS.indexOf(f.call) >= 0),
-            tourDefaults: { reds: 15, call: 'off', calls: [['off', 'Off'], ['colours', 'Colours'], ['all', 'All balls']] },
+            tourDefaults: { game: 'snooker', reds: 15, call: 'off', calls: [['off', 'Off'], ['colours', 'Colours'], ['all', 'All balls']] },
+            // A tournament frame's score and each seat's best break, for the bracket (the result
+            // screen lists them).
+            tourFrame: v => ({ points: [v.next.scores[1], v.next.scores[2]], high: [v.next.high[1], v.next.high[2]] }),
+            // The reds a frame racks: the tournament's own, else ⚙️'s.
+            framesReds: () => psRedsOf(poolMode === 'tour' && poolS.tour.t && poolS.tour.t.settings.reds ? poolS.tour.t.settings.reds : +userPreferences.snookerReds),
             // After a foul, and giving the frame away.
             choose: (f, id) => psChoose(f, id),
             choices: (p, names) => psChoiceText(p, names),
@@ -387,7 +392,7 @@
         // A frame that survives a reload is gone once it is decided, before anything is paid.
         poolClearSaved();
         // Tournament frames go to the bracket, not to the quick-match records or XP (Phase 8).
-        if (poolMode === 'tour') { poolTourFrameOver(w); return; }
+        if (poolMode === 'tour') { poolTourFrameOver(w, v); return; }
         const vsCPU = poolMode === 'cpu', tier = poolCpuTier;
         R.fileResult(w, vsCPU, tier);
         if ((w === 1 || w === 2) && R.frameXP) {
@@ -1253,7 +1258,7 @@
         try { raw = localStorage.getItem(key); } catch (_) { return null; }
         if (!raw) return null;
         let t = null;
-        try { t = ptValidate(JSON.parse(raw)); } catch (_) { t = null; }
+        try { t = ptValidate(JSON.parse(raw), poolS.game); } catch (_) { t = null; }
         if (t && t.current) {
             const m = ptById(t, t.current);
             if (!m || m.status === 'done' || m.status === 'bye' || m.a === null || m.b === null) t.current = null;
@@ -1310,7 +1315,7 @@
         S.guideMode = set.guide === 'short' || set.guide === 'off' ? set.guide : 'full';
         S.callEvery = set.call === 'every';
         S.callMode = set.call === 'colours' || set.call === 'all' ? set.call : 'off';
-        S.clockTotal = set.clock === 45 ? 45 : set.clock === 0 ? 0 : POOL_CLOCK_S;
+        S.clockTotal = set.clock === 45 || set.clock === 60 ? set.clock : set.clock === 0 ? 0 : POOL_CLOCK_S;
     }
     // Puts a match on the table: from the start, or from its snapshot.
     function poolTourSeat(m, fromSnapshot) {
@@ -1351,11 +1356,12 @@
         S.handoff = S.frame.turn;
     }
 
-    // Called by poolEndFrame: the frame goes into the bracket, and it is saved.
-    function poolTourFrameOver(seat) {
-        const S = poolS, T = S.tour, m = poolTourMatch();
+    // Called by poolEndFrame: the frame goes into the bracket (with snooker's points and
+    // breaks), and it is saved.
+    function poolTourFrameOver(seat, v) {
+        const S = poolS, T = S.tour, m = poolTourMatch(), R = poolRules();
         if (!m || (seat !== 1 && seat !== 2)) return;
-        const r = ptRecordFrame(T.t, m.id, seat === 1 ? m.a : m.b);
+        const r = ptRecordFrame(T.t, m.id, seat === 1 ? m.a : m.b, R.tourFrame && v && v.next ? R.tourFrame(v) : null);
         T.t = r.t;
         S.frames = ptScore(ptById(T.t, m.id));
         if (r.matchOver) {
@@ -1384,7 +1390,7 @@
         if (m.status === 'done') { S.result = null; S.tour.pending = POOL_RESULT_MS; return; }
         S.result = {
             win: true, title: text.title, reason: text.sub,
-            recordLabel: 'MATCH · RACE TO ' + m.raceTo, record: S.frames[0] + '–' + S.frames[1],
+            recordLabel: 'MATCH · ' + ptRaceText(S.tour.t, m.raceTo).toUpperCase(), record: S.frames[0] + '–' + S.frames[1],
             delta: '+1 FRAME', note: '',
         };
     }
@@ -1408,7 +1414,7 @@
     function poolTourStart() {
         const T = poolS.tour, d = T.setup, cols = ptRaceColumns(d.size);
         const race = Array.from({ length: ptRoundsFor(d.size) }, (_, r) => d.race[cols.findIndex(c => c.rounds.indexOf(r) !== -1)]);
-        T.t = ptCreate({ names: d.names.slice(0, d.n), you: 0, name: d.name, settings: { race, clock: d.clock, guide: d.guide, call: d.call, shuffle: d.shuffle } });
+        T.t = ptCreate({ game: d.game, names: d.names.slice(0, d.n), you: 0, name: d.name, settings: { race, clock: d.clock, guide: d.guide, call: d.call, reds: d.reds, shuffle: d.shuffle } });
         T.t.current = null;
         T.setup = null;
         poolTourSave();
@@ -1432,7 +1438,8 @@
             const d = poolS.tour.setup, i = String(arg).indexOf(':');
             if (!d || i < 0) return;
             const k = String(arg).slice(0, i), v = String(arg).slice(i + 1);
-            if (k === 'clock') d.clock = v === '45' ? 45 : v === '0' ? 0 : 30;
+            if (k === 'clock') d.clock = v === '45' ? 45 : v === '60' && d.game === 'snooker' ? 60 : v === '0' ? 0 : 30;
+            else if (k === 'reds') d.reds = [15, 10, 6].indexOf(+v) >= 0 ? +v : 15;
             else if (k === 'guide') d.guide = v === 'short' || v === 'off' ? v : 'full';
             else if (k === 'call') { const opts = (d.calls || [['8'], ['every']]).map(c => c[0]); d.call = opts.indexOf(v) >= 0 ? v : opts[0]; }
             poolTourBump();
@@ -1479,12 +1486,12 @@
         },
     };
 
-    // The HUD's tournament header: "CITY OPEN" over "Semi-final · race to 2", FRAME n.
+    // The HUD's tournament header: "CITY OPEN" over "Semi-final · race to 2" (snooker: "best of 3"), FRAME n.
     function poolTourHead() {
         const S = poolS, m = poolTourMatch();
         if (!m) return null;
         const n = S.phase === 'over' ? m.frames.length : m.frames.length + 1;
-        return { kicker: S.tour.t.name.toUpperCase(), title: ptRoundName(S.tour.t.rounds, m.round) + ' · race to ' + m.raceTo, frame: 'FRAME ' + Math.max(1, n) };
+        return { kicker: S.tour.t.name.toUpperCase(), title: ptRoundName(S.tour.t.rounds, m.round) + ' · ' + ptRaceText(S.tour.t, m.raceTo).toLowerCase(), frame: 'FRAME ' + Math.max(1, n) };
     }
     // The Game mode sheet's Tournament tab: resume the saved one, or set one up.
     function poolTourSheet() {
@@ -1512,7 +1519,7 @@
         else if (screen === 'intro') html = puIntroHTML({ t: T.t, matchId: T.introId });
         else if (screen === 'result') html = puResultHTML({ t: T.t, matchId: T.matchId, miniW });
         else if (screen === 'champion') html = puChampionHTML({ t: T.t, layout: hud.layout, miniW });
-        else if (screen === 'cabinet') html = puCabinetHTML({ cab: poolCabinet() });
+        else if (screen === 'cabinet') html = puCabinetHTML({ cab: poolCabinet(), game: S.game });
         puSync(hud, poolTourOn, { screen: html, dialog: dialog ? puDialogHTML(dialog, { t: T.t, liveId }) : '', key });
         hud.el.classList.toggle('is-pu', !!screen);
         // The mini tree is laid out for its box's real width (the body's scrollbar takes

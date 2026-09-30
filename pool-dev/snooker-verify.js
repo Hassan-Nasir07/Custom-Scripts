@@ -62,23 +62,20 @@ head('Snooker table: geometry (the design)');
 {
     const w = P.psCreateWorld(), t = w.table, cfg = w.cfg;
     ok('true scale: R 7.36 on the 1000 × 500 bed, snooker cloth and top speed', cfg.ballR === 7.36 && cfg.halfLength === 500 && cfg.halfWidth === 250 && cfg.gravity === 2749 && cfg.maxSpeed === 2240 && cfg.muRoll === 0.011);
-    ok('six straight cushion runs and twelve rounded ends, no nose points', t.segments.length === 6 && t.arcs.length === 12 && t.points.length === 0);
-    const want = [[-503, 253, 17], [0, 259, 15.5], [503, 253, 17], [-503, -253, 17], [0, -259, 15.5], [503, -253, 17]];
-    ok('the holes are the design\'s: corners r 17 at (±503, ±253), middles r 15.5 at (0, ±259), in pool\'s order',
+    // The design's revision 1790749498-5862: a rounded nose (r 6) then a straight jaw at every end.
+    const noses = t.segments.filter(s => s.kind === 'cushion'), jaws = t.segments.filter(s => s.kind === 'jaw');
+    ok('six straight cushion runs, twelve rounded noses and twelve straight jaws, no nose points', noses.length === 6 && jaws.length === 12 && t.arcs.length === 12 && t.points.length === 0);
+    const want = [[-502, 252, 18], [0, 259, 15.5], [502, 252, 18], [-502, -252, 18], [0, -259, 15.5], [502, -252, 18]];
+    ok('the holes are the design\'s: corners r 18 at (±502, ±252), middles r 15.5 at (0, ±259), in pool\'s order',
        t.pockets.every((p, i) => near(p.x, want[i][0]) && near(p.y, want[i][1]) && p.r === want[i][2]));
-    const long = t.segments.filter(s => s.ay === s.by), short = t.segments.filter(s => s.ax === s.bx);
-    ok('the cushions stop 17 u from each corner and 14.5 u from each middle pocket (mouths ≈ 24 and 29 u)',
-       long.every(s => [483, 14.5].includes(Math.abs(s.ax)) && [483, 14.5].includes(Math.abs(s.bx))) && short.every(s => Math.abs(s.ay) === 233 && Math.abs(s.by) === 233));
-    ok('every end is a quarter-round of radius 12 centred on the rail line behind its nose',
-       t.arcs.every(a => a.r === 12 && near(a.half, Math.PI / 4) && (Math.abs(Math.abs(a.cy) - 262) < 1e-9 || Math.abs(Math.abs(a.cx) - 512) < 1e-9)));
-    ok('the quarter-round meets its cushion tangentially at the nose tip', t.arcs.every(a => {
-        const p = t.pockets[a.pocket], m = p.mouth, tips = [[m[0], m[1]], [m[2], m[3]]];
-        return tips.some(([x, y]) => near(Math.hypot(x - a.cx, y - a.cy), a.r) && P.ppOnArc(a, x, y));
-    }));
-    ok('every rounded end finishes inside its hole (it closes the throat)', t.arcs.every(a => {
-        const p = t.pockets[a.pocket], e0 = a.mid + a.half, e1 = a.mid - a.half;
-        return [e0, e1].some(th => Math.hypot(a.cx + a.r * Math.cos(th) - p.x, a.cy + a.r * Math.sin(th) - p.y) < p.r);
-    }));
+    const long = noses.filter(s => s.ay === s.by), short = noses.filter(s => s.ax === s.bx);
+    ok('the cushions end 17 u from each corner and 14.5 u from each middle pocket, the straight nose 6 u short of that (the round)',
+       long.every(s => [477, 20.5].includes(Math.abs(s.ax)) && [477, 20.5].includes(Math.abs(s.bx))) && short.every(s => Math.abs(s.ay) === 227 && Math.abs(s.by) === 227));
+    ok('every nose is a quarter-round of radius 6, one radius in from its end and one behind the nose line',
+       t.arcs.every(a => a.r === 6 && near(a.half, Math.PI / 4) && (Math.abs(Math.abs(a.cy) - 256) < 1e-9 || Math.abs(Math.abs(a.cx) - 506) < 1e-9)));
+    ok('each round meets its straight nose tangentially (no tip to hit)', t.arcs.every(a => noses.some(s => [[s.ax, s.ay], [s.bx, s.by]].some(([x, y]) => near(Math.hypot(x - a.cx, y - a.cy), a.r) && P.ppOnArc(a, x, y)))));
+    ok('the jaws: square to the rail at the middle pockets, leaning 5 u toward the corners, each ending inside its hole', t.pockets.every(p => p.jaws.length === 2 && p.jaws.every(j =>
+       Math.hypot(j.bx - p.x, j.by - p.y) < p.r && (p.kind === 'side' ? near(j.ax, j.bx) : near(Math.hypot(j.bx - j.ax, j.by - j.ay), Math.hypot(5, 6))))));
     ok('a ball resting against a cushion is never in a hole', long.concat(short).every(s => {
         for (let k = 0; k <= 20; k++) {
             const x = s.ax + (s.bx - s.ax) * k / 20 + s.nx * R, y = s.ay + (s.by - s.ay) * k / 20 + s.ny * R;
@@ -152,7 +149,7 @@ head('Snooker table: how the pockets take a ball');
     const diag = Math.atan2(1, -1);
     [300, 1500].forEach(v => {
         const s = line(-300, 50, diag, offs, v);
-        ok('corner, down the diagonal at ' + v + ' u/s: clean within ±2 u, off a cushion end at ±4, out from ±6 (' + s + ')', s === 'xxjooojxx');
+        ok('corner, down the diagonal at ' + v + ' u/s: clean within ±6 u, off a jaw at ±8 (' + s + ')', s === 'joooooooj');
     });
     const mid = (ang, v) => {
         const th = Math.PI / 2 - ang * Math.PI / 180;
@@ -161,16 +158,16 @@ head('Snooker table: how the pockets take a ball');
     const drops = s => (s.match(/[oj]/g) || []).length;
     [300, 1500].forEach(v => {
         const s0 = mid(0, v), s30 = mid(30, v), s45 = mid(45, v), s60 = mid(60, v);
-        ok('middle, square on at ' + v + ' u/s: takes ±4 u (' + s0 + ')', s0 === 'xxoooooxx');
+        ok('middle, square on at ' + v + ' u/s: takes all of ±8 u, between the straight jaws (' + s0 + ')', s0 === 'ooooooooo');
         ok('middle at ' + v + ' u/s: the window shrinks with the angle (0° ' + drops(s0) + ', 30° ' + drops(s30) + ', 45° ' + drops(s45) + ', 60° ' + drops(s60) + ' of 9)',
            drops(s0) >= drops(s30) && drops(s30) >= drops(s45) && drops(s45) > drops(s60) && drops(s60) >= 1);
     });
     const along = [200, 600, 1500].map(v => probe(300, 250 - R, 0, v)).join('');
     ok('rolling along the cushion into the corner drops, slow or fast (' + along + '; no pace-dependent rattle yet: Risks)', along === 'ooo');
-    // Straight up at x = 486: it meets the top-right nose's quarter-round (centre (483, 262)) at
-    // about −81°, before the hole, and comes back down the table.
+    // Straight up at x = 480: it meets the top-right nose's round (centre (477, 256)) before the
+    // hole, and comes back down the table.
     const w = P.psCreateWorld();
-    w.balls = [P.ppMakeBall(0, 486, 150)];
+    w.balls = [P.ppMakeBall(0, 480, 150)];
     P.ppStrike(w, { angle: Math.PI / 2, speed: 800 });
     P.ppSimulate(w, 30);
     const cb = w.balls[0];

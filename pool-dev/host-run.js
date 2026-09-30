@@ -591,6 +591,18 @@ async function main() {
             ok(chose ? 'the break-off fouled: the snooker CPU makes its choice' : 'the snooker CPU takes its turn after the break-off (plans, turns the cue, plays)', took, cp);
         }
         await shot('host-snooker-after', '.snake-game-container');
+        // A snooker tournament's setup by mouse (S5): its words, best of, a 60 s clock, Reds and the call pocket.
+        await click('#pool-root [data-ph=mode]'); await sleep(200);
+        await click('#pool-root [data-ph-mode="tour"]'); await sleep(150);
+        await click('#pool-root [data-ph=sheettourgo]'); await sleep(250);
+        const stp = await ev(`(() => { const s = document.querySelector('#pool-root .pu-screen-in'); if (!s) return null;
+            const segs = [...s.querySelectorAll('.pu-seg-row')].map(r => r.getAttribute('aria-label') + ':' + [...r.querySelectorAll('button')].map(b => b.textContent).join('/'));
+            return { kicker: (s.querySelector('.pu-kicker') || {}).textContent, races: (s.querySelector('.pu-group .pu-kicker') || {}).textContent,
+                opts: [...s.querySelectorAll('select[data-pu-in="race:0"] option')].map(o => o.textContent).join(), segs }; })()`);
+        ok('snooker\'s tournament setup by mouse: SNOOKER · HUMANS ONLY, best of 1–9, a 60 s clock, Reds and the call pocket',
+           !!stp && stp.kicker === 'SNOOKER · HUMANS ONLY' && /BEST OF/.test(stp.races) && stp.opts === '1,3,5,7,9' && stp.segs.includes('Shot clock:30s/45s/60s/Off') &&
+           stp.segs.includes('Reds:15/10/6') && stp.segs.includes('Call pocket:Off/Colours/All balls'), stp);
+        await click('#pool-root [data-pu-act=close]'); await sleep(200);
         // Back to pool: its frame as it was left.
         await ev('window.__probe.toggleSettingsModal()'); await sleep(300);
         await ev(`(() => { const s = document.querySelector('select[data-pref="poolVariant"]'); s.value = 'pool'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);

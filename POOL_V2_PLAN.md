@@ -1779,6 +1779,15 @@ with `reinsert --check` passing. Run everything on Node 22
       | corner | rolling along the cushion | drops at every pace |
 
       A ball driven into a rounded end rebounds.
+      - **Superseded 2026-09-30 by the design's revision `1790749498-5862`** (the user's update of the
+        pockets): each cushion end is now a rounded nose of radius 6 then a straight jaw to the
+        rail (square at the middle pockets, 5 u toward the corners), and the corner holes are
+        r 18 at offset 2. The physics adopted it (`noseRound`, `cornerJawBack`, `sideJawBack`;
+        the nose round is an arc collider, the jaw a segment facing the gap, each ending inside
+        its hole), and the pockets measure wider: a corner down its diagonal clean within ±6 u,
+        off a jaw at ±8; a middle square on takes all of ±8 u, and 9 / 8 / 5 of 9 lines at 30° /
+        45° / 60°; rolling along the cushion still drops at every pace. The CPU's pocket model
+        (`paSnPocketTol`) follows.
     - **40 break-offs** settle within 9 s of table time, at 9 ms each to simulate.
     - **A 300-shot fuzz:** energy never rises, the worst overlap is 2e-6 u, no NaN, 0 escapes,
       and everything settles.
@@ -2019,7 +2028,8 @@ with `reinsert --check` passing. Run everything on Node 22
     to nothing to draw). On screen, from its turn to the cue turning, through the real controller:
     about 0.5 s median for every tier; the worst, an escape from a snooker, 0.6 s (easy) to 1.75 s
     (pro).
-  - **Tiers** (`PA_SN_TIERS`, execution σ): easy 0.28°, normal 0.12°, hard 0.05°, pro 0.02°, with
+  - **Tiers** (`PA_SN_TIERS`, execution σ): easy 0.28°, normal 0.20°, hard 0.09°, pro 0.04° (re-tuned
+    for the design's revision `1790749498-5862` pockets; they were 0.12° / 0.05° / 0.02°), with
     their power σ, candidates, spins, paces, noisy replays, safety trials and position weight.
     The sheet, ⚙️ *Snooker CPU* and adaptive difficulty from `snookerCpuRecord` were in place from
     S3; Adaptive still never reaches Pro.
@@ -2046,6 +2056,20 @@ with `reinsert --check` passing. Run everything on Node 22
       (position a shot ahead is all it plans). Tried and not kept: a leave valued by its best two
       pots, softer paces, a heavier position weight (no better at 12 frames). Left for S7's final
       balance numbers.
+  - **Re-tuned the same day for the new pockets** (the design's revision `1790749498-5862`: wider
+    mouths, so at the old aims every tier's breaks ran over their bands: normal 14.2, hard 29.2,
+    pro 42.4). Normal 0.20°, hard 0.09°, pro 0.04°, the pocket model to the new windows and the
+    10-red break-off script re-found. Seed 9:
+
+    | tier | vs casual (20) | vs skilled (12) | mean break | high | centuries / 100 | fouls / shot |
+    |---|---|---|---|---|---|---|
+    | easy | 45.0% [26–66] ✓ | 0% | 4.7 ✓ | 22 | – | 4.6% ✓ |
+    | normal | 95.0% [76–99] | 16.7% | 7.1 ✓ | 41 | – | 2.8% ✓ |
+    | hard | 95.0% [76–99] | 66.7% | 19.4 ✓ | 73 | 0 (hard 0.08° gave 14.3) | 1.3% ✓ |
+    | pro | 100% ✓ | 83.3% | 41.3 (20–40, a hair over) | 126 | 20.0 ✓ | 0.5% ✓ |
+
+    Every mean break and foul rate is in band now, easy's win rate too, and pro's centuries;
+    normal and hard still beat the casual model more often than their bands (as before).
 - [x] **Tests:** `snooker-verify` +15 (*Snooker CPU*: the break-off for 15, 10 and 6 reds, legal and
       home in a trial or two; a pot by pro and by easy; the colour it nominates is the one it
       pots; a fair safety with nothing on; a fair escape when snookered; the trial caps; time
@@ -2057,13 +2081,37 @@ with `reinsert --check` passing. Run everything on Node 22
       fingerprints hold.
 - [x] The user's test against the CPU (2026-09-30): "doing pretty well".
 
-#### Phase S5: tournaments
-- [ ] Tests:
-  - `tour-verify`: game check, normalisation, points, `ptRaceText`
-  - `pool-verify`: a snooker tournament from setup to champion, and a reload mid-frame
-  - `snapshot`: the snooker screens
-  - `host-run`: the flow by mouse
-- [ ] The user's test.
+#### Phase S5: tournaments ✅ (2026-09-30)
+- [x] **The model (`pool-tour.js`):** `t.game` ('pool' or 'snooker'; a save from before has none and
+      is pool's). `ptSettings` normalises for the game: a race of 1–5 per round, a clock of 0 / 30 /
+      45 (and 60 in snooker), the guideline; pool's call (the 8 only / every shot), snooker's reds
+      (15 / 10 / 6) and call pocket (off / the colours / every ball, the user's addition in S3).
+      `ptValidate(x, game)` resumes only its own game's save, with the settings normalised.
+      `ptRecordFrame(t, id, winner, { points, high })` keeps each frame's score by line
+      (`m.points`) and the match's high break (`m.high`: slot, frame, value). `ptRaceText(t, n)`:
+      *Race to n* in pool, *Best of 2n − 1* in snooker; `raceTo` is still what is stored.
+- [x] **The screens (`pool-tour-ui.js`), the design's snooker variants:** setup *SNOOKER · HUMANS
+      ONLY*, *FRAMES PER ROUND · BEST OF* (1 / 3 / 5 / 7 / 9), a 30 / 45 / 60 s / Off clock, *Reds*,
+      and *Call pocket: Off / Colours / All balls* (the design swaps Call pocket for Reds; the
+      user asked for both); the bracket *CITY OPEN · SNOOKER* and *BEST OF 3* on every card and
+      column, the full view *· SNOOKER · 8 PLAYERS*; the intro *Best of 3*, *Ayesha breaks off ·
+      15 reds*; the result a row per frame (*FRAME 1 · Ayesha · 74–32*, the loser's frames muted)
+      and *HIGH BREAK · Sana · frame 3 · 61*, over a 112 px tree; the cabinet *Snooker*, *TROPHY
+      CABINET · THIS COMPUTER*. The HUD's header and the frame-over dialog say *best of* too.
+- [x] **The controller:** each game's tournament and cabinet under its own keys (from S3); a
+      tournament's frames rack its own reds (`framesReds`), play to its clock (60 s included)
+      and call rule; each finished frame hands the bracket its points and breaks
+      (`tourFrame`). Found on the way: in Cyberpunk the compact break-off pill (*Break-off · in
+      the D*) met the toggle's *2D · AUTO* by 2 px; the toggle says *2D* there, as in the column.
+- [x] **Tests:** `tour-verify` +9 (the game, the settings by game and normalised, `ptRaceText`,
+      the game check on resume, points and the high break, pool unchanged), 50 in all;
+      `pool-verify` +6 (a snooker tournament through the controller from setup to champion, a reload mid-frame,
+      its 6 reds, 60 s and calls at the table, the points and high break kept, snooker's own
+      cabinet); `snapshot` +9 snooker screens (setup, bracket, intro, result, a match, champion,
+      cabinet, Max bracket, Cyberpunk result; **4,345 / 4,345** across 224 scenes); `host-run`: the
+      snooker setup by mouse (150 / 150). `verify-all` **2,448, 0 failed**.
+- [x] The user's test (2026-09-30): "the rest is good", apart from the lean slider going
+      missing in some cases, which is fixed in S6.
 
 #### Phase S6: progression and the bot
 - [ ] XP, achievements, the board with its High break tab, the sync keys, and v10.
@@ -2243,7 +2291,8 @@ pool-dev/pool-table.html?game=snooker`, then the real portal once v10 is install
 | 2026-09-30 | **The tracker row fits the compact panel:** with SNOOKERS REQ. and Concede showing it drops the word REDS (the dot and count stay), and in the 316 px column the colour dots too. The high break in the dialog wraps rather than being cut | Our fonts run wider than the design's; the audit found both |
 | 2026-09-30 | **Switching game during a tournament match** saves the match (its snapshot) and leaves tournament mode; it is resumed from the Game mode sheet as after *Leave for now* | A match is never parked twice |
 | 2026-09-30 | **Open issue logged: the fixed overlay corners cover shots at snooker's scale** (the camera toggle over the top-left pocket, the chips over the bottom-right, spin over the bottom-left; the user's Max screenshots). Fix before S7: fade them out of the shot's way, move them off the felt in Max, collapse the chips once a colour is picked; see S3 | Found in the user's first test of S3 |
-| 2026-09-30 | **Snooker's pockets drawn as real holes** (the rail's inner face cut at each hole's chord, the hole's silhouette in black down the gap before the cushions, a lit edge on the cut through the rail), not the design's flat post | The user's test: the middle pockets looked unfinished. The design's own renderer, run at the same camera, draws the same post (the rail's inner wall between the quarter-round cushion ends: at true scale the hole does not reach across the gap); the user chose the real-snooker look. Pool's pockets are unchanged (its render fingerprints hold) |
+| 2026-09-30 | **The design's revision `1790749498-5862` is adopted, table geometry included**: rounded noses (r 6) and straight jaws at every cushion end, corner holes r 18 at offset 2, and the hole drawn as the design draws it (its lip at rail height over the rail and at felt level across the gap, the cushions drawn again in front). It replaces the real-hole drawing below | The user updated the snooker pockets in the design after the middle pockets looked unfinished. What is drawn is what plays, so the physics took the new jaws and holes; the pockets now take more (corner ±6 clean, middle ±8 square on), which raised every tier's breaks, and the tiers were re-tuned |
+| 2026-09-30 | ~~**Snooker's pockets drawn as real holes**~~ (superseded the same day by the design's revision above) (the rail's inner face cut at each hole's chord, the hole's silhouette in black down the gap before the cushions, a lit edge on the cut through the rail), not the design's flat post | The user's test: the middle pockets looked unfinished. The design's own renderer, run at the same camera, draws the same post (the rail's inner wall between the quarter-round cushion ends: at true scale the hole does not reach across the gap); the user chose the real-snooker look. Pool's pockets are unchanged (its render fingerprints hold) |
 | 2026-09-30 | **Snooker's CPU tiers keep the aim that gives their breaks** (easy 0.28°, normal 0.12°, hard 0.05°, pro 0.02°), not the one that would put their win rate against the casual model in band | Against a 0.3° player picking shots as hard does, normal and hard win every frame; loosening them brings the win rate down only by taking their breaks out of band (normal 0.22°: 60%, mean break 3.7). The model loses on tactics, so the bands' win column and break column cannot both hold with one aim number. The user's test decides the feel |
 | 2026-09-30 | **The snooker CPU thinks in 12 ms slices, capped by tier (250–1,400 ms once a legal shot is in hand)** | A trial is 5–8 ms at 22 balls, twice pool's; at pool's 3 ms one trial a frame took up to 3 s on screen. The table is still while it thinks, so the bigger slice does not cost frames |
 | 2026-09-30 | **Every snooker tier sweeps for an escape when snookered** (pro 1°, easy 6°), not only hard and pro | Without it normal fouled on 11 of 11 blind rolls and easy on 16 of 19, which gave frames away for nothing; the coarse sweep keeps easy's escapes imperfect |

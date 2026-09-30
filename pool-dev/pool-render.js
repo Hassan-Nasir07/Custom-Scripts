@@ -156,35 +156,37 @@
         return q.map(c => ({ top: c, nose: [c[0], c[1]], ends: [[c[0], c[3]], [c[1], c[2]]] }));
     }
 
-    // Snooker's cushions (the design's Table.dc.html): straight to each nose end, then a
-    // quarter-round of radius cushionCut back to the rail, centred on the rail line behind the
-    // nose, as ppBuildRoundedTable's arcs are. The top rises from the nose to the rail height
-    // across the cushion's depth.
+    // Snooker's cushions (the design's Table.dc.html): straight along the nose, a rounded nose
+    // of radius noseRound, then a straight jaw back to the rail, as ppBuildRoundedTable's
+    // colliders are. The top rises from the nose to the rail height across the cushion's depth.
     function pgRoundedCushions(cfg) {
-        const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth, K = cfg.cushionCut;
+        const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth, RHO = cfg.noseRound;
         const c = cfg.cornerNose, s = cfg.sideNose, N = pgNoseZ(cfg), T = pgRailZ(cfg), NA = 8;
         const out = [];
-        // One run from u = a to u = b along a cushion; dirA and dirB point from each end
-        // toward its pocket; map(u, depth) is the point that fraction (depth) of the way to the rail.
-        const run = (a, b, dirA, dirB, map) => {
+        // One run from u = a to u = b along a cushion; dirA and dirB point from each end toward
+        // its pocket, jbA / jbB how far each jaw leans that way at the rail; map(u, depth, z) is
+        // the point that fraction (depth) of the way to the rail.
+        const run = (a, b, dirA, dirB, jbA, jbB, map) => {
             const at = (u, dep) => map(u, dep, N + (T - N) * dep);
-            const arc = (u0, dir) => {
+            const end = (e, dir, jb) => {
                 const pts = [];
-                for (let i = 0; i <= NA; i++) { const t = i / NA * Math.PI / 2; pts.push(at(u0 + dir * K * Math.sin(t), 1 - Math.cos(t))); }
+                for (let i = 0; i <= NA; i++) { const t = i / NA * Math.PI / 2; pts.push(at(e - dir * RHO + dir * RHO * Math.sin(t), RHO * (1 - Math.cos(t)) / CU)); }
+                pts.push(at(e + dir * jb, 1));
                 return pts;
             };
-            const arcA = arc(a, dirA), arcB = arc(b, dirB);
-            const top = [at(a, 0), at(b, 0)].concat(arcB.slice(1), [at(a + dirA * K, 1)], arcA.slice(1, -1).reverse());
+            const sa = end(a, dirA, jbA), sb = end(b, dirB, jbB);
+            const top = sb.concat(sa.slice().reverse());
             const ends = [];
-            [arcA, arcB].forEach(p => { for (let i = 0; i < p.length - 1; i++) ends.push([p[i], p[i + 1]]); });
-            out.push({ top, nose: [at(a, 0), at(b, 0)], ends });
+            [sa, sb].forEach(p => { for (let i = 0; i < p.length - 1; i++) ends.push([p[i], p[i + 1]]); });
+            out.push({ top, nose: [sa[0], sb[0]], ends });
         };
+        const cj = cfg.cornerJawBack, sj = cfg.sideJawBack;
         [-1, 1].forEach(sy => {
             const m = (u, dep, z) => [u, sy * (HW + dep * CU), z];
-            run(-HL + c, -s, -1, 1, m);
-            run(s, HL - c, -1, 1, m);
+            run(-HL + c, -s, -1, 1, cj, sj, m);
+            run(s, HL - c, -1, 1, sj, cj, m);
         });
-        [-1, 1].forEach(sx => run(-HW + c, HW - c, -1, 1, (u, dep, z) => [sx * (HL + dep * CU), u, z]));
+        [-1, 1].forEach(sx => run(-HW + c, HW - c, -1, 1, cj, cj, (u, dep, z) => [sx * (HL + dep * CU), u, z]));
         return out;
     }
 
@@ -245,31 +247,11 @@
         const cush = pgCushions(cfg);
         if (eye) {
             const ri = [];
-            // Snooker's rounded pockets cut through the rail's inner face (at true scale the hole
-            // does not reach across the gap between the cushions' quarter-rounds, and a whole face
-            // would stand in it as a flat post): the face is drawn either side of each hole's chord.
-            const rounded = cfg.pocketStyle === 'rounded';
-            const face = (axis, v, lo, hi) => {
-                const cuts = !rounded ? [] : table.pockets.map(p => {
-                    const d = axis === 'y' ? Math.abs(p.y - v) : Math.abs(p.x - v);
-                    if (d >= p.r) return null;
-                    const w = Math.sqrt(p.r * p.r - d * d), c = axis === 'y' ? p.x : p.y;
-                    return [c - w, c + w];
-                }).filter(Boolean).sort((a, b) => a[0] - b[0]);
-                let from = lo;
-                const pieces = [];
-                cuts.forEach(([a, b]) => { if (a > from) pieces.push([from, Math.min(a, hi)]); from = Math.max(from, b); });
-                if (from < hi) pieces.push([from, hi]);
-                pieces.forEach(([a, b]) => ri.push(P(axis === 'y' ? [[a, v, TZ], [b, v, TZ], [b, v, 0], [a, v, 0]] : [[v, a, TZ], [v, b, TZ], [v, b, 0], [v, a, 0]])));
-            };
-            if (eye[0] < IX) face('x', IX, -IY, IY);
-            if (eye[0] > -IX) face('x', -IX, -IY, IY);
-            if (eye[1] < IY) face('y', IY, -IX, IX);
-            if (eye[1] > -IY) face('y', -IY, -IX, IX);
+            if (eye[0] < IX) ri.push(P([[IX, -IY, TZ], [IX, IY, TZ], [IX, IY, 0], [IX, -IY, 0]]));
+            if (eye[0] > -IX) ri.push(P([[-IX, -IY, TZ], [-IX, IY, TZ], [-IX, IY, 0], [-IX, -IY, 0]]));
+            if (eye[1] < IY) ri.push(P([[-IX, IY, TZ], [IX, IY, TZ], [IX, IY, 0], [-IX, IY, 0]]));
+            if (eye[1] > -IY) ri.push(P([[-IX, -IY, TZ], [IX, -IY, TZ], [IX, -IY, 0], [-IX, -IY, 0]]));
             pgFill(ctx, ri, '#24150D');
-            // …and through the gap you see down the hole: its silhouette (rim to floor) in black,
-            // drawn now so the cushions and rail in front of it cover it where they should.
-            if (rounded) pgFill(ctx, table.pockets.map(p => pgHull(P(pgCirc(p.x, p.y, p.r, TZ + 0.3, 36)).concat(P(pgCirc(p.x, p.y, p.r, 0, 36))))).filter(h => h.length >= 3), '#040303');
             const jaws = [];
             cush.forEach(c => c.ends.forEach(([p, q]) => jaws.push(P([p, q, [q[0], q[1], 0], [p[0], p[1], 0]]))));
             pgFill(ctx, jaws, mat.jaw);
@@ -314,25 +296,58 @@
             return q;
         })));
         pgFill(ctx, rims, '#1A1410');
-        // Snooker: a lit edge on the cut through the rail top, so the hole reads as an opening.
-        // Only the arc that runs through the rail: over the cushions there is no rail to cut.
-        if (cfg.pocketStyle === 'rounded' && eye) {
-            ctx.beginPath();
-            table.pockets.forEach(p => {
-                const pts = pgCirc(p.x, p.y, p.r, TZ + 0.3, 72).concat([pgCirc(p.x, p.y, p.r, TZ + 0.3, 72)[0]]);
-                let prev = null;
-                pts.forEach(q => {
-                    const onRail = Math.abs(q[0]) >= IX || Math.abs(q[1]) >= IY, s = onRail ? pcProject(view, q) : null;
-                    if (s && prev) ctx.lineTo(s[0], s[1]); else if (s) ctx.moveTo(s[0], s[1]);
-                    prev = s;
-                });
-            });
-            ctx.strokeStyle = 'rgba(243, 238, 226, 0.16)'; ctx.lineWidth = 1; ctx.stroke();
-        }
         const bandZ = [[TZ + 0.3, 0], [0, -22], [-22, PG_POCKET_FLOOR]];
         const bandRGB = ['#563C29', '#302117', '#150F0B'];
         const lit = [0.55, 0.8, 1.08];
         const NF = 30;
+        // Snooker in 3D (the design's revision 1790749498-5862): a pocket sits mostly behind the
+        // cushion line, so its lip is at rail height only where the rail is cut and drops to the
+        // felt across the cushion gap. The opening is that mixed-height rim (it also covers the
+        // rail face between the cushion ends); the wall's top band shows only over the rail. Then
+        // the cushions are drawn again, in front of the holes.
+        if (cfg.pocketStyle === 'rounded' && eye) {
+            const over = (x, y) => Math.abs(x) > IX || Math.abs(y) > IY;
+            table.pockets.forEach(p => {
+                const rim = [];
+                for (let i = 0; i < 72; i++) {
+                    const t0 = i / 72 * Math.PI * 2, t1 = (i + 1) / 72 * Math.PI * 2;
+                    const x0 = p.x + p.r * Math.cos(t0), y0 = p.y + p.r * Math.sin(t0), x1 = p.x + p.r * Math.cos(t1), y1 = p.y + p.r * Math.sin(t1);
+                    const o0 = over(x0, y0), o1 = over(x1, y1);
+                    rim.push([x0, y0, o0 ? TZ + 0.3 : 0.05]);
+                    if (o0 !== o1) { const xm = (x0 + x1) / 2, ym = (y0 + y1) / 2; rim.push([xm, ym, o0 ? TZ + 0.3 : 0.05], [xm, ym, o1 ? TZ + 0.3 : 0.05]); }
+                }
+                const ap = P(rim);
+                if (ap.length < 3) return;
+                pgFill(ctx, [ap], '#040303');
+                // The walls and the floor rings are clipped to the opening (it need not be convex); a
+                // canvas without clip() (the tests' software one) shows the opening alone.
+                if (typeof ctx.clip !== 'function') return;
+                ctx.save();
+                ctx.beginPath(); pgTrace(ctx, ap); ctx.clip();
+                const walls = [[], [], [], [], [], [], [], [], []], cl = Math.hypot(p.x, p.y) || 1;
+                for (let k = 0; k < NF; k++) {
+                    const a0 = k / NF * Math.PI * 2, a1 = (k + 1) / NF * Math.PI * 2, am = (a0 + a1) / 2;
+                    const nx = -Math.cos(am), ny = -Math.sin(am), px = p.x + p.r * Math.cos(am), py = p.y + p.r * Math.sin(am);
+                    if ((eye[0] - px) * nx + (eye[1] - py) * ny <= 0) continue;
+                    const face = Math.max(0, nx * (-p.x / cl) + ny * (-p.y / cl)), bi = face > 0.66 ? 2 : face > 0.25 ? 1 : 0;
+                    const x0 = p.x + p.r * Math.cos(a0), y0 = p.y + p.r * Math.sin(a0), x1 = p.x + p.r * Math.cos(a1), y1 = p.y + p.r * Math.sin(a1);
+                    bandZ.forEach((bz, band) => {
+                        if (band === 0 && !over(px, py)) return;              // no rail wall above the felt across the gap
+                        walls[band * 3 + bi].push(P([[x0, y0, bz[0]], [x1, y1, bz[0]], [x1, y1, bz[1]], [x0, y0, bz[1]]]));
+                    });
+                }
+                walls.forEach((w, i) => { if (w.length) pgFill(ctx, w, pgRgb(bandRGB[Math.floor(i / 3)], lit[i % 3])); });
+                pgFill(ctx, [P(pgCirc(p.x, p.y, p.r * 0.86, PG_POCKET_FLOOR, 36))], '#1E140E');
+                pgFill(ctx, [P(pgCirc(p.x, p.y, p.r * 0.66, PG_POCKET_FLOOR, 36))], '#020303');
+                ctx.restore();
+            });
+            const jaws = [];
+            cush.forEach(c => c.ends.forEach(([p, q]) => jaws.push(P([p, q, [q[0], q[1], 0], [p[0], p[1], 0]]))));
+            pgFill(ctx, jaws, mat.jaw);
+            pgFill(ctx, cush.map(c => P([c.nose[0], c.nose[1], [c.nose[1][0], c.nose[1][1], 0], [c.nose[0][0], c.nose[0][1], 0]])), mat.nose);
+            pgFill(ctx, cush.map(c => P(c.top)), mat.cushion);
+            return;
+        }
         table.pockets.forEach(p => {
             const top = P(pgCirc(p.x, p.y, p.r, TZ + 0.3, 36));
             const aperture = view.ortho ? top : pgClipConvex(top, pgHull(P(pgCirc(p.x, p.y, p.r, 0, 36))));

@@ -609,6 +609,9 @@
             .pool-hud .ph-card.is-tight .ph-tag-long { display: none; }
             .pool-hud .ph-card.is-tight .ph-tag-short { display: inline; }
             .pool-hud .ph-spin-side-s { display: none; }
+            /* Snooker's break-off pill ("Break-off · in the D") in Cyberpunk's wider face would meet the
+               toggle's "2D · AUTO": the toggle says 2D, as it does in the widget's column. */
+            .retro-theme .pool-hud[data-game="snooker"][data-layout="compact"] .ph-cam-more { display: none; }
             @container pool-hud (max-width: 359px) {
                 .pool-hud .ph-spin-side { display: none; }
                 .pool-hud .ph-spin-side-s { display: inline; }
@@ -933,6 +936,17 @@
             }
             .pool-hud .pu-frame > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .pool-hud .pu-frame.is-win { border-color: rgba(var(--pool-accent-rgb), 0.45); }
+            /* Snooker's result: a 28 px row per frame (its points, winner first), then the high break. */
+            .pool-hud .pu-frows { display: flex; flex-direction: column; gap: 4px; }
+            .pool-hud .pu-frow { height: 28px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: var(--pool-radius-sm); background: var(--pool-control); min-width: 0; }
+            .pool-hud .pu-frow-l { min-width: 58px; flex-shrink: 0; }
+            .pool-hud .pu-frow .pu-frow-l { white-space: nowrap; }
+            .pool-hud .pu-frow-n { flex-grow: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .pu-frow-p { font-family: var(--pool-num); font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 600; flex-shrink: 0; }
+            .pool-hud .pu-frow.is-lost .pu-frow-n, .pool-hud .pu-frow.is-lost .pu-frow-p { color: var(--pool-muted); font-weight: 500; }
+            .pool-hud .pu-frow.is-high { background: transparent; border: 1px solid rgba(var(--pool-accent-rgb), 0.35); }
+            .pool-hud .pu-frow.is-high .pu-frow-l { color: var(--pool-accent-ink); }
+            .pool-hud .pu-frow.is-high .pu-frow-p { font-weight: 700; }
             .pool-hud .pu-out {
                 display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--pool-radius-sm);
                 background: var(--pool-card); border: 1px solid var(--pool-card-line); flex-shrink: 0;

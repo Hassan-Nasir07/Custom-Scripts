@@ -4,7 +4,9 @@
     // The tournament's screens from the design (TournamentSetup, BracketTree,
     // BracketCompact, BracketFull, MatchIntro, MatchResult, Champion,
     // ChampionFull, TrophyCabinet, and InMatch's resume, abandon and pause
-    // dialogs), over the pool HUD.
+    // dialogs), over the pool HUD. Snooker's are the same screens in its words (the design's
+    // snooker variants): best of 2N − 1 for race to N, breaks off, its reds, the frames' points
+    // and the match's high break, and its own cabinet.
     //
     //   puTree(t, opts)        the bracket as HTML + SVG, the design's geometry:
     //                          column (W − champ − rounds·gap) / rounds, card
@@ -113,7 +115,7 @@
         if (path.champ) hi += cd; else lines += cd;
         const champ = ptChampion(t);
         const heads = mini ? '' : Array.from({ length: cols }, (_, r) => '<div class="pu-tr-head" style="left:' + fx(r * (cardW + gap)) + 'px;width:' + fx(cardW) + 'px">' +
-            puEsc((cardW < 190 ? puRoundShort(t.rounds, r) : ptRoundName(t.rounds, r)).toUpperCase() + ' · RACE TO ' + t.settings.race[r]) + '</div>').join('') +
+            puEsc((cardW < 190 ? puRoundShort(t.rounds, r) : ptRoundName(t.rounds, r)).toUpperCase() + ' · ' + ptRaceText(t, t.settings.race[r]).toUpperCase()) + '</div>').join('') +
             '<div class="pu-tr-head" style="left:' + fx(chX) + 'px;width:' + fx(champW) + 'px">CHAMPION</div>';
         return '<div class="pu-tree' + (mini ? ' is-mini' : '') + '" role="img" aria-label="Tournament bracket" style="width:' + W + 'px;height:' + H + 'px">' + heads +
             '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true"><path class="pu-tr-line" d="' + lines + '" stroke-width="' + (mini ? 1.25 : 1.5) + '"></path>' +
@@ -131,23 +133,26 @@
         '<div class="pu-seg" style="grid-template-columns:repeat(' + opts.length + ',minmax(0,1fr))">' +
         opts.map(o => '<button type="button" role="radio" aria-checked="' + (o[0] === cur ? 'true' : 'false') + '" data-pu-act="set" data-pu-arg="' + key + ':' + o[0] + '">' + puEsc(o[1]) + '</button>').join('') + '</div></div>';
 
-    // s = { n, names, name, race: [per column], clock, guide, call, shuffle }
+    // s = { game, n, names, name, race: [per column], clock, guide, call, calls, reds, shuffle }
     function puSetupHTML(s) {
         const size = ptSizeFor(s.n), byes = size - s.n, cols = ptRaceColumns(size);
         const rows = s.names.slice(0, s.n).map((nm, i) => '<div class="pu-player"><label class="pu-seedl" for="pu-p' + i + '">' + String(i + 1).padStart(2, '0') + '</label>' +
             '<div class="pu-player-in"><input id="pu-p' + i + '" class="pu-input' + (i === 0 ? ' is-you' : '') + '" type="text" maxlength="16" placeholder="Player name" value="' + puEsc(nm) + '" data-pu-in="name:' + i + '" aria-label="' + (i === 0 ? 'Player 1 name (you)' : 'Player ' + (i + 1) + ' name') + '">' +
             (i === 0 ? '<span class="pu-you">' + PU_ICON.you + 'YOU</span>' : '') + '</div></div>').join('');
-        const races = cols.map((c, ci) => '<label class="pu-race"><span>' + c.label + '</span><select data-pu-in="race:' + ci + '" aria-label="' + c.label + ', race to">' +
-            [1, 2, 3, 4, 5].map(v => '<option value="' + v + '"' + (v === s.race[ci] ? ' selected' : '') + '>' + v + '</option>').join('') + '</select></label>').join('');
-        return '<div class="pu-screen-in">' + puHead('TOURNAMENT · HUMANS ONLY', 'New tournament', 'close') +
+        const snk = s.game === 'snooker';
+        // Snooker counts frames as best of 2N − 1; what is stored is still race to N.
+        const races = cols.map((c, ci) => '<label class="pu-race"><span>' + c.label + '</span><select data-pu-in="race:' + ci + '" aria-label="' + c.label + (snk ? ', best of' : ', race to') + '">' +
+            [1, 2, 3, 4, 5].map(v => '<option value="' + v + '"' + (v === s.race[ci] ? ' selected' : '') + '>' + (snk ? 2 * v - 1 : v) + '</option>').join('') + '</select></label>').join('');
+        return '<div class="pu-screen-in">' + puHead(snk ? 'SNOOKER · HUMANS ONLY' : 'TOURNAMENT · HUMANS ONLY', 'New tournament', 'close') +
             '<div class="pu-body">' +
             '<label class="pu-field"><span class="pu-seg-l">Name</span><input class="pu-input" type="text" maxlength="24" placeholder="' + puEsc(PT_NAMES[size]) + '" value="' + puEsc(s.name) + '" data-pu-in="tname" aria-label="Tournament name"></label>' +
             '<div class="pu-count"><span class="pu-count-t"><span class="pu-strong">Contestants</span><span class="pu-note">Bracket of ' + size + (byes ? ' · ' + byes + (byes === 1 ? ' bye' : ' byes') + ' to top seeds' : '') + '</span></span>' +
             '<div class="pu-stepper" role="group" aria-label="Contestants"><button type="button" data-pu-act="count" data-pu-arg="-1" aria-label="Fewer contestants"' + (s.n <= PT_MIN ? ' disabled' : '') + '>' + PU_ICON.minus + '</button>' +
             '<span class="pu-count-n" aria-live="polite">' + s.n + '</span><button type="button" data-pu-act="count" data-pu-arg="1" aria-label="More contestants"' + (s.n >= PT_MAX ? ' disabled' : '') + '>' + PU_ICON.plus + '</button></div></div>' +
             '<div class="pu-players">' + rows + '</div>' +
-            '<div class="pu-group"><span class="pu-kicker">FRAMES PER ROUND · RACE TO</span><div class="pu-races" style="grid-template-columns:repeat(' + cols.length + ',minmax(0,1fr))">' + races + '</div></div>' +
-            puSeg('Shot clock', 'clock', [[30, '30s'], [45, '45s'], [0, 'Off']], s.clock) +
+            '<div class="pu-group"><span class="pu-kicker">FRAMES PER ROUND · ' + (snk ? 'BEST OF' : 'RACE TO') + '</span><div class="pu-races" style="grid-template-columns:repeat(' + cols.length + ',minmax(0,1fr))">' + races + '</div></div>' +
+            puSeg('Shot clock', 'clock', snk ? [[30, '30s'], [45, '45s'], [60, '60s'], [0, 'Off']] : [[30, '30s'], [45, '45s'], [0, 'Off']], s.clock) +
+            (snk ? puSeg('Reds', 'reds', [[15, '15'], [10, '10'], [6, '6']], s.reds) : '') +
             puSeg('Guideline', 'guide', [['full', 'Full'], ['short', 'Short'], ['off', 'Off']], s.guide) +
             // Pool: the 8 only or every shot; snooker: off, the colours, or every ball (the game's tourDefaults).
             puSeg('Call pocket', 'call', s.calls || [['8', '8 only'], ['every', 'Every shot']], s.call) +
@@ -161,7 +166,8 @@
     function puMatchCard(t, m, liveId) {
         const st = puState(t, m, liveId), [sa, sb] = ptScore(m), showScore = st === 'done' || st === 'live';
         const code = puShort(t.rounds, m.round) + (t.rounds - 1 - m.round === 0 ? 'INAL' : ' ' + (m.index + 1));
-        const title = code === 'FINAL' ? 'FINAL · RACE TO ' + m.raceTo : st === 'bye' ? code + ' · BYE' : code + ' · RACE TO ' + m.raceTo;
+        const race = ptRaceText(t, m.raceTo).toUpperCase();
+        const title = code === 'FINAL' ? 'FINAL · ' + race : st === 'bye' ? code + ' · BYE' : code + ' · ' + race;
         const a = puLine(t, m, 'a'), b = st === 'bye' ? { name: 'Advances to ' + ptRoundName(t.rounds, m.round + 1).toLowerCase(), seed: '', tbd: true } : puLine(t, m, 'b');
         const row = (L, score, win, lose) => '<div class="pu-mrow' + (win ? ' is-win' : '') + (lose ? ' is-lose' : '') + (L.tbd ? ' is-tbd' : '') + '"><span class="pu-mseed">' + puEsc(L.seed) + '</span>' +
             '<span class="pu-mname">' + puEsc(L.name) + '</span><span class="pu-mscore">' + (showScore ? score : '') + '</span></div>';
@@ -184,7 +190,7 @@
             const played = ptPlayable(t).filter(m => m.status === 'done').length, cur = next || live;
             const stage = cur ? ptRoundName(t.rounds, cur.round) + ' · ' + played + ' of ' + ptPlayable(t).length + ' played' : 'Complete';
             const path = puPath(t);
-            return '<div class="pu-screen-in is-max"><div class="pu-maxhead"><div class="pu-head-t"><span class="pu-kicker">' + puEsc(t.name.toUpperCase() + ' · ' + t.slots.length + ' PLAYERS') + '</span>' +
+            return '<div class="pu-screen-in is-max"><div class="pu-maxhead"><div class="pu-head-t"><span class="pu-kicker">' + puEsc(t.name.toUpperCase() + ' · ' + (ptGameOf(t) === 'snooker' ? 'SNOOKER · ' : '') + t.slots.length + ' PLAYERS') + '</span>' +
                 '<span class="pu-title is-big">' + puEsc(stage) + '</span></div>' +
                 '<div class="pu-legend"><span><span class="pu-chip is-live">LIVE</span>At the table</span><span><span class="pu-chip is-next">NEXT</span>Up next</span>' +
                 (path.name ? '<span><span class="pu-legend-line"></span>' + puEsc((path.champ ? 'Champion\'s path · ' : 'Your path · ') + path.name) + '</span>' : '') + '</div>' +
@@ -197,7 +203,7 @@
             return '<button type="button" role="tab" aria-selected="' + (r === v.tab ? 'true' : 'false') + '" data-pu-act="tab" data-pu-arg="' + r + '">' + (done ? PU_ICON.check : '') + puEsc(t.rounds > 3 ? puRoundShort(t.rounds, r) : ptRoundName(t.rounds, r)) + '</button>';
         }).join('');
         const page = t.matches.filter(m => m.round === v.tab).map(m => puMatchCard(t, m, v.liveId)).join('');
-        return '<div class="pu-screen-in">' + puHead(t.name.toUpperCase(), 'Bracket', live ? 'resume' : 'close', puPill(t.slots.length + ' PLAYERS')) +
+        return '<div class="pu-screen-in">' + puHead(t.name.toUpperCase() + (ptGameOf(t) === 'snooker' ? ' · SNOOKER' : ''), 'Bracket', live ? 'resume' : 'close', puPill(t.slots.length + ' PLAYERS')) +
             '<div class="pu-tabs" role="tablist" aria-label="Rounds" style="grid-template-columns:repeat(' + t.rounds + ',minmax(0,1fr))">' + tabs + '</div>' +
             '<div class="pu-body" role="tabpanel">' + page +
             (v.tab > 0 ? '<div class="pu-group"><span class="pu-kicker">WHOLE BRACKET</span><div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: puMiniH(t), mini: true, liveId: v.liveId }) + '</div></div>' : '') + '</div>' +
@@ -219,9 +225,11 @@
         const side = (S, slot, cls) => '<div class="pu-vs-side ' + cls + '"><div class="pu-avatar' + (slot === m.a ? ' is-lead' : '') + '">' + puEsc((S.name[0] || '?').toUpperCase()) + '</div>' +
             '<span class="pu-vs-name">' + puEsc(S.name) + '</span><span class="pu-note">' + puEsc(puRoute(t, slot, m.round)) + '</span></div>';
         return '<div class="pu-screen-in is-intro">' + puHead(t.name.toUpperCase() + ' · MATCH ' + num.n + ' OF ' + num.of, '', 'bracket') +
-            '<div class="pu-body is-center"><div class="pu-round"><span class="pu-round-n">' + puEsc(ptRoundName(t.rounds, m.round).toUpperCase()) + '</span><span class="pu-round-r">Race to ' + m.raceTo + '</span></div>' +
+            '<div class="pu-body is-center"><div class="pu-round"><span class="pu-round-n">' + puEsc(ptRoundName(t.rounds, m.round).toUpperCase()) + '</span><span class="pu-round-r">' + puEsc(ptRaceText(t, m.raceTo)) + '</span></div>' +
             '<div class="pu-vs">' + side(A, m.a, 'is-a') + '<span class="pu-vs-x">VS</span>' + side(B, m.b, 'is-b') + '</div>' +
-            '<div class="pu-breaks">' + PU_ICON.ball + '<span><strong>' + puEsc(br.name) + ' breaks</strong><span class="pu-note"> · breaks alternate after</span></span></div></div>' +
+            '<div class="pu-breaks">' + PU_ICON.ball + (ptGameOf(t) === 'snooker'
+                ? '<span><strong>' + puEsc(br.name) + ' breaks off</strong><span class="pu-note"> · ' + t.settings.reds + ' reds</span></span></div></div>'
+                : '<span><strong>' + puEsc(br.name) + ' breaks</strong><span class="pu-note"> · breaks alternate after</span></span></div></div>') +
             '<div class="pu-foot"><span class="pu-note is-center">' + puEsc(A.name + ' and ' + B.name + ', take the seat when it\'s your shot.') + '</span>' +
             '<button type="button" class="pu-primary" data-pu-act="ready">READY</button></div></div>';
     }
@@ -231,14 +239,23 @@
         const t = v.t, m = ptById(t, v.matchId), num = ptMatchNumber(t, m), [sa, sb] = ptScore(m);
         const W = t.slots[m.winner], L = t.slots[m.winner === m.a ? m.b : m.a];
         const final = m.round === t.rounds - 1, next = ptNext(t);
+        const snk = ptGameOf(t) === 'snooker';
         const frames = m.frames.map((w, i) => '<div class="pu-frame' + (w === m.winner ? ' is-win' : '') + '"><span class="pu-kicker">FRAME ' + (i + 1) + '</span><span>' + puEsc(t.slots[w].name) + '</span></div>').join('');
-        return '<div class="pu-screen-in">' + puHead(t.name.toUpperCase(), ptRoundName(t.rounds, m.round) + ' · race to ' + m.raceTo, '', puPill('MATCH ' + num.n + ' OF ' + num.of)) +
+        // Snooker (SnkMatchResult): a row per frame, its winner and its points winner-first,
+        // the frames the loser took muted; then the match's high break.
+        const pts = (i, w) => { const p = (m.points || [])[i]; if (!p) return ''; const a = w === m.a ? p[0] : p[1], b = w === m.a ? p[1] : p[0]; return a + '–' + b; };
+        const frows = m.frames.map((w, i) => '<div class="pu-frow' + (w === m.winner ? '' : ' is-lost') + '"><span class="pu-frow-l pu-kicker">FRAME ' + (i + 1) + '</span>' +
+            '<span class="pu-frow-n">' + puEsc(t.slots[w].name) + '</span><span class="pu-frow-p">' + puEsc(pts(i, w)) + '</span></div>').join('') +
+            (m.high ? '<div class="pu-frow is-high"><span class="pu-frow-l pu-kicker">HIGH BREAK</span><span class="pu-frow-n">' + puEsc(t.slots[m.high.slot].name + ' · frame ' + m.high.frame) + '</span>' +
+                '<span class="pu-frow-p">' + m.high.value + '</span></div>' : '');
+        return '<div class="pu-screen-in">' + puHead(t.name.toUpperCase(), ptRoundName(t.rounds, m.round) + ' · ' + ptRaceText(t, m.raceTo).toLowerCase(), '', puPill('MATCH ' + num.n + ' OF ' + num.of)) +
             '<div class="pu-body"><div class="pu-won"><div class="pu-won-top"><div class="pu-avatar is-lead">' + puEsc((W.name[0] || '?').toUpperCase()) + '</div>' +
             '<div class="pu-won-t"><span class="pu-kicker is-accent">' + (final ? 'CHAMPION' : 'MATCH WON') + '</span><span class="pu-won-n">' + puEsc(W.name) + '</span></div>' +
-            '<span class="pu-won-s">' + Math.max(sa, sb) + '–' + Math.min(sa, sb) + '</span></div><div class="pu-frames" style="grid-template-columns:repeat(' + Math.min(3, m.frames.length) + ',minmax(0,1fr))">' + frames + '</div></div>' +
+            '<span class="pu-won-s">' + Math.max(sa, sb) + '–' + Math.min(sa, sb) + '</span></div>' +
+            (snk ? '<div class="pu-frows">' + frows + '</div>' : '<div class="pu-frames" style="grid-template-columns:repeat(' + Math.min(3, m.frames.length) + ',minmax(0,1fr))">' + frames + '</div>') + '</div>' +
             '<div class="pu-out"><span class="pu-avatar is-small">' + puEsc((L.name[0] || '?').toUpperCase()) + '</span><span class="pu-out-t">' + puEsc(L.name + ' is out') + '</span><span class="pu-note">' + puEsc(ptRoundName(t.rounds, m.round) + ' finish') + '</span></div>' +
             '<div class="pu-group"><span class="pu-kicker">' + puEsc(final ? W.name.toUpperCase() + ' WINS ' + t.name.toUpperCase() : W.name.toUpperCase() + ' ADVANCES TO THE ' + ptRoundName(t.rounds, m.round + 1).toUpperCase()) + '</span>' +
-            '<div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: puMiniH(t), mini: true }) + '</div></div></div>' +
+            '<div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: snk ? 112 : puMiniH(t), mini: true }) + '</div></div></div>' +
             '<button type="button" class="pu-primary is-two" data-pu-act="' + (final ? 'champion' : 'bracket') + '"><span>CONTINUE</span><span class="pu-primary-sub">' +
             puEsc(final ? 'The champion' : next ? 'Next: ' + t.slots[next.a].name + ' vs ' + t.slots[next.b].name + ' · ' + ptRoundName(t.rounds, next.round) : '') + '</span></button></div>';
     }
@@ -264,7 +281,7 @@
             '<div class="pu-group"><span class="pu-kicker">FINAL BRACKET</span><div class="pu-mini">' + puTree(t, { w: v.miniW || 336, h: puMiniH(t), mini: true }) + '</div></div></div>' + acts + '</div>';
     }
 
-    // v = { cab }
+    // v = { cab, game }
     function puCabinetHTML(v) {
         const rows = ptCabinetRows(v.cab);
         const cell = n => '<span class="pu-cab-c' + (n ? '' : ' is-zero') + '">' + (n || '–') + '</span>';
@@ -273,7 +290,8 @@
             : '<div class="pu-empty">No titles yet. The first tournament you finish lands here.</div>';
         const recent = (v.cab.recent || []).map(r => '<div class="pu-recent" role="listitem"><span class="pu-recent-s">' + r.size + '</span><span class="pu-recent-t"><span class="pu-strong">' + puEsc(r.name) + '</span>' +
             '<span class="pu-note">' + puEsc(puDate(r.date) + ' · ' + r.players + ' players') + '</span></span><span class="pu-recent-c">' + PU_ICON.cup + puEsc(r.champ) + '</span></div>').join('');
-        return '<div class="pu-screen-in">' + puHead('SAVED ON THIS COMPUTER', 'Trophy cabinet', 'cabinetBack') +
+        const snk = v.game === 'snooker';
+        return '<div class="pu-screen-in">' + puHead(snk ? 'TROPHY CABINET · THIS COMPUTER' : 'SAVED ON THIS COMPUTER', snk ? 'Snooker' : 'Trophy cabinet', 'cabinetBack') +
             '<div class="pu-body"><div class="pu-group"><span class="pu-kicker">TITLES BY BRACKET SIZE</span><div class="pu-cab" role="table" aria-label="Titles by bracket size">' +
             '<div class="pu-cab-row is-head" role="row"><span>PLAYER</span><span>4</span><span>8</span><span>16</span><span class="is-accent">TOTAL</span></div>' + table + '</div></div>' +
             (recent ? '<div class="pu-group"><span class="pu-kicker">RECENT TOURNAMENTS</span><div class="pu-recents" role="list">' + recent + '</div></div>' : '') + '</div></div>';

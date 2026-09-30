@@ -13,10 +13,13 @@
     //          winners feed forward by index (match j → j >> 1, side j & 1)
     //   breaks the lower seed (the higher number) breaks first, then they
     //          alternate
-    // A tournament: { v, id, seed, name, created, settings, slots, size,
-    // rounds, matches: [{ id, round, index, a, b, raceTo, frames, winner,
-    // status }], snapshot }. Slots are indices into `slots`; a is the upper
-    // line of a match, b the lower.
+    // A tournament: { v, id, game, seed, name, created, settings, slots, size,
+    // rounds, matches: [{ id, round, index, a, b, raceTo, frames, points, high,
+    // winner, status }], snapshot }. Slots are indices into `slots`; a is the upper
+    // line of a match, b the lower. game is 'pool' or 'snooker' (a save made before
+    // snooker has none, and is pool's); snooker's matches also keep each frame's
+    // points ([a, b]) and the match's high break ({ slot, frame, value }). raceTo is
+    // stored for both games; snooker says it as best of 2N − 1 (ptRaceText).
 
     const PT_VERSION = 1;
     const PT_MIN = 3, PT_MAX = 16;
@@ -25,6 +28,23 @@
     const PT_RACE_DEFAULT = { 4: [2, 3], 8: [1, 2, 3], 16: [1, 1, 2, 3] };
 
     const ptSizeFor = n => (n <= 4 ? 4 : n <= 8 ? 8 : 16);
+    const ptGameOf = x => (x && x.game === 'snooker' ? 'snooker' : 'pool');
+    // "Race to 2" in pool, "Best of 3" in snooker: the same match.
+    const ptRaceText = (t, n) => (ptGameOf(t) === 'snooker' ? 'Best of ' + (2 * n - 1) : 'Race to ' + n);
+    // A tournament's settings, normalised for its game: a race of 1–5 per round, a clock of
+    // 0 / 30 / 45 (/ 60 in snooker), the guideline; pool's call (the 8 only or every shot),
+    // snooker's reds (15 / 10 / 6) and call pocket (off / the colours / every ball).
+    function ptSettings(game, s0, rounds, size) {
+        const s = s0 || {}, snk = game === 'snooker';
+        const race = (Array.isArray(s.race) && s.race.length === rounds ? s.race : PT_RACE_DEFAULT[size]).map(x => Math.max(1, Math.min(5, x | 0 || 1)));
+        const out = {
+            race, clock: [0, 30, 45].concat(snk ? [60] : []).indexOf(s.clock) >= 0 ? s.clock : 30,
+            guide: s.guide === 'short' || s.guide === 'off' ? s.guide : 'full', shuffle: !!s.shuffle,
+        };
+        if (snk) { out.reds = [15, 10, 6].indexOf(s.reds) >= 0 ? s.reds : 15; out.call = ['off', 'colours', 'all'].indexOf(s.call) >= 0 ? s.call : 'off'; }
+        else out.call = s.call === 'every' ? 'every' : '8';
+        return out;
+    }
     const ptRoundsFor = size => Math.round(Math.log2(size));
 
     // "Final", "Semi-final", "Quarter-final", "Round of 16", from the end.
@@ -59,30 +79,28 @@
         return a;
     }
 
-    // opts: { names: [...], you: 0 (the slot that is the account owner, or -1),
-    //         settings: { race: [per round], clock: 30|45|0, guide: 'full'|'short'|'off',
-    //         call: '8'|'every', shuffle }, name, seed, created (ms) }
+    // opts: { game: 'pool'|'snooker', names: [...], you: 0 (the slot that is the account
+    //         owner, or -1), settings: { race: [per round], clock: 30|45|0 (|60), guide:
+    //         'full'|'short'|'off', call, reds (snooker), shuffle }, name, seed, created (ms) }
     function ptCreate(opts) {
         const o = opts || {};
         const names = (o.names || []).map(n => String(n || '').trim().slice(0, 16)).slice(0, PT_MAX);
         if (names.length < PT_MIN) throw new Error('a tournament needs at least ' + PT_MIN + ' players');
         const size = ptSizeFor(names.length), rounds = ptRoundsFor(size);
         const seed = (o.seed === undefined ? Date.now() : o.seed) >>> 0;
-        const set = Object.assign({ clock: 30, guide: 'full', call: '8', shuffle: false }, o.settings);
-        const race = (set.race && set.race.length === rounds ? set.race : PT_RACE_DEFAULT[size]).map(x => Math.max(1, Math.min(5, x | 0)));
-        set.race = race;
+        const game = ptGameOf(o), set = ptSettings(game, o.settings, rounds, size), race = set.race;
         // Seeding: entry order, or the shuffled order. Seed k is slot k − 1.
         const entries = names.map((name, i) => ({ name: name || 'Player ' + (i + 1), you: i === (o.you === undefined ? 0 : o.you) }));
         const seeded = set.shuffle ? ptShuffle(entries, seed) : entries;
         const slots = seeded.map((e, i) => ({ name: e.name, seed: i + 1, you: e.you }));
         const t = {
-            v: PT_VERSION, id: 't' + seed.toString(36), seed, name: String(o.name || '').trim().slice(0, 24) || PT_NAMES[size],
+            v: PT_VERSION, id: 't' + seed.toString(36), game, seed, name: String(o.name || '').trim().slice(0, 24) || PT_NAMES[size],
             created: o.created || Date.now(), settings: set, slots, size, rounds, matches: [], snapshot: null,
         };
         const order = ptSeedOrder(size);
         for (let r = 0, count = size / 2; r < rounds; r++, count /= 2) {
             for (let j = 0; j < count; j++) {
-                t.matches.push({ id: 'r' + r + 'm' + j, round: r, index: j, a: null, b: null, raceTo: race[r], frames: [], winner: null, status: 'pending' });
+                t.matches.push({ id: 'r' + r + 'm' + j, round: r, index: j, a: null, b: null, raceTo: race[r], frames: [], points: [], high: null, winner: null, status: 'pending' });
             }
         }
         // Round one: the better seed on the upper line; a seed past N is a bye.
@@ -129,12 +147,21 @@
         return k % 2 === 0 ? lower : upper;
     }
 
-    // A frame is over: returns { t, matchOver, winner }. Pure: t is copied.
-    function ptRecordFrame(t0, matchId, winnerSlot) {
+    // A frame is over: returns { t, matchOver, winner }. Pure: t is copied. extra (snooker):
+    // { points: [a, b], high: [a, b] }, the frame's score and each line's best break in it.
+    function ptRecordFrame(t0, matchId, winnerSlot, extra) {
         const t = JSON.parse(JSON.stringify(t0));
         const m = ptById(t, matchId);
         if (!m || m.status === 'done' || m.status === 'bye' || (winnerSlot !== m.a && winnerSlot !== m.b)) return { t: t0, matchOver: false, winner: null };
         m.frames.push(winnerSlot);
+        if (extra && Array.isArray(extra.points)) {
+            if (!Array.isArray(m.points)) m.points = [];
+            m.points[m.frames.length - 1] = extra.points.map(n => Math.max(0, n | 0));
+        }
+        if (extra && Array.isArray(extra.high)) {
+            const hi = extra.high.map(n => Math.max(0, n | 0)), side = hi[1] > hi[0] ? 1 : 0;
+            if (hi[side] > 0 && (!m.high || hi[side] > m.high.value)) m.high = { slot: side ? m.b : m.a, frame: m.frames.length, value: hi[side] };
+        }
         m.status = 'live';
         const [sa, sb] = ptScore(m);
         let matchOver = false;
@@ -183,9 +210,12 @@
 
     // A saved tournament, or null when it is not one this version can resume.
     // Checked field by field, because a half-loaded bracket is worse than none.
-    function ptValidate(x) {
+    // game: the game asking (a save for the other game is not resumed); the settings come back
+    // normalised for it.
+    function ptValidate(x, game) {
         try {
             if (!x || typeof x !== 'object' || x.v !== PT_VERSION) return null;
+            if (game && ptGameOf(x) !== (game === 'snooker' ? 'snooker' : 'pool')) return null;
             if (!Array.isArray(x.slots) || x.slots.length < PT_MIN || x.slots.length > PT_MAX) return null;
             if ([4, 8, 16].indexOf(x.size) === -1 || x.rounds !== ptRoundsFor(x.size) || x.slots.length > x.size) return null;
             if (!Array.isArray(x.matches) || x.matches.length !== x.size - 1) return null;
@@ -193,8 +223,12 @@
             for (const m of x.matches) {
                 if (!ok(m.a) || !ok(m.b) || !ok(m.winner) || !Array.isArray(m.frames) || !m.frames.every(ok)) return null;
                 if (['pending', 'live', 'done', 'bye'].indexOf(m.status) === -1 || !(m.raceTo >= 1 && m.raceTo <= 5)) return null;
+                if (m.points !== undefined && !(Array.isArray(m.points) && m.points.every(p => p === null || (Array.isArray(p) && p.length === 2 && p.every(Number.isFinite))))) return null;
+                if (m.high !== undefined && m.high !== null && !(ok(m.high.slot) && Number.isFinite(m.high.value) && Number.isInteger(m.high.frame))) return null;
             }
             if (!x.slots.every(s => s && typeof s.name === 'string' && Number.isInteger(s.seed))) return null;
+            x.game = ptGameOf(x);
+            x.settings = ptSettings(x.game, x.settings, x.rounds, x.size);
             return x;
         } catch (_) { return null; }
     }

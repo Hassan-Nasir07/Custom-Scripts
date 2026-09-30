@@ -194,6 +194,16 @@ const SCENES = {
     'snk-guide-short': 'game=snooker&scene=red&camera=2d&guidelen=short',
     'snk-guide-medium': 'game=snooker&scene=red&camera=2d&guidelen=medium',
     'snk-tour-setup': 'game=snooker&tour=setup',
+    // Snooker's tournament screens (S5): best of, breaks off, the frames' points, its cabinet.
+    'snk-tour-bracket': 'game=snooker&tour=bracket&n=6&played=2',
+    'snk-tour-intro': 'game=snooker&tour=intro&n=6&played=2',
+    'snk-tour-result': 'game=snooker&tour=result&n=6&played=3',
+    'snk-tour-match': 'game=snooker&tour=match&n=6&played=2',
+    'snk-tour-champion': 'game=snooker&tour=champion&n=6',
+    'snk-tour-cabinet': 'game=snooker&tour=cabinet',
+    'max-snk-tour-bracket': 'game=snooker&tour=bracket&n=8&played=5&max=1',
+    'cyber-snk-tour-result': 'game=snooker&tour=result&n=6&played=3&theme=cyber&shape=chamfered',
+    'light:snk-tour-setup': 'game=snooker&tour=setup',
     // Snooker's pockets up close: the hole seen down the gap between the cushion ends, and the lit cut in the rail.
     'max-snk-midpocket': 'game=snooker&scene=nominatePink&camera=3d&pot=1&cut=8&od=18&cd=55&lean=15&max=1&mode=pvp',
     'max-snk-cornerpocket': 'game=snooker&scene=nominatePink&camera=3d&pot=0&cut=25&od=30&cd=90&lean=40&max=1&mode=pvp',

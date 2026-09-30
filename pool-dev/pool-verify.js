@@ -826,6 +826,44 @@ const COLOURS = [2, 3, 4, 5, 6, 7].map(id => [id].concat([[-293.5, -81.8], [-293
         ok('…a pick is kept, and pool\'s own choices are not snooker\'s', c1 === 'colours' && c2 === 'off');
         Q.poolS.tour.t = { settings: { call: 'all', clock: 30, guide: 'full' } }; Q.poolTourApply();
         ok('…and its matches play by it', Q.poolS.callMode === 'all' && !Q.poolS.callEvery);
+        // A snooker tournament from setup to champion, through the controller (S5).
+        {
+            const G = L.game({ seed: 77 }), GS = G.poolS;
+            G.poolSetVariant('snooker');
+            GS.tour.setup = G.poolTourSetupFresh();
+            const d = GS.tour.setup;
+            ['Bilal', 'Hamza', 'Sana'].forEach((nm, i) => G.poolTourOn.edit('name:' + (i + 1), nm));
+            G.poolTourOn.set('clock:60'); G.poolTourOn.set('reds:6'); G.poolTourOn.set('call:all');
+            ok('snooker\'s setup: 60 s, 6 reds, calls on every ball', d.game === 'snooker' && d.clock === 60 && d.reds === 6 && d.call === 'all');
+            G.poolTourOn.start();
+            const T = GS.tour;
+            ok('…starts a snooker tournament with them', T.t.game === 'snooker' && T.t.settings.reds === 6 && T.t.settings.clock === 60 && T.t.settings.call === 'all');
+            G.poolTourOn.play(); G.poolTourOn.ready();
+            ok('its matches rack 6 reds, play to its clock and call every ball', GS.world.balls.length === 13 && GS.clockTotal === 60 && GS.frame.call === 'all');
+            // A reload mid-frame: the table saved, the tournament read back as snooker's, the frame restored.
+            GS.world.balls[3].x += 40; GS.frame.scores = { 1: 12, 2: 5 };
+            G.poolTourSnapshot();
+            const back = G.poolTourLoad(), mm = back && G.ptById(back, back.current);
+            const x3 = GS.world.balls[3].x;
+            GS.world.balls[3].x = 0;
+            const restored = !!mm && G.poolTourRestore(back.snapshot, mm);
+            ok('a reload mid-frame: the saved tournament is the snooker one, and its frame comes back as it was', !!back && back.game === 'snooker' && restored &&
+               Math.abs(GS.world.balls[3].x - x3) < 1e-9 && GS.frame.scores[1] === 12 && GS.frame.reds === 6);
+            // Every frame won by the upper line, 70–30 with a 45 break, until there is a champion.
+            for (let guard = 0; guard < 40 && G.ptChampion(T.t) === null; guard++) {
+                const m = G.poolTourMatch();
+                if (!m) { G.poolTourOn.play(); G.poolTourOn.ready(); continue; }
+                GS.rackId++;
+                G.poolEndFrame({ winner: 1, next: { scores: { 1: 70, 2: 30 }, high: { 1: 45, 2: 12 } } });
+                if (G.poolTourMatch() && G.poolTourMatch().status !== 'done') G.poolTourNextFrame();
+                else { T.screen = null; T.matchId = null; }
+            }
+            const done = T.t && G.ptChampion(T.t) !== null ? T.t : null;
+            const fm = done && done.matches.find(x => x.round === done.rounds - 1);
+            ok('…played to a champion, each frame\'s points and the high break kept', !!fm && fm.points.every(pp => pp[0] === 70 && pp[1] === 30) && fm.high && fm.high.value === 45,
+               fm && JSON.stringify({ points: fm.points, high: fm.high }));
+            ok('…and it goes into snooker\'s cabinet, not pool\'s', GS.tour.cab && GS.tour.cab.recent.length === 1 && GS.tour.cab.recent[0].id === done.id);
+        }
         const Pp = L.game({ seed: 75 }), dp = Pp.poolTourSetupFresh();
         ok('pool\'s tournament keeps 8 only / every shot', dp.call === '8' && dp.calls.map(c => c[0]).join() === '8,every');
     }

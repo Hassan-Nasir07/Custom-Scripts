@@ -367,8 +367,8 @@ head('Snooker table');
     const dIn = frame({ view: so, world: P.psCreateWorld(), zone: 'D' }).px(...at(-330, 0)), dOut = frame({ view: so, world: P.psCreateWorld() }).px(...at(-330, 0));
     ok('ball in hand tints the D in the theme accent', dIn.join() !== dOut.join(), dIn.join(',') + ' vs ' + dOut.join(','));
     const rounded = P.pgCushions(scfg), square = P.pgCushions(cfg);
-    ok('snooker\'s cushions curve into the pockets (each end a 9-point quarter-round), pool\'s end in straight jaws',
-       rounded.length === 6 && rounded.every(c => c.ends.length === 16) && square.length === 6 && square.every(c => c.ends.length === 2 && c.top.length === 4));
+    ok('snooker\'s cushions curve into the pockets (each end a 9-point rounded nose and a straight jaw, the design revision 1790749498-5862), pool\'s end in straight jaws',
+       rounded.length === 6 && rounded.every(c => c.ends.length === 18) && square.length === 6 && square.every(c => c.ends.length === 2 && c.top.length === 4));
     ok('the cue is pool\'s size on the snooker table (as designed); the shadow shrinks with the ball',
        P.pgK(scfg) < 0.53 && P.pcChase([0, 0], 0, 0, W, H, scfg).eye[2] - scfg.ballR === P.pcChase([0, 0], 0, 0, W, H, cfg).eye[2] - cfg.ballR);
 }

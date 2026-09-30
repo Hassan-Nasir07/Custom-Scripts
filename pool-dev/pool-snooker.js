@@ -18,12 +18,13 @@
     const PS_TABLE = {
         game: 'snooker',
         ballR: 7.36,
-        // The design's pockets: the cushions stop 17 u from each corner (mouth 17·√2 ≈ 24 u)
-        // and 14.5 u either side of each middle pocket (mouth 29 u); every end is a
-        // quarter-round of radius 12, the cushion's depth.
+        // The design's pockets (revision 1790749498-5862): the cushions stop 17 u from each
+        // corner and 14.5 u either side of each middle pocket (mouth 29 u); every end is a
+        // rounded nose of radius 6 and then a straight jaw to the rail, square at the middle
+        // pockets and leaning 5 u toward the corners.
         pocketStyle: 'rounded',
-        cornerNose: 17, sideNose: 14.5, cushionCut: 12,
-        cornerPocketOffset: 3, cornerPocketR: 17,       // holes at (±503, ±253)
+        cornerNose: 17, sideNose: 14.5, noseRound: 6, cornerJawBack: 5, sideJawBack: 0,
+        cornerPocketOffset: 2, cornerPocketR: 18,       // holes at (±502, ±252)
         sidePocketOffset: 9, sidePocketR: 15.5,         // holes at (0, ±259)
         // A 12 ft table's cloth on a 1000 u bed: gravity in these units, the same 8 m/s top
         // speed as pool, and snooker cloth's lower rolling resistance (a feel number; see

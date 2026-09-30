@@ -31,11 +31,11 @@
     const PA_SN_TIERS = {
         easy:   { label: 'Easy',   aim: 0.28, power: 0.10,  top: 5,  keep: 1, refine: 1, spins: ['stun'], speeds: [1],
                   robust: 0, safeTrials: 8,  gamma: 0,   miss: 0.2, attack: 3,   safeBelow: 0.1,  trials: 16,  maxMs: 250,  sweepStep: 6 },
-        normal: { label: 'Normal', aim: 0.12, power: 0.05,  top: 8,  keep: 2, refine: 1, spins: ['stun', 'follow', 'draw'], speeds: [1, 1.3],
+        normal: { label: 'Normal', aim: 0.2,  power: 0.07,  top: 8,  keep: 2, refine: 1, spins: ['stun', 'follow', 'draw'], speeds: [1, 1.3],
                   robust: 2, safeTrials: 12, gamma: 0.5, miss: 0.6, attack: 1,   safeBelow: 0.5,  trials: 36,  maxMs: 600,  sweepStep: 3 },
-        hard:   { label: 'Hard',   aim: 0.05, power: 0.025, top: 12, keep: 3, refine: 2, spins: ['stun', 'follow', 'draw', 'left', 'right'], speeds: [0.8, 1, 1.3],
+        hard:   { label: 'Hard',   aim: 0.09, power: 0.033, top: 12, keep: 3, refine: 2, spins: ['stun', 'follow', 'draw', 'left', 'right'], speeds: [0.8, 1, 1.3],
                   robust: 3, safeTrials: 20, gamma: 0.8, miss: 1,   attack: 0.3, safeBelow: 0.7,  trials: 70,  maxMs: 1000, sweepStep: 1.5, call: 'colours' },
-        pro:    { label: 'Pro',    aim: 0.02, power: 0.012, top: 14, keep: 4, refine: 2,
+        pro:    { label: 'Pro',    aim: 0.04, power: 0.015, top: 14, keep: 4, refine: 2,
                   spins: ['stun', 'follow', 'draw', 'left', 'right', 'followLeft', 'followRight', 'drawLeft', 'drawRight'], speeds: [0.8, 1, 1.3],
                   robust: 3, safeTrials: 28, gamma: 1,   miss: 1,   attack: 0,   safeBelow: 0.8,  trials: 120, maxMs: 1400, sweepStep: 1, call: 'all' },
     };
@@ -46,9 +46,9 @@
     // back red on that side taken `off` R wide of its centre, at `speed`, with the tip at
     // (tipX·side, tipY). side is the cue ball's side of the table, so each has its mirror.
     const PA_SN_BREAKS = {
-        // snooker-break-tune.js, 2026-09-30: no foul on 4 racks × ±0.1° × both sides for each.
+        // snooker-break-tune.js, 2026-09-30 (the design revision 1790749498-5862 pockets): no foul on 4 racks × ±0.1° × both sides for each.
         15: { x: -305, y: 45, off: 1.6, speed: 1100, tipX: 0, tipY: 0 },
-        10: { x: -305, y: 30, off: 1.6, speed: 1250, tipX: 0, tipY: 0 },
+        10: { x: -305, y: 15, off: 1.6, speed: 1100, tipX: 0, tipY: 0 },
         6:  { x: -335, y: 15, off: 1.45, speed: 1250, tipX: 0, tipY: 0 },
     };
 
@@ -57,17 +57,19 @@
         const k = 0.35 * p.r;
         return p.kind === 'corner' ? { x: p.x - p.sx * k / Math.SQRT2, y: p.y - p.sy * k / Math.SQRT2 } : { x: p.x, y: p.y - p.sy * k };
     }
-    // How far off line a ball arriving along (dx, dy) can be and still drop, as S1 measured
-    // (snooker-verify §1): a corner takes about ±3 u down its diagonal and still takes a ball
-    // rolled along the cushion; a middle pocket ±4 square on, closing fast as the angle opens.
+    // How far off line a ball arriving along (dx, dy) can be and still drop, as snooker-verify §1
+    // measures the design's revision 1790749498-5862 pockets (rounded noses, straight jaws): a
+    // corner takes about ±6 u down its diagonal (±8 off a jaw) and still takes a ball rolled along
+    // the cushion; a middle pocket takes ±8 square on, closing as the angle opens (5 lines of 9
+    // at 60°).
     function paSnPocketTol(p, dx, dy) {
         const L = Math.hypot(dx, dy) || 1;
         if (p.kind === 'corner') {
             const c = (dx * p.sx + dy * p.sy) / (Math.SQRT2 * L);
-            return c < Math.cos(55 * PA_DEG) ? 0 : 3.2 * (0.35 + 0.65 * c);
+            return c < Math.cos(55 * PA_DEG) ? 0 : 7 * (0.35 + 0.65 * c);
         }
         const c = dy * p.sy / L;
-        return c < Math.cos(62 * PA_DEG) ? 0 : 4 * Math.pow(c, 4);
+        return c < Math.cos(70 * PA_DEG) ? 0 : 8.5 * Math.pow(c, 0.7);
     }
     // What potting the ball on is worth now, and a little for what it opens (a red leads to
     // a colour).

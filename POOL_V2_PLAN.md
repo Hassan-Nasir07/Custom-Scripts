@@ -5,7 +5,7 @@
 > sessions.
 >
 > Status: **Pool v2 `DONE`**: Phases 0–9 complete and merged to `main` (PR #14, `6c6af10`), v9 in the userscript ·
-> **Snooker `IN PROGRESS`**: S0 (the seam), S1 (the table), S2 (the rules) and S3 (the controller, HUD and ⚙️ switch) done; Phases S0–S7 in [*Snooker*](#snooker-the-second-game-on-the-v2-table-phases-s0s7), sharing this table, engine block, panel and harnesses with pool ·
+> **Snooker `DONE`** (2026-09-30): S0–S7 done and tested by the user (the seam, the table, the rules, the controller and HUD, the CPU, tournaments, progression and the bot, v10, polish); Phases S0–S7 in [*Snooker*](#snooker-the-second-game-on-the-v2-table-phases-s0s7), sharing this table, engine block, panel and harnesses with pool ·
 > Last updated: 2026-09-30 · Branch: `feat/snooker` (from `main`); v2 was built on `feat/pool-v2` (from `feat/cyberpunk-hud-rework`)
 
 ## Context
@@ -1627,8 +1627,8 @@ Copy is in `prText`'s style: *Foul · 4 to Bilal* / *Hit the pink first* (· *Fr
 > **Where snooker stands (2026-09-30):** S0–S5 done and tested by the user: the table (the
 > design's revision `1790749498-5862` pockets), the rules and call pocket, the widget, the CPU and
 > tournaments. S6 (XP, Century and Maximum, the Snooker board, the sync keys, the bot, v10) is
-> done and tested too, the bot pushed with the v10 label. **Next:** S7
-> (polish). verify-all is 2,494 / 0, and pool's fingerprints hold.
+> done and tested too, the bot pushed with the v10 label. S7 (polish) is done, checked by the user
+> on the portal. verify-all is 2,497 / 0, and pool's fingerprints hold.
 
 Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verify-all.js`,
 with `reinsert --check` passing. Run everything on Node 22
@@ -2164,12 +2164,50 @@ with `reinsert --check` passing. Run everything on Node 22
       (41 in all). Release step 4 in the host's header says so. The bot is pushed with it; clients
       still on v9 are told to update (their token is unchanged, so the server still takes them).
 
-#### Phase S7: polish
-- [ ] Theme pass: every snooker state × theme × shape.
-- [ ] Performance: CPU ms per shot, and the repaint.
-- [ ] Accessibility: the chips have names, and the tracker is read out.
-- [ ] Final balance numbers.
-- [ ] Portal verification on `globalportal.mtbc.com`.
+#### Phase S7: polish ✅ (2026-09-30)
+- [x] **Theme pass: every snooker state × theme × shape.** `theme-verify` has its own list of 40
+      snooker states (the snk* artboards, the choice and hand-off, the call pocket, the folded chips,
+      the tournament screens, Max in both views), each in Glassmorphic dark and light and in
+      Cyberpunk under all four shapes, the preset turning over from state to state: 240 loads more,
+      648 in all. **Found:** in Cyberpunk, *SNOOKERS REQ.* and *Concede* overflowed the tracker row
+      by 12 px (its label face is wider); there the colour dots give way, as they already did in the
+      316 px column.
+- [x] **Performance.** The repaint (from S3): snooker 3D 1.8 ms median, 2D the 22-ball rack, both
+      under the 4 ms bar. **The CPU per shot**, now in `perf-check` (real Chrome, three mid-frame
+      positions, the controller's 12 ms slices): at most 36 / 172 / 429 / 877 ms a shot for easy /
+      normal / hard / pro on a red, well inside their 250 / 600 / 1,000 / 1,400 ms caps. **Found:**
+      slices ran to 20–24 ms (p95) and once 31 ms, because a slice finished the trial it had
+      started; a slice now stops before a trial its recent cost (`job.trialMs`) says would overrun
+      it, always after one: 12–16 ms p95, 23 ms at most. The bar: 95% within 20 ms, none past 30.
+- [x] **Accessibility.** The chips had their names already (*Pink, 6 points*; the call pad's
+      *Call top left pocket*). The tracker is now read out: a polite live region (`.ph-sr`,
+      never seen) says, once each shot is over, what is on, the score and the tracker (*On a red.
+      Ayesha 34, CPU 21. Reds left 9, colours …, 99 points remaining.*); it holds while balls run,
+      so a pot mid-shot does not interrupt. The contrast audits skip it.
+- [x] **Final balance** (seed 9, vs casual; easy and normal from the re-tune above, 20 frames;
+      hard and pro 30 frames). **Pro's aim 0.04° → 0.0425°**, which brings its mean break into band:
+
+      | tier | aim | vs casual | mean break | high | centuries / 100 | fouls / visit |
+      |---|---|---|---|---|---|---|
+      | easy | 0.28° | 45.0% ✓ | 4.7 ✓ | 22 | – | 4.6% ✓ |
+      | normal | 0.20° | 95.0% (55–75) | 7.1 ✓ | 41 | – | 2.8% ✓ |
+      | hard | 0.09° | 96.7% (80–92) | 17.7 ✓ | 73 | 0 (2–10) | 1.6% ✓ |
+      | pro | 0.0425° | 100% ✓ | 36.8 ✓ | 141 | 20.0 ✓ | 1.2% ✓ |
+
+      Every mean break and foul rate is in band, and pro's centuries. What stays out of band is
+      what S4 found: normal and hard beat the casual model more often than their bands (it loses on
+      safety and fouls, not on potting), and hard makes no centuries: sharper aim buys none before
+      its mean break leaves the band (0.085°: 20.6, still no century in 30 frames). Centuries at hard
+      need break-building (position more than one shot ahead), which is new CPU work, not tuning.
+      147s are too rare to measure in 30 frames (pro's band is 0.3–3 per 100).
+- [x] **Tests:** `theme-verify` 648 loads; `perf-check` +24 (the CPU per tier in three positions),
+      44 in all; `hud-verify` +2 (the readout, and held while balls run); `host-run` +1 (the readout in
+      the real userscript after the break-off).
+- [x] Portal verification on `globalportal.mtbc.com` (the user's, with v10 installed, 2026-09-30):
+      satisfactory. A question it raised, answered: a human concedes from the tracker row, where
+      *Concede* shows beside *SNOOKERS REQ.* once the frame can no longer be won on pots alone
+      (implementer's call 11); an always-available *Concede frame* in the Game mode sheet is
+      offered as a follow-up, not built.
 
 ### Verification
 
@@ -2343,6 +2381,9 @@ pool-dev/pool-table.html?game=snooker`, then the real portal once v10 is install
 | 2026-09-30 | **⚙️ Aim Guide shortens only the object ball's line** (150 / 100 / 60) | The user's call: the line to the ghost ball is how you aim, the purple one is the help |
 | 2026-09-30 | **The lean slider stays when a pocket is to be called**, in both games | The user's S5 test: it went missing on every call. The design hid it because its call map sat on the slider's side; ours sits bottom right |
 | 2026-09-30 | **Snooker's all-time and hot-seat wins are bounded by games played; pool's are not** | Snooker's keys start with v10, so there are no older wins to explain a jump; pool's all-time count predates the split |
+| 2026-09-30 | **Pro's aim 0.0425°; hard stays at 0.09° without centuries** | Pro at 0.04° ran its mean break over 40, at 0.045° its centuries under 15; 0.0425° meets both. Hard cannot make centuries by aim alone without its mean break leaving 10–20; that needs break-building, left out of this branch |
+| 2026-09-30 | **A CPU slice stops before a trial it cannot finish in its budget** | Slices of 12 ms ran to 20–31 ms finishing a long trial; the recent trial cost predicts the next |
+| 2026-09-30 | **Snooker's tracker is read out after each shot, by a polite live region** | The row is a picture to a screen reader otherwise; reading it mid-shot would talk over every pot |
 | 2026-09-30 | **The bot's release label lives in `sync.yml`, not in a secret** | It is shown on the banner, so it is not secret; a value in the file ships with the bot and a test can hold it to the userscript's `BUILD_LABEL` |
 | 2026-09-30 | **A high break over 155 is dropped, not clamped, by the bot** | No real frame can make one (the client clamps too); clamping would hand a forged record 155 |
 | 2026-09-30 | **Gaps in the artboards, decided:** a CPU chooser shows *CHOOSING*, then a notice; *Concede* keeps its 20 px look with a 44 px hit area; long choice labels fall back to *Put back* in the 316 px column; tournament setup defaults the clock to 30s as drawn, quick play keeps 45 s; the physics rack (touching) is drawn, not the design's gapped one | The design shows a human choosing only, draws a button under the 44 px rule, and is drawn at 368 px |

@@ -29,7 +29,7 @@ node pool-dev/sync-verify.js              # the sync bot's script from github-ac
 node pool-dev/snapshot.js [dir] [scene]   # real-Chrome PNGs of the prototype, every scene by default
 node pool-dev/snapshot.js --check [dir]   # …plus an in-browser layout and theme audit per scene
 node pool-dev/theme-verify.js [--quick]   # every state × theme, shape and preset: layout, WCAG AA text contrast, live theme switch
-node pool-dev/perf-check.js               # frame cost (3D and 2D, the 316 px column) and the FPS cap, in Chrome
+node pool-dev/perf-check.js               # frame cost (3D and 2D, the 316 px column), the FPS cap, snooker's CPU per shot and slice, in Chrome
 start pool-dev/pool-table.html            # the widget's own controller on host stand-ins, plus design scenes
 start pool-dev/pool-harness.html          # shoot and tune the v2 physics live (?preset=snooker for snooker's table)
 start "" "pool-dev/pool-table.html?game=snooker"   # snooker in the widget's own controller and HUD (Vs CPU or 2 Players)
@@ -256,6 +256,11 @@ while aiming ~1.8 ms median, 3.5 p95; a rolling shot ~0.7 ms; an unchanged frame
 things made it: while the camera moves the table is drawn straight to the screen instead
 of into its cache and then copied (the cache is rebuilt once the pose holds), and ball
 numbers are small cached images (`pgDigit`) rather than text drawn every frame.
+
+Snooker's CPU (S7, `perf-check.js`): a shot takes at most ~36 / 172 / 429 / 877 ms to plan for
+easy / normal / hard / pro, inside each tier's `maxMs`. It thinks in the controller's 12 ms
+slices, and a slice stops before a trial its recent cost (`job.trialMs`) says would overrun it,
+so 95% of slices end within 12–16 ms.
 
 The chase camera is the design's, number for number. `render-verify.js` runs the
 design's own `toCam`/`toScr` beside ours and they agree to 1e-9 px. One thing differs

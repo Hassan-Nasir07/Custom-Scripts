@@ -9,6 +9,10 @@
 // then runs the real loop for two seconds at the 60 and 30 FPS settings and counts draws.
 // Headless Chrome here rasterises the canvas in software, so these are an upper bound on a
 // laptop with GPU canvas. The bar: a 3D repaint under 4 ms (median), and the cap within 10%.
+// Snooker's CPU (S7): each tier plans a shot from three mid-frame positions, in the 12 ms
+// slices the controller gives it. The bar: a shot within its tier's time cap (maxMs) plus a
+// slice, and slices near their budget: 95% within 20 ms, none past 30 (a slice stops before a
+// trial its recent cost says would overrun it, so only an unusually long one can).
 const { spawn } = require('child_process');
 const fs = require('fs'), os = require('os'), path = require('path');
 const CHROME = require('./browser').browserPath();     // Chrome, else Edge, or POOL_BROWSER
@@ -36,6 +40,28 @@ const MEASURE = `(async () => {
         out['fps' + fps] = +(draws / 2).toFixed(1);
     }
     window.poolDraw = real;
+    return out;
+})()`;
+
+// Snooker's CPU, per tier: several plans from the position on the table, each stepped in the
+// controller's slices; the time a shot takes to plan, and the longest slice.
+const SNK_CPU = `(() => {
+    const S = poolS, out = {}, slice = POOL_GAMES.snooker.cpu.slice;
+    const q = (a, p) => { const s = a.slice().sort((x, y) => x - y); return +s[Math.min(s.length - 1, Math.floor(s.length * p))].toFixed(1); };
+    for (const tier of ['easy', 'normal', 'hard', 'pro']) {
+        const totals = [], steps = [];
+        for (let k = 0; k < 4; k++) {
+            const job = paSnPlan(S.world, S.frame, { rng: ppRandom(11 + k), tier, safeRun: 0 });
+            let total = 0;
+            for (let n = 0; n < 5000; n++) {
+                const t0 = performance.now(), done = job.step(slice), dt = performance.now() - t0;
+                total += dt; steps.push(dt);
+                if (done) break;
+            }
+            totals.push(total);
+        }
+        out[tier] = { median: q(totals, 0.5), max: q(totals, 1), stepP95: q(steps, 0.95), stepMax: q(steps, 1), cap: PA_SN_TIERS[tier].maxMs, slice };
+    }
     return out;
 })()`;
 
@@ -68,6 +94,17 @@ const MEASURE = `(async () => {
         ok('a shot rolling under 4 ms', r.moving.median < 4, fmt(r.moving));
         ok('an unchanged frame costs next to nothing', r.idle.median < 0.5, fmt(r.idle));
         ok('the 60 and 30 FPS settings are kept', Math.abs(r.fps60 - 60) <= 6 && Math.abs(r.fps30 - 30) <= 3, r.fps60 + ' and ' + r.fps30 + ' draws a second');
+    }
+    for (const [label, q] of [['on a red', 'game=snooker&scene=red&camera=3d'], ['on the colours', 'game=snooker&scene=colours&camera=3d'], ['needing snookers', 'game=snooker&scene=snookers&camera=3d']]) {
+        await send('Page.navigate', { url: page + '?still=1&' + q });
+        for (let i = 0; i < 60; i++) { await sleep(80); if (await evaluate('window.__ready === true')) break; }
+        const r = await evaluate(SNK_CPU);
+        console.log('\n── snooker CPU, ' + label);
+        for (const tier of ['easy', 'normal', 'hard', 'pro']) {
+            const t = r[tier];
+            ok(tier + ': a shot within its ' + t.cap + ' ms cap', t.max <= t.cap + 2 * t.slice + 10, t.median + ' ms median, ' + t.max + ' ms at most');
+            ok(tier + ': slices near their 12 ms (95% within 20 ms), none past 30 ms', t.stepP95 <= 20 && t.stepMax <= 30, 'slices ' + t.stepP95 + ' ms p95, ' + t.stepMax + ' ms at most');
+        }
     }
     console.log('\n' + pass + ' passed, ' + fail + ' failed   (software canvas: an upper bound)');
     ws.close(); proc.kill();

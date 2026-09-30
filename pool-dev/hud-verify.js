@@ -197,6 +197,10 @@ head("Snooker's in-match states");
     ok('snkRed: the pill "On a red"; the tracker: REDS × 9, six colours, 99 REMAINING, no snookers', m.pill.text === 'On a red' && m.track.show && m.track.reds === 9 && m.track.dots.length === 6 &&
        m.track.rem === '99 REMAINING' && !m.track.snookers && !m.track.concede && m.track.aria === 'Reds left 9, colours yellow, green, brown, blue, pink, black, 99 points remaining');
     ok('snkRed: no chips, the gauge unlocked, the usual hint', !m.chips.show && !m.gauge.locked && m.hint.text === 'Press and drag for power');
+    // The tracker read out (S7): once the shot is over, what is on, the score and the tracker.
+    ok('snkRed: the readout says what is on, the score and the tracker',
+       m.track.say === 'On a red. Ayesha 34, CPU 21. Reds left 9, colours yellow, green, brown, blue, pink, black, 99 points remaining.', m.track.say);
+    ok('…and holds its last reading while balls run (null: nothing new to read)', snkGame({ phase: 'moving' }).track.say === null && snkGame({ phase: 'strike' }).track.say === null);
     m = snkGame({ frame: { phase: 'colour', brk: 35 } });
     ok('snkNom: the chips (Tap a colour), the padlock, no hint; the pill "Nominate a colour"', m.chips.show && m.chips.caption === 'Tap a colour' && m.chips.items.length === 6 && m.chips.items.every(c => c.live) &&
        m.gauge.locked && !m.hint.show && m.pill.text === 'Nominate a colour' && m.chips.label === 'Nominate a colour');

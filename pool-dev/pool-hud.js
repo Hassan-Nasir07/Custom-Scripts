@@ -320,6 +320,11 @@
         else pill = 'On the ' + phSnkName(st.next);
         if (max && !bih) { const who = g.names[seat]; pill = (who === 'You' ? 'Your shot' : who + "'s shot") + ' · ' + pill; }
         vm.pill = { show: !toast && !over, text: pill };
+        // Read out once a shot is over (S7): what the player at the table is on, the score and
+        // the tracker. Held while balls run (null: the last reading stays), so a pot mid-shot
+        // does not interrupt.
+        const settled = g.phase !== 'moving' && g.phase !== 'strike', sc = st.scores || { 1: 0, 2: 0 };
+        vm.track.say = !settled ? null : (over ? 'Frame over' : pill) + '. ' + g.names[1] + ' ' + sc[1] + ', ' + g.names[2] + ' ' + sc[2] + '. ' + vm.track.aria + '.';
         // The chips: while a colour is to be nominated (the gauge padlocks until one is).
         const chips = aiming && !!on.needsNomination && !g.cpuTurn && !g.handoff && !toast && !sheetOpen && !vm.spin.open && !g.confirm;
         const pw = Math.round(g.power || 0);
@@ -400,7 +405,8 @@
             '<span class="ph-track-dots" role="img" data-ph="trdots"></span><span class="ph-track-gap"></span>' +
             '<span class="ph-track-snk ph-label" data-ph="trsnk" hidden></span>' +
             '<button type="button" class="ph-track-concede" data-ph="trconcede" hidden>Concede</button>' +
-            '<span class="ph-track-rem ph-label" data-ph="trrem"></span></div>';
+            '<span class="ph-track-rem ph-label" data-ph="trrem"></span>' +
+            '<span class="ph-sr" data-ph="trlive" aria-live="polite" aria-atomic="true"></span></div>';
     }
 
     function phViewHTML(max) {
@@ -541,7 +547,7 @@
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
             'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart',
             'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy',
-            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn'].forEach(n => { hud[n] = ref(n); });
+            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
@@ -791,6 +797,7 @@
             s('track.snk', tr.snookers, v => { phShow(hud.trsnk, v > 0); hud.trsnk.textContent = 'SNOOKERS REQ. ' + v; hud.track.classList.toggle('is-snk', v > 0); });
             s('track.concede', !!tr.concede, v => phShow(hud.trconcede, v));
             s('track.rem', tr.rem, v => { hud.trrem.textContent = v; });
+            if (tr.say !== null && tr.say !== undefined) s('track.say', tr.say, v => { hud.trlive.textContent = v; });
         }
         // Snooker's colour chips.
         const ch = vm.chips;

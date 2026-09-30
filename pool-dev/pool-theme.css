@@ -290,6 +290,8 @@
             .pool-hud .ph-toast-acts.is-tight .ph-act-l { display: none; }
             .pool-hud .ph-toast-acts.is-tight .ph-act-s { display: inline; }
 
+            /* Read by screen readers, never seen (snooker's tracker readout). */
+            .pool-hud .ph-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
             .pool-hud .ph-lean {
                 left: 10px; top: 60px; width: 40px; height: min(288px, calc(100% - 124px)); box-sizing: border-box; padding: 10px 0;
                 display: flex; flex-direction: column; align-items: center; gap: 6px; border-radius: 20px; pointer-events: auto;
@@ -1132,6 +1134,8 @@
                ("● × 2"); in the widget's column the colour dots give way too. Max has the room. */
             .pool-hud[data-layout="compact"] .ph-track.is-snk { gap: 6px; padding: 0 2px; }
             .pool-hud[data-layout="compact"] .ph-track.is-snk .ph-track-word { display: none; }
+            /* Cyberpunk's wider label face needs 12 px more than the row has: its dots give way too. */
+            .retro-theme .pool-hud[data-layout="compact"] .ph-track.is-snk .ph-track-dots { display: none; }
             @container pool-hud (max-width: 359px) {
                 .pool-hud .ph-track.is-snk .ph-track-dots { display: none; }
                 .pool-hud .ph-track { gap: 6px; padding: 0 2px; }

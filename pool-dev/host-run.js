@@ -186,7 +186,8 @@ async function main() {
         const els = [root, ...root.querySelectorAll('*')];
         for (const el of els) {
             // An overlay faded out of the way of the shot (data-shy) is meant to be see-through.
-            if (!el.getClientRects().length || el.closest('[hidden]') || el.closest('[data-shy]')) continue;
+            // …and screen-reader text (.ph-sr) is never seen.
+            if (!el.getClientRects().length || el.closest('[hidden]') || el.closest('[data-shy]') || el.closest('.ph-sr')) continue;
             const own = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
             if (!own) continue;
             // Emoji carry their own colour; text with a dark shadow carries its own contrast.
@@ -581,6 +582,8 @@ async function main() {
         const done = await waitFor('!["moving","strike"].includes(window.__probe.S.phase) && window.__probe.S.frame.shots > 0', 20000);
         const af = await ev('(() => { const S = window.__probe.S, saved = JSON.parse(localStorage.getItem("snookerFrame") || "null"); return { shots: S.frame.shots, phase: S.phase, saved: !!saved && saved.frame.shots >= 1 }; })()');
         ok('the break-off is judged, and the frame is saved for a reload', done && af.shots >= 1 && af.saved, af);
+        const live = await ev(`(() => { const e = document.querySelector('#pool-root [data-ph=trlive]'); return e && { text: e.textContent, polite: e.getAttribute('aria-live'), w: e.getBoundingClientRect().width }; })()`);
+        ok('the tracker is read out once the shot is over (a polite live region, never seen)', !!live && live.polite === 'polite' && /points remaining\.$/.test(live.text) && live.w <= 1, live);
         // The CPU at the table (S4): it plans in slices, turns the cue and plays its shot; or, when
         // the break-off fouled, makes its choice (play on, the free ball, or you back in).
         if (await ev('window.__probe.S.frame.turn === 2 && window.__probe.mode === "cpu"')) {

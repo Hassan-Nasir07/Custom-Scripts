@@ -35,7 +35,7 @@
                   robust: 2, safeTrials: 12, gamma: 0.5, miss: 0.6, attack: 1,   safeBelow: 0.5,  trials: 36,  maxMs: 600,  sweepStep: 3 },
         hard:   { label: 'Hard',   aim: 0.09, power: 0.033, top: 12, keep: 3, refine: 2, spins: ['stun', 'follow', 'draw', 'left', 'right'], speeds: [0.8, 1, 1.3],
                   robust: 3, safeTrials: 20, gamma: 0.8, miss: 1,   attack: 0.3, safeBelow: 0.7,  trials: 70,  maxMs: 1000, sweepStep: 1.5, call: 'colours' },
-        pro:    { label: 'Pro',    aim: 0.04, power: 0.015, top: 14, keep: 4, refine: 2,
+        pro:    { label: 'Pro',    aim: 0.0425, power: 0.015, top: 14, keep: 4, refine: 2,
                   spins: ['stun', 'follow', 'draw', 'left', 'right', 'followLeft', 'followRight', 'drawLeft', 'drawRight'], speeds: [0.8, 1, 1.3],
                   robust: 3, safeTrials: 28, gamma: 1,   miss: 1,   attack: 0,   safeBelow: 0.8,  trials: 120, maxMs: 1400, sweepStep: 1, call: 'all' },
     };
@@ -165,7 +165,8 @@
         const f0 = Object.assign({}, frame, { touching: psTouching(world.balls, R) });
         const st = psStatus(f0, world, seat, -1);
         const callOf = pocket => (st.callRequired ? pocket : -1);
-        const job = { done: false, shot: null, tried: 0, plan: '', kind: '', tier, ev: 0, ms: 0 };
+        // trialMs: a trial's recent cost, so a slice stops before one that would overrun it.
+        const job = { done: false, shot: null, tried: 0, plan: '', kind: '', tier, ev: 0, ms: 0, trialMs: 0 };
         const noisy = o.noise !== false && !!o.rng;
         const aimSig = (o.aimDeg !== undefined ? o.aimDeg : T.aim) * PA_DEG, powSig = o.powerFrac !== undefined ? o.powerFrac : T.power;
         const clampSpeed = v => Math.max(150, Math.min(cfg.maxSpeed, v));
@@ -175,11 +176,13 @@
             job.shot = s; job.plan = plan; job.kind = kind || plan; job.ev = ev || 0; job.done = true;
         };
         const trial = shot => {
-            const w = ppCloneWorld(world);
+            const t = now(), w = ppCloneWorld(world);
             w.log = [];
             ppStrike(w, shot);
             ppSimulate(w, 40);
             job.tried++;
+            const dt = now() - t;
+            job.trialMs = job.trialMs ? 0.7 * job.trialMs + 0.3 * dt : dt;
             return { w, v: psJudge(f0, w, shot.nominate === undefined ? -1 : shot.nominate, shot.call === undefined ? -1 : shot.call) };
         };
         const jitter = shot => Object.assign({}, shot, { angle: shot.angle + paGauss(o.rng) * aimSig, speed: clampSpeed(shot.speed * (1 + paGauss(o.rng) * powSig)) });
@@ -273,7 +276,10 @@
         job.step = budgetMs => {
             if (job.done) return true;
             const t0 = now();
-            const spent = () => budgetMs !== undefined && now() - t0 >= budgetMs;
+            // A slice ends when the next trial would take it past its budget (S7: they ran to
+            // 20–30 ms in 12 ms slices, finishing a long trial), after at least one trial.
+            const tried0 = job.tried;
+            const spent = () => budgetMs !== undefined && job.tried > tried0 && now() - t0 + job.trialMs >= budgetMs;
             try {
             while (!spent()) {
                 // Out of time with something legal in hand: value what is scored, and choose.

@@ -5877,6 +5877,11 @@
         else pill = 'On the ' + phSnkName(st.next);
         if (max && !bih) { const who = g.names[seat]; pill = (who === 'You' ? 'Your shot' : who + "'s shot") + ' · ' + pill; }
         vm.pill = { show: !toast && !over, text: pill };
+        // Read out once a shot is over (S7): what the player at the table is on, the score and
+        // the tracker. Held while balls run (null: the last reading stays), so a pot mid-shot
+        // does not interrupt.
+        const settled = g.phase !== 'moving' && g.phase !== 'strike', sc = st.scores || { 1: 0, 2: 0 };
+        vm.track.say = !settled ? null : (over ? 'Frame over' : pill) + '. ' + g.names[1] + ' ' + sc[1] + ', ' + g.names[2] + ' ' + sc[2] + '. ' + vm.track.aria + '.';
         // The chips: while a colour is to be nominated (the gauge padlocks until one is).
         const chips = aiming && !!on.needsNomination && !g.cpuTurn && !g.handoff && !toast && !sheetOpen && !vm.spin.open && !g.confirm;
         const pw = Math.round(g.power || 0);
@@ -5957,7 +5962,8 @@
             '<span class="ph-track-dots" role="img" data-ph="trdots"></span><span class="ph-track-gap"></span>' +
             '<span class="ph-track-snk ph-label" data-ph="trsnk" hidden></span>' +
             '<button type="button" class="ph-track-concede" data-ph="trconcede" hidden>Concede</button>' +
-            '<span class="ph-track-rem ph-label" data-ph="trrem"></span></div>';
+            '<span class="ph-track-rem ph-label" data-ph="trrem"></span>' +
+            '<span class="ph-sr" data-ph="trlive" aria-live="polite" aria-atomic="true"></span></div>';
     }
 
     function phViewHTML(max) {
@@ -6098,7 +6104,7 @@
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
             'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart',
             'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy',
-            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn'].forEach(n => { hud[n] = ref(n); });
+            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
@@ -6348,6 +6354,7 @@
             s('track.snk', tr.snookers, v => { phShow(hud.trsnk, v > 0); hud.trsnk.textContent = 'SNOOKERS REQ. ' + v; hud.track.classList.toggle('is-snk', v > 0); });
             s('track.concede', !!tr.concede, v => phShow(hud.trconcede, v));
             s('track.rem', tr.rem, v => { hud.trrem.textContent = v; });
+            if (tr.say !== null && tr.say !== undefined) s('track.say', tr.say, v => { hud.trlive.textContent = v; });
         }
         // Snooker's colour chips.
         const ch = vm.chips;
@@ -7566,7 +7573,7 @@
                   robust: 2, safeTrials: 12, gamma: 0.5, miss: 0.6, attack: 1,   safeBelow: 0.5,  trials: 36,  maxMs: 600,  sweepStep: 3 },
         hard:   { label: 'Hard',   aim: 0.09, power: 0.033, top: 12, keep: 3, refine: 2, spins: ['stun', 'follow', 'draw', 'left', 'right'], speeds: [0.8, 1, 1.3],
                   robust: 3, safeTrials: 20, gamma: 0.8, miss: 1,   attack: 0.3, safeBelow: 0.7,  trials: 70,  maxMs: 1000, sweepStep: 1.5, call: 'colours' },
-        pro:    { label: 'Pro',    aim: 0.04, power: 0.015, top: 14, keep: 4, refine: 2,
+        pro:    { label: 'Pro',    aim: 0.0425, power: 0.015, top: 14, keep: 4, refine: 2,
                   spins: ['stun', 'follow', 'draw', 'left', 'right', 'followLeft', 'followRight', 'drawLeft', 'drawRight'], speeds: [0.8, 1, 1.3],
                   robust: 3, safeTrials: 28, gamma: 1,   miss: 1,   attack: 0,   safeBelow: 0.8,  trials: 120, maxMs: 1400, sweepStep: 1, call: 'all' },
     };
@@ -7696,7 +7703,8 @@
         const f0 = Object.assign({}, frame, { touching: psTouching(world.balls, R) });
         const st = psStatus(f0, world, seat, -1);
         const callOf = pocket => (st.callRequired ? pocket : -1);
-        const job = { done: false, shot: null, tried: 0, plan: '', kind: '', tier, ev: 0, ms: 0 };
+        // trialMs: a trial's recent cost, so a slice stops before one that would overrun it.
+        const job = { done: false, shot: null, tried: 0, plan: '', kind: '', tier, ev: 0, ms: 0, trialMs: 0 };
         const noisy = o.noise !== false && !!o.rng;
         const aimSig = (o.aimDeg !== undefined ? o.aimDeg : T.aim) * PA_DEG, powSig = o.powerFrac !== undefined ? o.powerFrac : T.power;
         const clampSpeed = v => Math.max(150, Math.min(cfg.maxSpeed, v));
@@ -7706,11 +7714,13 @@
             job.shot = s; job.plan = plan; job.kind = kind || plan; job.ev = ev || 0; job.done = true;
         };
         const trial = shot => {
-            const w = ppCloneWorld(world);
+            const t = now(), w = ppCloneWorld(world);
             w.log = [];
             ppStrike(w, shot);
             ppSimulate(w, 40);
             job.tried++;
+            const dt = now() - t;
+            job.trialMs = job.trialMs ? 0.7 * job.trialMs + 0.3 * dt : dt;
             return { w, v: psJudge(f0, w, shot.nominate === undefined ? -1 : shot.nominate, shot.call === undefined ? -1 : shot.call) };
         };
         const jitter = shot => Object.assign({}, shot, { angle: shot.angle + paGauss(o.rng) * aimSig, speed: clampSpeed(shot.speed * (1 + paGauss(o.rng) * powSig)) });
@@ -7804,7 +7814,10 @@
         job.step = budgetMs => {
             if (job.done) return true;
             const t0 = now();
-            const spent = () => budgetMs !== undefined && now() - t0 >= budgetMs;
+            // A slice ends when the next trial would take it past its budget (S7: they ran to
+            // 20–30 ms in 12 ms slices, finishing a long trial), after at least one trial.
+            const tried0 = job.tried;
+            const spent = () => budgetMs !== undefined && job.tried > tried0 && now() - t0 + job.trialMs >= budgetMs;
             try {
             while (!spent()) {
                 // Out of time with something legal in hand: value what is scored, and choose.
@@ -20391,6 +20404,8 @@
             .pool-hud .ph-toast-acts.is-tight .ph-act-l { display: none; }
             .pool-hud .ph-toast-acts.is-tight .ph-act-s { display: inline; }
 
+            /* Read by screen readers, never seen (snooker's tracker readout). */
+            .pool-hud .ph-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
             .pool-hud .ph-lean {
                 left: 10px; top: 60px; width: 40px; height: min(288px, calc(100% - 124px)); box-sizing: border-box; padding: 10px 0;
                 display: flex; flex-direction: column; align-items: center; gap: 6px; border-radius: 20px; pointer-events: auto;
@@ -21233,6 +21248,8 @@
                ("● × 2"); in the widget's column the colour dots give way too. Max has the room. */
             .pool-hud[data-layout="compact"] .ph-track.is-snk { gap: 6px; padding: 0 2px; }
             .pool-hud[data-layout="compact"] .ph-track.is-snk .ph-track-word { display: none; }
+            /* Cyberpunk's wider label face needs 12 px more than the row has: its dots give way too. */
+            .retro-theme .pool-hud[data-layout="compact"] .ph-track.is-snk .ph-track-dots { display: none; }
             @container pool-hud (max-width: 359px) {
                 .pool-hud .ph-track.is-snk .ph-track-dots { display: none; }
                 .pool-hud .ph-track { gap: 6px; padding: 0 2px; }

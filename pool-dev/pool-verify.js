@@ -863,6 +863,9 @@ const COLOURS = [2, 3, 4, 5, 6, 7].map(id => [id].concat([[-293.5, -81.8], [-293
             ok('…played to a champion, each frame\'s points and the high break kept', !!fm && fm.points.every(pp => pp[0] === 70 && pp[1] === 30) && fm.high && fm.high.value === 45,
                fm && JSON.stringify({ points: fm.points, high: fm.high }));
             ok('…and it goes into snooker\'s cabinet, not pool\'s', GS.tour.cab && GS.tour.cab.recent.length === 1 && GS.tour.cab.recent[0].id === done.id);
+            ok('…each of your matches pays as pool\'s does (80 won, 15 lost) as snooker XP; no break is kept (no CPU)',
+               G.log.xp.length >= 1 && G.log.xp.every(x => x.type === 'snooker' && x.perf.tour && !x.perf.vsCPU && (x.perf.xp === 80 || x.perf.xp === 15)) && !G.store.snookerHighBreak,
+               G.log.xp.map(x => x.type + ' ' + x.perf.xp).join(', '));
         }
         const Pp = L.game({ seed: 75 }), dp = Pp.poolTourSetupFresh();
         ok('pool\'s tournament keeps 8 only / every shot', dp.call === '8' && dp.calls.map(c => c[0]).join() === '8,every');
@@ -955,9 +958,10 @@ const COLOURS = [2, 3, 4, 5, 6, 7].map(id => [id].concat([[-293.5, -81.8], [-293
 }
 {
     // Whole frames against the snooker CPU and in 2 Players, 6 reds: one award each, filed
-    // where snooker files them, and no XP yet (S6).
+    // where snooker files them, paid as snooker XP (S6).
     const store = {};
     let frames = 0, bad = 0, awards = 0;
+    const paid = [];
     for (let k = 0; k < 2; k++) {
         const P = L.game({ seed: 80 + k, store, prefs: { snookerReds: 6 } });
         P.poolSetVariant('snooker');
@@ -967,12 +971,51 @@ const COLOURS = [2, 3, 4, 5, 6, 7].map(id => [id].concat([[-293.5, -81.8], [-293
         if (S.phase === 'over') frames++; else bad++;
         P.poolEndFrame({ winner: S.frame.winner });
         awards += P.log.xp.length;
+        paid.push(...P.log.xp.map(x => Object.assign({ type: x.type, high: S.frame.high[1] }, x.perf)));
     }
     const rec = JSON.parse(store.snookerRecord || 'null'), byMode = JSON.parse(store.snookerWinsByMode || 'null');
     ok('a frame against the CPU and a 2 Players frame, 6 reds, play to the end through the controller', frames === 2 && !bad, frames + ' of 2');
     ok('each is filed once, in snooker\'s own records (the second award of a rack is refused)', rec && rec.p1Wins + rec.p1Losses === 2 && byMode && !store.poolRecord, JSON.stringify(rec));
-    ok('no XP for snooker before Phase S6, and pool\'s counts are untouched', awards === 0 && !store.poolGamesWon);
+    ok('each pays once, as snooker XP with the reds and your best break, and pool\'s counts are untouched',
+       awards === 2 && paid.every(x => x.type === 'snooker' && x.xp > 0 && x.reds === 6 && x.highBreak === x.high) && !store.poolGamesWon,
+       paid.map(x => x.type + ' ' + x.xp + ' ' + x.reds + ' ' + x.highBreak).join(', '));
+    ok('…the frame against the CPU keeps your best break, the 2 Players one does not raise it',
+       (+store.snookerHighBreak || 0) === paid[0].high && paid[1].vsCPU === false);
     ok('a decided frame leaves no saved frame behind', !store.snookerFrame);
+}
+{
+    // Snooker's XP table (S6, the user's numbers): a CPU win by the reds and the tier, a loss
+    // 20, the break bonus for your best break won or lost; 2 Players as pool.
+    const P = L.game({ seed: 3 }), SN = P.POOL_GAMES.snooker;
+    const fr = (reds, high) => ({ reds, high: { 1: high || 0, 2: 99 } });
+    const x = (won, vsCPU, tier, f) => SN.frameXP({ won, vsCPU, tier, frame: f });
+    const T = { 15: [90, 120, 150, 180], 10: [75, 100, 125, 150], 6: [60, 80, 100, 120] };
+    const tiers = ['easy', 'normal', 'hard', 'pro'];
+    ok('a CPU win pays by the reds and the tier: 15 reds 90–180, 10 reds 75–150, 6 reds 60–120',
+       Object.keys(T).every(r => tiers.every((t, i) => x(true, true, t, fr(+r)) === T[r][i])),
+       Object.keys(T).map(r => tiers.map(t => x(true, true, t, fr(+r))).join('/')).join(' · '));
+    ok('a loss pays 20 at any tier and any reds', tiers.every(t => x(false, true, t, fr(15)) === 20 && x(false, true, t, fr(6)) === 20));
+    const bonus = h => x(true, true, 'normal', fr(15, h)) - 120;
+    ok('the break bonus: +10 from 50, +25 from 100, +50 for a 147 (the best break only)',
+       [0, 49, 50, 99, 100, 146, 147, 155].map(bonus).join() === '0,0,10,10,25,25,50,50', [0, 49, 50, 99, 100, 146, 147, 155].map(bonus).join());
+    ok('…won or lost: a century in a lost frame pays 45', x(false, true, 'hard', fr(15, 104)) === 45);
+    ok('…only seat 1\'s break counts (the CPU\'s 99 pays you nothing)', x(true, true, 'easy', fr(10)) === 75);
+    ok('the most a frame can pay is 230 (pro, 15 reds, 147+), inside the bot\'s 250 a game',
+       x(true, true, 'pro', fr(15, 155)) === 230 && 230 <= 250 && tiers.every(t => [15, 10, 6].every(r => x(true, true, t, fr(r, 155)) <= 230)));
+    ok('2 Players pays as pool, 80 / 15, with no break bonus', x(true, false, null, fr(15, 147)) === 80 && x(false, false, null, fr(15, 147)) === 15);
+    ok('the award reports the reds and your best break, never past 155', JSON.stringify(SN.xpPerf(fr(10, 64))) === '{"reds":10,"highBreak":64}' && SN.xpPerf({ reds: 15, high: { 1: 400 } }).highBreak === 155);
+    ok('pool\'s award reports nothing more, and pays as before', JSON.stringify(P.POOL_GAMES.pool.xpPerf()) === '{}' && P.POOL_GAMES.pool.frameXP({ won: true, vsCPU: true, tier: 'pro' }) === 120);
+    // Through the controller: a Pro win with a 64 break, a Pro loss with a 30 break.
+    const store = {};
+    const Q = L.game({ seed: 4, store, prefs: { snookerDifficulty: 'pro' } }), QS = Q.poolS;
+    Q.poolSetVariant('snooker'); Q.poolNewFrame(1);
+    Q.poolEndFrame({ winner: 1, next: Object.assign({}, QS.frame, { high: { 1: 64, 2: 20 } }) });
+    Q.poolNewFrame(2);
+    Q.poolEndFrame({ winner: 2, next: Object.assign({}, QS.frame, { high: { 1: 30, 2: 88 } }) });
+    ok('a Pro win with a 64 break pays 190, tagged snooker, Pro, 15 reds, the 64', Q.log.xp[0].type === 'snooker' && Q.log.xp[0].perf.xp === 190 &&
+       Q.log.xp[0].perf.tier === 'pro' && Q.log.xp[0].perf.vsCPU && Q.log.xp[0].perf.reds === 15 && Q.log.xp[0].perf.highBreak === 64, JSON.stringify(Q.log.xp[0]));
+    ok('…a loss with a 30 break pays 20, and the High break stays 64 (the CPU\'s 88 is not yours)', Q.log.xp[1].perf.xp === 20 && store.snookerHighBreak === '64', store.snookerHighBreak);
+    ok('…filed under Pro, and nothing under pool', JSON.parse(store.snookerWinsByTier).pro === 1 && !store.poolWinsByTier && !store.poolGamesWon);
 }
 {
     // A reload: the saved frame at every shot boundary, and back as it was.

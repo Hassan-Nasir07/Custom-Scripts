@@ -1624,11 +1624,11 @@ Copy is in `prText`'s style: *Foul · 4 to Bilal* / *Hit the pink first* (· *Fr
 
 ### Progress
 
-> **Where snooker stands (2026-09-30):** S0–S3 done: the table, the rules, and snooker in the
-> widget with the ⚙️ Pool/Snooker switch, 2 Players and Vs CPU (a stand-in CPU). **Next:** the
-> overlay fix above (S3 follow-up), then S4 (the real CPU), S5 (tournaments: *best of*, Reds in
-> setup), S6 (XP, the board, the bot), S7 (polish). Nothing is committed yet (branch
-> `feat/snooker`); verify-all is 2,352 / 0, and pool's fingerprints hold.
+> **Where snooker stands (2026-09-30):** S0–S5 done and tested by the user: the table (the
+> design's revision `1790749498-5862` pockets), the rules and call pocket, the widget, the CPU and
+> tournaments. S6 (XP, Century and Maximum, the Snooker board, the sync keys, the bot, v10) is
+> done and tested too, the bot pushed with the v10 label. **Next:** S7
+> (polish). verify-all is 2,494 / 0, and pool's fingerprints hold.
 
 Each phase ends green on `node pool-dev/pool-verify.js` and `node ludo-dev/verify-all.js`,
 with `reinsert --check` passing. Run everything on Node 22
@@ -2113,14 +2113,56 @@ with `reinsert --check` passing. Run everything on Node 22
 - [x] The user's test (2026-09-30): "the rest is good", apart from the lean slider going
       missing in some cases, which is fixed in S6.
 
-#### Phase S6: progression and the bot
-- [ ] XP, achievements, the board with its High break tab, the sync keys, and v10.
-- [ ] Tests:
-  - `pool-verify`: the XP table and the bonus
-  - `host-smoke`: the clamp, the achievements, and *Called It* never unlocked by snooker
-  - `sync-verify`: the snooker bound, the 155 cap, the session rule
-  - `host-run`: the board and the button
-- [ ] **The user pushes the bot, then installs v10.**
+#### Phase S6: progression and the bot ✅ (2026-09-30)
+- [x] **The lean slider stays when a call is due** (the user's S5 test: "in some cases the lean bar
+      disappears"). It hid whenever a pocket was to be called, as the design's 4a has it, so it
+      went missing on every shot at Pro and on the colours at Hard (and in pool on the 8, and every
+      shot at pool's Pro). The design hid it because its call map sat top left, the slider's side;
+      ours sits bottom right (the call card, or the folded chips in snooker), so nothing needs the
+      slider's side any more. It still steps aside while balls run, for the sheet and for the choice
+      after a foul.
+- [x] **XP** (`pool-game.js`, `POOL_SNK_WIN_XP`): a CPU win by the reds and the tier (15 reds
+      90 / 120 / 150 / 180, 10 reds 75–150, 6 reds 60–120), a loss 20, plus the bonus for your best
+      break of the frame against the CPU, won or lost (+10 from 50, +25 from 100, +50 for 147): at
+      most 230. 2 Players and tournament matches pay as pool (80 / 15); no pot pays. The profile's
+      new `xpPerf(frame)` hands the award the reds and the break (pool's hands nothing), and
+      `fileResult` gets the frame. `awardGameXP('snooker')` has its own case, re-clamped to
+      `AC_MAX_XP_PER_GAME`. Tournaments paid nothing in S5 (no `'snooker'` case yet); they do now.
+- [x] **Records:** `snookerHighBreak`, your best break against the CPU at every frame end, lost
+      and conceded frames too, never past 155; 2 Players' breaks are not kept (either seat is this
+      account). The player snapshot carries `snookerRecord` as it does `poolRecord`.
+- [x] **Achievements:** 💯 *Century* (150 XP) and 🏅 *Maximum* (300 XP), breaks against the CPU,
+      live from the award and backfilled from `snookerHighBreak`. Snooker's own case in
+      `checkGameAchievements`, so a Pro snooker win never unlocks pool's *Called It*.
+- [x] **The board:** `LB_BOARDS.snooker`: Pro, Hard, Normal, Easy, All-time, Hot-seat and 💯 High
+      break (in *pts*; `units`), each board's foot note from `notes` (pool's and Ludo's All-time notes
+      moved there). `gameLbMode` and `refreshGameScoreBtn` know snooker; the wins button opens it on
+      the tier being played. With seven boards the tab strip scrolls, so the board shown is now
+      scrolled into view.
+- [x] **Sync:** `collectGameModeBests` emits `snooker:{easy, normal, hard, pro, cpu, pvp, highBreak}`
+      (the break clamped at 155); the restore only raises them, the break never past 155.
+- [x] **The bot** (`github-actions-bot/.github/workflows/sync.yml`, not pushed): snooker's tier wins
+      bounded by games played as pool's, and its all-time and hot-seat wins as a group of their own
+      (they started with the split, unlike pool's); `snooker:highBreak` over 155 is dropped, and it
+      rises only in a sync that played a game. Budgets unchanged: 230 a frame is inside 250 a
+      game, Maximum's 300 inside 500 an achievement.
+- [x] **`BUILD_LABEL` v10** (the seed unchanged, as for v9).
+- [x] **Tests:** `pool-verify` +14 (the XP table by reds and tier, the loss, the bonus's steps, won or
+      lost, only your break, the 230 ceiling, 2 Players, `xpPerf`, a Pro win and loss through the
+      controller with the High break kept, tournament matches paid as snooker XP), 257 in all;
+      `host-smoke` +18 (Century and Maximum live and backfilled, never *Called It*, never from 2
+      Players, the clamp, the sync keys, the raise-only restore and the 155 clamp, the board), 95 in
+      all; `sync-verify` +12 (the snooker bounds, 155, the session rule), 40 in all; `host-run` +4
+      (a Pro snooker win with a century through the real host, its XP and Century, the button and
+      the sync keys, the board's seven tabs, the shown one in view), 160 in all; `hud-verify` +1
+      (the lean with a call due). `verify-all` **2,494, 0 failed**.
+- [x] **The user's test (2026-09-30): passed.**
+- [x] **The release label is set in the workflow file, not a secret.** The user could not find
+      `BUILD_LABEL_CURRENT` being set anywhere, and it cannot be set from here (no `gh`). It is the
+      banner's text, so nothing about it is secret: `sync.yml` now carries `BUILD_LABEL_CURRENT: v10`
+      in its env block, and `sync-verify` fails unless it matches the userscript's `BUILD_LABEL`
+      (41 in all). Release step 4 in the host's header says so. The bot is pushed with it; clients
+      still on v9 are told to update (their token is unchanged, so the server still takes them).
 
 #### Phase S7: polish
 - [ ] Theme pass: every snooker state × theme × shape.
@@ -2299,6 +2341,10 @@ pool-dev/pool-table.html?game=snooker`, then the real portal once v10 is install
 | 2026-09-30 | **Max View is a setting: the full table (default) or the table between bars** | The user's test of the bars: aim stops over a control, so overlays over the table got in the way; but the full 1232 × 672 table was missed. On the full table the overlays sit between the corner and middle pockets |
 | 2026-09-30 | **Snooker gets a call pocket: off / colours / all balls; a wrong pocket is a foul on the ball's value** | Played that way where the user is from. With the difficulty in Vs CPU (a picked Hard: colours; Pro: all), chosen in tournaments; Adaptive and 2 Players play without, as a rule change should be chosen |
 | 2026-09-30 | **⚙️ Aim Guide shortens only the object ball's line** (150 / 100 / 60) | The user's call: the line to the ghost ball is how you aim, the purple one is the help |
+| 2026-09-30 | **The lean slider stays when a pocket is to be called**, in both games | The user's S5 test: it went missing on every call. The design hid it because its call map sat on the slider's side; ours sits bottom right |
+| 2026-09-30 | **Snooker's all-time and hot-seat wins are bounded by games played; pool's are not** | Snooker's keys start with v10, so there are no older wins to explain a jump; pool's all-time count predates the split |
+| 2026-09-30 | **The bot's release label lives in `sync.yml`, not in a secret** | It is shown on the banner, so it is not secret; a value in the file ships with the bot and a test can hold it to the userscript's `BUILD_LABEL` |
+| 2026-09-30 | **A high break over 155 is dropped, not clamped, by the bot** | No real frame can make one (the client clamps too); clamping would hand a forged record 155 |
 | 2026-09-30 | **Gaps in the artboards, decided:** a CPU chooser shows *CHOOSING*, then a notice; *Concede* keeps its 20 px look with a 44 px hit area; long choice labels fall back to *Put back* in the 316 px column; tournament setup defaults the clock to 30s as drawn, quick play keeps 45 s; the physics rack (touching) is drawn, not the design's gapped one | The design shows a human choosing only, draws a button under the 44 px rule, and is drawn at 368 px |
 | 2026-09-29 | **`host-run.js` waits for ⚙️ to be hidden instead of 400 ms** | The fade could outlast the wait, leaving the overlay over the panel: 4 of 6 runs failed in a cascade from the Game mode sheet onward, `main` included |
 

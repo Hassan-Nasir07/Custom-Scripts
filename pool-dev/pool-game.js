@@ -51,6 +51,19 @@
     // 2 Players as it has always paid Player 1, a tournament match for the YOU seat only.
     const POOL_WIN_XP = { easy: 60, normal: 80, hard: 100, pro: 120 };
     const POOL_LOSS_XP = 15, POOL_PVP_WIN_XP = 80, POOL_TOUR_WIN_XP = 80;
+    // Snooker's (POOL_V2_PLAN.md, Snooker · XP): a CPU win by the tier and the reds (a longer
+    // frame pays more), a loss 20; your best break of the frame against the CPU adds a bonus,
+    // won or lost. At most 180 + 50 = 230 a frame, inside the bot's 250 a game. 2 Players and
+    // tournaments pay as pool; no pot pays.
+    const POOL_SNK_WIN_XP = {
+        15: { easy: 90, normal: 120, hard: 150, pro: 180 },
+        10: { easy: 75, normal: 100, hard: 125, pro: 150 },
+        6: { easy: 60, normal: 80, hard: 100, pro: 120 },
+    };
+    const POOL_SNK_LOSS_XP = 20;
+    const poolSnkBreakBonus = h => (h >= 147 ? 50 : h >= 100 ? 25 : h >= 50 ? 10 : 0);
+    // A break can be no bigger than a 15-red frame with a free ball (8 + 15 × 8 + 27).
+    const POOL_SNK_BREAK_CAP = 155;
     const POOL_MAX_W = 1280, POOL_MAX_H = 800;
     const POOL_DEG = Math.PI / 180;
     const POOL_RESULT_MS = 1100;             // the last pot drops before the match result covers the table
@@ -103,6 +116,8 @@
             // A quick frame's XP: a CPU win by the tier it was played at, 2 Players as it has
             // always paid Player 1.
             frameXP: c => (!c.won ? POOL_LOSS_XP : c.vsCPU ? POOL_WIN_XP[c.tier] || POOL_WIN_XP.normal : POOL_PVP_WIN_XP),
+            // What else the award reports (the host's achievement check reads it): nothing more.
+            xpPerf: () => ({}),
             // A quick frame's records, through the host's storage helpers. Seat 1 is you.
             fileResult: (w, vsCPU, tier) => {
                 if (!poolRecord) poolRecord = loadPoolRecord();
@@ -133,8 +148,8 @@
         },
         // Snooker (POOL_V2_PLAN.md, Snooker): the same table component on snooker's table
         // (pool-snooker.js), 147 rules, a colour nominated when one is on, the choice after a
-        // foul, and a frame that survives a reload. Its CPU is pool-snooker-ai.js (S4),
-        // and it pays no XP until S6; records are filed from S3.
+        // foul, and a frame that survives a reload. Its CPU is pool-snooker-ai.js (S4); its XP,
+        // records and high break are filed under its own names (S6).
         snooker: {
             id: 'snooker', title: 'Snooker', icon: '🔴', lb: 'snooker', xpType: 'snooker', diffPref: 'snookerDifficulty', diffs: PH_SNK_DIFFS,
             keys: { cpuRec: 'snookerCpuRecord', byTier: 'snookerWinsByTier', tour: 'snookerTournament', cab: 'snookerTrophyCabinet', frame: 'snookerFrame' },
@@ -187,9 +202,24 @@
             cpu: { tiers: PA_SN_TIERS, names: PA_SN_NAMES, plan: paSnPlan, place: paSnPlace, choose: (f, w) => paSnChoose(f, w), concede: paSnConcede, slice: 12,
                 tierFor: (pref, rec) => (PA_SN_TIERS[pref] ? pref : paAdaptiveTier(rec)), adaptive: rec => paAdaptiveTier(rec) },
             potXP: 0,
-            frameXP: null,
+            // A quick frame's XP: against the CPU by the tier and the reds, plus the break bonus
+            // for seat 1's best break; 2 Players as pool.
+            frameXP: c => {
+                if (!c.vsCPU) return c.won ? POOL_PVP_WIN_XP : POOL_LOSS_XP;
+                const byTier = POOL_SNK_WIN_XP[c.frame && c.frame.reds] || POOL_SNK_WIN_XP[15];
+                const high = c.frame && c.frame.high ? c.frame.high[1] || 0 : 0;
+                return (c.won ? byTier[c.tier] || byTier.normal : POOL_SNK_LOSS_XP) + poolSnkBreakBonus(high);
+            },
+            // The reds and your best break go with the award: Century and Maximum read them.
+            xpPerf: f => ({ reds: f ? f.reds : 15, highBreak: f && f.high ? Math.min(POOL_SNK_BREAK_CAP, f.high[1] || 0) : 0 }),
             record: () => poolStoreRead('snookerRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 }),
-            fileResult: (w, vsCPU, tier) => {
+            fileResult: (w, vsCPU, tier, f) => {
+                // Your best break against the CPU, at every frame end, lost or conceded too (the
+                // High break board). 2 Players' breaks are not kept: either seat is this account.
+                if (vsCPU && f && f.high) {
+                    const best = poolStoreNum('snookerHighBreak'), mine = Math.min(POOL_SNK_BREAK_CAP, f.high[1] || 0);
+                    if (mine > best) poolStoreWrite('snookerHighBreak', mine);
+                }
                 const rec = poolStoreRead('snookerRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 });
                 const byMode = poolStoreRead('snookerWinsByMode', { cpu: 0, pvp: 0 });
                 if (w === 1) {
@@ -218,6 +248,8 @@
         } catch (_) {}
         return out;
     }
+    // A whole number in localStorage (0 when missing or corrupt).
+    function poolStoreNum(key) { try { return Math.max(0, parseInt(localStorage.getItem(key) || '0', 10) || 0); } catch (_) { return 0; } }
     function poolStoreWrite(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {} }
     const poolRules = () => POOL_GAMES[poolS.game] || POOL_GAMES.pool;
     // The panel plays this game from now: its table config, and a fresh camera and cache
@@ -393,11 +425,11 @@
         poolClearSaved();
         // Tournament frames go to the bracket, not to the quick-match records or XP (Phase 8).
         if (poolMode === 'tour') { poolTourFrameOver(w, v); return; }
-        const vsCPU = poolMode === 'cpu', tier = poolCpuTier;
-        R.fileResult(w, vsCPU, tier);
-        if ((w === 1 || w === 2) && R.frameXP) {
+        const vsCPU = poolMode === 'cpu', tier = poolCpuTier, f = v.next || S.frame;
+        R.fileResult(w, vsCPU, tier, f);
+        if (w === 1 || w === 2) {
             const won = w === 1;
-            awardGameXP(R.xpType, { won, vsCPU, tier: vsCPU ? tier : null, xp: R.frameXP({ won, vsCPU, tier }) });
+            awardGameXP(R.xpType, Object.assign({ won, vsCPU, tier: vsCPU ? tier : null, xp: R.frameXP({ won, vsCPU, tier, frame: f }) }, R.xpPerf(f)));
         }
         if (poolMode === 'cpu') {
             const rec = poolCpuRec();

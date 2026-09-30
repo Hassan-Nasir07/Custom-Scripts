@@ -340,6 +340,12 @@ beside this one as `github-actions-bot/`. `sync-verify.js` lifts its inline scri
 per-key max, the tier-win bound), and the gates that were already there. The bot has to be
 pushed before a client that emits `pool:{easy,normal,hard,pro}` goes out.
 
+Snooker (S6, v10) adds `snooker:{easy, normal, hard, pro, cpu, pvp, highBreak}`. Its tier wins
+and its all-time and hot-seat wins are bounded by games played; the high break is dropped over
+155 and rises only in a sync that played a game. Its XP is `POOL_SNK_WIN_XP` in `pool-game.js`
+(by reds and tier, plus a break bonus: at most 230 a frame), and *Century* and *Maximum* are
+breaks against the CPU, kept in `snookerHighBreak`.
+
 ## What stays in the host
 
 These are pool-related but live outside the sentinels, on purpose:

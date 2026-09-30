@@ -7,9 +7,11 @@
     // Editing the seed alone makes every dispatch fail silently server-side.
     // Release: 1) fresh random hex seed  2) bump BUILD_LABEL (banner text only)
     //          3) recompute token (see sync.yml), rotate BUILD_TOKEN_CURRENT/PREVIOUS
+    //          4) set BUILD_LABEL_CURRENT in github-actions-bot's sync.yml to the new label
+    //             (pool-dev/sync-verify.js fails until the two match)
     const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
     // Seed UNCHANGED on purpose: rotating it without BUILD_TOKEN_CURRENT breaks every sync.
-    const BUILD_LABEL = 'v9';
+    const BUILD_LABEL = 'v10';
 
     // Ordinal of a 'v<N>' label; null if malformed (callers then assume behind).
     function _buildOrdinal(label) {
@@ -247,6 +249,9 @@
         brickBuster:  { icon: '🧨', name: 'Brick Buster',      desc: 'Reach level 30 in Breakout' },
         poolShark:    { icon: '🎱', name: 'Pool Shark',        desc: 'Win 100 pool games against the CPU' },
         calledIt:     { icon: '📣', name: 'Called It',         desc: 'Beat the Pro pool CPU, every shot called' },
+        // Snooker (POOL_V2_PLAN.md, S6): breaks against the CPU; a 147 needs 15 reds.
+        snookerCentury: { icon: '💯', name: 'Century',         desc: 'Make a century break against the snooker CPU' },
+        snookerMaximum: { icon: '🏅', name: 'Maximum',         desc: 'Make a 147 against the snooker CPU' },
         ludoChamp:    { icon: '🎲', name: 'Ludo Champion',     desc: 'Win 100 Ludo games against the CPU' },
         ludoFlawless: { icon: '🛡️', name: 'Flawless',          desc: 'Win a Ludo game without losing a single token' },
         ludoHunter:   { icon: '🐺', name: 'Token Hunter',      desc: 'Capture 5 opponent tokens in one Ludo match' },
@@ -779,6 +784,15 @@
         put('pool:hard',   poolTiers.hard);
         put('pool:pro',    poolTiers.pro);
 
+        // Snooker, read inline as pool's tiers are: wins by mode and by CPU tier, and the best
+        // break against the CPU (the High break board), which no frame can take past 155.
+        const snkRead = k => { try { return JSON.parse(localStorage.getItem(k) || '{}') || {}; } catch (_) { return {}; } };
+        const snkModes = snkRead('snookerWinsByMode'), snkTiers = snkRead('snookerWinsByTier');
+        put('snooker:cpu', snkModes.cpu);
+        put('snooker:pvp', snkModes.pvp);
+        ['easy', 'normal', 'hard', 'pro'].forEach(t => put('snooker:' + t, snkTiers[t]));
+        put('snooker:highBreak', Math.min(155, parseInt(localStorage.getItem('snookerHighBreak') || '0', 10) || 0));
+
         // Ludo is CPU-only by construction (ludoSaveWins runs under 'if (vsCPU)'). 'ludo:cpu' is
         // the flat all-time total: old clients read it, and it is the only home for pre-split wins.
         put('ludo:cpu', localStorage.getItem('ludoGamesWon'));
@@ -820,6 +834,7 @@
             rulesetVersion: { snake: parseInt(localStorage.getItem('snakeRulesetVer') || '1', 10) || 1 },
             // Pool extended record (W/L/win-rate)
             poolRecord: JSON.parse(localStorage.getItem('poolRecord') || 'null') || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 },
+            snookerRecord: (() => { try { return JSON.parse(localStorage.getItem('snookerRecord') || 'null'); } catch (_) { return null; } })() || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 },
             // Ludo W/L vs CPU; also drives the adaptive difficulty tier, so a fresh browser restores it.
             ludoRecord: JSON.parse(localStorage.getItem('ludoRecord') || 'null') || { wins: 0, losses: 0 },
             // Reflex full blob (screen + target modes)
@@ -1091,6 +1106,14 @@
             };
             localStorage.setItem('poolRecord', JSON.stringify(merged));
         }
+        // Snooker's seat record, the same way.
+        if (rec.snookerRecord && typeof rec.snookerRecord === 'object') {
+            let localSnk = {};
+            try { localSnk = JSON.parse(localStorage.getItem('snookerRecord') || '{}') || {}; } catch (_) {}
+            const snk = {};
+            ['p1Wins', 'p1Losses', 'p2Wins', 'p2Losses'].forEach(k => { snk[k] = Math.max(parseInt(localSnk[k], 10) || 0, parseInt(rec.snookerRecord[k], 10) || 0); });
+            localStorage.setItem('snookerRecord', JSON.stringify(snk));
+        }
 
         // Ludo record (W/L vs CPU) — same only-raise merge as Pool
         if (rec.ludoRecord && typeof rec.ludoRecord === 'object') {
@@ -1184,6 +1207,22 @@
             if (v > (parseInt(poolTiers[t], 10) || 0)) { poolTiers[t] = v; poolTiersChanged = true; }
         });
         if (poolTiersChanged) localStorage.setItem('poolWinsByTier', JSON.stringify(poolTiers));
+
+        // Snooker: wins by mode and by tier, only-raise; the high break too, never past 155.
+        const snkRaise = (key, modes) => {
+            let local = {};
+            try { local = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch (_) {}
+            let changed = false;
+            modes.forEach(m => {
+                const v = parseInt(gmb['snooker:' + m], 10) || 0;
+                if (v > (parseInt(local[m], 10) || 0)) { local[m] = v; changed = true; }
+            });
+            if (changed) localStorage.setItem(key, JSON.stringify(local));
+        };
+        snkRaise('snookerWinsByMode', ['cpu', 'pvp']);
+        snkRaise('snookerWinsByTier', ['easy', 'normal', 'hard', 'pro']);
+        const snkHigh = Math.min(155, parseInt(gmb['snooker:highBreak'], 10) || 0);
+        if (snkHigh > (parseInt(localStorage.getItem('snookerHighBreak') || '0', 10) || 0)) localStorage.setItem('snookerHighBreak', String(snkHigh));
 
         // Ludo per-tier wins, only-raise. The all-time total restores separately and may exceed the
         // tier sum by however many wins predate the split.
@@ -1434,13 +1473,21 @@
         // Tournaments have no board: their brackets are farmable.
         pool:     { icon: '🎱', label: 'Pool',     unit: 'wins',
                     modes: { pro: '🎯 Pro', hard: '🔥 Hard', normal: '⚔️ Normal', easy: '🌱 Easy',
-                             cpu: '📚 All-time', pvp: '👥 Hot-seat' } },
+                             cpu: '📚 All-time', pvp: '👥 Hot-seat' },
+                    notes: { cpu: 'every CPU win — older wins predate the difficulty split' } },
+        // Snooker ranks as pool does, plus the best break against the CPU (points, not wins).
+        // Every snooker win is filed by tier from the start, so its All-time has no older wins.
+        snooker:  { icon: '🔴', label: 'Snooker',  unit: 'wins', units: { highBreak: 'pts' },
+                    modes: { pro: '🎯 Pro', hard: '🔥 Hard', normal: '⚔️ Normal', easy: '🌱 Easy',
+                             cpu: '📚 All-time', pvp: '👥 Hot-seat', highBreak: '💯 High break' },
+                    notes: { cpu: 'every CPU win, all tiers', highBreak: 'best break in one visit, against the CPU' } },
         // Ludo ranks by CPU tier, not game mode (hot-seat wins are never recorded: ludoSaveWins runs
         // only under 'if (vsCPU)'). 'cpu' is the pre-split total — real wins whose difficulty was never
         // recorded, so they rank on their own board rather than an unmeasured tier.
         ludo:     { icon: '🎲', label: 'Ludo',     unit: 'wins',
                     modes: { hard: '🔥 Hard', normal: '⚔️ Normal', easy: '🌱 Easy',
-                             cpu: '📚 All-time' } }
+                             cpu: '📚 All-time' },
+                    notes: { cpu: 'every CPU win — older wins predate the difficulty split' } }
     };
 
     // No gameModeBests (client has not run this build): fall back to the legacy scalar for each
@@ -1513,7 +1560,7 @@
             return `<tr class="${isMe ? 'lb-row-me' : ''}">
                 <td class="lb-rank">${medal}</td>
                 <td class="lb-name" title="${nameAttr}">${nameHtml}${isMe ? ' <span class="lb-you">You</span>' : ''}</td>
-                <td class="lb-score lb-board-value">${r.v.toLocaleString()} <span class="lb-board-unit">${cfg.unit}</span>${extra}</td>
+                <td class="lb-score lb-board-value">${r.v.toLocaleString()} <span class="lb-board-unit">${(cfg.units && cfg.units[mode]) || cfg.unit}</span>${extra}</td>
             </tr>`;
         }).join('');
 
@@ -1537,6 +1584,9 @@
             // Ludo splits by CPU tier; ludoCpuTier locks at match start and decides where a win is filed,
             // so the board shown is always the one being played for.
             if (game === 'ludo')   return LB_BOARDS.ludo.modes[ludoCpuTier] ? ludoCpuTier : 'normal';
+            // Snooker shares pool's panel, mode and tier lock.
+            if (game === 'snooker') return poolMode === 'pvp' ? 'pvp'
+                : poolMode === 'cpu' && LB_BOARDS.snooker.modes[poolCpuTier] ? poolCpuTier : 'cpu';
         } catch (_) {}
         return Object.keys(cfg.modes)[0];
     }
@@ -1580,10 +1630,15 @@
             '</div>' +
             gameLbTabsHtml(game, mode) +
             '<div class="game-lb-body">' + lbBoardRowsHtml(game, mode) + '</div>' +
-            // Ludo's and Pool's all-time boards hold numbers that predate the split, so they say so.
-            ((game === 'ludo' || game === 'pool') && mode === 'cpu'
-                ? '<div class="game-lb-foot">every CPU win — older wins predate the difficulty split</div>'
-                : '');
+            // A board's own note: Ludo's and Pool's all-time boards hold numbers that predate the
+            // split, and Snooker's High break counts points.
+            (cfg.notes && cfg.notes[mode] ? '<div class="game-lb-foot">' + escapeHtml(cfg.notes[mode]) + '</div>' : '');
+        // The strip scrolls sideways (Snooker has seven boards): keep the board shown in view.
+        const strip = box.querySelector && box.querySelector('.game-lb-tabs'), on = strip && strip.querySelector('.game-lb-tab.is-active');
+        if (on && strip.scrollWidth > strip.clientWidth) {
+            const s = strip.getBoundingClientRect(), t = on.getBoundingClientRect();
+            strip.scrollLeft += (t.left + t.width / 2) - (s.left + s.width / 2);
+        }
     }
 
     function toggleGameLeaderboard(game, force) {
@@ -1622,7 +1677,7 @@
             if (game === 'ludo') {
                 // The tier's own wins — the board this button opens and where the next win lands.
                 updateGameScoreBtn('ludo', null, ludoTierWins(gameLbMode('ludo')));
-            } else if (game === 'pool') {
+            } else if (game === 'pool' || game === 'snooker') {
                 // The tier being played, 2 Players, or All-time in a tournament (pool-game.js).
                 poolRefreshScoreBtn();
             }
@@ -5730,7 +5785,9 @@
             pill: { show: !toast && !over, text: pill },
             toast: toast ? { show: true, foul: toast.kind === 'foul', title: toast.title, sub: toast.sub, icon: toast.icon || '', choices: [], chooser: '' } : { show: false, choices: [] },
             lean: {
-                show: is3d && !over && !(aiming && st.callRequired) && !moving && !sheetOpen,
+                // It stays for a call: the call card sits bottom right, not top left as in the
+                // design's 4a, so a call never needs the slider's side.
+                show: is3d && !over && !moving && !sheetOpen,
                 value: lean,
                 // The pitch the camera actually looks down at, as the design labels it.
                 label: Math.round(19.5 + 28.5 * lean / 100 - Math.atan(0.34 / 1.1) * 180 / Math.PI) + '°',
@@ -7974,6 +8031,19 @@
     // 2 Players as it has always paid Player 1, a tournament match for the YOU seat only.
     const POOL_WIN_XP = { easy: 60, normal: 80, hard: 100, pro: 120 };
     const POOL_LOSS_XP = 15, POOL_PVP_WIN_XP = 80, POOL_TOUR_WIN_XP = 80;
+    // Snooker's (POOL_V2_PLAN.md, Snooker · XP): a CPU win by the tier and the reds (a longer
+    // frame pays more), a loss 20; your best break of the frame against the CPU adds a bonus,
+    // won or lost. At most 180 + 50 = 230 a frame, inside the bot's 250 a game. 2 Players and
+    // tournaments pay as pool; no pot pays.
+    const POOL_SNK_WIN_XP = {
+        15: { easy: 90, normal: 120, hard: 150, pro: 180 },
+        10: { easy: 75, normal: 100, hard: 125, pro: 150 },
+        6: { easy: 60, normal: 80, hard: 100, pro: 120 },
+    };
+    const POOL_SNK_LOSS_XP = 20;
+    const poolSnkBreakBonus = h => (h >= 147 ? 50 : h >= 100 ? 25 : h >= 50 ? 10 : 0);
+    // A break can be no bigger than a 15-red frame with a free ball (8 + 15 × 8 + 27).
+    const POOL_SNK_BREAK_CAP = 155;
     const POOL_MAX_W = 1280, POOL_MAX_H = 800;
     const POOL_DEG = Math.PI / 180;
     const POOL_RESULT_MS = 1100;             // the last pot drops before the match result covers the table
@@ -8026,6 +8096,8 @@
             // A quick frame's XP: a CPU win by the tier it was played at, 2 Players as it has
             // always paid Player 1.
             frameXP: c => (!c.won ? POOL_LOSS_XP : c.vsCPU ? POOL_WIN_XP[c.tier] || POOL_WIN_XP.normal : POOL_PVP_WIN_XP),
+            // What else the award reports (the host's achievement check reads it): nothing more.
+            xpPerf: () => ({}),
             // A quick frame's records, through the host's storage helpers. Seat 1 is you.
             fileResult: (w, vsCPU, tier) => {
                 if (!poolRecord) poolRecord = loadPoolRecord();
@@ -8056,8 +8128,8 @@
         },
         // Snooker (POOL_V2_PLAN.md, Snooker): the same table component on snooker's table
         // (pool-snooker.js), 147 rules, a colour nominated when one is on, the choice after a
-        // foul, and a frame that survives a reload. Its CPU is pool-snooker-ai.js (S4),
-        // and it pays no XP until S6; records are filed from S3.
+        // foul, and a frame that survives a reload. Its CPU is pool-snooker-ai.js (S4); its XP,
+        // records and high break are filed under its own names (S6).
         snooker: {
             id: 'snooker', title: 'Snooker', icon: '🔴', lb: 'snooker', xpType: 'snooker', diffPref: 'snookerDifficulty', diffs: PH_SNK_DIFFS,
             keys: { cpuRec: 'snookerCpuRecord', byTier: 'snookerWinsByTier', tour: 'snookerTournament', cab: 'snookerTrophyCabinet', frame: 'snookerFrame' },
@@ -8110,9 +8182,24 @@
             cpu: { tiers: PA_SN_TIERS, names: PA_SN_NAMES, plan: paSnPlan, place: paSnPlace, choose: (f, w) => paSnChoose(f, w), concede: paSnConcede, slice: 12,
                 tierFor: (pref, rec) => (PA_SN_TIERS[pref] ? pref : paAdaptiveTier(rec)), adaptive: rec => paAdaptiveTier(rec) },
             potXP: 0,
-            frameXP: null,
+            // A quick frame's XP: against the CPU by the tier and the reds, plus the break bonus
+            // for seat 1's best break; 2 Players as pool.
+            frameXP: c => {
+                if (!c.vsCPU) return c.won ? POOL_PVP_WIN_XP : POOL_LOSS_XP;
+                const byTier = POOL_SNK_WIN_XP[c.frame && c.frame.reds] || POOL_SNK_WIN_XP[15];
+                const high = c.frame && c.frame.high ? c.frame.high[1] || 0 : 0;
+                return (c.won ? byTier[c.tier] || byTier.normal : POOL_SNK_LOSS_XP) + poolSnkBreakBonus(high);
+            },
+            // The reds and your best break go with the award: Century and Maximum read them.
+            xpPerf: f => ({ reds: f ? f.reds : 15, highBreak: f && f.high ? Math.min(POOL_SNK_BREAK_CAP, f.high[1] || 0) : 0 }),
             record: () => poolStoreRead('snookerRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 }),
-            fileResult: (w, vsCPU, tier) => {
+            fileResult: (w, vsCPU, tier, f) => {
+                // Your best break against the CPU, at every frame end, lost or conceded too (the
+                // High break board). 2 Players' breaks are not kept: either seat is this account.
+                if (vsCPU && f && f.high) {
+                    const best = poolStoreNum('snookerHighBreak'), mine = Math.min(POOL_SNK_BREAK_CAP, f.high[1] || 0);
+                    if (mine > best) poolStoreWrite('snookerHighBreak', mine);
+                }
                 const rec = poolStoreRead('snookerRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 });
                 const byMode = poolStoreRead('snookerWinsByMode', { cpu: 0, pvp: 0 });
                 if (w === 1) {
@@ -8141,6 +8228,8 @@
         } catch (_) {}
         return out;
     }
+    // A whole number in localStorage (0 when missing or corrupt).
+    function poolStoreNum(key) { try { return Math.max(0, parseInt(localStorage.getItem(key) || '0', 10) || 0); } catch (_) { return 0; } }
     function poolStoreWrite(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {} }
     const poolRules = () => POOL_GAMES[poolS.game] || POOL_GAMES.pool;
     // The panel plays this game from now: its table config, and a fresh camera and cache
@@ -8316,11 +8405,11 @@
         poolClearSaved();
         // Tournament frames go to the bracket, not to the quick-match records or XP (Phase 8).
         if (poolMode === 'tour') { poolTourFrameOver(w, v); return; }
-        const vsCPU = poolMode === 'cpu', tier = poolCpuTier;
-        R.fileResult(w, vsCPU, tier);
-        if ((w === 1 || w === 2) && R.frameXP) {
+        const vsCPU = poolMode === 'cpu', tier = poolCpuTier, f = v.next || S.frame;
+        R.fileResult(w, vsCPU, tier, f);
+        if (w === 1 || w === 2) {
             const won = w === 1;
-            awardGameXP(R.xpType, { won, vsCPU, tier: vsCPU ? tier : null, xp: R.frameXP({ won, vsCPU, tier }) });
+            awardGameXP(R.xpType, Object.assign({ won, vsCPU, tier: vsCPU ? tier : null, xp: R.frameXP({ won, vsCPU, tier, frame: f }) }, R.xpPerf(f)));
         }
         if (poolMode === 'cpu') {
             const rec = poolCpuRec();
@@ -15410,6 +15499,10 @@
         let poolTierWins = {};
         try { poolTierWins = JSON.parse(localStorage.getItem('poolWinsByTier') || '{}') || {}; } catch (_) {}
         if (!has('calledIt')     && (parseInt(poolTierWins.pro, 10) || 0) >= 1) unlockAchievement('calledIt', S);
+        // Snooker's best break against the CPU is kept (snookerHighBreak), so both come back.
+        const snookerHigh = Math.min(155, parseInt(localStorage.getItem('snookerHighBreak') || '0', 10) || 0);
+        if (!has('snookerCentury') && snookerHigh >= 100) unlockAchievement('snookerCentury', S);
+        if (!has('snookerMaximum') && snookerHigh >= 147) unlockAchievement('snookerMaximum', S);
         if (!has('ludoChamp')    && ludoWon >= 100)    unlockAchievement('ludoChamp', S);
         // tetrisMaster, sharpshooter, brickBuster and lightning need session metrics (lines, accuracy,
         // level, avgTime) absent from localStorage; ludoFlawless and ludoHunter are per-match facts.
@@ -15496,6 +15589,18 @@
                     unlockAchievement('calledIt');
                 }
                 break;
+            case 'snooker':
+                // Its own case, so a Pro snooker win never reaches pool's Called It. Both are breaks
+                // against the CPU (2 Players' breaks would be this account's whichever seat made
+                // them); a break of 147 or more needs 15 reds.
+                if (!p.vsCPU) break;
+                if (!userXP.achievements.includes('snookerCentury') && (p.highBreak || 0) >= 100) {
+                    unlockAchievement('snookerCentury');
+                }
+                if (!userXP.achievements.includes('snookerMaximum') && (p.highBreak || 0) >= 147) {
+                    unlockAchievement('snookerMaximum');
+                }
+                break;
             case 'ludo':
                 // All three are CPU-only: hot-seat wins cost nothing to farm,
                 // so endLudoGame reports vsCPU and they are gated on it.
@@ -15525,6 +15630,7 @@
         snakeEndless: 80, snakeWalled: 90, snakeGourmand: 100,
         snakeCampaign: 110, snakeConqueror: 200, snakeLong: 90,
         sharpshooter: 100, lightning: 120, brickBuster: 100, poolShark: 150, calledIt: 120,
+        snookerCentury: 150, snookerMaximum: 300,
         ludoChamp: 150, ludoFlawless: 120, ludoHunter: 80,
         curator: 40, picturePerfect: 40, meditative: 200, teamPlayer: 60
     };
@@ -15889,6 +15995,22 @@
                     message = performance.won ? `🎱 +${xpGained} XP (Pool: beat the ${poolTier || ''} CPU! 🏆)` : `🎱 +${xpGained} XP (Pool: good game vs the ${poolTier || ''} CPU)`;
                 } else {
                     message = performance.won ? `🎱 +${xpGained} XP (Pool: Player 1 wins 🏆)` : `🎱 +${xpGained} XP (Pool: good game)`;
+                }
+                break;
+            }
+
+            case 'snooker': {
+                // Computed in pool-game.js (the tier, the reds, the break bonus; 2 Players and tournaments
+                // as pool), where the headless XP tests pin it; re-clamped here as pool's is.
+                xpGained = Math.max(0, Math.min(AC_MAX_XP_PER_GAME, Math.round(performance.xp || 0)));
+                const snkTier = { easy: 'Easy', normal: 'Normal', hard: 'Hard', pro: 'Pro' }[performance.tier];
+                const snkBreak = performance.vsCPU && (performance.highBreak || 0) >= 50 ? `, a ${performance.highBreak} break` : '';
+                if (performance.tour) {
+                    message = performance.won ? `🔴 +${xpGained} XP (Snooker: ${performance.round} won! 🏆)` : `🔴 +${xpGained} XP (Snooker: ${performance.round}, good game)`;
+                } else if (performance.vsCPU) {
+                    message = performance.won ? `🔴 +${xpGained} XP (Snooker: beat the ${snkTier || ''} CPU${snkBreak}! 🏆)` : `🔴 +${xpGained} XP (Snooker: good frame vs the ${snkTier || ''} CPU${snkBreak})`;
+                } else {
+                    message = performance.won ? `🔴 +${xpGained} XP (Snooker: Player 1 wins 🏆)` : `🔴 +${xpGained} XP (Snooker: good game)`;
                 }
                 break;
             }

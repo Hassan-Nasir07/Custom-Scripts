@@ -603,6 +603,38 @@ async function main() {
            !!stp && stp.kicker === 'SNOOKER · HUMANS ONLY' && /BEST OF/.test(stp.races) && stp.opts === '1,3,5,7,9' && stp.segs.includes('Shot clock:30s/45s/60s/Off') &&
            stp.segs.includes('Reds:15/10/6') && stp.segs.includes('Call pocket:Off/Colours/All balls'), stp);
         await click('#pool-root [data-pu-act=close]'); await sleep(200);
+        // Snooker's progression through the real host (S6): a Pro win with a 104 break pays its XP
+        // and Century, files the win and the break, and the Snooker board opens on Pro.
+        const snk = await ev(`(() => { const P = window.__probe, S = P.S, xp0 = P.xp.totalXP, s0 = P.xp.gameSessions || 0, called0 = P.xp.achievements.includes('calledIt');
+            P.prefs.snookerDifficulty = 'pro'; P.poolNewFrame(1);
+            P.poolEndFrame({ winner: 1, next: Object.assign({}, S.frame, { high: { 1: 104, 2: 0 } }) });
+            P.toggleGameLeaderboard('snooker', true);
+            const box = document.getElementById('game-lb-overlay');
+            const tabs = [...box.querySelectorAll('.game-lb-tab')].map(b => b.textContent.replace('•', '').trim());
+            const active = (box.querySelector('.game-lb-tab.is-active') || {}).textContent || '';
+            const head = (box.querySelector('.game-lb-head') || {}).textContent || '';
+            window.setGameLeaderboardMode('highBreak');
+            const foot = (box.querySelector('.game-lb-foot') || {}).textContent || '';
+            const g = P.collectGameModeBests(), byTier = JSON.parse(localStorage.getItem('snookerWinsByTier') || '{}');
+            const res = { tier: P.tier, gained: P.xp.totalXP - xp0, sessions: (P.xp.gameSessions || 0) - s0, century: P.xp.achievements.includes('snookerCentury'),
+                calledIt: P.xp.achievements.includes('calledIt') !== called0, wins: document.getElementById('snooker-wins').textContent, pro: byTier.pro || 0,
+                tabs, active, head, foot, shown: box.style.display, high: localStorage.getItem('snookerHighBreak'), sync: g['snooker:pro'], syncHigh: g['snooker:highBreak'] };
+            P.toggleGameLeaderboard('snooker', false); P.prefs.snookerDifficulty = 'adaptive'; P.poolNewFrame(1);
+            return res; })()`);
+        ok('a Pro snooker win with a 104 break pays 180 + 25 (and Century\'s 150), one session, and never Called It',
+           snk.tier === 'pro' && snk.gained >= 205 && snk.sessions === 1 && snk.century && !snk.calledIt, snk);
+        ok('…the win and the break are filed: the wins button shows Pro\'s wins, the sync snapshot carries them and the 104',
+           snk.pro >= 1 && snk.wins === String(snk.pro) && snk.sync === snk.pro && snk.high === '104' && snk.syncHigh === 104, snk);
+        ok('the Snooker board: the four tiers, All-time, Hot-seat and High break, opening on the tier being played',
+           snk.shown === 'flex' && /Snooker/.test(snk.head) && snk.tabs.join() === '🎯 Pro,🔥 Hard,⚔️ Normal,🌱 Easy,📚 All-time,👥 Hot-seat,💯 High break' && /Pro/.test(snk.active) && /best break/.test(snk.foot), snk);
+        await click('#snooker-lb-btn'); await sleep(250);
+        await ev(`window.setGameLeaderboardMode('highBreak')`); await sleep(100);
+        await shot('host-snooker-board', '.snake-game-container');
+        const tabFit = await ev(`(() => { const box = document.getElementById('game-lb-overlay'), r = box.getBoundingClientRect();
+            const b = box.querySelector('.game-lb-tab.is-active'), q = b && b.getBoundingClientRect();
+            return !!q && q.width > 0 && q.left >= r.left - 0.5 && q.right <= r.right + 0.5 && /High break/.test(b.textContent); })()`);
+        ok('…opened by its wins button; the strip scrolls, and the board shown (High break, the last) is in view', tabFit && (await ev(`document.getElementById('game-lb-overlay').style.display`)) === 'flex');
+        await ev(`window.closeGameLeaderboard()`); await sleep(100);
         // Back to pool: its frame as it was left.
         await ev('window.__probe.toggleSettingsModal()'); await sleep(300);
         await ev(`(() => { const s = document.querySelector('select[data-pref="poolVariant"]'); s.value = 'pool'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);

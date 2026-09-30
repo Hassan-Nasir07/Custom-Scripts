@@ -134,7 +134,8 @@ function updateGameScoreBtn(game, cur, best) { const el = document.getElementByI
 function awardGameXP(type, perf) {
     const log = document.getElementById('xplog');
     if (log) log.textContent = (log.textContent === 'No frames finished yet.' ? '' : log.textContent + '\n') +
-        new Date().toLocaleTimeString() + '  ' + (perf.won ? 'won' : 'lost') + ': +' + (perf.xp || 0) + ' XP' + (perf.tier ? ' (' + perf.tier + ')' : '');
+        new Date().toLocaleTimeString() + '  ' + type + ' ' + (perf.won ? 'won' : 'lost') + ': +' + (perf.xp || 0) + ' XP' + (perf.tier ? ' (' + perf.tier + ')' : '') +
+        (perf.highBreak ? ', best break ' + perf.highBreak : '');
 }
 function loadPoolHighScore() {
     const saved = localStorage.getItem('poolGamesWon');

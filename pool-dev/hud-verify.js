@@ -108,7 +108,7 @@ const vm = o => P.phModel(game(o));
     const c3 = vm({ down: SOLIDS.concat([10, 13]) });
     ok('on the 8: the pill says the state, "On the 8", and nothing about calling', c3.pill.text === 'On the 8');
     ok('3D: one call card, bottom right, "Tap a pocket"; the hint steps aside for it', c3.mini.show && c3.mini.caption === 'Tap a pocket' && c3.mini.tone === 'call' && !c3.hint.show && c3.mini.called === -1);
-    ok('on the 8, uncalled: the gauge locks, lean hides', c3.gauge.locked && !c3.lean.show);
+    ok('on the 8, uncalled: the gauge locks, the lean stays', c3.gauge.locked && c3.lean.show);
     const c3c = vm({ down: SOLIDS, called: 2 });
     ok('called: the card says "Drag to shoot" (the lit pocket names the call), gauge unlocked', c3c.mini.caption === 'Drag to shoot' && c3c.mini.tone === '' && !c3c.gauge.locked && c3c.mini.called === 2);
     const c3d = vm({ down: SOLIDS, called: 2, dragging: true, power: 90 });
@@ -215,6 +215,11 @@ head("Snooker's in-match states");
     m = snkGame({ frame: { call: 'all' } });
     ok('called on a red (all): no chips, pool\'s call card in 3D, the padlock', !m.chips.show && m.mini.show && m.mini.caption === 'Tap a pocket' && m.gauge.locked);
     ok('…in 2D, the hint asks for it', snkGame({ frame: { call: 'all' }, camera: '2d' }).hint.text === 'Tap a pocket to call it');
+    // The user's test: the lean slider went missing whenever a call was due (Hard, Pro, a
+    // tournament calling pockets). It stays, before the call and after.
+    ok('with a call due the lean stays: on a red (all), on a colour (colours), and once called',
+       m.lean.show && snkGame({ frame: { phase: 'colour', call: 'colours' }, nom: 6 }).lean.show &&
+       snkGame({ frame: { call: 'all' }, called: 2 }).lean.show && snkGame({ frame: { call: 'all' }, layout: 'max' }).lean.show);
     m = snkGame({ frame: { phase: 'colour' }, nom: 6, dragging: true, power: 90 });
     ok('⚙️ Max View: bars only in Max, and only when picked', vm({ layout: 'max', maxBars: true }).maxBars && !vm({ layout: 'max' }).maxBars && !vm({ maxBars: true }).maxBars);
     ok('nominated, the chips fold to the pink, and say how to change it', m.chips.folded && m.chips.label === 'Nominated: the pink. Press it to change');

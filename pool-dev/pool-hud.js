@@ -228,7 +228,9 @@
             pill: { show: !toast && !over, text: pill },
             toast: toast ? { show: true, foul: toast.kind === 'foul', title: toast.title, sub: toast.sub, icon: toast.icon || '', choices: [], chooser: '' } : { show: false, choices: [] },
             lean: {
-                show: is3d && !over && !(aiming && st.callRequired) && !moving && !sheetOpen,
+                // It stays for a call: the call card sits bottom right, not top left as in the
+                // design's 4a, so a call never needs the slider's side.
+                show: is3d && !over && !moving && !sheetOpen,
                 value: lean,
                 // The pitch the camera actually looks down at, as the design labels it.
                 label: Math.round(19.5 + 28.5 * lean / 100 - Math.atan(0.34 / 1.1) * 180 / Math.PI) + '°',

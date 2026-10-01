@@ -2209,6 +2209,22 @@ with `reinsert --check` passing. Run everything on Node 22
       (implementer's call 11); an always-available *Concede frame* in the Game mode sheet is
       offered as a follow-up, not built.
 
+#### After release: the portal's first day (2026-10-01)
+- [x] **The CPU conceded without trying.** It gave frames away at 2 snookers (hard and pro, in the
+      clearance) without trying for them. Now every tier but easy concedes only past 3 snookers
+      (`PA_SN_CONCEDE_PAST`), and short of that it plays for them: needing any, a pot's points
+      count a quarter, a snooker laid counts 5 (it was 1.5), safeties are always searched, and a
+      fair safety is played whenever there is one (a pot cannot win the frame then: it takes as
+      much off the table as it scores). `snooker-verify` +3: 2 and 3 snookers play on at every
+      tier, 4 concede, and on the pink and black 25 behind hard and pro play a safety where, level,
+      they pot.
+- [x] **The selection rings hid what they marked.** Snooker's nominated-ball ring is now the
+      accent at 60% and 1.5 px (it was solid, 2 px, on a 45% black underlay); its pocket rings
+      are the called one at 75% with a 10% fill (was solid, 22%) and the others dashed at 45%
+      (was 90%). Pool's are unchanged, and its draw fingerprint still holds.
+- [ ] **Cue designs, unlockable like the snake skins.** The design prompt is
+      [Appendix C](#appendix-c-design-prompt-for-cues); the build waits for the artboards.
+
 ### Verification
 
 ```
@@ -2381,6 +2397,8 @@ pool-dev/pool-table.html?game=snooker`, then the real portal once v10 is install
 | 2026-09-30 | **⚙️ Aim Guide shortens only the object ball's line** (150 / 100 / 60) | The user's call: the line to the ghost ball is how you aim, the purple one is the help |
 | 2026-09-30 | **The lean slider stays when a pocket is to be called**, in both games | The user's S5 test: it went missing on every call. The design hid it because its call map sat on the slider's side; ours sits bottom right |
 | 2026-09-30 | **Snooker's all-time and hot-seat wins are bounded by games played; pool's are not** | Snooker's keys start with v10, so there are no older wins to explain a jump; pool's all-time count predates the split |
+| 2026-10-01 | **The snooker CPU concedes only past 3 snookers, and plays for them until then** | The user's report from the portal: it gave frames away at 2 without trying |
+| 2026-10-01 | **Snooker's selection rings are see-through; pool's are unchanged** | The user's report: the rings hid the ball and the pocket. Pool's pockets are larger and nobody asked; its fingerprint guards it |
 | 2026-09-30 | **Pro's aim 0.0425°; hard stays at 0.09° without centuries** | Pro at 0.04° ran its mean break over 40, at 0.045° its centuries under 15; 0.0425° meets both. Hard cannot make centuries by aim alone without its mean break leaving 10–20; that needs break-building, left out of this branch |
 | 2026-09-30 | **A CPU slice stops before a trial it cannot finish in its budget** | Slices of 12 ms ran to 20–31 ms finishing a long trial; the recent trial cost predicts the next |
 | 2026-09-30 | **Snooker's tracker is read out after each shot, by a polite live region** | The row is a picture to a screen reader otherwise; reading it mid-shot would talk over every pot |
@@ -2450,3 +2468,41 @@ Rules: no emoji; real buttons and inputs; touch targets of at least 44px (chips 
 
 The full text as pasted is in the session that wrote it; this is its substance, kept with
 the design it produced.
+
+---
+
+## Appendix C: design prompt for cues
+
+Written 2026-10-01 for the same Claude Design canvas, after the user asked for unlockable cue
+designs like the snake skins. The bands match the renderer's cue in `pool-render.js` (`pgRender`,
+the cue's `part(u0, u1, colour)` calls); the unlocks are achievements that already exist.
+
+```text
+Add a CUE COLLECTION to this canvas: cue designs the player unlocks and picks, the way the widget's snake game unlocks snake skins. Match the existing Main, Max, Table and Snooker artboards exactly (palette, type, radii, stroke icons; compact 400×640 with the 368×412 table viewport; full view 1280×800). Reuse the Table and InMatch components, in pool and in snooker, rather than one-offs.
+
+HOW A CUE IS DRAWN (so every design can be built exactly as you draw it): the cue is painted on the canvas, not placed as an image. It is a straight, tapered stick 600 units long, 3.3 units wide at the tip and 8 at the butt, seen from behind the cue ball in 3D and from above in 2D; in the compact 3D view it is only about 4–20 px wide, so it must read at that size. A design is a sequence of flat colour bands along its length, measured from the tip: tip 0–3, ferrule 3–16, shaft 16–330, joint 330–338, forearm 338–470, butt 470–600. You may split any band into more bands, give a band a two-colour gradient along the length, add a simple repeating inlay on the forearm or butt (points, diamonds, rings or a stripe, in one colour), and edge it with a thin dark line. No photos, wood-grain textures, glows or drop shadows: they cannot be drawn at this size. Cues are physical objects, like the balls and the felt: the same colours in every theme (Glassmorphic dark and light, Cyberpunk).
+
+The cue that ships today is STANDARD: tip #3E73B8, ferrule #F2ECDF, shaft #DDB77F, joint #C9A15A, forearm #1B1C1D, butt #3B1F14. Keep it as the first cue.
+
+THE COLLECTION: nine cues. Standard is always unlocked; the other eight are each earned by one achievement the widget already has (the achievements are fixed; the names and looks are yours, two words at most per name). Order them from easiest to hardest, and let the looks rise in richness with the difficulty:
+1. Standard: always unlocked.
+2. Team Player: join the leaderboard.
+3. Office Gamer: earn XP in 50 game sessions.
+4. On Fire: a 7-day work streak.
+5. Level 25.
+6. Pool Shark: win 100 pool games against the CPU.
+7. Called It: beat the Pro pool CPU.
+8. Century: make a century break against the snooker CPU.
+9. Maximum: make a 147 against the snooker CPU. This is the legendary cue, and the only one that may move: one slow sheen travelling along its forearm or butt (describe the cycle length).
+One cue is chosen for the account and used for every human shot, in pool and in snooker, in every mode; the CPU always plays with Standard, so its turn reads at a glance. Locked cues stay visible: a locked cue is a goal, a hidden one is just missing.
+
+ROW C1, the picker (compact 400×640, over the pool table): 1 the cue picker open, with every cue on a card: the full cue drawn horizontally, its name, and Equipped, Unlocked, or for a locked cue a padlock and the achievement that earns it (its stroke icon, its name and one line: "Pool Shark · win 100 games against the CPU"); you decide where the picker opens from, but the compact footer's three tiles (mode, Reset, Max) stay as they are · 2 a cue being equipped, and the picker in the narrow 316 px widget column · 3 the moment an achievement unlocks a cue: a restrained notice ("New cue · <name>") with a way to equip it.
+
+ROW C2, on the table (compact): 4 pool 3D aiming with a premium cue behind the cue ball · 5 snooker 3D aiming with the same cue (snooker's smaller balls) · 6 2D top-down with the cue · 7 the cue drawn back at 90% power.
+
+ROW C3 (1280×800): 8 Max with the picker open · 9 Max in-match with the Maximum cue.
+
+ROW C4, the spec: 10 one artboard with all nine cues drawn large and horizontal, one under another, each band labelled with its start and end (in units from the tip) and its hex, each inlay with its spacing, and the Maximum cue's sheen with its colours and cycle, so the set can be built exactly as drawn.
+
+Rules: no emoji; stroke icons; real buttons; touch targets of at least 44px; text contrast of at least 4.5:1; the cue never covers the cue ball or the aim line, and the table stays the hero; artboards titled "C1 Cue picker" and so on, under the row titles "Cues · picker", "Cues · on the table", "Cues · full view", "Cues · spec".
+```

@@ -217,6 +217,12 @@
         }
 
         const snookered = psSnookered(world.balls, R, onIds, 'full');
+        // Snookers it needs (the user's report, 2026-10-01: it gave frames away without trying).
+        // Needing any, it plays for them: a pot's points count for little (they do not close the
+        // gap that snookers have to), a snooker laid counts for a lot, and safeties are always
+        // looked at.
+        const needSnk = psSnookersRequired(f0, world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed').map(b => b.id), seat);
+        const ptsW = needSnk > 0 ? 0.25 : 1, snkBonus = needSnk > 0 ? 5 : 1.5;
         const cands = snookered ? [] : paSnCandidates(world, f0, cue.x, cue.y, Math.max(aimSig, 0.02 * PA_DEG)).slice(0, T.top);
         const pen = id => Math.min(7, Math.max(4, psValue(id)));
         const good = [], variants = [], scored = [], robustQ = [], safeties = [], safeScored = [], safeQ = [], sweep = [], escapes = [];
@@ -229,14 +235,14 @@
             const v = r.v;
             if (v.frameOver) return v.winner === seat ? 1000 : -1000;
             if (v.foul || !v.continues) return null;
-            return v.points + T.gamma * paSnLeave(r.w, v.next, T.pos2);
+            return ptsW * v.points + T.gamma * paSnLeave(r.w, v.next, T.pos2);
         };
         const safeEV = r => {
             const v = r.v;
             if (v.frameOver) return v.winner === seat ? 1000 : -1000;
             if (v.foul) return -(v.penalty + 3) - paSnLeave(r.w, v.next);
-            if (v.continues) return v.points + T.gamma * paSnLeave(r.w, v.next);
-            return -paSnLeave(r.w, v.next) + (paSnSnookered(r.w, v.next) ? 1.5 : 0);
+            if (v.continues) return ptsW * v.points + T.gamma * paSnLeave(r.w, v.next);
+            return -paSnLeave(r.w, v.next) + (paSnSnookered(r.w, v.next) ? snkBonus : 0);
         };
         // Safeties: the three nearest balls on, full, half and thin either side, four paces;
         // then one-rail kicks at them when the direct way is blocked.
@@ -332,7 +338,7 @@
                         e.ev = p * e.ev0 - (1 - p) * T.miss * M - f * (pen(e.c.ball) + 3);
                         if (!bestPot || e.ev > bestPot.ev) bestPot = e;
                     });
-                    stage = !bestPot || bestPot.c.p < T.safeBelow ? 'S0' : 'done';
+                    stage = !bestPot || bestPot.c.p < T.safeBelow || needSnk > 0 ? 'S0' : 'done';
                 } else if (stage === 'S0') {
                     makeSafeties();
                     stage = 'S';
@@ -390,7 +396,9 @@
                 } else {
                     // Snookered with nothing legal found: the sweep before a roll.
                     if (!bestPot && !bestSafe && !swept) { swept = true; stage = 'K'; continue; }
-                    if (bestPot && (!bestSafe || bestPot.ev + attack >= bestSafe.ev)) finish(bestPot.shot, 'pot', bestPot.c.kind, bestPot.ev);
+                    // Needing snookers, a pot cannot win the frame (it shrinks what is left as much as
+                    // it scores), so a fair safety is played whenever there is one.
+                    if (bestPot && (!bestSafe || (needSnk === 0 && bestPot.ev + attack >= bestSafe.ev))) finish(bestPot.shot, 'pot', bestPot.c.kind, bestPot.ev);
                     else if (bestSafe) finish(bestSafe.shot, 'safety', 'safety', bestSafe.ev);
                     else if (bestEscape) finish(bestEscape.shot, 'escape', 'safety', bestEscape.ev);
                     else if (good.length) finish(good[0].shot, 'pot', good[0].c.kind, good[0].ev);
@@ -443,12 +451,11 @@
     }
 
     // Does the CPU give the frame away (POOL_V2_PLAN.md, Snooker, implementer's calls)? Easy
-    // never; normal in the clearance needing more than 2 snookers; hard and pro in the
-    // clearance needing more than 1, or more than 2 with 3 reds or fewer left.
+    // never; the others only once it needs more than 3 snookers. Up to 3 it plays for them
+    // (paSnPlan): the user's report, 2026-10-01, was that it gave frames away at 2 without trying.
+    const PA_SN_CONCEDE_PAST = 3;
     function paSnConcede(frame, world, tier) {
         if (tier === 'easy' || frame.over || frame.isBreak) return false;
         const live = world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed').map(b => b.id);
-        const need = psSnookersRequired(frame, live, frame.turn), reds = live.filter(psIsRed).length;
-        if (tier === 'normal') return frame.phase === 'clearance' && need > 2;
-        return (frame.phase === 'clearance' && need > 1) || (reds <= 3 && need > 2);
+        return psSnookersRequired(frame, live, frame.turn) > PA_SN_CONCEDE_PAST;
     }

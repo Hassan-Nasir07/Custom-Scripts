@@ -600,7 +600,7 @@ head('Snooker CPU (S4, pool-snooker-ai.js)');
     w = table([200, 0], [[7, 260, 0], [6, 250, 20], [5, 250, -20], [2, P.PS_SPOTS[2][0], P.PS_SPOTS[2][1]], [3, P.PS_SPOTS[3][0], P.PS_SPOTS[3][1]], [4, P.PS_SPOTS[4][0], P.PS_SPOTS[4][1]], [8, 330, 0]]);
     ok('…snookered on the red, with the free ball offered: it takes it', P.paSnChoose(frame({ turn: 2, pending: { offender: 1, chooser: 2, options: ['play', 'back', 'free'], penalty: 4 } }), w) === 'free');
     ok('…snookered with no free ball: it puts the offender back in', P.paSnChoose(frame({ turn: 2, pending: { offender: 1, chooser: 2, options: ['play', 'back'], penalty: 4 } }), w) === 'back');
-    // Conceding: easy never; normal in the clearance past 2 snookers; hard and pro past 1, or past 2 with 3 reds or fewer.
+    // Conceding: easy never; the others past 3 snookers, never sooner (the user's report, 2026-10-01).
     const late = (sc, o, balls) => [frame(Object.assign({ turn: 2, scores: { 1: sc[0], 2: sc[1] } }, o)), table([-100, 0], balls)];
     const pinkBlack = [[6, 250, 0], [7, 409, 0]];
     const needs = (sc, o, balls) => { const [fr, ww] = late(sc, o, balls); return P.psSnookersRequired(fr, ww.balls.filter(b => b.id).map(b => b.id), 2); };
@@ -608,9 +608,22 @@ head('Snooker CPU (S4, pool-snooker-ai.js)');
     const cl = { phase: 'clearance', next: 6 };
     ok('conceding: needs ' + needs([40, 0], cl, pinkBlack) + ' snookers on the pink and black: easy plays on, normal and hard give it away',
        !con('easy', [40, 0], cl, pinkBlack) && con('normal', [40, 0], cl, pinkBlack) && con('hard', [40, 0], cl, pinkBlack) && con('pro', [40, 0], cl, pinkBlack));
-    ok('…needing 2: normal plays on, hard concedes; needing 1, all play on', !con('normal', [25, 0], cl, pinkBlack) && con('hard', [25, 0], cl, pinkBlack) && !con('hard', [18, 0], cl, pinkBlack), [needs([25, 0], cl, pinkBlack), needs([18, 0], cl, pinkBlack)].join());
+    ok('…needing 2 or 3, every tier plays on for them; needing 1, too', ['normal', 'hard', 'pro'].every(t => !con(t, [25, 0], cl, pinkBlack) && !con(t, [30, 0], cl, pinkBlack) && !con(t, [18, 0], cl, pinkBlack)),
+       [needs([25, 0], cl, pinkBlack), needs([30, 0], cl, pinkBlack), needs([18, 0], cl, pinkBlack)].join());
+    ok('…needing 4, normal, hard and pro give it away', needs([34, 0], cl, pinkBlack) === 4 && ['normal', 'hard', 'pro'].every(t => con(t, [34, 0], cl, pinkBlack)), needs([34, 0], cl, pinkBlack));
     ok('…with three reds left and far behind, hard concedes; with plenty of reds, never', con('hard', [70, 0], {}, onSpots(P.PS_COLOURS).concat(REDS3)) && !con('hard', [20, 0], {}, onSpots(P.PS_COLOURS).concat(REDS3)),
        needs([70, 0], {}, onSpots(P.PS_COLOURS).concat(REDS3)));
+    // Needing snookers, it plays for them: on the pink and black 25 behind (2 snookers) with the pink
+    // on, hard and pro play a safety, not the pot they take when the scores are level.
+    {
+        const plan = (lead, tier) => {
+            const job = P.paSnPlan(table([180, 30], pinkBlack), frame({ turn: 2, phase: 'clearance', next: 6, scores: { 1: lead, 2: 0 } }), { tier, noise: false, timeCap: false });
+            while (!job.step()) {}
+            return job.plan;
+        };
+        ok('needing 2 snookers, hard and pro play a safety; level, they pot the same pink', plan(25, 'hard') === 'safety' && plan(25, 'pro') === 'safety' && plan(0, 'hard') === 'pot' && plan(0, 'pro') === 'pot',
+           [plan(25, 'hard'), plan(25, 'pro'), plan(0, 'hard'), plan(0, 'pro')].join());
+    }
     // Placement in the D: a free spot there.
     w = table([-100, 0], onSpots(P.PS_COLOURS).concat(REDS3)); P.prPlaceCue(w, 0, 200); w.balls[0].state = 'pocketed';
     const at = P.paSnPlace(w, frame({ ballInHand: 'D' }), P.ppRandom(1));

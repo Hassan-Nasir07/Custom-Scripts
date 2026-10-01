@@ -770,26 +770,31 @@
             part(0, 3, '#3E73B8');
         }
         if (scene.ring) {
-            // Snooker's nominated ball: an accent ring round it, r + max(3 px, 0.4 r) (the design).
+            // Snooker's nominated ball: an accent ring round it, r + max(3 px, 0.4 r) (the design),
+            // see-through so the ball and what is near it still read (the user's report, 2026-10-01).
             const b = w.balls.find(o => o.id === scene.ring && o.state !== 'pocketed');
             const s = b && pcProject(view, [b.x, b.y, R]);
             if (s && s[3] > PC_NEAR + R) {
                 const rad = R * s[2], rr = rad + Math.max(3, rad * 0.4);
                 ctx.beginPath(); ctx.arc(s[0], s[1], rr, 0, Math.PI * 2);
-                ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)'; ctx.lineWidth = 3.5; ctx.stroke();
-                ctx.strokeStyle = theme.accent; ctx.lineWidth = 2; ctx.stroke();
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)'; ctx.lineWidth = 3; ctx.stroke();
+                ctx.strokeStyle = pgRgba(theme.accent, 0.6); ctx.lineWidth = 1.5; ctx.stroke();
             }
         }
+        // The pocket rings: the called one lit, the rest dashed. Snooker's are see-through, so its
+        // small pockets and a ball in their jaws still read under them (the user's report,
+        // 2026-10-01); pool's stay as they were.
         if (scene.call) {
+            const lite = theme.game === 'snooker';
             table.pockets.forEach((p, i) => {
                 const ring = pcPoly(view, pgCirc(p.x, p.y, p.r + 12 * K, pgRailZ(cfg) + 0.5, 32));
                 if (ring.length < 3) return;
                 ctx.beginPath(); pgTrace(ctx, ring);
                 if (i === scene.call.called) {
-                    ctx.fillStyle = pgRgba(theme.accent, 0.22); ctx.fill();
-                    ctx.strokeStyle = theme.accent; ctx.lineWidth = 3; ctx.stroke();
+                    ctx.fillStyle = pgRgba(theme.accent, lite ? 0.1 : 0.22); ctx.fill();
+                    ctx.strokeStyle = lite ? pgRgba(theme.accent, 0.75) : theme.accent; ctx.lineWidth = lite ? 2.25 : 3; ctx.stroke();
                 } else {
-                    ctx.setLineDash([4, 3]); ctx.strokeStyle = pgRgba(theme.accent, 0.9); ctx.lineWidth = 1.75; ctx.stroke(); ctx.setLineDash([]);
+                    ctx.setLineDash([4, 3]); ctx.strokeStyle = pgRgba(theme.accent, lite ? 0.45 : 0.9); ctx.lineWidth = lite ? 1.5 : 1.75; ctx.stroke(); ctx.setLineDash([]);
                 }
             });
         }

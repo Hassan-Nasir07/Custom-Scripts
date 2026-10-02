@@ -293,7 +293,7 @@
         emojiSet: 'fun', // 'fun', 'none'
         displayTheme: 'glassmorphic', // 'glassmorphic' or 'retro-futuristic'
         gameModeHidden: true, // true = Game Mode ON (panels visible); false = Game Mode OFF (panels hidden, widget shrinks)
-        shiftDuration: '8h', // '4h' = short leave, '8h' = standard, '9h' = overtime
+        shiftDuration: '8h', // '4h' = short leave, '8h' = standard, '9h' = overtime, up to '15h' (SHIFT_DURATIONS)
         poolTableColor: 'green', // 'green', 'red', 'blue', 'lightgrey'
         poolCamera: '3d',        // pool's aim camera: '3d' (behind the cue ball) or '2d' (top-down)
         poolLean: 35,            // 0–100: the 3D camera's lean, low and close to high and far
@@ -357,10 +357,17 @@
         return `${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}`;
     }
 
-    // Returns the selected shift duration in seconds
+    // ⚙️ Shift Duration: the select's options and the length each one means, in one list.
+    const SHIFT_DURATIONS = [
+        ['4h', 'Short Leave'], ['8h', 'Standard'], ['9h', 'Overtime'],
+        ['10h', 'Corporate Servant'], ['11h', 'Wage Slave'], ['12h', 'Corporate Slave'],
+        ['13h', 'Disposable Asset'], ['14h', 'Human Resource'], ['15h', 'Company Property'],
+    ];
+
+    // Returns the selected shift duration in seconds (8h for anything not on the list)
     function getShiftSeconds() {
-        const map = { '4h': 14400, '8h': 28800, '9h': 32400 };
-        return map[userPreferences.shiftDuration] || 28800;
+        const d = SHIFT_DURATIONS.find(s => s[0] === userPreferences.shiftDuration);
+        return (d ? parseInt(d[0], 10) : 8) * 3600;
     }
 
     // Fixed game-logic timestep: 60 updates/sec regardless of monitor refresh rate
@@ -24917,7 +24924,7 @@
                     <span style="background:rgba(253,203,110,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🎨 Snake Skins</span>
                     <span style="background:rgba(118,75,162,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🖼️ PiP Mode</span>
                     <span style="background:rgba(0,229,255,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🌗 Light / Dark / Cyberpunk</span>
-                    <span style="background:rgba(162,155,254,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">⏱️ 4h / 8h / 9h Shifts</span>
+                    <span style="background:rgba(162,155,254,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">⏱️ 4h – 15h Shifts</span>
                     <span style="background:rgba(255,165,2,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">💬 Quotes</span>
                 </div>
                 <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0;"></div>
@@ -25020,9 +25027,7 @@
                 <div class="settings-option">
                     <span class="settings-option-label"><span class="rt-emo">⏱️</span> Shift Duration</span>
                     <select class="settings-select" data-pref="shiftDuration">
-                        <option value="4h" ${userPreferences.shiftDuration === '4h' ? 'selected' : ''}>4h — Short Leave</option>
-                        <option value="8h" ${userPreferences.shiftDuration === '8h' ? 'selected' : ''}>8h — Standard</option>
-                        <option value="9h" ${userPreferences.shiftDuration === '9h' ? 'selected' : ''}>9h — Overtime</option>
+                        ${SHIFT_DURATIONS.map(([v, name]) => `<option value="${v}" ${userPreferences.shiftDuration === v ? 'selected' : ''}>${v} — ${name}</option>`).join('')}
                     </select>
                 </div>
                 <div class="settings-option">

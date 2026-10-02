@@ -304,11 +304,19 @@
         // the CPU but never climbs to pro, which makes you call every shot too. Locked per frame.
         poolDifficulty: 'adaptive',
         // The cue game the pool panel plays: 'pool' (8-ball) or 'snooker' (POOL_V2_PLAN.md,
-        // Snooker). Snooker's reds (15, 10 or 6) apply from a fresh rack; its CPU is picked
-        // like pool's, adaptive by default.
+        // Snooker), set by the switch in the panel's header. Snooker's reds (15, 10 or 6) apply
+        // from a fresh rack; its CPU is picked like pool's, adaptive by default.
         poolVariant: 'pool',
-        poolGuideLen: 'long',    // ⚙️ Aim Guide: the object ball's line, 'short' | 'medium' | 'long'
+        // ⚙️ Aim Guide: the object ball's line, 'short' | 'medium' | 'long', or 'none' (the aim
+        // line and the ghost ball only)
+        poolGuideLen: 'long',
         poolMaxLayout: 'full',   // ⚙️ Max View: 'full' (the table, overlays on it) or 'bars' (the table between bars)
+        // ⚙️ Shot Clock for quick frames, in seconds; 0 is off. A tournament sets its own.
+        poolClock: 30,           // 30 | 45 | 0
+        snookerClock: 45,        // 30 | 45 | 60 | 0
+        // 2 Players' names, from the Game mode sheet ('' plays as Player 1 / Player 2).
+        poolP1Name: '',
+        poolP2Name: '',
         snookerReds: 15,
         snookerDifficulty: 'adaptive',
         gameFps: 60, // 30 or 60 — half or full vsync
@@ -5403,7 +5411,8 @@
     //   dpr,                                         backing-store scale of ctx
     //   aim: { angle, power, gap } | null,           null hides the cue and the guides
     //   guide: pgGuide(…) | null, guideMode: 'full' | 'short' | 'off', illegal,
-    //   guideLen: the object ball's line in full mode (150 unless ⚙️ Aim Guide shortens it),
+    //   guideLen: the object ball's line in full mode (150 unless ⚙️ Aim Guide shortens it;
+    //             0 draws neither path, only the aim line and the ghost ball),
     //   bih: { x, y, valid, reason } | null, zone: 'kitchen' | 'D' | null (kitchen: the old name),
     //   call: { called } | null, ring: the nominated ball's id (snooker) | null,
     //   drops: [{ ball, pocket, t }],
@@ -5473,16 +5482,17 @@
         const Z = 0.6;
         if (g && g.contact) {
             const short = scene.guideMode === 'short';
+            // ⚙️ Aim Guide None (guideLen 0): the aim line and the ghost ball, no paths after.
+            const L = short ? 60 : typeof scene.guideLen === 'number' ? scene.guideLen : 150;
             const dx = g.contact[0] - g.start[0], dy = g.contact[1] - g.start[1], dl = Math.hypot(dx, dy) || 1;
             const ux = dx / dl, uy = dy / dl;
             if (dl > 2.3 * R) {
                 pgStrokeLine(ctx, view, [[g.start[0] + ux * R * 1.3, g.start[1] + uy * R * 1.3], [g.contact[0] - ux * R, g.contact[1] - uy * R]], Z, pgRgba(PG_GUIDE, 0.85), 1.5, [5, 4]);
             }
-            if (g.obj) {
-                const L = short ? 60 : scene.guideLen || 150;
+            if (g.obj && L > 0) {
                 pgStrokeLine(ctx, view, [[g.obj.x + g.obj.dx * R, g.obj.y + g.obj.dy * R], [g.obj.x + g.obj.dx * (R + L), g.obj.y + g.obj.dy * (R + L)]], Z, theme.accent, 2, null, true);
             }
-            if (g.after.length > 1) {
+            if (g.after.length > 1 && L > 0) {
                 const path = pgTrim(g.after, (short ? 40 : g.cushion ? 120 : 90) + R);
                 // Start the line at the ghost ball's edge.
                 let k = 0, acc = 0;
@@ -5723,7 +5733,8 @@
     //   bih: { valid, reason, placed, sx, sy, sr } | null,
     //   canReplace,                  the shooter placed the cue ball and may pick it up again
     //   cpuTurn,                     the CPU is at the table: its own hint, no human controls
-    //   sheet: { open, mode, note }, the Game mode sheet: which tab, and a line under the list
+    //   sheet: { open, mode, note, names: [{ value, placeholder }] },  the Game mode sheet: which
+    //                                tab, a line under the list, and 2 Players' two names
     //   difficulty,                  the picked CPU difficulty ('adaptive' or a tier)
     //   diffs,                       the difficulty list for this game (PH_DIFFS when absent)
     //   pots: { 1: [ids], 2: [ids] } the object balls each seat has potted this frame, shown
@@ -5881,6 +5892,11 @@
                 diffs: (g.diffs || PH_DIFFS).map(d => ({ key: d.key, name: d.name, desc: d.desc, checked: (g.difficulty || 'adaptive') === d.key })),
                 chip: 'NOW ' + String(g.adaptiveTier || 'normal').toUpperCase(),
                 note: (g.sheet && g.sheet.note) || '',
+                // 2 Players' names: what was typed, and the default an empty one plays as.
+                names: [0, 1].map(i => {
+                    const n = (g.sheet && g.sheet.names && g.sheet.names[i]) || {};
+                    return { value: String(n.value || ''), placeholder: n.placeholder || 'Player ' + (i + 1) };
+                }),
                 tour: g.tourSheet && g.tourSheet.saved ? { saved: true, cta: 'RESUME ' + String(g.tourSheet.name || 'TOURNAMENT').toUpperCase(), sub: g.tourSheet.where || '' }
                     : { saved: false, cta: 'SET UP TOURNAMENT', sub: '' },
             } : { show: false },
@@ -6102,6 +6118,9 @@
             '<div class="ph-sheet-links"><button type="button" class="ph-btn" data-ph="sheetcab">' + PH_ICON.cup + '<span>Trophy cabinet</span></button>' +
             '<button type="button" class="ph-btn is-hot" data-ph="sheetabandon" hidden><span>Abandon</span></button></div></div>' +
             '<div class="ph-sheet-pvp" data-ph="sheetpvp" hidden><span>Hot-seat on this computer. Hand the panel over after each turn; the game tells you whose shot it is.</span>' +
+            // The two names, as a tournament's setup takes them; an empty one keeps its default.
+            '<div class="ph-sheet-names">' + [1, 2].map(seat => '<label class="ph-sheet-name"><span class="ph-sheet-l ph-label">PLAYER ' + seat + '</span>' +
+                '<input type="text" class="ph-sheet-input" maxlength="16" autocomplete="off" spellcheck="false" data-ph="sheetp' + seat + '" aria-label="Player ' + seat + ' name"></label>').join('') + '</div>' +
             '<button type="button" class="ph-primary ph-label" data-ph="sheetstart">START 2-PLAYER FRAME</button></div>' +
             '</div>';
     }
@@ -6157,7 +6176,7 @@
             'hint', 'hintt', 'bihnote', 'replace',
             'mini', 'minicap', 'scrim', 'dialog', 'dlgi', 'dlgk', 'dlgt', 'dlgr', 'dlgrec', 'dlgrl', 'dlgrv', 'dlgd', 'dlgn', 'dlgnt', 'dlgp', 'dlgs',
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
-            'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart',
+            'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart', 'sheetp1', 'sheetp2',
             'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy',
             'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
@@ -6256,6 +6275,12 @@
         hud.sheetx.addEventListener('click', () => fire('sheetClose'));
         hud.sheetscrim.addEventListener('click', () => fire('sheetClose'));
         hud.sheetstart.addEventListener('click', () => fire('startPvp'));
+        [1, 2].forEach(seat => {
+            const inp = hud['sheetp' + seat];
+            inp.addEventListener('input', () => fire('pvpName', { seat, value: inp.value }));
+            // Enter in a name starts the frame, as the button does.
+            inp.addEventListener('keydown', e => { if (e.key === 'Enter') { fire('startPvp'); e.preventDefault(); } });
+        });
         hud.sheettourgo.addEventListener('click', () => fire('tourGo'));
         hud.sheetcab.addEventListener('click', () => fire('tourCabinet'));
         hud.sheetabandon.addEventListener('click', () => fire('tourAbandon'));
@@ -6537,6 +6562,13 @@
             s('sheet.diff', sh.diffs.map(d => d.checked ? 1 : 0).join(''), () => hud.diffButtons.forEach((b, i) => b.setAttribute('aria-checked', sh.diffs[i].checked ? 'true' : 'false')));
             s('sheet.chip', sh.chip, v => { hud.sheetchip.textContent = v; });
             s('sheet.note', sh.note, v => { hud.sheetnote.textContent = v; phShow(hud.sheetnote, !!v); });
+            // A name being typed is never written back under the caret.
+            sh.names.forEach((n, i) => {
+                const inp = hud['sheetp' + (i + 1)];
+                if (!inp) return;
+                s('sheet.p' + i, n.value, v => { if (inp.ownerDocument.activeElement !== inp) inp.value = v; });
+                s('sheet.ph' + i, n.placeholder, v => { inp.placeholder = v; });
+            });
             s('sheet.tour', sh.tour.cta + '|' + sh.tour.sub + '|' + sh.tour.saved, () => {
                 hud.sheettourcta.textContent = sh.tour.cta; hud.sheettoursub.textContent = sh.tour.sub; phShow(hud.sheettoursub, !!sh.tour.sub); phShow(hud.sheetabandon, sh.tour.saved);
             });
@@ -8074,11 +8106,13 @@
     //   poolMode, poolGamesWon, poolMaximized, poolRecord, poolCpuTier
     //   poolWinsByTier()      your CPU wins by the tier each frame was locked to
     //                         read by the leaderboard, achievements and tests
-    //   poolSetVariant(game)  ⚙️ Cue Game: 'pool' or 'snooker'. The frame in progress is
+    //   poolSetVariant(game)  the cue game: 'pool' or 'snooker'. The frame in progress is
     //                         parked and the other game's comes back (or a fresh rack)
+    //   poolToggleVariant()   the header's switch: the other game, remembered (poolVariant)
     //   poolOnPrefChange(p)   a ⚙️ setting the controller follows changed (the game, the
-    //                         CPU difficulty, snooker's reds)
-    //   poolTitle()           "🎱 8-Ball Pool" or "🔴 Snooker", for the panel header
+    //                         CPU difficulty, the shot clock, snooker's reds)
+    //   poolTitle()           "🎱 8-Ball Pool" or "🔴 Snooker"
+    //   poolRenderTitle(el)   the panel header: the game's name behind the 🎱 | 🔴 switch
     //
     // Input (POOL_V2_PLAN.md, Input):
     //   3D     sideways mouse movement turns the aim (0.3°/px, Shift 0.05°/px),
@@ -8132,6 +8166,8 @@
             id: 'pool', title: '8-Ball Pool', icon: '🎱', lb: 'pool', xpType: 'pool', diffPref: 'poolDifficulty', diffs: PH_DIFFS,
             keys: { cpuRec: 'poolCpuRecord', byTier: 'poolWinsByTier', tour: 'poolTournament', cab: 'poolTrophyCabinet' },
             clock: POOL_CLOCK_S,
+            // ⚙️ Pool Shot Clock: the quick frame's clock, from the tournament's choices (0 is off).
+            clockPref: 'poolClock', clocks: [30, 45, 0],
             // Aim steps: ←/→ and the Shift fine aim, in degrees.
             aimKey: 0.1, aimFine: 0.05,
             // Seat records for the cards (p1Wins, p1Losses, p2Wins, p2Losses).
@@ -8210,6 +8246,7 @@
             keys: { cpuRec: 'snookerCpuRecord', byTier: 'snookerWinsByTier', tour: 'snookerTournament', cab: 'snookerTrophyCabinet', frame: 'snookerFrame' },
             // Aiming at true scale is slower (implementer's call 4), and so is finer aim.
             clock: 45, aimKey: 0.025, aimFine: 0.0125,
+            clockPref: 'snookerClock', clocks: [30, 45, 60, 0],
             // The ⚙️ setting a fresh frame racks from.
             rackPref: 'snookerReds',
             aimClear: true,
@@ -8316,12 +8353,14 @@
         S.game = POOL_GAMES[game] ? game : 'pool';
         S.tour = S.tours[S.game] || (S.tours[S.game] = poolTourFresh());
         S.cfg = poolRules().world().cfg;
-        if (poolMode !== 'tour') S.clockTotal = poolRules().clock || POOL_CLOCK_S;
+        if (poolMode !== 'tour') S.clockTotal = poolQuickClock();
         S.director = null; S.cache = {}; S.W = S.H = 0; S.drawKey = ''; S.guide = null; S.guideKey = '';
     }
     const poolTourFresh = () => ({ t: null, screen: null, dialog: null, dlgBack: null, tab: 0, matchId: null, setup: null, cab: null, cabBack: null,
         prevMode: 'cpu', pending: 0, rev: 0, checked: false });
     function poolTitle() { const R = poolRules(); return R.icon + ' ' + R.title; }
+    // A quick frame's shot clock: ⚙️'s pick for this game (0 is off), else the game's own.
+    function poolQuickClock() { const R = poolRules(), v = userPreferences[R.clockPref]; return R.clocks.indexOf(v) >= 0 ? v : R.clock; }
 
     let poolMode = 'cpu';                    // 'cpu' | 'pvp' | 'tour'
     let poolGamesWon = 0;                    // all-time wins, as stored by savePoolHighScore
@@ -8364,15 +8403,20 @@
         // The phase 'choice' holds the table after a foul in snooker until the incoming
         // player picks how play continues.
         running: false, raf: null, lastMs: 0, acc: 0, sinceDraw: 0, drawKey: '',
-        attached: false, armed: false, lastX: null, leanSave: null, scheme: null,
+        attached: false, armed: false, lastX: null, leanSave: null, nameSave: null, scheme: null,
     };
 
     // ── Seats, names, records ─────────────────────────────────────────
     const poolMe = () => (typeof lbDisplayName === 'string' && lbDisplayName.trim() ? lbDisplayName.trim().slice(0, 16) : '');
+    // 2 Players' names, as the Game mode sheet sets them (16 characters, as a tournament's).
+    const POOL_PVP_NAME_PREFS = { 1: 'poolP1Name', 2: 'poolP2Name' };
+    const poolPvpName = seat => String(userPreferences[POOL_PVP_NAME_PREFS[seat]] || '').trim().slice(0, 16);
+    // An unnamed seat: Player 1 is you, by your leaderboard name.
+    const poolPvpDefault = seat => (seat === 1 ? poolMe() || 'Player 1' : 'Player 2');
     function poolNames() {
         const me = poolMe(), m = poolTourMatch();
         if (m) return { 1: poolS.tour.t.slots[m.a].name, 2: poolS.tour.t.slots[m.b].name };
-        return poolMode === 'cpu' ? { 1: me || 'You', 2: 'CPU' } : { 1: me || 'Player 1', 2: 'Player 2' };
+        return poolMode === 'cpu' ? { 1: me || 'You', 2: 'CPU' } : { 1: poolPvpName(1) || poolPvpDefault(1), 2: poolPvpName(2) || poolPvpDefault(2) };
     }
     // The picked difficulty: 'adaptive' (the default) or a pinned tier.
     const poolDifficulty = () => { const R = poolRules(), d = userPreferences[R.diffPref]; return R.cpu.tiers[d] ? d : 'adaptive'; };
@@ -8641,6 +8685,8 @@
         const dot = (x, y, r) => { const q = pcProject(v, [x, y, R]); if (q) dots.push([q[0], q[1], r * q[2]]); };
         line([c.x, c.y], g.contact);
         dot(g.contact[0], g.contact[1], R);
+        // ⚙️ Aim Guide None draws nothing past the contact (a tournament's Short still does).
+        if (!poolGuideLen() && S.guideMode === 'full') return { segs, dots };
         if (g.pocketed) {
             const p = pockets.slice().sort((a, b) => Math.hypot(a.x - g.contact[0], a.y - g.contact[1]) - Math.hypot(b.x - g.contact[0], b.y - g.contact[1]))[0];
             if (p) dot(p.x, p.y, p.r);
@@ -8788,8 +8834,10 @@
         return true;
     }
 
-    // ⚙️ Aim Guide: how far the object ball's line runs, in table units.
-    const POOL_GUIDE_LEN = { short: 60, medium: 100, long: 150 };
+    // ⚙️ Aim Guide: how far the object ball's line runs, in table units. None (0) draws no
+    // object-ball or cue-ball path: the aim line to the contact and the ghost ball there.
+    const POOL_GUIDE_LEN = { none: 0, short: 60, medium: 100, long: 150 };
+    const poolGuideLen = () => (POOL_GUIDE_LEN.hasOwnProperty(userPreferences.poolGuideLen) ? POOL_GUIDE_LEN[userPreferences.poolGuideLen] : POOL_GUIDE_LEN.long);
     function poolDraw(dt) {
         const S = poolS, R = poolRules();
         if (!poolFit()) return;
@@ -8812,7 +8860,7 @@
                 view: v, world: S.world, felt, dpr: S.dpr, cache: S.cache, theme,
                 makeCanvas: (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h }),
                 aim: aiming ? { angle: S.aim, power: S.power, gap } : null,
-                guide: aiming ? S.guide : null, guideMode: S.guideMode, guideLen: POOL_GUIDE_LEN[userPreferences.poolGuideLen] || POOL_GUIDE_LEN.long,
+                guide: aiming ? S.guide : null, guideMode: S.guideMode, guideLen: poolGuideLen(),
                 illegal: !!(S.guide && S.guide.hit > 0 && !poolLegalTarget(S.guide.hit)),
                 bih: S.phase === 'bih' ? { x: c.x, y: c.y, valid: !bihBad } : null,
                 zone: S.phase === 'bih' ? S.frame.ballInHand : null,
@@ -8834,7 +8882,8 @@
             result: S.result,
             canReplace: !!S.frame.ballInHand && S.placed && poolCanAct(),
             cpuTurn,
-            sheet: { open: S.sheet.open, mode: S.sheet.mode, note: poolSheetNote() },
+            sheet: { open: S.sheet.open, mode: S.sheet.mode, note: poolSheetNote(),
+                names: [1, 2].map(seat => ({ value: String(userPreferences[POOL_PVP_NAME_PREFS[seat]] || ''), placeholder: poolPvpDefault(seat) })) },
             difficulty: poolDifficulty(), adaptiveTier: R.cpu.adaptive(poolCpuRec()),
             tour: poolTourHead(), tourSheet: poolTourSheet(),
             pots: S.pots,
@@ -8979,7 +9028,13 @@
         const d = S.drag; S.drag = null;
         if (d.kind === 'place') {
             const c = poolCueBall();
-            if (!poolRules().canPlace(S.world, c.x, c.y, S.frame.ballInHand)) { S.placed = true; S.phase = 'aim'; poolAimAtNearest(); }
+            if (!poolRules().canPlace(S.world, c.x, c.y, S.frame.ballInHand)) {
+                S.placed = true; S.phase = 'aim'; poolAimAtNearest();
+                // The foul that gave the ball in hand has no timer: it waits for the ball to be
+                // placed. Left up, it would keep the spin control, the hint and the call card
+                // hidden for the whole shot (against the CPU no hand-off clears it).
+                if (S.toast && S.toast.kind === 'foul') S.toast = null;
+            }
             return;
         }
         if (S.power < 3) { S.power = 0; return; }
@@ -9045,6 +9100,14 @@
             if (poolFrameFresh()) { poolLockTier(); S.sheet.open = false; }
         },
         startPvp: () => { poolSetMode('pvp'); poolS.sheet.open = false; },
+        // A 2 Players name, as it is typed: the cards follow at once; saved once it settles.
+        pvpName: d => {
+            const key = d && POOL_PVP_NAME_PREFS[d.seat];
+            if (!key) return;
+            userPreferences[key] = String(d.value === undefined || d.value === null ? '' : d.value).slice(0, 16);
+            clearTimeout(poolS.nameSave);
+            poolS.nameSave = setTimeout(savePreferences, 400);
+        },
         // The sheet's Tournament tab, and the tournament footer.
         tourGo: () => {
             const T = poolS.tour;
@@ -9181,7 +9244,7 @@
     }
 
     // ── The two games ─────────────────────────────────────────────────
-    // POOL_V2_PLAN.md, Snooker: the ⚙️ Cue Game setting chooses what the panel plays.
+    // POOL_V2_PLAN.md, Snooker: the switch in the panel header chooses what the panel plays.
     // Each game keeps its own frame: switching parks the one on the table and brings the
     // other back as it was left (or racks a fresh one).
 
@@ -9260,14 +9323,29 @@
         const R = poolRules();
         if (typeof currentGame === 'undefined' || currentGame === 'pool') {
             const t = document.getElementById('game-title');
-            if (t) t.textContent = poolTitle();
+            if (t) poolRenderTitle(t);
         }
         const sw = document.getElementById('game-switch-pool');
         if (sw) sw.title = R.title;
         Object.keys(POOL_GAMES).forEach(g => { const b = document.getElementById(POOL_GAMES[g].lb + '-lb-btn'); if (b) b.style.display = g === poolS.game ? '' : 'none'; });
         poolRefreshScoreBtn();
     }
-    // ⚙️ Cue Game. Works with the panel closed too. A shot in flight is run to rest and
+    // The panel header: a switch between the two games (the one on the table lit), then its
+    // name. The host's other games write plain text here, which drops the switch.
+    function poolRenderTitle(el) {
+        const S = poolS, next = POOL_GAMES[S.game === 'snooker' ? 'pool' : 'snooker'].title;
+        el.innerHTML = '<button type="button" class="pool-cue-switch" data-game="' + S.game + '" aria-label="Switch to ' + next + '" title="Switch to ' + next + '">' +
+            Object.keys(POOL_GAMES).map(g => '<span class="pool-cue-opt' + (g === S.game ? ' is-on' : '') + '">' + POOL_GAMES[g].icon + '</span>').join('') +
+            '</button><span class="pool-cue-name">' + poolRules().title + '</span>';
+        el.firstChild.addEventListener('click', poolToggleVariant);
+    }
+    // The header's switch: the other game, remembered as the one the panel opens on.
+    function poolToggleVariant() {
+        userPreferences.poolVariant = poolS.game === 'snooker' ? 'pool' : 'snooker';
+        savePreferences();
+        poolSetVariant(userPreferences.poolVariant);
+    }
+    // The cue game. Works with the panel closed too. A shot in flight is run to rest and
     // judged first; a tournament match is saved as it stands (it resumes from the sheet).
     function poolSetVariant(game) {
         const S = poolS;
@@ -9302,14 +9380,23 @@
         poolSyncChrome();
     }
     // A ⚙️ setting the controller follows: the game; the CPU difficulty (in force now if
-    // nothing has been hit, else from the next frame); snooker's reds (a fresh rack, if
-    // nothing has been hit).
+    // nothing has been hit, else from the next frame); the shot clock (now); snooker's reds
+    // (a fresh rack, if nothing has been hit).
     function poolOnPrefChange(pref) {
         const S = poolS;
         if (pref === 'poolVariant') { poolSetVariant(userPreferences.poolVariant); return; }
         const R = poolRules();
         if (!S.frame) return;
         if (pref === R.diffPref) { if (poolMode === 'cpu' && poolFrameFresh()) poolLockTier(); return; }
+        // ⚙️ Shot Clock, now: the turn under way keeps what it has left, within the new limit
+        // (from Off, it starts full). A tournament keeps its own.
+        if (pref === R.clockPref) {
+            if (poolMode === 'tour') return;
+            const was = S.clockTotal;
+            S.clockTotal = poolQuickClock();
+            S.clockLeft = was && S.clockTotal ? Math.min(S.clockLeft, S.clockTotal) : S.clockTotal || POOL_CLOCK_S;
+            return;
+        }
         if (R.rackPref && pref === R.rackPref && poolMode !== 'tour' && poolFrameFresh()) poolNewFrame(S.breaker);
     }
 
@@ -9422,7 +9509,7 @@
         poolTourSnapshot();
         poolMode = mode === 'pvp' || mode === 'cpu' ? mode : T.prevMode === 'pvp' ? 'pvp' : 'cpu';
         T.matchId = null; T.pending = 0;
-        S.guideMode = 'full'; S.callEvery = false; S.callMode = 'off'; S.clockTotal = poolRules().clock || POOL_CLOCK_S;
+        S.guideMode = 'full'; S.callEvery = false; S.callMode = 'off'; S.clockTotal = poolQuickClock();
         S.frames = [0, 0];
         poolNewFrame(1);
         poolRefreshScoreBtn();
@@ -18034,6 +18121,43 @@
                 color: rgba(255, 255, 255, 0.9);
             }
 
+            /* The modal's groups, one at a time, behind a tab strip like the leaderboard's. */
+            .settings-tabs {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin: -8px 0 18px;
+            }
+            .settings-tab {
+                padding: 6px 12px;
+                border-radius: 999px;
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                background: rgba(255, 255, 255, 0.05);
+                color: rgba(255, 255, 255, 0.7);
+                font: inherit;
+                font-size: 0.8rem;
+                font-weight: 600;
+                white-space: nowrap;
+                cursor: pointer;
+            }
+            .settings-tab:hover { color: rgba(255, 255, 255, 0.95); }
+            .settings-tab.is-active {
+                background: rgba(108, 92, 231, 0.35);
+                border-color: rgba(162, 155, 254, 0.7);
+                color: #fff;
+            }
+            .settings-tab:focus-visible { outline: 2px solid rgba(162, 155, 254, 0.9); outline-offset: 2px; }
+            /* Inside a group: which game the rows below it set. */
+            .settings-subhead {
+                margin: 18px 2px 8px;
+                font-size: 0.7rem;
+                font-weight: 700;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: rgba(255, 255, 255, 0.62);
+            }
+            .settings-group > .settings-subhead:first-child { margin-top: 0; }
+
             .toggle-switch {
                 width: 50px;
                 height: 26px;
@@ -20631,6 +20755,35 @@
                         rgba(var(--rt-glow-rgb, 255, 242, 0), calc(0.5 * var(--rt-glow-k, 0.6))) !important;
             }
 
+            body:has(.retro-theme) .settings-tab {
+                border-radius: 0;
+                border-color: var(--rt-border, rgba(255, 242, 0, 0.4));
+                background: transparent;
+                color: var(--rt-text-dim, rgba(255, 242, 0, 0.72));
+                font-family: 'Share Tech Mono', monospace;
+                letter-spacing: 0.06em;
+            }
+            body:has(.retro-theme) .settings-tab:hover { color: var(--rt-text, #fff200); }
+            body:has(.retro-theme) .settings-tab.is-active {
+                background: var(--rt-text, #fff200);
+                border-color: var(--rt-text, #fff200);
+                color: var(--rt-bg-1, #07091a);
+            }
+            body:has(.retro-theme) .settings-subhead {
+                color: var(--rt-text-dim, rgba(255, 242, 0, 0.72));
+                font-family: 'Share Tech Mono', monospace;
+            }
+            .attendance-summary.retro-theme .pool-cue-switch,
+            .attendance-summary.retro-theme .pool-cue-opt { border-radius: 0; }
+            .attendance-summary.retro-theme .pool-cue-switch {
+                border-color: var(--rt-border);
+                background: transparent;
+            }
+            .attendance-summary.retro-theme .pool-cue-opt.is-on {
+                background: rgba(var(--rt-accent-rgb), 0.22);
+                box-shadow: inset 0 0 0 1px var(--rt-accent);
+            }
+
             /* Contrast guard readout. It warns; it never silently corrects. */
             .cyber-contrast-chip {
                 font-family: 'Share Tech Mono', monospace;
@@ -21327,6 +21480,17 @@
                 display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--pool-overlay-text);
             }
             .pool-hud .ph-sheet-pvp .ph-primary { height: 48px; font-size: 14px; }
+            /* 2 Players' names, side by side. The sheet is dark glass in every theme. */
+            .pool-hud .ph-sheet-names { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+            .pool-hud .ph-sheet-name { display: flex; flex-direction: column; min-width: 0; }
+            .pool-hud .ph-sheet-name .ph-sheet-l { margin-bottom: 4px; }
+            .pool-hud .ph-sheet-input {
+                width: 100%; height: 40px; box-sizing: border-box; padding: 0 10px; border-radius: var(--pool-radius-sm);
+                border: 1px solid var(--pool-overlay-line); background: transparent; color: var(--pool-overlay-text);
+                font: inherit; font-size: 13px; outline: none;
+            }
+            .pool-hud .ph-sheet-input::placeholder { color: var(--pool-overlay-muted); }
+            .pool-hud .ph-sheet-input:focus { border-color: var(--pool-accent); box-shadow: 0 0 0 3px rgba(var(--pool-accent-rgb), 0.2); }
             .pool-hud[data-layout="max"] .ph-sheet { left: 50%; right: auto; width: 520px; transform: translateX(-50%); bottom: 24px; }
             .pool-hud[data-layout="max"] .ph-sheet-scrim { border-radius: 20px; }
             @container pool-hud (max-width: 359px) {
@@ -21998,6 +22162,41 @@
                 font-weight: 600;
                 color: rgba(255, 255, 255, 0.9);
             }
+            /* The pool panel's title: 🎱 | 🔴, the game on the table lit, then its name. */
+            .pool-cue-switch {
+                display: inline-flex;
+                align-items: center;
+                gap: 2px;
+                padding: 2px;
+                margin-right: 8px;
+                vertical-align: middle;
+                border-radius: 999px;
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                background: rgba(255, 255, 255, 0.06);
+                font: inherit;
+                line-height: 1;
+                cursor: pointer;
+            }
+            .pool-cue-opt {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 24px;
+                height: 20px;
+                border-radius: 999px;
+                font-size: 0.8rem;
+                /* The 8-ball is black: much fainter and it disappears on the dark panel. */
+                opacity: 0.6;
+                transition: background 0.2s ease, opacity 0.2s ease;
+            }
+            .pool-cue-opt.is-on {
+                opacity: 1;
+                background: rgba(108, 92, 231, 0.45);
+                box-shadow: inset 0 0 0 1px rgba(162, 155, 254, 0.7);
+            }
+            .pool-cue-switch:hover .pool-cue-opt:not(.is-on) { opacity: 0.85; }
+            .pool-cue-switch:focus-visible { outline: 2px solid rgba(162, 155, 254, 0.9); outline-offset: 2px; }
+            .pool-cue-name { vertical-align: middle; }
             .snake-scoreboard {
                 display: flex;
                 gap: 12px;
@@ -24283,6 +24482,26 @@
                 }
                 body:not(:has(.attendance-summary.retro-theme)) .settings-select option { background: #fff; color: #222; }
                 body:not(:has(.attendance-summary.retro-theme)) .settings-modal-overlay { background: rgba(0, 0, 0, 0.30); }
+                body:not(:has(.attendance-summary.retro-theme)) .settings-tab {
+                    border-color: rgba(0, 0, 0, 0.12);
+                    background: rgba(0, 0, 0, 0.03);
+                    color: rgba(0, 0, 0, 0.68);
+                }
+                body:not(:has(.attendance-summary.retro-theme)) .settings-tab:hover { color: rgba(0, 0, 0, 0.9); }
+                body:not(:has(.attendance-summary.retro-theme)) .settings-tab.is-active {
+                    background: rgba(108, 92, 231, 0.16);
+                    border-color: rgba(108, 92, 231, 0.55);
+                    color: #3d2fa8;
+                }
+                body:not(:has(.attendance-summary.retro-theme)) .settings-subhead { color: rgba(0, 0, 0, 0.6); }
+                .attendance-summary:not(.retro-theme) .pool-cue-switch {
+                    border-color: rgba(0, 0, 0, 0.14);
+                    background: rgba(0, 0, 0, 0.04);
+                }
+                .attendance-summary:not(.retro-theme) .pool-cue-opt.is-on {
+                    background: rgba(108, 92, 231, 0.2);
+                    box-shadow: inset 0 0 0 1px rgba(108, 92, 231, 0.55);
+                }
                 body:not(:has(.attendance-summary.retro-theme)) .pool-modal-panel:not(.pool-max-panel) {
                     background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(248,248,252,0.96));
                     border-color: rgba(0, 0, 0, 0.10);
@@ -24728,6 +24947,20 @@
         container.appendChild(settingsButton);
     }
 
+    // The ⚙️ modal's open group: 'general' | 'theme' | 'cue' | 'ludo'.
+    let settingsTab = 'general';
+    function showSettingsTab(modal, key) {
+        if (!modal.querySelector('[data-settings-group="' + key + '"]')) key = 'general';
+        settingsTab = key;
+        modal.querySelectorAll('.settings-tab').forEach(t => {
+            const on = t.getAttribute('data-settings-tab') === key;
+            t.classList.toggle('is-active', on);
+            t.setAttribute('aria-selected', on ? 'true' : 'false');
+            t.tabIndex = on ? 0 : -1;
+        });
+        modal.querySelectorAll('.settings-group').forEach(g => { g.hidden = g.getAttribute('data-settings-group') !== key; });
+    }
+
     function toggleSettingsModal() {
         let modal = document.getElementById('attendance-settings-modal');
         let overlay = document.getElementById('settings-modal-overlay');
@@ -24749,6 +24982,9 @@
                 const v = userPreferences[sel.getAttribute('data-pref')];
                 if (v !== undefined && v !== null && Array.prototype.some.call(sel.options, o => o.value === String(v))) sel.value = String(v);
             });
+            // It opens on the game being played, when that game has settings; else where it was left.
+            const gameTab = { pool: 'cue', ludo: 'ludo' }[typeof currentGame === 'string' ? currentGame : ''];
+            showSettingsTab(modal, gameTab || settingsTab);
         }
         modal.classList.toggle('active');
         overlay.classList.toggle('active');
@@ -24774,232 +25010,260 @@
 
         modal.innerHTML = `
             <div class="settings-title">⚙️ Customize Your Experience</div>
-            <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
-                <span class="settings-option-label"><span class="rt-emo">🎨</span> Neumorphic Depth <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
-                <div class="toggle-switch ${userPreferences.neumorphicDepth ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="neumorphicDepth"></div>
+            <div class="settings-tabs" role="tablist" aria-label="Settings">
+                <button type="button" role="tab" class="settings-tab" data-settings-tab="general" aria-selected="false"><span class="rt-emo">✨</span> General</button>
+                <button type="button" role="tab" class="settings-tab" data-settings-tab="theme" aria-selected="false"><span class="rt-emo">🎨</span> Theme</button>
+                <button type="button" role="tab" class="settings-tab" data-settings-tab="cue" aria-selected="false"><span class="rt-emo">🎱</span> Cue Games</button>
+                <button type="button" role="tab" class="settings-tab" data-settings-tab="ludo" aria-selected="false"><span class="rt-emo">🎲</span> Ludo</button>
             </div>
-            <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
-                <span class="settings-option-label"><span class="rt-emo">🌊</span> Fluid Gradients <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
-                <div class="toggle-switch ${userPreferences.fluidGradients ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="fluidGradients"></div>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">⏱️</span> Shift Duration</span>
-                <select class="settings-select" data-pref="shiftDuration">
-                    <option value="4h" ${userPreferences.shiftDuration === '4h' ? 'selected' : ''}>4h — Short Leave</option>
-                    <option value="8h" ${userPreferences.shiftDuration === '8h' ? 'selected' : ''}>8h — Standard</option>
-                    <option value="9h" ${userPreferences.shiftDuration === '9h' ? 'selected' : ''}>9h — Overtime</option>
-                </select>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">😎</span> Emoji Style</span>
-                <select class="settings-select" data-pref="emojiSet">
-                    <option value="fun" ${userPreferences.emojiSet === 'fun' ? 'selected' : ''}>Fun (GenZ)</option>
-                    <option value="none" ${userPreferences.emojiSet === 'none' ? 'selected' : ''}>None (No Emoji)</option>
-                </select>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">🎨</span> Display Theme</span>
-                <select class="settings-select" data-pref="displayTheme" id="theme-selector">
-                    <option value="glassmorphic" ${userPreferences.displayTheme === 'glassmorphic' ? 'selected' : ''}>Glassmorphic Aurora</option>
-                    <option value="retro-futuristic" ${userPreferences.displayTheme === 'retro-futuristic' ? 'selected' : ''}>Cyberpunk HUD</option>
-                </select>
-            </div>
-            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
-                <span class="settings-option-label"><span class="rt-emo">🎨</span> Palette</span>
-                <div class="cyber-palette-swatches" id="cyber-palette-swatches">
-                    ${Object.keys(CYBER_PALETTES).map(key => {
-                        const p = CYBER_PALETTES[key];
-                        return `<button type="button" class="cyber-palette-btn" data-palette="${key}" title="${escapeHtml(p.label)}" style="background: linear-gradient(135deg, ${p.cyberAccent}, ${p.cyberHighlight});"></button>`;
-                    }).join('')}
+            <div class="settings-group" role="tabpanel" data-settings-group="general" hidden>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">⏱️</span> Shift Duration</span>
+                    <select class="settings-select" data-pref="shiftDuration">
+                        <option value="4h" ${userPreferences.shiftDuration === '4h' ? 'selected' : ''}>4h — Short Leave</option>
+                        <option value="8h" ${userPreferences.shiftDuration === '8h' ? 'selected' : ''}>8h — Standard</option>
+                        <option value="9h" ${userPreferences.shiftDuration === '9h' ? 'selected' : ''}>9h — Overtime</option>
+                    </select>
+                </div>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">😎</span> Emoji Style</span>
+                    <select class="settings-select" data-pref="emojiSet">
+                        <option value="fun" ${userPreferences.emojiSet === 'fun' ? 'selected' : ''}>Fun (GenZ)</option>
+                        <option value="none" ${userPreferences.emojiSet === 'none' ? 'selected' : ''}>None (No Emoji)</option>
+                    </select>
+                </div>
+                <div class="settings-option">
+                    <span class="settings-option-label"> Game Mode <small style="opacity:0.6;font-size:0.75rem;">Hides side panels</small></span>
+                    <div class="toggle-switch ${userPreferences.gameModeHidden ? 'active' : ''}" data-pref="gameModeHidden"></div>
+                </div>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">🖥️</span> VSync</span>
+                    <select class="settings-select" data-pref="gameFps" id="fps-selector">
+                        <option value="60" ${userPreferences.gameFps === 60 || userPreferences.gameFps === '60' ? 'selected' : ''}>Full (60 FPS)</option>
+                        <option value="30" ${userPreferences.gameFps === 30 || userPreferences.gameFps === '30' ? 'selected' : ''}>Half (30 FPS)</option>
+                    </select>
                 </div>
             </div>
-            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
-                <span class="settings-option-label"><span class="rt-emo">🌈</span> Cyberpunk Colors</span>
-                <div class="cyber-color-pickers">
-                    <label title="Background primary">
-                        <input type="color" data-pref="cyberBgPrimary" value="${userPreferences.cyberBgPrimary || '#07091a'}">
-                        <span>BG 1</span>
-                    </label>
-                    <label title="Background secondary">
-                        <input type="color" data-pref="cyberBgSecondary" value="${userPreferences.cyberBgSecondary || '#11142b'}">
-                        <span>BG 2</span>
-                    </label>
-                    <label title="Accent (text glow, titles)">
-                        <input type="color" data-pref="cyberAccent" value="${userPreferences.cyberAccent || '#fff200'}">
-                        <span>Accent</span>
-                    </label>
-                    <label title="Highlight (buttons, progress)">
-                        <input type="color" data-pref="cyberHighlight" value="${userPreferences.cyberHighlight || '#00e5ff'}">
-                        <span>Highlight</span>
-                    </label>
-                    <label title="Inner panel glass tint (table, side containers)">
-                        <input type="color" data-pref="cyberPanelTint" value="${userPreferences.cyberPanelTint || '#00e5ff'}">
-                        <span>Panel</span>
-                    </label>
-                    <label title="Text — every piece of type. Independent of Accent and both backgrounds, on purpose.">
-                        <input type="color" data-pref="cyberText" value="${userPreferences.cyberText || '#fff200'}">
-                        <span>Text</span>
-                    </label>
-                    <label title="Glow — every bloom and drop-shadow">
-                        <input type="color" data-pref="cyberGlow" value="${userPreferences.cyberGlow || '#fff200'}">
-                        <span>Glow</span>
-                    </label>
-                    <label title="Border — frames, corner brackets, grid and scanlines">
-                        <input type="color" data-pref="cyberBorder" value="${userPreferences.cyberBorder || '#fff200'}">
-                        <span>Border</span>
-                    </label>
+            <div class="settings-group" role="tabpanel" data-settings-group="theme" hidden>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">🎨</span> Display Theme</span>
+                    <select class="settings-select" data-pref="displayTheme" id="theme-selector">
+                        <option value="glassmorphic" ${userPreferences.displayTheme === 'glassmorphic' ? 'selected' : ''}>Glassmorphic Aurora</option>
+                        <option value="retro-futuristic" ${userPreferences.displayTheme === 'retro-futuristic' ? 'selected' : ''}>Cyberpunk HUD</option>
+                    </select>
+                </div>
+                <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
+                    <span class="settings-option-label"><span class="rt-emo">🎨</span> Neumorphic Depth <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
+                    <div class="toggle-switch ${userPreferences.neumorphicDepth ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="neumorphicDepth"></div>
+                </div>
+                <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
+                    <span class="settings-option-label"><span class="rt-emo">🌊</span> Fluid Gradients <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
+                    <div class="toggle-switch ${userPreferences.fluidGradients ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="fluidGradients"></div>
+                </div>
+                <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                    <span class="settings-option-label"><span class="rt-emo">🎨</span> Palette</span>
+                    <div class="cyber-palette-swatches" id="cyber-palette-swatches">
+                        ${Object.keys(CYBER_PALETTES).map(key => {
+                            const p = CYBER_PALETTES[key];
+                            return `<button type="button" class="cyber-palette-btn" data-palette="${key}" title="${escapeHtml(p.label)}" style="background: linear-gradient(135deg, ${p.cyberAccent}, ${p.cyberHighlight});"></button>`;
+                        }).join('')}
+                    </div>
+                </div>
+                <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                    <span class="settings-option-label"><span class="rt-emo">🌈</span> Cyberpunk Colors</span>
+                    <div class="cyber-color-pickers">
+                        <label title="Background primary">
+                            <input type="color" data-pref="cyberBgPrimary" value="${userPreferences.cyberBgPrimary || '#07091a'}">
+                            <span>BG 1</span>
+                        </label>
+                        <label title="Background secondary">
+                            <input type="color" data-pref="cyberBgSecondary" value="${userPreferences.cyberBgSecondary || '#11142b'}">
+                            <span>BG 2</span>
+                        </label>
+                        <label title="Accent (text glow, titles)">
+                            <input type="color" data-pref="cyberAccent" value="${userPreferences.cyberAccent || '#fff200'}">
+                            <span>Accent</span>
+                        </label>
+                        <label title="Highlight (buttons, progress)">
+                            <input type="color" data-pref="cyberHighlight" value="${userPreferences.cyberHighlight || '#00e5ff'}">
+                            <span>Highlight</span>
+                        </label>
+                        <label title="Inner panel glass tint (table, side containers)">
+                            <input type="color" data-pref="cyberPanelTint" value="${userPreferences.cyberPanelTint || '#00e5ff'}">
+                            <span>Panel</span>
+                        </label>
+                        <label title="Text — every piece of type. Independent of Accent and both backgrounds, on purpose.">
+                            <input type="color" data-pref="cyberText" value="${userPreferences.cyberText || '#fff200'}">
+                            <span>Text</span>
+                        </label>
+                        <label title="Glow — every bloom and drop-shadow">
+                            <input type="color" data-pref="cyberGlow" value="${userPreferences.cyberGlow || '#fff200'}">
+                            <span>Glow</span>
+                        </label>
+                        <label title="Border — frames, corner brackets, grid and scanlines">
+                            <input type="color" data-pref="cyberBorder" value="${userPreferences.cyberBorder || '#fff200'}">
+                            <span>Border</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                    <span class="settings-option-label"><span class="rt-emo">💡</span> Glow Intensity</span>
+                    <div class="cyber-bg-controls">
+                        <span class="cyber-contrast-chip is-pass" id="cyber-contrast-chip">Text vs BG</span>
+                        <label class="cyber-bg-opacity-label">
+                            <input type="range" min="0" max="${CYBER_GLOW_MAX_PCT}" step="5" value="${cyberGlowToPct(userPreferences.cyberGlowIntensity)}" id="cyber-glow-slider">
+                            <span id="cyber-glow-value">${cyberGlowToPct(userPreferences.cyberGlowIntensity)}%</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                    <span class="settings-option-label"><span class="rt-emo">📐</span> Panel Shape</span>
+                    <select class="settings-select" data-pref="cyberPanelShape">
+                        <option value="notched" ${(userPreferences.cyberPanelShape || 'notched') === 'notched' ? 'selected' : ''}>Notched — step cut</option>
+                        <option value="chamfered" ${userPreferences.cyberPanelShape === 'chamfered' ? 'selected' : ''}>Chamfered — cut corners</option>
+                        <option value="stepped" ${userPreferences.cyberPanelShape === 'stepped' ? 'selected' : ''}>Stepped — terraced</option>
+                        <option value="rounded" ${userPreferences.cyberPanelShape === 'rounded' ? 'selected' : ''}>Rounded — soft</option>
+                    </select>
+                </div>
+                <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
+                    <span class="settings-option-label"><span class="rt-emo">🖼️</span> Background Image</span>
+                    <div class="cyber-bg-controls">
+                        <button class="cyber-bg-btn" id="cyber-bg-change-btn" title="Set background image URL">Change BG</button>
+                        <button class="cyber-bg-btn cyber-bg-clear" id="cyber-bg-clear-btn" title="Remove background image" ${userPreferences.cyberBgImage ? '' : 'style="display:none;"'}>✕</button>
+                        <label class="cyber-bg-opacity-label" ${userPreferences.cyberBgImage ? '' : 'style="display:none;"'}>
+                            <input type="range" min="0" max="100" value="${Math.round((userPreferences.cyberBgOpacity ?? 0.15) * 100)}" id="cyber-bg-opacity-slider">
+                            <span>${Math.round((userPreferences.cyberBgOpacity ?? 0.15) * 100)}%</span>
+                        </label>
+                    </div>
                 </div>
             </div>
-            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
-                <span class="settings-option-label"><span class="rt-emo">💡</span> Glow Intensity</span>
-                <div class="cyber-bg-controls">
-                    <span class="cyber-contrast-chip is-pass" id="cyber-contrast-chip">Text vs BG</span>
-                    <label class="cyber-bg-opacity-label">
-                        <input type="range" min="0" max="${CYBER_GLOW_MAX_PCT}" step="5" value="${cyberGlowToPct(userPreferences.cyberGlowIntensity)}" id="cyber-glow-slider">
-                        <span id="cyber-glow-value">${cyberGlowToPct(userPreferences.cyberGlowIntensity)}%</span>
-                    </label>
+            <div class="settings-group" role="tabpanel" data-settings-group="cue" hidden>
+                <div class="settings-subhead">Both games</div>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">🎱</span> Table Color</span>
+                    <div class="pool-color-swatches" id="pool-color-swatches">
+                        <div class="pool-color-swatch ${userPreferences.poolTableColor === 'green' ? 'active' : ''}" data-pool-color="green" style="background: linear-gradient(135deg, #2d8a4e, #1a5c32);" title="Green"></div>
+                        <div class="pool-color-swatch ${userPreferences.poolTableColor === 'red' ? 'active' : ''}" data-pool-color="red" style="background: linear-gradient(135deg, #8b3a3a, #5c1a1a);" title="Red"></div>
+                        <div class="pool-color-swatch ${userPreferences.poolTableColor === 'blue' ? 'active' : ''}" data-pool-color="blue" style="background: linear-gradient(135deg, #2a5a8a, #1a3a5c);" title="Blue"></div>
+                        <div class="pool-color-swatch ${userPreferences.poolTableColor === 'lightgrey' ? 'active' : ''}" data-pool-color="lightgrey" style="background: linear-gradient(135deg, #a8b0b8, #c8cfd6);" title="Light Grey"></div>
+                    </div>
+                </div>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">🎱</span> Shot Camera</span>
+                    <select class="settings-select" data-pref="poolShotCam">
+                        <option value="overhead" ${userPreferences.poolShotCam !== '3d' ? 'selected' : ''}>Overhead — rise to the top view</option>
+                        <option value="3d" ${userPreferences.poolShotCam === '3d' ? 'selected' : ''}>Stay 3D — stand up, whole table</option>
+                    </select>
+                </div>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">🎯</span> Guideline</span>
+                    <select class="settings-select" data-pref="poolGuideLen">
+                        <option value="long" ${['medium', 'short', 'none'].indexOf(userPreferences.poolGuideLen) === -1 ? 'selected' : ''}>Long — the object ball's line in full</option>
+                        <option value="medium" ${userPreferences.poolGuideLen === 'medium' ? 'selected' : ''}>Medium</option>
+                        <option value="short" ${userPreferences.poolGuideLen === 'short' ? 'selected' : ''}>Short — a hint of the line</option>
+                        <option value="none" ${userPreferences.poolGuideLen === 'none' ? 'selected' : ''}>None — the aim line and ghost ball only</option>
+                    </select>
+                </div>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">🎱</span> Max View</span>
+                    <select class="settings-select" data-pref="poolMaxLayout">
+                        <option value="full" ${userPreferences.poolMaxLayout !== 'bars' ? 'selected' : ''}>Full table — controls on it, between the pockets</option>
+                        <option value="bars" ${userPreferences.poolMaxLayout === 'bars' ? 'selected' : ''}>Table between bars — nothing over the table</option>
+                    </select>
+                </div>
+                <div class="settings-subhead">🎱 8-Ball Pool</div>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">🎱</span> CPU</span>
+                    <select class="settings-select" data-pref="poolDifficulty">
+                        <option value="adaptive" ${userPreferences.poolDifficulty === 'adaptive' || !userPreferences.poolDifficulty ? 'selected' : ''}>Adaptive — matches your form</option>
+                        <option value="easy" ${userPreferences.poolDifficulty === 'easy' ? 'selected' : ''}>Easy — simple pots, misses often</option>
+                        <option value="normal" ${userPreferences.poolDifficulty === 'normal' ? 'selected' : ''}>Normal — solid, little position</option>
+                        <option value="hard" ${userPreferences.poolDifficulty === 'hard' ? 'selected' : ''}>Hard — plays position</option>
+                        <option value="pro" ${userPreferences.poolDifficulty === 'pro' ? 'selected' : ''}>Pro — hardly misses, call every shot</option>
+                    </select>
+                </div>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">⏱️</span> Shot Clock</span>
+                    <select class="settings-select" data-pref="poolClock">
+                        <option value="30" ${[45, 0].indexOf(Number(userPreferences.poolClock)) === -1 ? 'selected' : ''}>30s — the default</option>
+                        <option value="45" ${Number(userPreferences.poolClock) === 45 ? 'selected' : ''}>45s</option>
+                        <option value="0" ${Number(userPreferences.poolClock) === 0 ? 'selected' : ''}>Off — no clock</option>
+                    </select>
+                </div>
+                <div class="settings-subhead">🔴 Snooker</div>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">🔴</span> Reds</span>
+                    <select class="settings-select" data-pref="snookerReds">
+                        <option value="15" ${+userPreferences.snookerReds !== 10 && +userPreferences.snookerReds !== 6 ? 'selected' : ''}>15 — the full frame</option>
+                        <option value="10" ${+userPreferences.snookerReds === 10 ? 'selected' : ''}>10</option>
+                        <option value="6" ${+userPreferences.snookerReds === 6 ? 'selected' : ''}>6 — quick</option>
+                    </select>
+                </div>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">🔴</span> CPU</span>
+                    <select class="settings-select" data-pref="snookerDifficulty">
+                        <option value="adaptive" ${userPreferences.snookerDifficulty === 'adaptive' || !userPreferences.snookerDifficulty ? 'selected' : ''}>Adaptive — matches your form</option>
+                        <option value="easy" ${userPreferences.snookerDifficulty === 'easy' ? 'selected' : ''}>Easy — pots the simple ones</option>
+                        <option value="normal" ${userPreferences.snookerDifficulty === 'normal' ? 'selected' : ''}>Normal — small breaks, some safety</option>
+                        <option value="hard" ${userPreferences.snookerDifficulty === 'hard' ? 'selected' : ''}>Hard — position and safety, call the colours</option>
+                        <option value="pro" ${userPreferences.snookerDifficulty === 'pro' ? 'selected' : ''}>Pro — hardly misses, call every ball</option>
+                    </select>
+                </div>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">⏱️</span> Shot Clock</span>
+                    <select class="settings-select" data-pref="snookerClock">
+                        <option value="30" ${Number(userPreferences.snookerClock) === 30 ? 'selected' : ''}>30s</option>
+                        <option value="45" ${[30, 60, 0].indexOf(Number(userPreferences.snookerClock)) === -1 ? 'selected' : ''}>45s — the default</option>
+                        <option value="60" ${Number(userPreferences.snookerClock) === 60 ? 'selected' : ''}>60s</option>
+                        <option value="0" ${Number(userPreferences.snookerClock) === 0 ? 'selected' : ''}>Off — no clock</option>
+                    </select>
                 </div>
             </div>
-            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
-                <span class="settings-option-label"><span class="rt-emo">📐</span> Panel Shape</span>
-                <select class="settings-select" data-pref="cyberPanelShape">
-                    <option value="notched" ${(userPreferences.cyberPanelShape || 'notched') === 'notched' ? 'selected' : ''}>Notched — step cut</option>
-                    <option value="chamfered" ${userPreferences.cyberPanelShape === 'chamfered' ? 'selected' : ''}>Chamfered — cut corners</option>
-                    <option value="stepped" ${userPreferences.cyberPanelShape === 'stepped' ? 'selected' : ''}>Stepped — terraced</option>
-                    <option value="rounded" ${userPreferences.cyberPanelShape === 'rounded' ? 'selected' : ''}>Rounded — soft</option>
-                </select>
-            </div>
-            <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
-                <span class="settings-option-label"><span class="rt-emo">🖼️</span> Background Image</span>
-                <div class="cyber-bg-controls">
-                    <button class="cyber-bg-btn" id="cyber-bg-change-btn" title="Set background image URL">Change BG</button>
-                    <button class="cyber-bg-btn cyber-bg-clear" id="cyber-bg-clear-btn" title="Remove background image" ${userPreferences.cyberBgImage ? '' : 'style="display:none;"'}>✕</button>
-                    <label class="cyber-bg-opacity-label" ${userPreferences.cyberBgImage ? '' : 'style="display:none;"'}>
-                        <input type="range" min="0" max="100" value="${Math.round((userPreferences.cyberBgOpacity ?? 0.15) * 100)}" id="cyber-bg-opacity-slider">
-                        <span>${Math.round((userPreferences.cyberBgOpacity ?? 0.15) * 100)}%</span>
-                    </label>
+            <div class="settings-group" role="tabpanel" data-settings-group="ludo" hidden>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">🎲</span> Board</span>
+                    <select class="settings-select" data-pref="ludoRotation">
+                        <option value="0" ${Number(userPreferences.ludoRotation) === 0 ? 'selected' : ''}>Blue top-left (default)</option>
+                        <option value="1" ${Number(userPreferences.ludoRotation) === 1 ? 'selected' : ''}>Blue bottom-left</option>
+                        <option value="2" ${Number(userPreferences.ludoRotation) === 2 ? 'selected' : ''}>Blue bottom-right</option>
+                        <option value="3" ${Number(userPreferences.ludoRotation) === 3 ? 'selected' : ''}>Blue top-right</option>
+                    </select>
                 </div>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"> Game Mode <small style="opacity:0.6;font-size:0.75rem;">Hides side panels</small></span>
-                <div class="toggle-switch ${userPreferences.gameModeHidden ? 'active' : ''}" data-pref="gameModeHidden"></div>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">🖥️</span> VSync</span>
-                <select class="settings-select" data-pref="gameFps" id="fps-selector">
-                    <option value="60" ${userPreferences.gameFps === 60 || userPreferences.gameFps === '60' ? 'selected' : ''}>Full (60 FPS)</option>
-                    <option value="30" ${userPreferences.gameFps === 30 || userPreferences.gameFps === '30' ? 'selected' : ''}>Half (30 FPS)</option>
-                </select>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">🎱</span> Pool Table Color</span>
-                <div class="pool-color-swatches" id="pool-color-swatches">
-                    <div class="pool-color-swatch ${userPreferences.poolTableColor === 'green' ? 'active' : ''}" data-pool-color="green" style="background: linear-gradient(135deg, #2d8a4e, #1a5c32);" title="Green"></div>
-                    <div class="pool-color-swatch ${userPreferences.poolTableColor === 'red' ? 'active' : ''}" data-pool-color="red" style="background: linear-gradient(135deg, #8b3a3a, #5c1a1a);" title="Red"></div>
-                    <div class="pool-color-swatch ${userPreferences.poolTableColor === 'blue' ? 'active' : ''}" data-pool-color="blue" style="background: linear-gradient(135deg, #2a5a8a, #1a3a5c);" title="Blue"></div>
-                    <div class="pool-color-swatch ${userPreferences.poolTableColor === 'lightgrey' ? 'active' : ''}" data-pool-color="lightgrey" style="background: linear-gradient(135deg, #a8b0b8, #c8cfd6);" title="Light Grey"></div>
+                <div class="settings-option">
+                    <span class="settings-option-label"><span class="rt-emo">🎲</span> CPU</span>
+                    <select class="settings-select" data-pref="ludoDifficulty">
+                        <option value="adaptive" ${userPreferences.ludoDifficulty === 'adaptive' || !userPreferences.ludoDifficulty ? 'selected' : ''}>Adaptive — follows your win rate</option>
+                        <option value="easy" ${userPreferences.ludoDifficulty === 'easy' ? 'selected' : ''}>Easy — often plays a random move</option>
+                        <option value="normal" ${userPreferences.ludoDifficulty === 'normal' ? 'selected' : ''}>Normal — plays well, ignores danger</option>
+                        <option value="hard" ${userPreferences.ludoDifficulty === 'hard' ? 'selected' : ''}>Hard — also dodges your tokens</option>
+                    </select>
                 </div>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">🎱</span> Pool Shot Camera</span>
-                <select class="settings-select" data-pref="poolShotCam">
-                    <option value="overhead" ${userPreferences.poolShotCam !== '3d' ? 'selected' : ''}>Overhead — rise to the top view</option>
-                    <option value="3d" ${userPreferences.poolShotCam === '3d' ? 'selected' : ''}>Stay 3D — stand up, whole table</option>
-                </select>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">🎱</span> Pool CPU</span>
-                <select class="settings-select" data-pref="poolDifficulty">
-                    <option value="adaptive" ${userPreferences.poolDifficulty === 'adaptive' || !userPreferences.poolDifficulty ? 'selected' : ''}>Adaptive — matches your form</option>
-                    <option value="easy" ${userPreferences.poolDifficulty === 'easy' ? 'selected' : ''}>Easy — simple pots, misses often</option>
-                    <option value="normal" ${userPreferences.poolDifficulty === 'normal' ? 'selected' : ''}>Normal — solid, little position</option>
-                    <option value="hard" ${userPreferences.poolDifficulty === 'hard' ? 'selected' : ''}>Hard — plays position</option>
-                    <option value="pro" ${userPreferences.poolDifficulty === 'pro' ? 'selected' : ''}>Pro — hardly misses, call every shot</option>
-                </select>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">🎱</span> Aim Guide</span>
-                <select class="settings-select" data-pref="poolGuideLen">
-                    <option value="long" ${userPreferences.poolGuideLen !== 'medium' && userPreferences.poolGuideLen !== 'short' ? 'selected' : ''}>Long — the object ball's line in full</option>
-                    <option value="medium" ${userPreferences.poolGuideLen === 'medium' ? 'selected' : ''}>Medium</option>
-                    <option value="short" ${userPreferences.poolGuideLen === 'short' ? 'selected' : ''}>Short — a hint of the line</option>
-                </select>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">🎱</span> Max View</span>
-                <select class="settings-select" data-pref="poolMaxLayout">
-                    <option value="full" ${userPreferences.poolMaxLayout !== 'bars' ? 'selected' : ''}>Full table — controls on it, between the pockets</option>
-                    <option value="bars" ${userPreferences.poolMaxLayout === 'bars' ? 'selected' : ''}>Table between bars — nothing over the table</option>
-                </select>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">🎱</span> Cue Game</span>
-                <select class="settings-select" data-pref="poolVariant">
-                    <option value="pool" ${userPreferences.poolVariant !== 'snooker' ? 'selected' : ''}>8-Ball Pool</option>
-                    <option value="snooker" ${userPreferences.poolVariant === 'snooker' ? 'selected' : ''}>Snooker</option>
-                </select>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">🔴</span> Snooker Reds</span>
-                <select class="settings-select" data-pref="snookerReds">
-                    <option value="15" ${+userPreferences.snookerReds !== 10 && +userPreferences.snookerReds !== 6 ? 'selected' : ''}>15 — the full frame</option>
-                    <option value="10" ${+userPreferences.snookerReds === 10 ? 'selected' : ''}>10</option>
-                    <option value="6" ${+userPreferences.snookerReds === 6 ? 'selected' : ''}>6 — quick</option>
-                </select>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">🔴</span> Snooker CPU</span>
-                <select class="settings-select" data-pref="snookerDifficulty">
-                    <option value="adaptive" ${userPreferences.snookerDifficulty === 'adaptive' || !userPreferences.snookerDifficulty ? 'selected' : ''}>Adaptive — matches your form</option>
-                    <option value="easy" ${userPreferences.snookerDifficulty === 'easy' ? 'selected' : ''}>Easy — pots the simple ones</option>
-                    <option value="normal" ${userPreferences.snookerDifficulty === 'normal' ? 'selected' : ''}>Normal — small breaks, some safety</option>
-                    <option value="hard" ${userPreferences.snookerDifficulty === 'hard' ? 'selected' : ''}>Hard — position and safety, call the colours</option>
-                    <option value="pro" ${userPreferences.snookerDifficulty === 'pro' ? 'selected' : ''}>Pro — hardly misses, call every ball</option>
-                </select>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">🎲</span> Ludo Board</span>
-                <select class="settings-select" data-pref="ludoRotation">
-                    <option value="0" ${Number(userPreferences.ludoRotation) === 0 ? 'selected' : ''}>Blue top-left (default)</option>
-                    <option value="1" ${Number(userPreferences.ludoRotation) === 1 ? 'selected' : ''}>Blue bottom-left</option>
-                    <option value="2" ${Number(userPreferences.ludoRotation) === 2 ? 'selected' : ''}>Blue bottom-right</option>
-                    <option value="3" ${Number(userPreferences.ludoRotation) === 3 ? 'selected' : ''}>Blue top-right</option>
-                </select>
-            </div>
-            <div class="settings-option">
-                <span class="settings-option-label"><span class="rt-emo">🎲</span> Ludo CPU</span>
-                <select class="settings-select" data-pref="ludoDifficulty">
-                    <option value="adaptive" ${userPreferences.ludoDifficulty === 'adaptive' || !userPreferences.ludoDifficulty ? 'selected' : ''}>Adaptive — follows your win rate</option>
-                    <option value="easy" ${userPreferences.ludoDifficulty === 'easy' ? 'selected' : ''}>Easy — often plays a random move</option>
-                    <option value="normal" ${userPreferences.ludoDifficulty === 'normal' ? 'selected' : ''}>Normal — plays well, ignores danger</option>
-                    <option value="hard" ${userPreferences.ludoDifficulty === 'hard' ? 'selected' : ''}>Hard — also dodges your tokens</option>
-                </select>
-            </div>
-            <div class="settings-option" style="align-items: flex-start; flex-direction: column; gap: 10px;">
-                <span class="settings-option-label"><span class="rt-emo">🎲</span> Ludo Rules</span>
-                <div class="ludo-rule-toggles">
-                    <div class="ludo-rule-row">
-                        <span>Blocks bar opponents <small style="opacity:0.6;">(never on ★ squares)</small></span>
-                        <div class="toggle-switch ${userPreferences.ludoBlocks !== false ? 'active' : ''}" data-pref="ludoBlocks"></div>
-                    </div>
-                    <div class="ludo-rule-row">
-                        <span>…and can't be jumped over <small style="opacity:0.6;">(off: hop past, still can't land)</small></span>
-                        <div class="toggle-switch ${userPreferences.ludoBlockPassing !== false ? 'active' : ''}" data-pref="ludoBlockPassing"></div>
-                    </div>
-                    <div class="ludo-rule-row">
-                        <span>Three 6s forfeit the turn</span>
-                        <div class="toggle-switch ${userPreferences.ludoThreeSixes !== false ? 'active' : ''}" data-pref="ludoThreeSixes"></div>
-                    </div>
-                    <div class="ludo-rule-row">
-                        <span>Exact roll to finish</span>
-                        <div class="toggle-switch ${userPreferences.ludoExactHome !== false ? 'active' : ''}" data-pref="ludoExactHome"></div>
-                    </div>
-                    <div class="ludo-rule-row">
-                        <span>Release on any roll <small style="opacity:0.6;">(no 6 needed)</small></span>
-                        <div class="toggle-switch ${userPreferences.ludoFreeRelease === true ? 'active' : ''}" data-pref="ludoFreeRelease"></div>
-                    </div>
-                    <div class="ludo-rule-row" style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 8px; margin-top: 2px;">
-                        <span>Sixes rolled <small style="opacity:0.6;">${typeof ludoDiceSummary === 'function' ? ludoDiceSummary() : ''} — a fair die lands 16.7%. <code>ludoDiceReset()</code> starts a fresh sample.</small></span>
+                <div class="settings-option" style="align-items: flex-start; flex-direction: column; gap: 10px;">
+                    <span class="settings-option-label"><span class="rt-emo">🎲</span> Rules</span>
+                    <div class="ludo-rule-toggles">
+                        <div class="ludo-rule-row">
+                            <span>Blocks bar opponents <small style="opacity:0.6;">(never on ★ squares)</small></span>
+                            <div class="toggle-switch ${userPreferences.ludoBlocks !== false ? 'active' : ''}" data-pref="ludoBlocks"></div>
+                        </div>
+                        <div class="ludo-rule-row">
+                            <span>…and can't be jumped over <small style="opacity:0.6;">(off: hop past, still can't land)</small></span>
+                            <div class="toggle-switch ${userPreferences.ludoBlockPassing !== false ? 'active' : ''}" data-pref="ludoBlockPassing"></div>
+                        </div>
+                        <div class="ludo-rule-row">
+                            <span>Three 6s forfeit the turn</span>
+                            <div class="toggle-switch ${userPreferences.ludoThreeSixes !== false ? 'active' : ''}" data-pref="ludoThreeSixes"></div>
+                        </div>
+                        <div class="ludo-rule-row">
+                            <span>Exact roll to finish</span>
+                            <div class="toggle-switch ${userPreferences.ludoExactHome !== false ? 'active' : ''}" data-pref="ludoExactHome"></div>
+                        </div>
+                        <div class="ludo-rule-row">
+                            <span>Release on any roll <small style="opacity:0.6;">(no 6 needed)</small></span>
+                            <div class="toggle-switch ${userPreferences.ludoFreeRelease === true ? 'active' : ''}" data-pref="ludoFreeRelease"></div>
+                        </div>
+                        <div class="ludo-rule-row" style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 8px; margin-top: 2px;">
+                            <span>Sixes rolled <small style="opacity:0.6;">${typeof ludoDiceSummary === 'function' ? ludoDiceSummary() : ''} — a fair die lands 16.7%. <code>ludoDiceReset()</code> starts a fresh sample.</small></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -25007,6 +25271,23 @@
         `;
 
         document.body.appendChild(modal);
+
+        // The tab strip, as the leaderboard's: one group of rows at a time.
+        modal.querySelectorAll('.settings-tab').forEach(tab => {
+            tab.addEventListener('click', () => showSettingsTab(modal, tab.getAttribute('data-settings-tab')));
+        });
+        // ←/→ walk the strip, as a tablist does.
+        modal.querySelector('.settings-tabs').addEventListener('keydown', e => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+            const tabs = Array.prototype.slice.call(modal.querySelectorAll('.settings-tab'));
+            const i = tabs.indexOf(document.activeElement);
+            if (i < 0) return;
+            const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+            showSettingsTab(modal, next.getAttribute('data-settings-tab'));
+            next.focus();
+            e.preventDefault();
+        });
+        showSettingsTab(modal, settingsTab);
 
         modal.querySelectorAll('.toggle-switch').forEach(toggle => {
             toggle.addEventListener('click', function() {
@@ -25025,15 +25306,15 @@
         modal.querySelectorAll('.settings-select').forEach(select => {
             select.addEventListener('change', function() {
                 const pref = this.getAttribute('data-pref');
-                // Selects hand back strings; these two are numbers everywhere else.
-                const numericPrefs = ['gameFps', 'ludoRotation', 'snookerReds'];
+                // Selects hand back strings; these are numbers everywhere else.
+                const numericPrefs = ['gameFps', 'ludoRotation', 'snookerReds', 'poolClock', 'snookerClock'];
                 userPreferences[pref] = numericPrefs.indexOf(pref) !== -1
                     ? parseInt(this.value, 10) : this.value;
                 savePreferences();
                 applyPreferences();
-                // The cue game, and snooker's reds and CPU: the pool panel follows them now (a
+                // The shot clocks, and snooker's reds and CPU: the pool panel follows them now (a
                 // new difficulty or reds count applies to a frame nothing has been hit in yet).
-                if (['poolVariant', 'snookerReds', 'snookerDifficulty'].indexOf(pref) !== -1 && typeof poolOnPrefChange === 'function') poolOnPrefChange(pref);
+                if (['poolClock', 'snookerClock', 'snookerReds', 'snookerDifficulty'].indexOf(pref) !== -1 && typeof poolOnPrefChange === 'function') poolOnPrefChange(pref);
 
                 // If theme changed, update dependent options visibility
                 if (pref === 'displayTheme') {
@@ -27523,8 +27804,10 @@
                     titleElement.textContent = '🏓 Breakout';
                     break;
                 case 'pool':
-                    // 🎱 8-Ball Pool or 🔴 Snooker: whichever cue game the panel plays.
-                    titleElement.textContent = typeof poolTitle === 'function' ? poolTitle() : '🎱 8-Ball Pool';
+                    // 8-Ball Pool or Snooker, whichever the panel plays, behind the 🎱 | 🔴 switch
+                    // between them (pool-game.js poolRenderTitle).
+                    if (typeof poolRenderTitle === 'function') poolRenderTitle(titleElement);
+                    else titleElement.textContent = '🎱 8-Ball Pool';
                     break;
                 case 'ludo':
                     titleElement.textContent = '🎲 Ludo';

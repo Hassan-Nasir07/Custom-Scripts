@@ -111,7 +111,8 @@
     //   bih: { valid, reason, placed, sx, sy, sr } | null,
     //   canReplace,                  the shooter placed the cue ball and may pick it up again
     //   cpuTurn,                     the CPU is at the table: its own hint, no human controls
-    //   sheet: { open, mode, note }, the Game mode sheet: which tab, and a line under the list
+    //   sheet: { open, mode, note, names: [{ value, placeholder }] },  the Game mode sheet: which
+    //                                tab, a line under the list, and 2 Players' two names
     //   difficulty,                  the picked CPU difficulty ('adaptive' or a tier)
     //   diffs,                       the difficulty list for this game (PH_DIFFS when absent)
     //   pots: { 1: [ids], 2: [ids] } the object balls each seat has potted this frame, shown
@@ -269,6 +270,11 @@
                 diffs: (g.diffs || PH_DIFFS).map(d => ({ key: d.key, name: d.name, desc: d.desc, checked: (g.difficulty || 'adaptive') === d.key })),
                 chip: 'NOW ' + String(g.adaptiveTier || 'normal').toUpperCase(),
                 note: (g.sheet && g.sheet.note) || '',
+                // 2 Players' names: what was typed, and the default an empty one plays as.
+                names: [0, 1].map(i => {
+                    const n = (g.sheet && g.sheet.names && g.sheet.names[i]) || {};
+                    return { value: String(n.value || ''), placeholder: n.placeholder || 'Player ' + (i + 1) };
+                }),
                 tour: g.tourSheet && g.tourSheet.saved ? { saved: true, cta: 'RESUME ' + String(g.tourSheet.name || 'TOURNAMENT').toUpperCase(), sub: g.tourSheet.where || '' }
                     : { saved: false, cta: 'SET UP TOURNAMENT', sub: '' },
             } : { show: false },
@@ -490,6 +496,9 @@
             '<div class="ph-sheet-links"><button type="button" class="ph-btn" data-ph="sheetcab">' + PH_ICON.cup + '<span>Trophy cabinet</span></button>' +
             '<button type="button" class="ph-btn is-hot" data-ph="sheetabandon" hidden><span>Abandon</span></button></div></div>' +
             '<div class="ph-sheet-pvp" data-ph="sheetpvp" hidden><span>Hot-seat on this computer. Hand the panel over after each turn; the game tells you whose shot it is.</span>' +
+            // The two names, as a tournament's setup takes them; an empty one keeps its default.
+            '<div class="ph-sheet-names">' + [1, 2].map(seat => '<label class="ph-sheet-name"><span class="ph-sheet-l ph-label">PLAYER ' + seat + '</span>' +
+                '<input type="text" class="ph-sheet-input" maxlength="16" autocomplete="off" spellcheck="false" data-ph="sheetp' + seat + '" aria-label="Player ' + seat + ' name"></label>').join('') + '</div>' +
             '<button type="button" class="ph-primary ph-label" data-ph="sheetstart">START 2-PLAYER FRAME</button></div>' +
             '</div>';
     }
@@ -545,7 +554,7 @@
             'hint', 'hintt', 'bihnote', 'replace',
             'mini', 'minicap', 'scrim', 'dialog', 'dlgi', 'dlgk', 'dlgt', 'dlgr', 'dlgrec', 'dlgrl', 'dlgrv', 'dlgd', 'dlgn', 'dlgnt', 'dlgp', 'dlgs',
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
-            'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart',
+            'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart', 'sheetp1', 'sheetp2',
             'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy',
             'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
@@ -644,6 +653,12 @@
         hud.sheetx.addEventListener('click', () => fire('sheetClose'));
         hud.sheetscrim.addEventListener('click', () => fire('sheetClose'));
         hud.sheetstart.addEventListener('click', () => fire('startPvp'));
+        [1, 2].forEach(seat => {
+            const inp = hud['sheetp' + seat];
+            inp.addEventListener('input', () => fire('pvpName', { seat, value: inp.value }));
+            // Enter in a name starts the frame, as the button does.
+            inp.addEventListener('keydown', e => { if (e.key === 'Enter') { fire('startPvp'); e.preventDefault(); } });
+        });
         hud.sheettourgo.addEventListener('click', () => fire('tourGo'));
         hud.sheetcab.addEventListener('click', () => fire('tourCabinet'));
         hud.sheetabandon.addEventListener('click', () => fire('tourAbandon'));
@@ -925,6 +940,13 @@
             s('sheet.diff', sh.diffs.map(d => d.checked ? 1 : 0).join(''), () => hud.diffButtons.forEach((b, i) => b.setAttribute('aria-checked', sh.diffs[i].checked ? 'true' : 'false')));
             s('sheet.chip', sh.chip, v => { hud.sheetchip.textContent = v; });
             s('sheet.note', sh.note, v => { hud.sheetnote.textContent = v; phShow(hud.sheetnote, !!v); });
+            // A name being typed is never written back under the caret.
+            sh.names.forEach((n, i) => {
+                const inp = hud['sheetp' + (i + 1)];
+                if (!inp) return;
+                s('sheet.p' + i, n.value, v => { if (inp.ownerDocument.activeElement !== inp) inp.value = v; });
+                s('sheet.ph' + i, n.placeholder, v => { inp.placeholder = v; });
+            });
             s('sheet.tour', sh.tour.cta + '|' + sh.tour.sub + '|' + sh.tour.saved, () => {
                 hud.sheettourcta.textContent = sh.tour.cta; hud.sheettoursub.textContent = sh.tour.sub; phShow(hud.sheettoursub, !!sh.tour.sub); phShow(hud.sheetabandon, sh.tour.saved);
             });

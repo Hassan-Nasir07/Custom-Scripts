@@ -154,6 +154,9 @@ const vm = o => P.phModel(game(o));
     ok('no pick yet means Adaptive', vm({ sheet: { open: true } }).sheet.diffs[0].checked);
     ok('with the sheet up, the lean, spin, picker and hint step aside', !sh.lean.show && !sh.spin.show && !sh.hint.show && !vm({ sheet: { open: true }, spinOpen: true }).spin.open);
     ok('the sheet opens on 2 Players when that is the mode', vm({ mode: 'pvp', sheet: { open: true } }).sheet.mode === 'pvp');
+    const nm = vm({ mode: 'pvp', sheet: { open: true, names: [{ value: 'Bilal', placeholder: 'Ayesha' }, { value: '', placeholder: 'Player 2' }] } }).sheet.names;
+    ok('2 Players: two names, each with the default an empty one plays as', nm.length === 2 && nm[0].value === 'Bilal' && nm[0].placeholder === 'Ayesha' && nm[1].value === '' && nm[1].placeholder === 'Player 2');
+    ok('…and Player 1 / Player 2 when the game passes none', vm({ sheet: { open: true } }).sheet.names.map(n => n.placeholder).join() === 'Player 1,Player 2');
     ok('a note under the list passes through', vm({ sheet: { open: true, note: 'Hard from the next frame; this one stays Normal' } }).sheet.note === 'Hard from the next frame; this one stays Normal');
     ok('frame over vs the CPU: the second button is Change difficulty, as designed',
        vm({ phase: 'over', result: { win: true, title: 'You win' } }).dialog.secondary === 'Change difficulty');

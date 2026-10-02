@@ -316,6 +316,22 @@ function frame(scene, w, h) {
     ok('3D: above the far rail is the (cleared) backdrop', sky.every(c => c < 10), sky.join(','));
     const hidden = frame({ view: ortho, world: rack, bih: { x: 0, y: 0, valid: true } }).px(...at(rack.table.headX, 0));
     ok('ball in hand hides the real cue ball', !ivory(hidden), hidden.join(','));
+
+    // ⚙️ Aim Guide None (guideLen 0): the aim line and the ghost ball, nothing after the contact.
+    const R = cfg.ballR, two = P.ppCreateWorld();
+    two.balls = [P.ppMakeBall(0, -300, 0), P.ppMakeBall(1, 0, 0)];
+    const g2 = P.pgGuide(two, { angle: 0, speed: 1600 });
+    const lit = (img, pts) => pts.some(([x, y]) => { const c = img.px(...at(x, y)); return Math.max(...c) - felt[1] > 25 || c[0] - felt[0] > 40; });
+    const path = [40, 50, 60, 70, 80].map(x => [R + x, 0]), aimLine = [-260, -240, -220, -200, -180, -160, -140, -120, -100].map(x => [x, 0]);
+    const long = frame({ view: ortho, world: two, aim: { angle: 0, power: 0 }, guide: g2, guideMode: 'full', guideLen: 150 });
+    const none = frame({ view: ortho, world: two, aim: { angle: 0, power: 0 }, guide: g2, guideMode: 'full', guideLen: 0 });
+    ok('Aim Guide Long draws the object ball\'s path', !!g2.obj && lit(long, path));
+    ok('Aim Guide None draws no object-ball path', !lit(none, path));
+    ok('…but keeps the aim line to the contact', lit(none, aimLine));
+    // The ghost's dashed rim, sampled round its upper and lower halves (clear of the aim line).
+    const rim = Array.from({ length: 16 }, (_, i) => { const t = Math.PI / 4 + i / 15 * Math.PI / 2 * (i < 8 ? 1 : -1) + (i < 8 ? 0 : Math.PI); return [g2.contact[0] + R * Math.cos(t), R * Math.sin(t)]; });
+    const ghost = img => rim.some(([x, y]) => Math.min(...img.px(...at(x, y))) > 120);
+    ok('…and the ghost ball at the contact', ghost(none) && !ghost(frame({ view: ortho, world: two })));
 }
 
 // ── 7. Snooker's table ────────────────────────────────────────────────

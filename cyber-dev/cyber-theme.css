@@ -1729,6 +1729,35 @@
                         rgba(var(--rt-glow-rgb, 255, 242, 0), calc(0.5 * var(--rt-glow-k, 0.6))) !important;
             }
 
+            body:has(.retro-theme) .settings-tab {
+                border-radius: 0;
+                border-color: var(--rt-border, rgba(255, 242, 0, 0.4));
+                background: transparent;
+                color: var(--rt-text-dim, rgba(255, 242, 0, 0.72));
+                font-family: 'Share Tech Mono', monospace;
+                letter-spacing: 0.06em;
+            }
+            body:has(.retro-theme) .settings-tab:hover { color: var(--rt-text, #fff200); }
+            body:has(.retro-theme) .settings-tab.is-active {
+                background: var(--rt-text, #fff200);
+                border-color: var(--rt-text, #fff200);
+                color: var(--rt-bg-1, #07091a);
+            }
+            body:has(.retro-theme) .settings-subhead {
+                color: var(--rt-text-dim, rgba(255, 242, 0, 0.72));
+                font-family: 'Share Tech Mono', monospace;
+            }
+            .attendance-summary.retro-theme .pool-cue-switch,
+            .attendance-summary.retro-theme .pool-cue-opt { border-radius: 0; }
+            .attendance-summary.retro-theme .pool-cue-switch {
+                border-color: var(--rt-border);
+                background: transparent;
+            }
+            .attendance-summary.retro-theme .pool-cue-opt.is-on {
+                background: rgba(var(--rt-accent-rgb), 0.22);
+                box-shadow: inset 0 0 0 1px var(--rt-accent);
+            }
+
             /* Contrast guard readout. It warns; it never silently corrects. */
             .cyber-contrast-chip {
                 font-family: 'Share Tech Mono', monospace;

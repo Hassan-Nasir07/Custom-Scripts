@@ -626,7 +626,8 @@
     //   dpr,                                         backing-store scale of ctx
     //   aim: { angle, power, gap } | null,           null hides the cue and the guides
     //   guide: pgGuide(…) | null, guideMode: 'full' | 'short' | 'off', illegal,
-    //   guideLen: the object ball's line in full mode (150 unless ⚙️ Aim Guide shortens it),
+    //   guideLen: the object ball's line in full mode (150 unless ⚙️ Aim Guide shortens it;
+    //             0 draws neither path, only the aim line and the ghost ball),
     //   bih: { x, y, valid, reason } | null, zone: 'kitchen' | 'D' | null (kitchen: the old name),
     //   call: { called } | null, ring: the nominated ball's id (snooker) | null,
     //   drops: [{ ball, pocket, t }],
@@ -696,16 +697,17 @@
         const Z = 0.6;
         if (g && g.contact) {
             const short = scene.guideMode === 'short';
+            // ⚙️ Aim Guide None (guideLen 0): the aim line and the ghost ball, no paths after.
+            const L = short ? 60 : typeof scene.guideLen === 'number' ? scene.guideLen : 150;
             const dx = g.contact[0] - g.start[0], dy = g.contact[1] - g.start[1], dl = Math.hypot(dx, dy) || 1;
             const ux = dx / dl, uy = dy / dl;
             if (dl > 2.3 * R) {
                 pgStrokeLine(ctx, view, [[g.start[0] + ux * R * 1.3, g.start[1] + uy * R * 1.3], [g.contact[0] - ux * R, g.contact[1] - uy * R]], Z, pgRgba(PG_GUIDE, 0.85), 1.5, [5, 4]);
             }
-            if (g.obj) {
-                const L = short ? 60 : scene.guideLen || 150;
+            if (g.obj && L > 0) {
                 pgStrokeLine(ctx, view, [[g.obj.x + g.obj.dx * R, g.obj.y + g.obj.dy * R], [g.obj.x + g.obj.dx * (R + L), g.obj.y + g.obj.dy * (R + L)]], Z, theme.accent, 2, null, true);
             }
-            if (g.after.length > 1) {
+            if (g.after.length > 1 && L > 0) {
                 const path = pgTrim(g.after, (short ? 40 : g.cushion ? 120 : 90) + R);
                 // Start the line at the ghost ball's edge.
                 let k = 0, acc = 0;

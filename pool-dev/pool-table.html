@@ -26,6 +26,16 @@
     .snake-game-title { font-size: 1rem; font-weight: 600; color: rgba(255, 255, 255, 0.9); white-space: nowrap; }
     .game-score-btn { display: inline-flex; align-items: baseline; gap: 3px; padding: 3px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.18); color: rgba(255, 255, 255, 0.9); font: inherit; line-height: 1.1; }
     .game-score-btn .gsb-best { font-size: 0.9rem; font-weight: 700; }
+    /* The host's cue game switch in the title (pool-game.js poolRenderTitle), as the widget styles it. */
+    .pool-cue-switch { display: inline-flex; align-items: center; gap: 2px; padding: 2px; margin-right: 8px; vertical-align: middle; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.06); font: inherit; line-height: 1; cursor: pointer; }
+    .pool-cue-opt { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 20px; border-radius: 999px; font-size: 0.8rem; opacity: 0.6; transition: background 0.2s ease, opacity 0.2s ease; }
+    .pool-cue-opt.is-on { opacity: 1; background: rgba(108, 92, 231, 0.45); box-shadow: inset 0 0 0 1px rgba(162, 155, 254, 0.7); }
+    .pool-cue-switch:hover .pool-cue-opt:not(.is-on) { opacity: 0.85; }
+    .pool-cue-name { vertical-align: middle; }
+    @media (prefers-color-scheme: light) {
+        .attendance-summary:not(.retro-theme) .pool-cue-switch { border-color: rgba(0, 0, 0, 0.14); background: rgba(0, 0, 0, 0.04); }
+        .attendance-summary:not(.retro-theme) .pool-cue-opt.is-on { background: rgba(108, 92, 231, 0.2); box-shadow: inset 0 0 0 1px rgba(108, 92, 231, 0.55); }
+    }
     @media (prefers-color-scheme: light) {
         body { background: linear-gradient(135deg, #eef0ff 0%, #f6f3ff 60%, #fbfbff 100%); color: #2d3436; }
         .attendance-summary { background: rgba(255, 255, 255, 0.7); }
@@ -117,10 +127,10 @@ var userPreferences = Object.assign({
     cyberPanelTint: '#00e5ff', cyberText: '#fff200', cyberGlow: '#fff200', cyberBorder: '#fff200',
     cyberGlowIntensity: 0.6, cyberPanelShape: 'notched', gameFps: 60,
     poolTableColor: 'green', poolCamera: '3d', poolLean: 35, poolShotCam: 'overhead',
-    // The game the panel plays, as ⚙️ Cue Game sets it in the widget, and snooker's own settings.
+    // The game the panel plays, as the header's switch sets it in the widget, and snooker's own settings.
     poolVariant: 'pool', snookerReds: 15, snookerDifficulty: 'adaptive',
-    // ⚙️ Aim Guide and ⚙️ Max View.
-    poolGuideLen: 'long', poolMaxLayout: 'full',
+    // ⚙️ Aim Guide, ⚙️ Max View, ⚙️ Shot Clock (each game's), and 2 Players' names.
+    poolGuideLen: 'long', poolMaxLayout: 'full', poolClock: 30, snookerClock: 45, poolP1Name: '', poolP2Name: '',
 }, (() => { try { return JSON.parse(localStorage.getItem('poolProtoPrefs') || '{}'); } catch (_) { return {}; } })());
 var isPipActive = false, pipWindow = null;
 var currentGame = 'pool', lbDisplayName = 'Ayesha', xpSystemReady = false;
@@ -618,7 +628,7 @@ function toggleGameMaxModal(cfg) {
     $('shape').value = userPreferences.cyberPanelShape;
     $('shape').onchange = e => { userPreferences.cyberPanelShape = e.target.value; applyTheme(true); };
     $('narrow').checked = Q.has('narrow'); $('narrow').onchange = e => setNarrow(e.target.checked);
-    // Game: the same setting as ⚙️ Cue Game, switched through poolSetVariant() as ⚙️ does:
+    // Game: the same setting as the header's switch, switched through poolSetVariant() as it is:
     // the frame on the table is parked and the other game's comes back. The CPU select is
     // the game's own difficulty; Reds and Call every shot belong to one game each. The scene
     // buttons show the game's own states.
@@ -638,6 +648,8 @@ function toggleGameMaxModal(cfg) {
         poolSetVariant(e.target.value);
         syncGame();
     };
+    // The header's own switch: the rig's controls follow it (its handler runs first).
+    $('game-title').addEventListener('click', e => { if (e.target.closest('.pool-cue-switch')) syncGame(); });
     $('reds').value = String(userPreferences.snookerReds || 15);
     $('reds').onchange = e => { userPreferences.snookerReds = +e.target.value; savePreferences(); if (typeof poolOnPrefChange === 'function') poolOnPrefChange('snookerReds'); };
     syncGame();

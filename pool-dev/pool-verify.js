@@ -76,6 +76,21 @@ ok('the bridges only the old buttons used are gone', !/window\.(startPoolGameBtn
 ok('userPreferences defaults poolCamera, poolLean and poolShotCam',
    /poolCamera: '3d',/.test(src) && /poolLean: 35,/.test(src) && /poolShotCam: 'overhead',/.test(src));
 ok('⚙️ offers the shot camera: Overhead or Stay 3D', /data-pref="poolShotCam"[\s\S]{0,300}?value="overhead"[\s\S]{0,300}?value="3d"/.test(src));
+{
+    const m = /function createSettingsModal\(\) \{[\s\S]*?\n    \}\n/.exec(src), fn = m ? m[0] : '';
+    const opts = pref => { const r = new RegExp('data-pref="' + pref + '">([\\s\\S]*?)</select>').exec(fn); return r ? [...r[1].matchAll(/value="([^"]*)"/g)].map(x => x[1]).join() : null; };
+    ok('⚙️ groups its rows behind a tab strip: General, Theme, Cue Games, Ludo',
+       [...fn.matchAll(/data-settings-tab="(\w+)"/g)].map(x => x[1]).join() === 'general,theme,cue,ludo' &&
+       [...fn.matchAll(/data-settings-group="(\w+)"/g)].map(x => x[1]).join() === 'general,theme,cue,ludo');
+    ok('…the cue games\' tab heads its rows: both games, then pool, then snooker',
+       /data-settings-group="cue"[\s\S]*?Both games[\s\S]*?data-pref="poolShotCam"[\s\S]*?🎱 8-Ball Pool[\s\S]*?data-pref="poolClock"[\s\S]*?🔴 Snooker[\s\S]*?data-pref="snookerClock"[\s\S]*?data-settings-group="ludo"/.test(fn));
+    ok('the cue game is not a ⚙️ setting any more (the header switches it)', opts('poolVariant') === null);
+    ok('⚙️ Aim Guide offers None', opts('poolGuideLen') === 'long,medium,short,none');
+    ok('⚙️ Shot Clock: the tournament\'s choices for each game', opts('poolClock') === '30,45,0' && opts('snookerClock') === '30,45,60,0');
+    ok('…read back as numbers, and the panel follows them', /numericPrefs = \[[^\]]*'poolClock', 'snookerClock'\]/.test(fn) && /\['poolClock', 'snookerClock', 'snookerReds', 'snookerDifficulty'\]\.indexOf\(pref\)/.test(fn));
+    ok('userPreferences defaults the clocks and 2 Players\' names', /poolClock: 30,/.test(src) && /snookerClock: 45,/.test(src) && /poolP1Name: '',/.test(src) && /poolP2Name: '',/.test(src));
+    ok('the pool panel\'s title goes through poolRenderTitle', /case 'pool':[\s\S]{0,200}?if \(typeof poolRenderTitle === 'function'\) poolRenderTitle\(titleElement\);/.test(src));
+}
 ok('applyPreferences tells pool the theme changed', /applyGameMode\(\);\n[^\n]*\n\s+if \(typeof poolOnThemeChange === 'function'\) poolOnThemeChange\(\);\n    \}/.test(src));
 {
     const m = /function toggleGameMaxModal\(cfg\) \{[\s\S]*?\n    \}\n/.exec(src);
@@ -318,6 +333,83 @@ function playFrame(P, maxTicks) {
     ok('the camera and lean are remembered in userPreferences', P.host.userPreferences.poolCamera === '2d' && P.host.userPreferences.poolLean === 80 && P.log.saves >= 1);
     P.host.userPreferences.poolShotCam = '3d';
     ok('the shot camera comes from ⚙️ (userPreferences.poolShotCam)', P.poolCamInput().shotCam === '3d' && P.poolCamInput().camera === '2d');
+}
+
+{
+    // A foul's toast has no timer. Against the CPU no hand-off clears it, so placing the cue
+    // ball must, or the spin control (and the hint and call card) stay hidden all shot.
+    const P = L.game({ seed: 12 }), S = P.poolS;
+    P.poolNewFrame(1);
+    Object.assign(S.frame, { isBreak: false, ballInHand: 'anywhere', turn: 1 });
+    S.phase = 'bih'; S.placed = false; S.fouled = 2;
+    P.poolShowToast({ kind: 'foul', title: 'Foul · scratch', sub: 'Ball in hand to You' });
+    S.drag = { kind: 'place' }; P.prPlaceCue(S.world, -200, 100);
+    P.poolOnUp();
+    ok('ball in hand after a CPU foul: placing the ball takes the foul toast down, the FOUL tag stays',
+       S.phase === 'aim' && S.placed && S.toast === null && S.fouled === 2);
+    P.poolShowToast({ kind: 'notice', title: 'CPU plays on', sub: '' });
+    S.phase = 'bih'; S.drag = { kind: 'place' }; P.poolOnUp();
+    ok('…a notice keeps its own timer', S.toast && S.toast.kind === 'notice');
+}
+{
+    // 2 Players' names, from the Game mode sheet.
+    const P = L.game({ name: 'Ayesha' }), S = P.poolS;
+    P.poolNewFrame(1); P.togglePoolMode();
+    ok('2 Players, unnamed: you (by your leaderboard name) and Player 2', P.poolNames()[1] === 'Ayesha' && P.poolNames()[2] === 'Player 2');
+    P.poolOn.pvpName({ seat: 1, value: '  Bilal ' }); P.poolOn.pvpName({ seat: 2, value: 'Zainab the Very Long Name' });
+    ok('typed names play at once, trimmed, 16 characters at most', P.poolNames()[1] === 'Bilal' && P.poolNames()[2] === 'Zainab the Very' && P.host.userPreferences.poolP2Name.length === 16);
+    P.poolOn.pvpName({ seat: 1, value: '' });
+    ok('an emptied name goes back to its default', P.poolNames()[1] === 'Ayesha');
+    P.togglePoolMode();
+    ok('Vs CPU keeps You and CPU', P.poolNames()[1] === 'Ayesha' && P.poolNames()[2] === 'CPU');
+    const before = JSON.stringify(P.host.userPreferences);
+    P.poolOn.pvpName({ seat: 3, value: 'x' });
+    ok('a seat that is not 1 or 2 is ignored', JSON.stringify(P.host.userPreferences) === before);
+}
+{
+    // ⚙️ Shot Clock for quick frames, per game; a tournament keeps its own.
+    const P = L.game({ prefs: { poolClock: 45, snookerClock: 0 } }), S = P.poolS;
+    P.poolNewFrame(1);
+    ok('⚙️ Pool Shot Clock 45: the quick frame runs a 45 s clock', S.clockTotal === 45 && S.clockLeft === 45);
+    P.poolSetVariant('snooker');
+    ok('⚙️ Snooker Shot Clock Off: no clock', S.clockTotal === 0);
+    P.host.userPreferences.snookerClock = 60; P.poolOnPrefChange('snookerClock');
+    ok('turned on mid-turn, it starts full', S.clockTotal === 60 && S.clockLeft === 60);
+    S.clockLeft = 50; P.host.userPreferences.snookerClock = 30; P.poolOnPrefChange('snookerClock');
+    ok('shortened mid-turn, the turn keeps what it has within the new limit', S.clockTotal === 30 && S.clockLeft === 30);
+    P.host.userPreferences.snookerClock = 'nonsense'; P.poolOnPrefChange('snookerClock');
+    ok('a value it does not offer falls back to the game\'s own (snooker 45)', S.clockTotal === 45);
+    P.poolSetVariant('pool');
+    ok('pool keeps its own pick', S.clockTotal === 45);
+}
+{
+    // ⚙️ Aim Guide None: the shot the HUD keeps its overlays off ends at the contact.
+    const P = L.game(), S = P.poolS;
+    P.poolNewFrame(1);
+    S.world.balls.forEach(b => { if (b.id > 1) b.state = 'pocketed'; });
+    P.prPlaceCue(S.world, -300, 0);
+    Object.assign(S.world.balls.find(b => b.id === 1), { x: 0, y: 0 });
+    S.phase = 'aim'; S.aim = 0; S.guideKey = ''; P.poolRefreshGuide();
+    const v = P.pcView(P.pcOrtho(400, 300, S.cfg));
+    const full = P.poolShotPath(v);
+    P.host.userPreferences.poolGuideLen = 'none';
+    const none = P.poolShotPath(v);
+    ok('Aim Guide None: guide length 0, and the shot path stops at the contact', P.poolGuideLen() === 0 && none.dots.length === 1 && full.dots.length > 1 && none.segs.length < full.segs.length);
+    P.host.userPreferences.poolGuideLen = 'bogus';
+    ok('an unknown Aim Guide reads as Long', P.poolGuideLen() === 150);
+}
+{
+    // The header's 🎱 | 🔴 switch, in place of ⚙️ Cue Game.
+    const P = L.game({ seed: 4 }), S = P.poolS;
+    P.poolNewFrame(1);
+    P.poolToggleVariant();
+    ok('the header switch plays snooker and remembers it', S.game === 'snooker' && P.host.userPreferences.poolVariant === 'snooker' && P.log.saves >= 1);
+    P.poolToggleVariant();
+    ok('…and switches back', S.game === 'pool' && P.host.userPreferences.poolVariant === 'pool');
+    const el = { innerHTML: '', firstChild: { addEventListener: (t, f) => { el.click = t === 'click' ? f : null; } } };
+    P.poolRenderTitle(el);
+    ok('the title: both games\' icons with pool lit, its name, and a click that switches', /class="pool-cue-switch"[^>]*aria-label="Switch to Snooker"/.test(el.innerHTML) &&
+       /<span class="pool-cue-opt is-on">🎱<\/span><span class="pool-cue-opt">🔴<\/span>/.test(el.innerHTML) && /<span class="pool-cue-name">8-Ball Pool<\/span>/.test(el.innerHTML) && el.click === P.poolToggleVariant);
 }
 
 // ── 5. The CPU (pool-ai.js) ───────────────────────────────────────────
@@ -798,7 +890,7 @@ const COLOURS = [2, 3, 4, 5, 6, 7].map(id => [id].concat([[-293.5, -81.8], [-293
     P.poolNewFrame(1);
     const poolBalls = JSON.stringify(S.world.balls.map(b => [b.id, b.x, b.y]));
     P.poolSetVariant('snooker');
-    ok('⚙️ Cue Game → snooker: its table (6 reds from ⚙️, so 13 balls), ball in hand in the D, the 45 s clock, its title',
+    ok('the cue game → snooker: its table (6 reds from ⚙️, so 13 balls), ball in hand in the D, the 45 s clock, its title',
        S.game === 'snooker' && S.world.balls.length === 13 && S.phase === 'bih' && S.frame.ballInHand === 'D' && S.clockTotal === 45 && P.poolTitle() === '🔴 Snooker' &&
        P.prCanPlace(S.world, S.world.balls[0].x, S.world.balls[0].y, 'D') === null);
     ok('the Game mode sheet lists snooker\'s words, and the CPU is snooker\'s', P.poolRules().diffs[3].desc === 'Position and safety · call the colours' && P.poolRules().cpu.tiers.hard.label === 'Hard');

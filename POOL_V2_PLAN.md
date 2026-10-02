@@ -2225,6 +2225,35 @@ with `reinsert --check` passing. Run everything on Node 22
 - [ ] **Cue designs, unlockable like the snake skins.** The design prompt is
       [Appendix C](#appendix-c-design-prompt-for-cues); the build waits for the artboards.
 
+#### After release: the user's review (2026-10-02)
+- [x] **⚙️ Aim Guide gains None** (now labelled *Guideline*): the white aim line to the contact and
+      the ghost ball there, with no object-ball or cue-ball path after it (`POOL_GUIDE_LEN.none`
+      is 0; `pgRender` draws neither path at 0, and the HUD's shot path stops at the contact). A
+      tournament's *Short* still draws its 60. Both games.
+- [x] **2 Players takes two names**, as tournament setup does: the Game mode sheet's 2 Players tab
+      has *Player 1* and *Player 2* fields (16 characters; Enter starts the frame), kept in
+      `poolP1Name` / `poolP2Name`. An empty one plays as before: you by your leaderboard name, and
+      *Player 2*. The cards, hand-off and dialogs follow as you type.
+- [x] **⚙️ is grouped** behind a tab strip styled like the leaderboard's board tabs: *General*,
+      *Theme*, *Cue Games* (headed *Both games*, *8-Ball Pool*, *Snooker*) and *Ludo*. It opens on
+      the game being played (pool → Cue Games, Ludo → Ludo), else on the tab last used.
+- [x] **The cue game moved from ⚙️ to the panel header**: a 🎱 | 🔴 switch in front of the title,
+      the game on the table lit (`poolRenderTitle`, `poolToggleVariant`). It is the same
+      `poolVariant` and `poolSetVariant` as before: the frame in progress is parked, a tournament
+      match saved.
+- [x] **Spin went missing after ball in hand, against the CPU.** A foul's toast has no timer and,
+      without a hot-seat hand-off to clear it, stayed up for the whole shot, hiding the spin
+      control (and the hint and call card) though the ball had been placed. Placing the cue ball
+      now takes a foul toast down; the card keeps its FOUL tag.
+- [x] **⚙️ Shot Clock for quick frames**, from the tournament's choices: pool 30 s (default) / 45 s
+      / Off, snooker 30 / 45 s (default) / 60 / Off (`poolClock`, `snookerClock`; each profile's
+      `clockPref`). A change applies to the turn under way, within the new limit. Tournaments
+      keep their own.
+- [x] **Tests:** `pool-verify` +26 (the toast, the names, the clocks, None's shot path, the
+      switch, the ⚙️ groups and options), `hud-verify` +2, `render-verify` +4 (None draws the aim
+      line and ghost ball, no paths), `host-run` +2 (the tabs and the header switch in the real
+      userscript; its options check and snooker run now use the switch, not ⚙️ Cue Game).
+
 ### Verification
 
 ```
@@ -2398,6 +2427,10 @@ pool-dev/pool-table.html?game=snooker`, then the real portal once v10 is install
 | 2026-09-30 | **The lean slider stays when a pocket is to be called**, in both games | The user's S5 test: it went missing on every call. The design hid it because its call map sat on the slider's side; ours sits bottom right |
 | 2026-09-30 | **Snooker's all-time and hot-seat wins are bounded by games played; pool's are not** | Snooker's keys start with v10, so there are no older wins to explain a jump; pool's all-time count predates the split |
 | 2026-10-01 | **The snooker CPU concedes only past 3 snookers, and plays for them until then** | The user's report from the portal: it gave frames away at 2 without trying |
+| 2026-10-02 | **The cue game is a switch in the panel header, not a ⚙️ row** | The user's review: it is chosen often, and the header is where the game's name already is |
+| 2026-10-02 | **⚙️ is grouped by tabs; the cue games' tab is headed Both games / 8-Ball Pool / Snooker** | The user asked for the leaderboard's grouping. Table colour, camera, guide and Max View apply to both games, so they are not filed under one |
+| 2026-10-02 | **A foul's toast comes down once the cue ball is placed** | The user's report: no spin control after some ball-in-hand placements (against the CPU, where no hand-off clears it) |
+| 2026-10-02 | **Quick frames' shot clock is a ⚙️ setting per game, from the tournament's choices** | The user's call. A mid-turn change keeps what the turn has left within the new limit, so it never buys time back |
 | 2026-10-01 | **Snooker's selection rings are see-through; pool's are unchanged** | The user's report: the rings hid the ball and the pocket. Pool's pockets are larger and nobody asked; its fingerprint guards it |
 | 2026-09-30 | **Pro's aim 0.0425°; hard stays at 0.09° without centuries** | Pro at 0.04° ran its mean break over 40, at 0.045° its centuries under 15; 0.0425° meets both. Hard cannot make centuries by aim alone without its mean break leaving 10–20; that needs break-building, left out of this branch |
 | 2026-09-30 | **A CPU slice stops before a trial it cannot finish in its budget** | Slices of 12 ms ran to 20–31 ms finishing a long trial; the recent trial cost predicts the next |
@@ -2474,35 +2507,113 @@ the design it produced.
 ## Appendix C: design prompt for cues
 
 Written 2026-10-01 for the same Claude Design canvas, after the user asked for unlockable cue
-designs like the snake skins. The bands match the renderer's cue in `pool-render.js` (`pgRender`,
-the cue's `part(u0, u1, colour)` calls); the unlocks are achievements that already exist.
+designs. Revised the same day after the user's review. The prompt no longer mentions the widget's
+snake game, which the designer has no context for. The cue is now a round, low-poly rod sized to
+the ball: today's is a flat four-sided strip whose tip is about half the ball's width. Skins now
+carry colours and textures, based on real custom cues (points with veneers, stone and pearl
+inlays, linen and leather wraps, carbon shafts, spliced ebony snooker butts). The unlocks are
+achievements that already exist. The build is in `pool-render.js` (`pgRender`, the cue's
+`part(u0, u1, colour)` calls), and it scales the cue to each game's ball.
 
 ```text
-Add a CUE COLLECTION to this canvas: cue designs the player unlocks and picks, the way the widget's snake game unlocks snake skins. Match the existing Main, Max, Table and Snooker artboards exactly (palette, type, radii, stroke icons; compact 400×640 with the 368×412 table viewport; full view 1280×800). Reuse the Table and InMatch components, in pool and in snooker, rather than one-offs.
+Add a CUE COLLECTION to this canvas: a set of cue designs ("cue skins") that the player earns and then picks from. Match the existing Main, Max, Table and Snooker artboards exactly: palette, type, radii, stroke icons, the compact 400×640 view with its 368×412 table viewport, and the full 1280×800 view. Reuse the Table and InMatch components, in pool and in snooker, rather than making one-offs.
 
-HOW A CUE IS DRAWN (so every design can be built exactly as you draw it): the cue is painted on the canvas, not placed as an image. It is a straight, tapered stick 600 units long, 3.3 units wide at the tip and 8 at the butt, seen from behind the cue ball in 3D and from above in 2D; in the compact 3D view it is only about 4–20 px wide, so it must read at that size. A design is a sequence of flat colour bands along its length, measured from the tip: tip 0–3, ferrule 3–16, shaft 16–330, joint 330–338, forearm 338–470, butt 470–600. You may split any band into more bands, give a band a two-colour gradient along the length, add a simple repeating inlay on the forearm or butt (points, diamonds, rings or a stripe, in one colour), and edge it with a thin dark line. No photos, wood-grain textures, glows or drop shadows: they cannot be drawn at this size. Cues are physical objects, like the balls and the felt: the same colours in every theme (Glassmorphic dark and light, Cyberpunk).
+WHAT A CUE IS. Each cue is a real object, a round tapered rod, built and drawn in code. It is never a flat strip or a box, and it has no sharp edges: it should look as if it could roll across the table. It is drawn as a low-poly cylinder; give the number of sides you design for (8 to 12) and keep the outline smooth. Shade it as a rod lit from above, so it reads as round from the side, in a 3D view from behind the cue ball, and from above in 2D. For each material, specify the shading across the rod's width as three stops: shadow edge, base and highlight line. The ends are round too:
+- The tip is a short cylinder with a gently domed face.
+- The ferrule is a short cylinder of the same diameter.
+- The butt ends in a rounded rubber bumper.
+- There are no square caps anywhere.
 
-The cue that ships today is STANDARD: tip #3E73B8, ferrule #F2ECDF, shaft #DDB77F, joint #C9A15A, forearm #1B1C1D, butt #3B1F14. Keep it as the first cue.
+Sizes are relative to the cue ball's diameter (D). Draw them true; at the moment the tip looks half the size of the ball.
+- Pool (57 mm ball): length 25.7 D; tip and ferrule 0.23 D across (a 13 mm tip); butt 0.52 D across.
+- Snooker (52.5 mm ball): length 27.6 D; tip 0.19 D (about 10 mm); butt 0.55 D.
+The rod tapers smoothly from tip to butt. Each skin works in both games at that game's scale.
 
-THE COLLECTION: nine cues. Standard is always unlocked; the other eight are each earned by one achievement the widget already has (the achievements are fixed; the names and looks are yours, two words at most per name). Order them from easiest to hardest, and let the looks rise in richness with the difficulty:
-1. Standard: always unlocked.
+ANATOMY. Each design runs along the rod in sections, measured as a percentage of the length from the tip. The defaults are below. You may move the boundaries, and split or add sections.
+| Section | Position (% from tip) |
+| Tip | 0–0.9 |
+| Ferrule | 0.9–2.5 |
+| Shaft | 2.5–50 |
+| Joint ring | 50–51.5 |
+| Forearm | 51.5–72 |
+| Wrap (the grip) | 72–90 |
+| Butt sleeve | 90–99 |
+| Bumper | 99–100 |
+Thin rings (metal, pearl or veneer) can sit at any boundary.
+
+MATERIALS AND TEXTURES. Each section has a material: a colour, a texture and its shading. Textures are generated in code, never photos, so specify each one by its parameters. Draw each texture large enough that its parameters can be measured. The vocabulary, from real custom cues:
+- Woods, given by base colour, grain colour, grain spacing and waviness:
+  - maple (pale, straight grain)
+  - birdseye maple (adds small eyes, with their colour and density)
+  - curly or flame maple (adds cross-figure)
+  - cocobolo (orange to red-brown, dark streaks)
+  - ebony (near-black, faint grain)
+  - rosewood, bocote and zebrano (bold striped)
+  - tulipwood (pink-orange)
+  - ash (a snooker shaft with arrow-shaped grain)
+- Points: a classic cue's forearm has 4 or 6 sharp, inlaid points pointing toward the tip, each edged by veneer layers. Give the point count, length and veneer colours from the outside in, and any inlay set into each point: a diamond, a dot or a "window".
+- Splices: a snooker cue's butt is often hand-spliced ebony, with 4 long splices and a small front splice, edged by maple or sycamore veneers.
+- Inlays and rings:
+  - stone: malachite (green bands), turquoise, bloody jasper (red-green)
+  - mother-of-pearl and abalone (pale, 3-colour iridescence)
+  - metal rings: silver, gold, brass
+  - each needs its shape, size and spacing
+- Wraps: Irish linen (a fine diagonal crosshatch in two tones), leather (a fine pebble), lizard (small scales), stitched leather, stacked leather rings, and rubber. Give the colours and the pattern scale.
+- Modern finishes: carbon fibre twill on the shaft or the whole cue (two colours and cell size), matte or gloss lacquer, solid enamel colours, and a metallic flake.
+Colour and texture vary freely across the set: not just recolours of one cue, but different woods, wraps, inlays and finishes.
+
+LEGIBILITY. In the compact 3D view the rod is only about 4–20 px wide, so every design must also read at that width:
+- Its sections hold their colours.
+- A texture fades to its average colour, plus the round shading.
+- Fine detail shows when the rod is wide: picker cards, the full view, and the shaft and ferrule close up while aiming.
+For each texture, state the width in pixels below which it is replaced by its flat average colour.
+
+No glows and no drop shadows. Cues are physical objects, like the balls and the felt, so they look the same in every theme: Glassmorphic dark, Glassmorphic light and Cyberpunk.
+
+THE COLLECTION has nine cues, ordered from easiest to hardest to earn. Their looks get richer as they get harder to earn: plain woods first, then points and wraps, then stone, pearl and metal. The names and looks are yours, with at most two words per name. Every cue after the first is unlocked by one of the widget's existing achievements. The achievements are fixed; show each one with its own stroke icon.
+1. Standard: always unlocked. It is the house cue and the default: plain maple shaft, a blue tip, a white ferrule, a brass joint ring, and a black forearm and wrap with a dark brown butt. Keep it simple; it is also the CPU's cue.
 2. Team Player: join the leaderboard.
 3. Office Gamer: earn XP in 50 game sessions.
 4. On Fire: a 7-day work streak.
-5. Level 25.
+5. Level 25: reach level 25.
 6. Pool Shark: win 100 pool games against the CPU.
 7. Called It: beat the Pro pool CPU.
-8. Century: make a century break against the snooker CPU.
-9. Maximum: make a 147 against the snooker CPU. This is the legendary cue, and the only one that may move: one slow sheen travelling along its forearm or butt (describe the cycle length).
-One cue is chosen for the account and used for every human shot, in pool and in snooker, in every mode; the CPU always plays with Standard, so its turn reads at a glance. Locked cues stay visible: a locked cue is a goal, a hidden one is just missing.
+8. Century: make a century break (100+) against the snooker CPU.
+9. Maximum: make a 147 against the snooker CPU. This is the legendary cue, and the only one that moves: one slow sheen travels along its inlays or rings. Give the sheen's colours and its cycle length.
 
-ROW C1, the picker (compact 400×640, over the pool table): 1 the cue picker open, with every cue on a card: the full cue drawn horizontally, its name, and Equipped, Unlocked, or for a locked cue a padlock and the achievement that earns it (its stroke icon, its name and one line: "Pool Shark · win 100 games against the CPU"); you decide where the picker opens from, but the compact footer's three tiles (mode, Reset, Max) stay as they are · 2 a cue being equipped, and the picker in the narrow 316 px widget column · 3 the moment an achievement unlocks a cue: a restrained notice ("New cue · <name>") with a way to equip it.
+How cues are chosen and shown:
+- The player picks one cue for their account. It is used for every human shot, in pool and in snooker, in every mode.
+- The CPU always plays with Standard, so its turn reads at a glance.
+- Locked cues stay visible: a locked cue is a goal, but a hidden one is just missing.
 
-ROW C2, on the table (compact): 4 pool 3D aiming with a premium cue behind the cue ball · 5 snooker 3D aiming with the same cue (snooker's smaller balls) · 6 2D top-down with the cue · 7 the cue drawn back at 90% power.
+ROW C1, the picker (compact 400×640, over the pool table):
+1. The cue picker, open. Every cue is on a card: the full cue drawn horizontally and round, and its name. Each card shows one of three states: Equipped, Unlocked, or, for a locked cue, a padlock and the achievement that earns it (its icon, its name, and one line such as "Pool Shark · win 100 games against the CPU"). You decide where the picker opens from. The compact footer's three tiles (mode, Reset, Max) stay as they are.
+2. A cue being equipped, and the picker in the narrow 316 px widget column.
+3. The moment an achievement unlocks a cue: a restrained notice ("New cue · <name>") with a way to equip it.
 
-ROW C3 (1280×800): 8 Max with the picker open · 9 Max in-match with the Maximum cue.
+ROW C2, on the table (compact):
+4. Pool, 3D aiming, with a premium cue behind the cue ball; the tip is to scale with the ball.
+5. Snooker, 3D aiming, with the same cue at snooker's scale.
+6. 2D top-down with the cue.
+7. The cue drawn back at 90% power.
 
-ROW C4, the spec: 10 one artboard with all nine cues drawn large and horizontal, one under another, each band labelled with its start and end (in units from the tip) and its hex, each inlay with its spacing, and the Maximum cue's sheen with its colours and cycle, so the set can be built exactly as drawn.
+ROW C3, full view (1280×800):
+8. Max with the picker open.
+9. Max in-match with the Maximum cue.
 
-Rules: no emoji; stroke icons; real buttons; touch targets of at least 44px; text contrast of at least 4.5:1; the cue never covers the cue ball or the aim line, and the table stays the hero; artboards titled "C1 Cue picker" and so on, under the row titles "Cues · picker", "Cues · on the table", "Cues · full view", "Cues · spec".
+ROW C4, the spec:
+10. One artboard with all nine cues drawn large and horizontal, one under another. Label everything it takes to build the set exactly as drawn:
+   - each section: start and end (% from the tip), material and hexes
+   - each texture: its parameters and its fade-out width
+   - each set of points, splices, inlays and rings: count, size and spacing
+   - the shading stops
+   - the Maximum sheen
+11. A close-up of the geometry: the rod's cross-section with its sides, the domed tip, the ferrule and the bumper, each with its size in D, for pool and for snooker.
+
+Rules:
+- No emoji; use stroke icons.
+- Use real buttons, with touch targets of at least 44 px.
+- Text contrast is at least 4.5:1.
+- The cue never covers the cue ball or the aim line; the table stays the hero.
+- Title the artboards "C1 Cue picker" and so on, under the row titles "Cues · picker", "Cues · on the table", "Cues · full view" and "Cues · spec".
 ```

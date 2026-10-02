@@ -677,6 +677,17 @@
                 display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--pool-overlay-text);
             }
             .pool-hud .ph-sheet-pvp .ph-primary { height: 48px; font-size: 14px; }
+            /* 2 Players' names, side by side. The sheet is dark glass in every theme. */
+            .pool-hud .ph-sheet-names { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+            .pool-hud .ph-sheet-name { display: flex; flex-direction: column; min-width: 0; }
+            .pool-hud .ph-sheet-name .ph-sheet-l { margin-bottom: 4px; }
+            .pool-hud .ph-sheet-input {
+                width: 100%; height: 40px; box-sizing: border-box; padding: 0 10px; border-radius: var(--pool-radius-sm);
+                border: 1px solid var(--pool-overlay-line); background: transparent; color: var(--pool-overlay-text);
+                font: inherit; font-size: 13px; outline: none;
+            }
+            .pool-hud .ph-sheet-input::placeholder { color: var(--pool-overlay-muted); }
+            .pool-hud .ph-sheet-input:focus { border-color: var(--pool-accent); box-shadow: 0 0 0 3px rgba(var(--pool-accent-rgb), 0.2); }
             .pool-hud[data-layout="max"] .ph-sheet { left: 50%; right: auto; width: 520px; transform: translateX(-50%); bottom: 24px; }
             .pool-hud[data-layout="max"] .ph-sheet-scrim { border-radius: 20px; }
             @container pool-hud (max-width: 359px) {

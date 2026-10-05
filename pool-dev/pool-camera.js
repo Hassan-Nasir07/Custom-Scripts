@@ -1,24 +1,14 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — CAMERA (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // Poses, projection and unprojection for the two cameras in the design
-    // (Table.dc.html), plus the director that moves between them.
-    //
-    //   chase      perspective, behind the cue ball along the aim. Lean 0–100
-    //              maps to pitch 19.5°→48° and distance 110→420, focal 1.1·H,
-    //              with the cue ball held 0.34·H below the centre
-    //   broadcast  perspective, high over the table, framed like the 2D view;
-    //              the camera eases here while balls run
-    //   survey     perspective, the whole table from the shooter's side at a
-    //              58° pitch; the shot camera's Stay 3D setting stands up
-    //              here while balls run instead of going overhead
-    //   ortho      the 2D top-down view, fitted with an 8 px margin
-    //
-    // World frame is the physics frame: x right, y up, z up (right-handed).
-    // The design's frame is left-handed (y down), which mirrors its 3D view
-    // left to right; this one is not mirrored, so what is on your right in
-    // 3D is on your right on the real table. Screen space is CSS pixels,
-    // y down. Pure: no DOM.
+    // Poses, projection and unprojection, plus the director that moves between them.
+    //   chase      behind the cue ball along the aim; lean 0–100 maps pitch 19.5°→48°
+    //              and distance 110→420, focal 1.1·H, cue ball 0.34·H below centre
+    //   broadcast  high over the table, framed like 2D; eased to while balls run
+    //   survey     the whole table from the shooter's side at 58° (Stay 3D while balls run)
+    //   ortho      the 2D top-down view, 8 px margin
+    // World frame is the physics frame (right-handed, so unlike the design's y-down
+    // frame the 3D view is not mirrored). Screen space is CSS px, y down. Pure: no DOM.
 
     const PC_NEAR = 4;                 // near plane, table units in front of the eye
     const PC_MARGIN = 8;               // 2D fit margin, px
@@ -30,22 +20,20 @@
     const pcLerp = (a, b, t) => a + (b - a) * t;
     const pcLerp3 = (a, b, t) => [pcLerp(a[0], b[0], t), pcLerp(a[1], b[1], t), pcLerp(a[2], b[2], t)];
 
-    // Outer size of the table, rails included, from the physics config.
+    // Outer size, rails included.
     function pcTableExtent(cfg) {
         return { OX: cfg.halfLength + cfg.railWidth, OY: cfg.halfWidth + cfg.railWidth };
     }
 
-    // The rail top the wide shots fit: the table's own when it sets one (snooker), else
-    // R + 2, which is pool's 16 at R = 14.
+    // The rail top wide shots fit: the table's own (snooker), else R + 2 (pool's 16).
     const pcRailTop = cfg => (cfg.railZ !== undefined ? cfg.railZ : cfg.ballR + 2);
 
-    // A perspective pose is an eye, a point it looks at, an up hint and a
-    // focal length; poses of that kind blend by lerping all four.
+    // A perspective pose: eye, target, up hint and focal length.
     function pcChase(cue, aim, lean, W, H, cfg) {
         const R = cfg ? cfg.ballR : 14;
         const lt = Math.max(0, Math.min(100, lean)) / 100;
         const phi = (19.5 + 28.5 * lt) * Math.PI / 180;
-        // The same at every ball size: the design frames snooker's small balls from pool's distances.
+        // Not scaled by R: snooker's small balls are framed from pool's distances.
         const dist = 110 + 310 * lt;
         const F = 1.1 * H;
         const pitch = phi - Math.atan(0.34 / 1.1);
@@ -56,9 +44,8 @@
         return { kind: 'persp', eye, target: [eye[0] + f[0] * k, eye[1] + f[1] * k, 0], up: [0, 0, 1], F, W, H };
     }
 
-    // Straight down on the table centre, screen-up = +y, framed like the 2D
-    // view. The long focal length keeps it close to orthographic, so the
-    // cut to and from 2D barely moves anything.
+    // Straight down, screen-up = +y. The long focal length keeps it near
+    // orthographic, so the cut to and from 2D barely moves anything.
     function pcBroadcast(W, H, cfg) {
         const { OX, OY } = pcTableExtent(cfg);
         const F = 4 * H, top = pcRailTop(cfg);    // fit the rail top
@@ -66,13 +53,10 @@
         return { kind: 'persp', eye: [0, 0, h], target: [0, 0, 0], up: [0, 1, 0], F, W, H };
     }
 
-    // The player standing up after the shot: still in 3D and still facing
-    // the way the shot went, but high and pulled back so the whole table is
-    // in frame. The distance is fitted to the viewport, and the framing is
-    // centred on the table's projected bounds (the near rail looks bigger).
+    // Standing up after the shot: facing the way it went, high and pulled back
+    // so the whole table fits, centred on its projected bounds.
     const PC_SURVEY_PITCH = 58 * Math.PI / 180;
-    // px kept clear around the table; the top also clears the camera
-    // toggle and the group pill that sit over the viewport
+    // px kept clear; the top also clears the camera toggle and group pill
     const PC_SURVEY_MARGIN = { side: 14, top: 52, bottom: 14 };
     const PC_APRON_Z = -46;            // the apron's bottom edge, as the renderer draws it
 
@@ -100,9 +84,7 @@
             let lo = 150, hi = 8000;
             for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (fits(bounds(at(T, mid)))) hi = mid; else lo = mid; }
             d = hi;
-            // Slide the camera over the felt until the bounds sit in the middle
-            // of the clear box: move by what lies under their centre minus
-            // what lies under the box's.
+            // Slide over the felt until the bounds sit mid clear box.
             const b = bounds(at(T, d));
             const p = b.v.unproject((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 0), q = b.v.unproject(cx, cy, 0);
             if (p && q) T = [T[0] + p[0] - q[0], T[1] + p[1] - q[1], 0];
@@ -115,18 +97,15 @@
         return { kind: 'ortho', s: Math.min((W - 2 * PC_MARGIN) / (2 * OX), (H - 2 * PC_MARGIN) / (2 * OY)), W, H };
     }
 
-    // Where the eye sits around the point it looks at, for poses that are
-    // upright (up = +z): heading, elevation and distance.
+    // Heading, elevation and distance of the eye around its target (upright poses).
     function pcOrbit(pose) {
         const o = pcSub(pose.eye, pose.target), d = Math.hypot(o[0], o[1], o[2]);
         return { az: Math.atan2(o[1], o[0]), el: Math.asin(o[2] / d), d };
     }
     const pcUpright = p => p.up[0] === 0 && p.up[1] === 0 && p.up[2] === 1;
 
-    // Perspective poses blend; anything involving ortho cuts at the midpoint.
-    // Two upright poses (chase and survey) orbit: the eye swings round the
-    // look point the short way, rising and backing off as it goes, rather
-    // than cutting a straight line across the table when the aim has turned.
+    // Perspective poses blend; ortho cuts at the midpoint. Two upright poses
+    // orbit the short way round rather than cutting across the table.
     function pcBlend(a, b, t) {
         if (t <= 0) return a;
         if (t >= 1) return b;
@@ -146,7 +125,6 @@
         };
     }
 
-    // Smoothstep: eases in and out.
     const pcEase = t => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 
     // A view is a pose made usable: toCam (world → camera, z = depth),
@@ -162,7 +140,6 @@
                 toScr: c => [W / 2 + s * c[0], H / 2 - s * c[1], s],
                 // The point on the plane z = h under a screen pixel.
                 unproject: (sx, sy) => [(sx - W / 2) / s, (H / 2 - sy) / s],
-                // Unit vector from a world point toward the viewer.
                 toViewer: () => [0, 0, 1],
             };
         }
@@ -196,8 +173,7 @@
         return [s[0], s[1], s[2], c[2]];
     }
 
-    // World polygon → screen polygon [[sx, sy], …], clipped at the near
-    // plane. Fewer than 3 points means nothing to draw.
+    // World polygon → screen [[sx, sy], …], near-clipped; under 3 points means nothing to draw.
     function pcPoly(view, pts) {
         const cam = pts.map(view.toCam), out = [];
         for (let i = 0; i < cam.length; i++) {
@@ -224,12 +200,10 @@
     }
 
     // ── Director ──────────────────────────────────────────────────────
-    // Chooses the pose for each frame and eases between them:
-    //   aim     chase behind the cue ball (or 2D if the player picked it)
-    //   moving  balls are running: ease out to broadcast, or, with the
-    //           shot camera set to stay in 3D, stand up into the survey
-    //   rest    back to the chase pose once everything stops; from the
-    //           survey, after a beat to take in the table
+    // Picks each frame's pose and eases between them:
+    //   aim     chase (or 2D if picked)
+    //   moving  ease to broadcast, or stand up into the survey (Stay 3D)
+    //   rest    back to chase; from the survey, after a beat
     //   bih     ball in hand always cuts to 2D
     // input = { camera: '3d'|'2d', shotCam: 'overhead'|'3d', phase: 'aim'|'moving'|'bih', cue, aim, lean }
     const PC_TWEEN_MS = { moving: 650, aim: 500, survey: 900, back: 750 };
@@ -251,16 +225,14 @@
         return { key: 'chase', pose: pcChase(input.cue, input.aim, input.lean, dir.W, dir.H, dir.cfg) };
     }
 
-    // Advances by dtMs and returns this frame's pose. A chase target is live
-    // (it follows aim and lean), so the blend is always toward where the
-    // camera should be now, not where it was when the move started.
+    // Advances by dtMs. A chase target is live (follows aim and lean), so the
+    // blend heads where the camera should be now, not where it was.
     function pcDirect(dir, input, dtMs) {
         const tg = pcTarget(dir, input);
         if (dir.key !== tg.key) {
             const cut = !dir.pose || tg.key === 'ortho' || dir.key === 'ortho';
             const fromSurvey = dir.key === 'survey';
-            // How far the stand-up got: a soft shot that stops early barely
-            // rose, so it gets a shorter beat before the camera comes back.
+            // A soft shot barely stood up, so it gets a shorter beat back.
             const risen = fromSurvey ? pcEase(dir.t) : 0;
             dir.from = dir.pose;
             dir.key = tg.key;

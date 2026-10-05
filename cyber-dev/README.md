@@ -234,6 +234,14 @@ one token outlines every shape without needing a wrapper element.
   a matching string, and a mismatch is silent — Chrome ignores an unresolvable filter
   reference and paints the emoji untinted. Section H3 asserts they agree, for the same reason
   H2 exists.
+- **`rgbName` in `CYBER_TOKENS` is load-bearing.** The `-rgb` companion name used to be
+  derived as `varName + '-rgb'`, which wrote `--rt-glow-color-rgb` / `--rt-border-color-rgb`
+  while the CSS reads `--rt-glow-rgb` / `--rt-border-rgb`. Teardown derived it the same wrong
+  way, so the two lists agreed with each other and not with the CSS, and Glow and Border stayed
+  yellow through 1500+ passing assertions. Section H2 now checks the JS/CSS boundary.
+- **Emoji tint is a DOM sweep, not source wrapping.** Wrapping emoji literals in templates
+  missed every icon injected from data at render time (`badge.innerHTML = achievement.icon`),
+  so `cyberWatchEmoji` observes the rendered DOM instead.
 - **If you colour type with a swatch, add it to `CYBER_TEXT_SWATCHES`** in `cyber-hud.js`.
   `cyber-verify.js` section C2 resolves every `color: var(--rt-*)` back to its swatch
   (following one hop of aliasing) and fails if the contrast guard is not measuring it. An

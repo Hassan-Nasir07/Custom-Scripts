@@ -133,7 +133,6 @@
     let flappyAnimFrame = null;
     let flappyBird = { x: 60, y: 150, vy: 0, width: 28, height: 24 };
     let flappyPipes = [];
-    let flappyGround = 0;
     let flappyFrame = 0;
     const FLAPPY_GRAVITY = 0.20;
     const FLAPPY_JUMP = -4.6;
@@ -154,7 +153,6 @@
     let tetrisLevel = 1;
     let tetrisGameRunning = false;
     let tetrisGameOver = false;
-    let tetrisDropInterval = null;
     let tetrisLastDrop = 0;
     let tetrisAnimFrame = null;
     const TETRIS_COLS = 10;
@@ -175,21 +173,19 @@
     let quoteInterval = null;
     let quotesInitialized = false; // Track if quotes system is already set up
 
-    let userXP = {
-        level: 1,
-        currentXP: 0,
-        totalXP: 0,
-        lastHourTracked: -1,
-        todayHours: 0,
-        consecutiveDays: 0,
-        totalWorkDays: 0,
-        gameSessions: 0,
-        lastAttendanceDate: null,
-        lastStreakBonusDate: null,
-        longestStreak: 0,
-        achievements: [],
-        milestonesReached: []
+    // A level-1 record. loadUserXP lays a saved one over it: a field that is missing or falsy
+    // (a record from before the field existed) takes its default.
+    const XP_DEFAULTS = {
+        level: 1, currentXP: 0, totalXP: 0, lastHourTracked: -1, todayHours: 0, consecutiveDays: 0, totalWorkDays: 0,
+        gameSessions: 0, lastAttendanceDate: null, lastShiftCompletedDate: null, lastStreakBonusDate: null,
+        hadStreakReset: false, longestStreak: 0, achievements: [], milestonesReached: []
     };
+    function xpFrom(d) {
+        const out = {};
+        for (const k in XP_DEFAULTS) out[k] = d[k] || (Array.isArray(XP_DEFAULTS[k]) ? [] : XP_DEFAULTS[k]);
+        return out;
+    }
+    let userXP = xpFrom({});
 
     // XP System Constants (Research-proven values)
     const XP_PER_HOUR = 15;           // Base hourly reward (increased from 10)
@@ -387,72 +383,29 @@
     let flappyAccumulator = 0;
     let tetrisLastFrameMs = 0;
 
-    function loadPreferences() {
-        const saved = localStorage.getItem('attendancePrefs');
-        if (saved) {
-            userPreferences = { ...userPreferences, ...JSON.parse(saved) };
-        }
+    // localStorage, read safely: a missing or corrupt value gives the fallback, never a throw.
+    function lsJSON(key, fallback) {
+        try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v; } catch (_) { return fallback; }
+    }
+    function lsInt(key, fallback = 0) { const n = parseInt(localStorage.getItem(key), 10); return Number.isFinite(n) ? n : fallback; }
+    // A whole number kept under one key, as [load, save].
+    const lsIntStore = key => [() => lsInt(key), n => localStorage.setItem(key, String(n))];
+    // Raises each of fields in the object under key to get(field), never lowering one. Written
+    // when one rose, or always if asked (a record that must keep every field).
+    function lsRaise(key, fields, get, always) {
+        const was = lsJSON(key, {}), o = typeof was === 'object' ? was : {};
+        let rose = false;
+        fields.forEach(f => { const cur = parseInt(o[f], 10) || 0, v = parseInt(get(f), 10) || 0; o[f] = Math.max(cur, v); rose = rose || v > cur; });
+        if (rose || always) localStorage.setItem(key, JSON.stringify(o));
     }
 
-    function savePreferences() {
-        localStorage.setItem('attendancePrefs', JSON.stringify(userPreferences));
-    }
+    function loadPreferences() { userPreferences = { ...userPreferences, ...lsJSON('attendancePrefs', {}) }; }
+    function savePreferences() { localStorage.setItem('attendancePrefs', JSON.stringify(userPreferences)); }
 
+    function loadQuotes() { return lsJSON('customQuotes', [{ text: "Do not pray for easy lives. Pray to be stronger men.", author: "John F. Kennedy" }]); }
+    function saveQuotes(quotes) { localStorage.setItem('customQuotes', JSON.stringify(quotes)); }
 
-    function loadQuotes() {
-        const saved = localStorage.getItem('customQuotes');
-        const defaultQuotes = [
-            { text: "Do not pray for easy lives. Pray to be stronger men.", author: "John F. Kennedy" }
-        ];
-        return saved ? JSON.parse(saved) : defaultQuotes;
-    }
-
-    function saveQuotes(quotes) {
-        localStorage.setItem('customQuotes', JSON.stringify(quotes));
-    }
-
-    function loadUserXP() {
-        const saved = localStorage.getItem('userXP');
-        if (saved) {
-            const data = JSON.parse(saved);
-            // Migrate old data structure
-            return {
-                level: data.level || 1,
-                currentXP: data.currentXP || 0,
-                totalXP: data.totalXP || 0,
-                lastHourTracked: data.lastHourTracked || -1,
-                todayHours: data.todayHours || 0,
-                consecutiveDays: data.consecutiveDays || 0,
-                totalWorkDays: data.totalWorkDays || 0,
-                gameSessions: data.gameSessions || 0,
-                lastAttendanceDate: data.lastAttendanceDate || null,
-                lastShiftCompletedDate: data.lastShiftCompletedDate || null,
-                // Absent on pre-streak-bonus-fix records; null = today's bonus still claimable.
-                lastStreakBonusDate: data.lastStreakBonusDate || null,
-                hadStreakReset: !!data.hadStreakReset,
-                longestStreak: data.longestStreak || 0,
-                achievements: data.achievements || [],
-                milestonesReached: data.milestonesReached || []
-            };
-        }
-        return {
-            level: 1,
-            currentXP: 0,
-            totalXP: 0,
-            lastHourTracked: -1,
-            todayHours: 0,
-            consecutiveDays: 0,
-            totalWorkDays: 0,
-            gameSessions: 0,
-            lastAttendanceDate: null,
-            lastShiftCompletedDate: null,
-            lastStreakBonusDate: null,
-            hadStreakReset: false,
-            longestStreak: 0,
-            achievements: [],
-            milestonesReached: []
-        };
-    }
+    function loadUserXP() { return xpFrom(lsJSON('userXP', {})); }
 
     function saveUserXP(xpData) {
         localStorage.setItem('userXP', JSON.stringify(xpData));
@@ -520,7 +473,7 @@
             localStorage.removeItem('reflexHighScores');
             // Also strip 'lightning' achievement earned via the exploit
             try {
-                const xp = JSON.parse(localStorage.getItem('userXP') || '{}');
+                const xp = lsJSON('userXP', {});
                 if (Array.isArray(xp.achievements)) {
                     const idx = xp.achievements.indexOf('lightning');
                     if (idx !== -1) {
@@ -543,8 +496,7 @@
     }
 
     function loadReflexHighScores() {
-        let raw = null;
-        try { raw = JSON.parse(localStorage.getItem('reflexHighScores') || 'null'); } catch (_) {}
+        let raw = lsJSON('reflexHighScores', null);
         if (!raw || typeof raw !== 'object') raw = {};
         return { screen: _reflexModeScores(raw.screen), target: _reflexModeScores(raw.target) };
     }
@@ -560,54 +512,18 @@
         localStorage.setItem('reflexHighScores', JSON.stringify(out));
     }
 
-    function loadAimHighScore() {
-        const saved = localStorage.getItem('aimChaosHighScore');
-        return saved ? parseInt(saved) : 0;
-    }
-
-    function saveAimHighScore(score) {
-        localStorage.setItem('aimChaosHighScore', score.toString());
-    }
-
-    function loadFlappyHighScore() {
-        const saved = localStorage.getItem('flappyHighScore');
-        return saved ? parseInt(saved) : 0;
-    }
-    function saveFlappyHighScore(score) {
-        localStorage.setItem('flappyHighScore', score.toString());
-    }
-
-    function loadTetrisHighScore() {
-        const saved = localStorage.getItem('tetrisHighScore');
-        return saved ? parseInt(saved) : 0;
-    }
-    function saveTetrisHighScore(score) {
-        localStorage.setItem('tetrisHighScore', score.toString());
-    }
-    function loadBreakoutHighScore() {
-        const saved = localStorage.getItem('breakoutHighScore');
-        return saved ? parseInt(saved) : 0;
-    }
-    function saveBreakoutHighScore(score) {
-        localStorage.setItem('breakoutHighScore', score.toString());
-    }
-
-    function loadPoolHighScore() {
-        const saved = localStorage.getItem('poolGamesWon');
-        return saved ? parseInt(saved) : 0;
-    }
-    function savePoolHighScore(score) {
-        localStorage.setItem('poolGamesWon', score.toString());
-    }
+    const [loadAimHighScore, saveAimHighScore] = lsIntStore('aimChaosHighScore');
+    const [loadFlappyHighScore, saveFlappyHighScore] = lsIntStore('flappyHighScore');
+    const [loadTetrisHighScore, saveTetrisHighScore] = lsIntStore('tetrisHighScore');
+    const [loadBreakoutHighScore, saveBreakoutHighScore] = lsIntStore('breakoutHighScore');
+    const [loadPrayerCount, savePrayerCount] = lsIntStore('prayerCount');
+    // Pool's storage, down to the Ludo note (pool-dev/load.js runs it, with lsJSON and lsInt).
+    const [loadPoolHighScore, savePoolHighScore] = lsIntStore('poolGamesWon');
     // poolGamesWon spans BOTH modes, so it cannot attribute a win; seeded once into the
     // cpu bucket, which is what the number has mostly meant.
     function loadPoolWinsByMode() {
-        let rec = null;
-        try { rec = JSON.parse(localStorage.getItem('poolWinsByMode') || 'null'); } catch (_) {}
-        if (!rec || typeof rec !== 'object') {
-            rec = { cpu: parseInt(localStorage.getItem('poolGamesWon') || '0', 10) || 0, pvp: 0 };
-            localStorage.setItem('poolWinsByMode', JSON.stringify(rec));
-        }
+        let rec = lsJSON('poolWinsByMode', null);
+        if (!rec || typeof rec !== 'object') localStorage.setItem('poolWinsByMode', JSON.stringify(rec = { cpu: lsInt('poolGamesWon'), pvp: 0 }));
         return { cpu: parseInt(rec.cpu, 10) || 0, pvp: parseInt(rec.pvp, 10) || 0 };
     }
     function savePoolWinByMode(mode) {
@@ -616,18 +532,12 @@
         rec[key]++;
         localStorage.setItem('poolWinsByMode', JSON.stringify(rec));
     }
-    function loadPoolRecord() {
-        const saved = localStorage.getItem('poolRecord');
-        return saved ? JSON.parse(saved) : { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
-    }
+    function loadPoolRecord() { return lsJSON('poolRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 }); }
     function savePoolRecord(rec) {
         localStorage.setItem('poolRecord', JSON.stringify(rec));
     }
     // ludoGamesWon / ludoRecord live in the LUDO block (ludoLoad*/ludoSave*) so that code
     // stays byte-identical to ludo-dev/, which the headless XP tests exercise.
-    // Prayer Counter Storage
-    function loadPrayerCount() { return parseInt(localStorage.getItem('prayerCount') || '0', 10); }
-    function savePrayerCount(n) { localStorage.setItem('prayerCount', String(n)); }
 
     // LEADERBOARD (GitHub Actions bot proxy)
     // Reads: api.github.com/gists/<id> direct (corp firewall allows it). Writes:
@@ -640,7 +550,6 @@
     const REGISTRY_GIST_FILE = 'attendance_widget_registry.json';
     const GH_BOT_REPO = 'Hassan-Nasir07/github-actions-bot';
     const GH_DISPATCHER_PAT = String.fromCharCode(103,105,116,104,117,98,95,112,97,116,95,49,49,65,55,74,53,73,72,65,48,109,52,73,68,109,106,82,113,104,72,75,122,95,88,119,51,112,83,106,120,71,110,49,106,48,70,115,122,56,49,118,104,82,81,83,111,103,75,104,68,118,55,68,113,100,76,52,69,68,98,76,109,120,116,68,103,69,89,90,88,73,79,68,84,89,114,120,74,49,71,54,119);
-    const SYNC_PROPAGATION_MS = 25000; // Action takes ~15-30s; we surface this in the UI.
 
     // Anti-cheat: keyed hash rejects raw localStorage edits at sync. Key derived at runtime.
     const _ACS = [97,116,99,95,105,110,116,101,103,114,105,116,121,95,50,48,50,54].map(c => String.fromCharCode(c)).join('');
@@ -790,16 +699,16 @@
 
     // Collect local game-best high scores from localStorage into one object
     function collectGameBests() {
-        const reflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
+        const reflexData = lsJSON('reflexHighScores', {});
         const reflexBest = reflexData?.screen?.best;
         return {
-            snake:    parseInt(localStorage.getItem('snakeHighScore') || '0', 10),
-            flappy:   parseInt(localStorage.getItem('flappyHighScore') || '0', 10),
-            tetris:   parseInt(localStorage.getItem('tetrisHighScore') || '0', 10),
-            breakout: parseInt(localStorage.getItem('breakoutHighScore') || '0', 10),
-            pool:     parseInt(localStorage.getItem('poolGamesWon') || '0', 10),
-            ludo:     parseInt(localStorage.getItem('ludoGamesWon') || '0', 10),
-            aim:      parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
+            snake:    lsInt('snakeHighScore'),
+            flappy:   lsInt('flappyHighScore'),
+            tetris:   lsInt('tetrisHighScore'),
+            breakout: lsInt('breakoutHighScore'),
+            pool:     lsInt('poolGamesWon'),
+            ludo:     lsInt('ludoGamesWon'),
+            aim:      lsInt('aimChaosHighScore'),
             reflex:   (reflexBest && reflexBest !== Infinity && reflexBest > 0) ? reflexBest : 0
         };
     }
@@ -812,14 +721,13 @@
         const out = {};
         const put = (k, v) => { const n = parseInt(v, 10) || 0; if (n > 0) out[k] = n; };
 
-        let snakeModes = null;
-        try { snakeModes = JSON.parse(localStorage.getItem('snakeHighScores') || 'null'); } catch (_) {}
+        let snakeModes = lsJSON('snakeHighScores', null);
         if (!snakeModes || typeof snakeModes !== 'object') {
             // Via the loader: snakeHighScores exists only once the Snake panel has opened, and
             // lbBoardValue treats a present gameModeBests as authoritative — a raw read would emit
             // no snake keys and drop the player off the board. Legacy scalar belongs to Walled
             // (pre-v2 had lethal edges), matching snakeLoadHighScores().
-            snakeModes = { walled: parseInt(localStorage.getItem('snakeHighScore') || '0', 10) || 0 };
+            snakeModes = { walled: lsInt('snakeHighScore') };
         }
         put('snake:endless', snakeModes.endless);
         put('snake:walled',  snakeModes.walled);
@@ -828,8 +736,7 @@
 
         // null = never scored (Infinity does not survive JSON); emitting it would put a 0 on an
         // ascending board.
-        let reflex = {};
-        try { reflex = JSON.parse(localStorage.getItem('reflexHighScores') || '{}') || {}; } catch (_) {}
+        let reflex = lsJSON('reflexHighScores', {});
         ['screen', 'target'].forEach(m => {
             const best = reflex[m] && reflex[m].best;
             if (typeof best === 'number' && isFinite(best) && best > 0) out['reflex:' + m] = best;
@@ -842,21 +749,14 @@
         put('pool:pvp', poolModes.pvp);
         // Per-tier CPU wins, read inline (the pool block may not have run). 'pool:cpu' stays the
         // all-time total: old clients read it, and it is the only home for pre-split wins.
-        let poolTiers = {};
-        try { poolTiers = JSON.parse(localStorage.getItem('poolWinsByTier') || '{}') || {}; } catch (_) {}
-        put('pool:easy',   poolTiers.easy);
-        put('pool:normal', poolTiers.normal);
-        put('pool:hard',   poolTiers.hard);
-        put('pool:pro',    poolTiers.pro);
+        const putAll = (prefix, key, fields) => { const o = lsJSON(key, {}); fields.forEach(f => put(prefix + f, o[f])); };
+        putAll('pool:', 'poolWinsByTier', ['easy', 'normal', 'hard', 'pro']);
 
         // Snooker, read inline as pool's tiers are: wins by mode and by CPU tier, and the best
         // break against the CPU (the High break board), which no frame can take past 155.
-        const snkRead = k => { try { return JSON.parse(localStorage.getItem(k) || '{}') || {}; } catch (_) { return {}; } };
-        const snkModes = snkRead('snookerWinsByMode'), snkTiers = snkRead('snookerWinsByTier');
-        put('snooker:cpu', snkModes.cpu);
-        put('snooker:pvp', snkModes.pvp);
-        ['easy', 'normal', 'hard', 'pro'].forEach(t => put('snooker:' + t, snkTiers[t]));
-        put('snooker:highBreak', Math.min(155, parseInt(localStorage.getItem('snookerHighBreak') || '0', 10) || 0));
+        putAll('snooker:', 'snookerWinsByMode', ['cpu', 'pvp']);
+        putAll('snooker:', 'snookerWinsByTier', ['easy', 'normal', 'hard', 'pro']);
+        put('snooker:highBreak', Math.min(155, lsInt('snookerHighBreak')));
 
         // Ludo is CPU-only by construction (ludoSaveWins runs under 'if (vsCPU)'). 'ludo:cpu' is
         // the flat all-time total: old clients read it, and it is the only home for pre-split wins.
@@ -864,12 +764,7 @@
 
         // Read inline, not via ludoLoadWinsByTier(): that lives in the Ludo block, which may not be
         // loaded when collectGameModeBests runs.
-        let ludoTiers = {};
-        try { ludoTiers = JSON.parse(localStorage.getItem('ludoWinsByTier') || '{}') || {}; } catch (_) {}
-        put('ludo:easy',   ludoTiers.easy);
-        put('ludo:normal', ludoTiers.normal);
-        put('ludo:hard',   ludoTiers.hard);
-
+        putAll('ludo:', 'ludoWinsByTier', ['easy', 'normal', 'hard']);
         return out;
     }
 
@@ -896,19 +791,20 @@
             gameBests: collectGameBests(),
             gameModeBests: collectGameModeBests(),
             // Scoring-rules stamp — without it a rule change makes old and new scores incomparable.
-            rulesetVersion: { snake: parseInt(localStorage.getItem('snakeRulesetVer') || '1', 10) || 1 },
+            rulesetVersion: { snake: lsInt('snakeRulesetVer', 1) || 1 },
             // Pool extended record (W/L/win-rate)
-            poolRecord: JSON.parse(localStorage.getItem('poolRecord') || 'null') || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 },
-            snookerRecord: (() => { try { return JSON.parse(localStorage.getItem('snookerRecord') || 'null'); } catch (_) { return null; } })() || { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 },
+            poolRecord: lsJSON('poolRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 }),
+            snookerRecord: lsJSON('snookerRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 }),
             // Ludo W/L vs CPU; also drives the adaptive difficulty tier, so a fresh browser restores it.
-            ludoRecord: JSON.parse(localStorage.getItem('ludoRecord') || 'null') || { wins: 0, losses: 0 },
+            ludoRecord: lsJSON('ludoRecord', { wins: 0, losses: 0 }),
             // Reflex full blob (screen + target modes)
-            reflexHighScores: JSON.parse(localStorage.getItem('reflexHighScores') || 'null') || null,
-            prayerCount: parseInt(localStorage.getItem('prayerCount') || '0', 10),
-            customImageURL: localStorage.getItem('customImageURL') || '',
+            reflexHighScores: lsJSON('reflexHighScores', null),
+            prayerCount: lsInt('prayerCount'),
+            // An upload lives in this browser's IndexedDB only: sync its absence, not the marker.
+            customImageURL: loadImageURL() === IMAGE_BOX_IDB_REF ? '' : loadImageURL(),
             customImageAspectRatio: localStorage.getItem('customImageAspectRatio') || '16:9',
-            customQuotes: (() => { try { return JSON.parse(localStorage.getItem('customQuotes') || 'null'); } catch(_){return null;} })(),
-            userPreferences: (() => { try { return JSON.parse(localStorage.getItem('attendancePrefs') || 'null'); } catch(_){return null;} })(),
+            customQuotes: lsJSON('customQuotes', null),
+            userPreferences: lsJSON('attendancePrefs', null),
             buildLabel: BUILD_LABEL,
             lastSync: new Date().toISOString()
         };
@@ -1103,7 +999,7 @@
         // Rehydrate game bests (only raise, never lower — keeps any new local PRs)
         const gb = rec.gameBests || {};
         const raise = (key, val) => {
-            const cur = parseInt(localStorage.getItem(key) || '0', 10);
+            const cur = lsInt(key);
             const v = parseInt(val || 0, 10);
             if (v > cur) localStorage.setItem(key, String(v));
         };
@@ -1156,41 +1052,19 @@
 
         // Prayer counter (only raise)
         if (typeof rec.prayerCount === 'number' && rec.prayerCount > 0) {
-            const cur = parseInt(localStorage.getItem('prayerCount') || '0', 10);
+            const cur = lsInt('prayerCount');
             if (rec.prayerCount > cur) localStorage.setItem('prayerCount', String(rec.prayerCount));
         }
 
-        // Pool extended record (W/L) — merge each field, only raise
-        if (rec.poolRecord && typeof rec.poolRecord === 'object') {
-            const localRec = JSON.parse(localStorage.getItem('poolRecord') || '{}');
-            const merged = {
-                p1Wins:   Math.max(localRec.p1Wins   || 0, rec.poolRecord.p1Wins   || 0),
-                p1Losses: Math.max(localRec.p1Losses || 0, rec.poolRecord.p1Losses || 0),
-                p2Wins:   Math.max(localRec.p2Wins   || 0, rec.poolRecord.p2Wins   || 0),
-                p2Losses: Math.max(localRec.p2Losses || 0, rec.poolRecord.p2Losses || 0)
-            };
-            localStorage.setItem('poolRecord', JSON.stringify(merged));
-        }
-        // Snooker's seat record, the same way.
-        if (rec.snookerRecord && typeof rec.snookerRecord === 'object') {
-            let localSnk = {};
-            try { localSnk = JSON.parse(localStorage.getItem('snookerRecord') || '{}') || {}; } catch (_) {}
-            const snk = {};
-            ['p1Wins', 'p1Losses', 'p2Wins', 'p2Losses'].forEach(k => { snk[k] = Math.max(parseInt(localSnk[k], 10) || 0, parseInt(rec.snookerRecord[k], 10) || 0); });
-            localStorage.setItem('snookerRecord', JSON.stringify(snk));
-        }
-
-        // Ludo record (W/L vs CPU) — same only-raise merge as Pool
-        if (rec.ludoRecord && typeof rec.ludoRecord === 'object') {
-            const localLudo = JSON.parse(localStorage.getItem('ludoRecord') || '{}');
-            localStorage.setItem('ludoRecord', JSON.stringify({
-                wins:   Math.max(localLudo.wins   || 0, rec.ludoRecord.wins   || 0),
-                losses: Math.max(localLudo.losses || 0, rec.ludoRecord.losses || 0)
-            }));
-        }
+        // The W/L records, each field only raised.
+        const seats = ['p1Wins', 'p1Losses', 'p2Wins', 'p2Losses'];
+        [['poolRecord', seats], ['snookerRecord', seats], ['ludoRecord', ['wins', 'losses']]].forEach(([key, fields]) => {
+            const r = rec[key];
+            if (r && typeof r === 'object') lsRaise(key, fields, f => r[f], true);
+        });
 
         // Personalisation — restore only if local is empty/default
-        if (rec.customImageURL && !localStorage.getItem('customImageURL')) {
+        if (rec.customImageURL && rec.customImageURL !== IMAGE_BOX_IDB_REF && !localStorage.getItem('customImageURL')) {
             localStorage.setItem('customImageURL', rec.customImageURL);
         }
         if (rec.customImageAspectRatio && !localStorage.getItem('customImageAspectRatio')) {
@@ -1218,8 +1092,7 @@
         }
         if (rec.userPreferences && typeof rec.userPreferences === 'object') {
             // Merge cloud prefs into local (cloud values fill in missing keys; local takes precedence if already set)
-            let localPrefs = {};
-            try { localPrefs = JSON.parse(localStorage.getItem('attendancePrefs') || '{}') || {}; } catch (_) {}
+            let localPrefs = lsJSON('attendancePrefs', {});
             const merged = { ...rec.userPreferences, ...localPrefs };
             localStorage.setItem('attendancePrefs', JSON.stringify(merged));
             try { userPreferences = { ...userPreferences, ...merged }; } catch (_) {}
@@ -1233,72 +1106,26 @@
     function applySnakeModeBests(gmb) {
         if (!gmb || typeof gmb !== 'object') return;
 
-        let local = { endless: 0, walled: 0, levels: 0 };
-        try {
-            const parsed = JSON.parse(localStorage.getItem('snakeHighScores') || 'null');
-            if (parsed && typeof parsed === 'object') local = { ...local, ...parsed };
-        } catch (_) {}
-
-        let changed = false;
-        ['endless', 'walled', 'levels'].forEach(mode => {
-            // snakeModeInvalidated lives in the SNAKE ENGINE block; guarded for restores before initSnakeGame().
-            const blocked = (typeof snakeModeInvalidated === 'function') && snakeModeInvalidated(mode);
-            if (blocked) return;
-            const v = parseInt(gmb['snake:' + mode], 10) || 0;
-            if (v > (local[mode] || 0)) { local[mode] = v; changed = true; }
-        });
-        if (changed) localStorage.setItem('snakeHighScores', JSON.stringify(local));
+        // snakeModeInvalidated lives in the SNAKE ENGINE block; guarded for restores before initSnakeGame().
+        const open = ['endless', 'walled', 'levels'].filter(m => !(typeof snakeModeInvalidated === 'function' && snakeModeInvalidated(m)));
+        lsRaise('snakeHighScores', open, m => gmb['snake:' + m]);
 
         const stage = parseInt(gmb['snake:levelsStage'], 10) || 0;
-        if (stage > (parseInt(localStorage.getItem('snakeLevelsBest') || '0', 10) || 0)) {
+        if (stage > lsInt('snakeLevelsBest')) {
             localStorage.setItem('snakeLevelsBest', String(stage));
         }
 
-        let pool = {};
-        try { pool = JSON.parse(localStorage.getItem('poolWinsByMode') || '{}') || {}; } catch (_) {}
-        let poolChanged = false;
-        ['cpu', 'pvp'].forEach(m => {
-            const v = parseInt(gmb['pool:' + m], 10) || 0;
-            if (v > (parseInt(pool[m], 10) || 0)) { pool[m] = v; poolChanged = true; }
-        });
-        if (poolChanged) localStorage.setItem('poolWinsByMode', JSON.stringify(pool));
-
-        // Pool per-tier wins, only-raise, as Ludo's.
-        let poolTiers = {};
-        try { poolTiers = JSON.parse(localStorage.getItem('poolWinsByTier') || '{}') || {}; } catch (_) {}
-        let poolTiersChanged = false;
-        ['easy', 'normal', 'hard', 'pro'].forEach(t => {
-            const v = parseInt(gmb['pool:' + t], 10) || 0;
-            if (v > (parseInt(poolTiers[t], 10) || 0)) { poolTiers[t] = v; poolTiersChanged = true; }
-        });
-        if (poolTiersChanged) localStorage.setItem('poolWinsByTier', JSON.stringify(poolTiers));
-
-        // Snooker: wins by mode and by tier, only-raise; the high break too, never past 155.
-        const snkRaise = (key, modes) => {
-            let local = {};
-            try { local = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch (_) {}
-            let changed = false;
-            modes.forEach(m => {
-                const v = parseInt(gmb['snooker:' + m], 10) || 0;
-                if (v > (parseInt(local[m], 10) || 0)) { local[m] = v; changed = true; }
-            });
-            if (changed) localStorage.setItem(key, JSON.stringify(local));
-        };
-        snkRaise('snookerWinsByMode', ['cpu', 'pvp']);
-        snkRaise('snookerWinsByTier', ['easy', 'normal', 'hard', 'pro']);
+        // Wins by mode and by CPU tier, each only raised. Ludo's all-time total restores separately
+        // and may exceed its tiers by however many wins predate the split.
+        const raise = (key, prefix, fields) => lsRaise(key, fields, f => gmb[prefix + f]);
+        raise('poolWinsByMode', 'pool:', ['cpu', 'pvp']);
+        raise('poolWinsByTier', 'pool:', ['easy', 'normal', 'hard', 'pro']);
+        raise('snookerWinsByMode', 'snooker:', ['cpu', 'pvp']);
+        raise('snookerWinsByTier', 'snooker:', ['easy', 'normal', 'hard', 'pro']);
+        raise('ludoWinsByTier', 'ludo:', ['easy', 'normal', 'hard']);
+        // Snooker's high break too, never past 155.
         const snkHigh = Math.min(155, parseInt(gmb['snooker:highBreak'], 10) || 0);
-        if (snkHigh > (parseInt(localStorage.getItem('snookerHighBreak') || '0', 10) || 0)) localStorage.setItem('snookerHighBreak', String(snkHigh));
-
-        // Ludo per-tier wins, only-raise. The all-time total restores separately and may exceed the
-        // tier sum by however many wins predate the split.
-        let ludoTiers = {};
-        try { ludoTiers = JSON.parse(localStorage.getItem('ludoWinsByTier') || '{}') || {}; } catch (_) {}
-        let ludoChanged = false;
-        ['easy', 'normal', 'hard'].forEach(t => {
-            const v = parseInt(gmb['ludo:' + t], 10) || 0;
-            if (v > (parseInt(ludoTiers[t], 10) || 0)) { ludoTiers[t] = v; ludoChanged = true; }
-        });
-        if (ludoChanged) localStorage.setItem('ludoWinsByTier', JSON.stringify(ludoTiers));
+        if (snkHigh > lsInt('snookerHighBreak')) localStorage.setItem('snookerHighBreak', String(snkHigh));
     }
 
     // Restore this client's progress from the gist. True if a matching record was applied.
@@ -2277,7 +2104,6 @@
                 if (ball.x+ball.r < b.x || ball.x-ball.r > b.x+b.w ||
                     ball.y+ball.r < b.y || ball.y-ball.r > b.y+b.h) continue;
 
-                const wasAlive = b.alive;
                 brkDamageBrick(b, false, isExplode, now);
 
                 // Deflect unless fireball or through-ball (through only skips deflect, doesn't ignore damage)
@@ -2556,28 +2382,20 @@
         breakoutMouseX = e.touches[0].clientX - rect.left;
     }
 
-
     // ═══ POOL ENGINE — generated from pool-dev/, do not edit here ═══
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — PHYSICS (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // A pure, deterministic ball model. Nothing here touches the DOM, the
-    // canvas or Math.random, so the CPU can clone a world and run the real
-    // physics on it, and the tests can replay a shot exactly.
-    //
-    // World frame: x right, y up, z up (right-handed), in table units. The
-    // playfield is 1000 × 500 with the origin at its centre and R = 14, the
-    // design canvas's numbers. The renderer flips y for the screen.
-    //
-    // Each ball is in one of four motion states, and each state has a closed
-    // form, so a ball is advanced exactly rather than integrated:
-    //   sliding   the contact point slips; cloth friction slows v and drives
-    //             ω toward natural roll along a fixed slip direction
+    // Pure and deterministic (no DOM, canvas or Math.random), so the CPU can
+    // clone a world and run the real physics, and tests replay shots exactly.
+    // World frame: x right, y up, z up, table units; the playfield is
+    // 1000 × 500 centred on the origin, R = 14. The renderer flips y.
+    // Each motion state has a closed form, so balls advance exactly:
+    //   sliding   contact slips; friction slows v and drives ω toward natural roll
     //   rolling   no slip; constant rolling-resistance deceleration
     //   spinning  v = 0, only ω_z (English) left, decaying
-    //   stationary
-    // Collisions are found by time of impact inside each sub-step and
-    // resolved one at a time, so nothing tunnels and nothing overlaps.
+    // Collisions are found by time of impact per sub-step and resolved one
+    // at a time, so nothing tunnels or overlaps.
 
     const PP_DEFAULTS = {
         // Geometry, table units
@@ -2585,8 +2403,7 @@
         halfWidth: 250,
         ballR: 14,
         railWidth: 48,            // cushion + rail, for the off-table fail-safe
-        // Pockets and cushion ends, straight from the final design (Table.dc.html). A jaw
-        // runs from a cushion's nose end to its rail end and on to the hole's edge.
+        // Pockets and cushion ends. A jaw runs from a cushion's nose end to its rail end and on to the hole.
         cushionWidth: 12,         // nose line to rail line
         cornerNose: 36,           // nose end, from the corner along each cushion (mouth 36·√2)
         cornerRailEnd: 22,        // rail end, from the corner, on the rail line
@@ -2620,11 +2437,9 @@
     const PP_CONTACT = 1e-3;      // contact tolerance, table units
 
     // ── Table geometry ────────────────────────────────────────────────
-    // Cushion noses, jaws and pockets, derived from cfg. Every collider is
-    // either a one-sided segment (normal points onto the playable side) or a
-    // point (a nose or jaw tip). Jaws run from each nose point, at the jaw
-    // angle, until they meet the pocket's capture circle, which closes the
-    // throat: a ball in the throat either drops or comes back out.
+    // Every collider is a one-sided segment (normal onto the playable side) or
+    // a point (nose or jaw tip). Jaws end on the pocket's capture circle, which
+    // closes the throat: a ball in it either drops or comes back out.
     function ppBuildTable(cfg) {
         if (cfg.pocketStyle === 'rounded') return ppBuildRoundedTable(cfg);
         const HL = cfg.halfLength, HW = cfg.halfWidth;
@@ -2646,8 +2461,7 @@
             return t > 0 ? { x: px + dx * t, y: py + dy * t } : null;
         };
 
-        // A jaw leaves nose point (px,py) toward its rail end (rx,ry) and runs
-        // on until it meets the hole, which closes the throat.
+        // A jaw leaves nose point (px,py) toward its rail end (rx,ry) and runs on to the hole.
         const addJaw = (px, py, rx, ry, pocket, otherX, otherY) => {
             const l = Math.hypot(rx - px, ry - py), dx = (rx - px) / l, dy = (ry - py) / l;
             const end = rayCircle(px, py, dx, dy, pocket.x, pocket.y, pocket.r);
@@ -2663,8 +2477,7 @@
         const c = cfg.cornerNose, s = cfg.sideNose;
         const cr = cfg.cornerRailEnd, sr = cfg.sideRailEnd, CU = cfg.cushionWidth;
 
-        // Pockets, in the order the old engine used: TL, top-side, TR, BL, bottom-side, BR.
-        // y is up, so "top" is +HW.
+        // Pocket indices are fixed: TL, top-side, TR, BL, bottom-side, BR (y up: top is +HW).
         const corner = (sx, sy) => {
             const k = cfg.cornerPocketOffset;
             return { kind: 'corner', x: sx * (HL + k), y: sy * (HW + k), r: cfg.cornerPocketR, sx, sy, jaws: [] };
@@ -2678,13 +2491,11 @@
             addSeg(-HL + c, y, -s, y, 0, ny, 'cushion');
             addSeg(s, y, HL - c, y, 0, ny, 'cushion');
         });
-        // Short cushions (left and right).
         [-1, 1].forEach(sx => {
             const x = sx * HL;
             addSeg(x, -HW + c, x, HW - c, -sx, 0, 'cushion');
         });
 
-        // Nose points and jaws.
         pockets.forEach(p => {
             if (p.kind === 'corner') {
                 const ax = p.sx * (HL - c), ay = p.sy * HW;          // on the long cushion
@@ -2709,14 +2520,10 @@
         };
     }
 
-    // Snooker's table (pocketStyle 'rounded', the design's Table.dc.html): each cushion runs
-    // straight along its nose, rounds off in a nose of radius noseRound, then a straight jaw
-    // goes back to the rail (square to it at the middle pockets, leaning sideJawBack /
-    // cornerJawBack toward the pocket). The rounded nose is an arc collider (a ball meets it
-    // at R + noseRound from its centre, only on the quarter that is there), tangent to the nose
-    // so there is no tip; the jaw is a cushion segment facing the gap, and every jaw ends at
-    // the rail inside its pocket's hole, which closes the throat. Only a table built with
-    // pocketStyle 'rounded' has arcs; pool's never does.
+    // Snooker's table (pocketStyle 'rounded'; only it has arcs): each cushion rounds off in a
+    // nose of radius noseRound, then a straight jaw goes back to the rail, leaning sideJawBack /
+    // cornerJawBack toward the pocket. The nose is an arc collider (met at R + noseRound, only
+    // on its quarter), tangent so there is no tip; each jaw ends inside its pocket's hole.
     function ppBuildRoundedTable(cfg) {
         const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth, RHO = cfg.noseRound;
         const c = cfg.cornerNose, s = cfg.sideNose;
@@ -2818,9 +2625,8 @@
         };
     }
 
-    // Standard 8-ball rack: apex on the foot spot, the 8 in the middle of the
-    // third row, one solid and one stripe in the back corners. `rng` shuffles
-    // the rest and jitters each ball by a hair so no two breaks are identical.
+    // 8-ball rack: apex on the foot spot, the 8 mid third row, a solid and a stripe
+    // in the back corners; `rng` shuffles the rest and jitters each ball by a hair.
     function ppRack(w, rng) {
         const R = w.cfg.ballR, t = w.table;
         const gap = 0.02;                               // a hair between balls, so contacts are unambiguous
@@ -2943,10 +2749,8 @@
             ppSpinDecay(b, cfg, h);
             rem -= h;
             if (h === tRoll) {
-                // Slip is gone: land exactly on natural roll, or at rest. The
-                // speed is settled first and the spin derived from it, so a
-                // crawl that rounds to zero cannot leave spin behind that
-                // reads as fresh slip (which once left a ball 'rolling' at v = 0).
+                // Slip is gone: land on natural roll or rest. Speed is settled first and
+                // spin derived from it, so a crawl rounding to zero leaves no fake slip.
                 if (Math.hypot(b.vx, b.vy) < PP_EPS_V) { b.vx = 0; b.vy = 0; }
                 b.wx = -b.vy / R; b.wy = b.vx / R;
                 if (b.vx || b.vy) b.state = 'rolling';
@@ -3017,16 +2821,11 @@
     }
 
     // ── Touching clusters (the break) ──────────────────────────────────
-    // Resolving contacts one pair at a time is right for two balls, and for a
-    // line of balls (it gives Newton's cradle), but wrong for a tight rack:
-    // there the apex compresses into both balls behind it at once, each of
-    // those pushes on two more, and the impulse fans out through the whole
-    // triangle. Pairwise, it runs down the two edges instead and only the back
-    // corners move. So when a ball hits a group of touching balls, the contact
-    // itself is simulated: stiff springs over the ~0.1 ms of compression, with
-    // damping chosen to give the ball–ball restitution. Only the velocity
-    // change is kept; positions snap back, so at table scale the impact is
-    // still instantaneous. Spin and throw are left to the pairwise path.
+    // Pairwise resolution is right for two balls or a line, but in a tight rack
+    // the impulse must fan out through the triangle (pairwise, only the back
+    // corners move). So a hit on a touching group simulates the contact: stiff
+    // springs over ~0.1 ms, damped to the ball–ball restitution. Only the
+    // velocity change is kept (positions snap back); spin and throw stay pairwise.
     const PP_CLUSTER_GAP = 0.5;       // balls closer than this count as touching, table units
     const PP_CONTACT_TIME = 1e-4;     // duration of one ball–ball contact, s
     const PP_CLUSTER_MAX_T = 5e-3;    // give up on the micro-sim after this, s
@@ -3094,10 +2893,8 @@
         order.forEach(([a, b]) => w.log.push({ type: 'ball', t: w.t, a, b }));
     }
 
-    // Cushion or jaw (segment face, or a nose/jaw tip). n points from the
-    // cushion into the ball. The cushion nose meets the ball above its
-    // centre, so the contact sits noseRise·R up and friction there couples
-    // English and follow/draw into the rebound.
+    // Cushion, jaw or tip; n points into the ball. The nose meets the ball noseRise·R
+    // above centre, so friction there couples English and follow/draw into the rebound.
     function ppResolveCushion(b, nx, ny, cfg) {
         const R = cfg.ballR, I = 0.4 * R * R;
         const vn = b.vx * nx + b.vy * ny;
@@ -3156,9 +2953,8 @@
         w.log.push({ type: 'pocket', t: w.t, ball: b.id, pocket: pi });
     }
 
-    // Anything inside a capture circle drops; anything that somehow left the
-    // table is dropped into the nearest pocket and counted, so a geometry
-    // bug is loud in the tests instead of a ball vanishing off-screen.
+    // Inside a capture circle drops. A ball that left the table drops into the nearest
+    // pocket and is counted in escapes, so a geometry bug is loud in the tests.
     function ppCheckPockets(w) {
         const t = w.table;
         for (const b of w.balls) {
@@ -3275,16 +3071,10 @@
         ppCheckPockets(w);
     }
 
-    // The time of impact assumes straight lines over the sub-step. When a front
-    // ball decelerates harder than the ball behind it (or an over-spun ball
-    // speeds up into a rail), contact comes up to ~0.015 u early and the pair
-    // ends the sub-step slightly interpenetrating. This puts them back to
-    // touching, positions only, and resolves the contact if they are still
-    // closing, so nothing ever overlaps at a frame boundary.
-    // Pushing one pair apart can press a ball in a packed group into a third,
-    // so the pass repeats until nothing overlaps (a few rounds at most).
-    // Only balls that moved this sub-step (or were pushed by this pass) can
-    // be overlapping anything, so resting balls are skipped entirely.
+    // Linear TOI misses deceleration differences (or an over-spun ball speeding
+    // into a rail) by up to ~0.015 u, leaving slight overlaps. This pushes them
+    // back to touching and resolves any still closing. Pushing one pair can press
+    // into a third, so it repeats; only balls that moved can overlap.
     function ppSeparate(w) {
         const cfg = w.cfg, R = cfg.ballR, D = 2 * R, t = w.table;
         const live = w.balls.filter(b => b.state !== 'pocketed');
@@ -3370,22 +3160,17 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — RULES (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // WPA 8-ball with the Miniclip-style choices in POOL_V2_PLAN.md:
-    //   - the break is played from the kitchen and never called; it is legal
-    //     if a ball drops or at least four object balls reach a rail, and an
-    //     illegal break is a foul
-    //   - the table stays open after the break, whatever dropped; the 8 on
-    //     the break is re-spotted and the breaker plays on
+    // WPA 8-ball with Miniclip-style choices:
+    //   - the break is from the kitchen, never called; legal if a ball drops or
+    //     four object balls reach a rail, else a foul
+    //   - the table stays open after the break; an 8 on the break is re-spotted
     //   - on an open table any solid or stripe may be hit first (not the 8);
     //     the first counted pot decides the groups
-    //   - the 8 is always called; call-every-shot is an option (the pro tier
-    //     forces it), and then only a ball in the called pocket counts
+    //   - the 8 is always called; call-every-shot is optional (pro forces it)
     //   - after any foul the opponent has ball in hand anywhere
-    //
-    // Pure: the judge reads a settled physics world and its event log and
-    // returns a verdict plus the next frame state. It never mutates either;
-    // the caller re-spots the 8 and places the cue ball with the helpers at
-    // the bottom. Seats are 1 and 2, as in the rest of the widget.
+    // Pure: the judge reads a settled world and its log and returns a verdict
+    // plus the next state; the table helpers at the bottom do the mutating.
+    // Seats are 1 and 2.
 
     const PR_FOUL_TEXT = {
         scratch: 'Scratch',
@@ -3412,11 +3197,8 @@
         };
     }
 
-    // What happened on the last shot, from the physics log: the first ball
-    // the cue ball touched, whether any ball reached a cushion after that,
-    // how many object balls reached a cushion at all (the break count), and
-    // the pots in the order they dropped. Jaws count as cushion: they are
-    // the cushion rubber cut back at the pocket.
+    // The last shot from the physics log: first ball hit, a rail after it, object
+    // balls railed (the break count), pots in order. Jaws count as cushion.
     function prSummarize(log) {
         let start = 0;
         for (let i = log.length - 1; i >= 0; i--) if (log[i].type === 'strike') { start = i + 1; break; }
@@ -3436,8 +3218,7 @@
         return { first, railAfterFirst, objectRails: railed.size, pots, scratch: pots.some(p => p.ball === 0) };
     }
 
-    // A seat's position in the frame, for the HUD and the CPU. `onTable` is
-    // the list of object-ball ids still in play.
+    // A seat's position in the frame; `onTable` lists object-ball ids still in play.
     function prStatusFrom(state, seat, onTable) {
         const group = state.groups[seat];
         const left = group ? onTable.filter(id => prGroupOf(id) === group).length : 7;
@@ -3450,9 +3231,7 @@
         return prStatusFrom(state, seat || state.turn, on);
     }
 
-    // Judges the shot that just settled. `call` is the called pocket index
-    // (0–5, the table's pocket order), or -1/undefined when nothing was
-    // called. Returns the verdict; verdict.next is the state to play on.
+    // `call` is the called pocket index (0–5) or -1/undefined; verdict.next is the state to play on.
     function prJudge(state, world, call) {
         const s = prSummarize(world.log);
         const me = state.turn, them = 3 - me;
@@ -3534,9 +3313,7 @@
         return v;
     }
 
-    // The shot clock ran out before a shot was played. As in today's game it
-    // is a foul: the opponent has ball in hand anywhere. On the break there
-    // is nothing to foul, so the break simply passes across (kitchen).
+    // Shot clock ran out: a foul (ball in hand anywhere), except on the break, which passes across.
     function prTimeout(state) {
         const me = state.turn, them = 3 - me;
         const brk = state.isBreak;
@@ -3583,9 +3360,8 @@
     }
 
     // ── Table helpers (these do mutate the world) ─────────────────────
-    // Why a cue-ball spot is refused, or null if it is fine: 'outside',
-    // 'kitchen' (behind the head string only), 'D' (snooker: inside the D only, its
-    // lines included) or 'overlap'.
+    // Why a cue-ball spot is refused, or null: 'outside', 'kitchen' (behind the head
+    // string only), 'D' (snooker, lines included) or 'overlap'.
     function prCanPlace(world, x, y, zone) {
         const t = world.table, R = world.cfg.ballR;
         if (!(Math.abs(x) <= t.halfLength - R && Math.abs(y) <= t.halfWidth - R)) return 'outside';
@@ -3598,18 +3374,14 @@
         return null;
     }
 
-    // Inside snooker's D: behind the baulk line and within the half-circle on it (the table's
-    // marks carry both), a hair of float slack on the lines.
+    // Inside snooker's D (behind baulk, within the half-circle), with float slack on the lines.
     function prInD(t, x, y) {
         const m = t.marks;
         return !!m && x <= m.baulkX + 1e-9 && (x - m.baulkX) ** 2 + y * y <= m.dR * m.dR + 1e-6;
     }
 
-    // The nearest spot to (x, y) the zone allows, as [x, y]: on the felt,
-    // behind the head string for 'kitchen', and inside the D for 'D' (up to
-    // the baulk line, then round the arc). Dragging the cue ball through this
-    // makes it slide along those limits instead of crossing them. Other balls
-    // are not pushed aside; an overlap is still refused.
+    // The nearest [x, y] the zone allows, so a dragged cue ball slides along the
+    // limits instead of crossing them. Other balls are not pushed; overlap is refused.
     function prClampPlace(world, x, y, zone) {
         const t = world.table, R = world.cfg.ballR;
         const hx = t.halfLength - R, hy = t.halfWidth - R;
@@ -3630,8 +3402,7 @@
         return cue;
     }
 
-    // Spots a ball on the long string: on the foot spot, or as close behind
-    // it (toward the foot rail) as room allows, else in front of it.
+    // On the foot spot, or as close behind it (toward the foot rail) as room allows, else in front.
     function prSpotBall(world, id) {
         const t = world.table, R = world.cfg.ballR, b = world.balls.find(o => o.id === id);
         const free = x => world.balls.every(o => o === b || o.state === 'pocketed' || (o.x - x) ** 2 + o.y ** 2 >= (2 * R + 0.02) ** 2);
@@ -3645,40 +3416,28 @@
     // ═══════════════════════════════════════════════════════════════════
     // SNOOKER — TABLE (v2 engine)
     // ═══════════════════════════════════════════════════════════════════
-    // Snooker on pool's engine (POOL_V2_PLAN.md, Snooker). The physics, cameras and
-    // renderer are pool's; this module is what makes the table a snooker table: its
-    // config, its balls, its markings and its rack; and, below the table, its rules (Phase S2).
-    //
-    // True scale on the same 1000 × 500 bed (1 u = 3.569 mm, a 3569 mm bed): 52.5 mm balls
-    // are R 7.36. The pockets, cushion ends and markings are the design's
-    // (pool-dev/ref/design/Table.dc.html, revision 1790715495-3a1b), so what is drawn is
-    // what plays. The design's y points down the screen; ours points up, so its +y is
-    // our −y (yellow sits at y < 0: on the right of the D, seen from the baulk end).
-    //
-    // Ball ids: 0 the cue ball; a colour's id is its value (yellow 2, green 3, brown 4,
-    // blue 5, pink 6, black 7); reds are 8 upward (8–22 with 15 reds). No id means what
-    // it means in pool.
+    // Snooker on pool's physics, cameras and renderer: the table's config, balls,
+    // markings and rack, and below them its rules.
+    // True scale on the same 1000 × 500 bed (1 u = 3.569 mm): 52.5 mm balls are R 7.36.
+    // The design's y points down; ours points up, so yellow sits at y < 0.
+    // Ball ids: 0 the cue ball; a colour's id is its value (yellow 2 … black 7); reds are
+    // 8 upward (8–22 with 15 reds). No id means what it means in pool.
 
     const PS_TABLE = {
         game: 'snooker',
         ballR: 7.36,
-        // The design's pockets (revision 1790749498-5862): the cushions stop 17 u from each
-        // corner and 14.5 u either side of each middle pocket (mouth 29 u); every end is a
-        // rounded nose of radius 6 and then a straight jaw to the rail, square at the middle
-        // pockets and leaning 5 u toward the corners.
+        // Cushions stop 17 u from each corner and 14.5 u either side of a middle pocket; each
+        // end is a nose of radius 6, then a jaw to the rail, square at the middle, leaning 5 u at corners.
         pocketStyle: 'rounded',
         cornerNose: 17, sideNose: 14.5, noseRound: 6, cornerJawBack: 5, sideJawBack: 0,
         cornerPocketOffset: 2, cornerPocketR: 18,       // holes at (±502, ±252)
         sidePocketOffset: 9, sidePocketR: 15.5,         // holes at (0, ±259)
-        // A 12 ft table's cloth on a 1000 u bed: gravity in these units, the same 8 m/s top
-        // speed as pool, and snooker cloth's lower rolling resistance (a feel number; see
-        // the harness).
+        // Pool's 8 m/s top speed; snooker cloth's lower rolling resistance (a feel number).
         gravity: 2749,                                  // 9.81 m/s² at 3.569 mm/u
         maxSpeed: 2240,
         muRoll: 0.011,
         clusterGap: 0.26,                               // pool's 0.5, scaled with R
-        // Pool's rail and nose heights, as the design draws them (a nose at 1.36 R is close
-        // to a real snooker table's), set explicitly so the wide shots fit the real rail.
+        // Pool's rail and nose heights (a nose at 1.36 R is near real), explicit so wide shots fit the rail.
         railZ: 16, noseZ: 10,
         diamonds: false,
     };
@@ -3688,8 +3447,7 @@
     const PS_NAMES = { 0: 'cue ball', 2: 'yellow', 3: 'green', 4: 'brown', 5: 'blue', 6: 'pink', 7: 'black' };
     const PS_REDS = [15, 10, 6];                        // the frame lengths offered
 
-    // The markings, in our frame: the baulk line 206.5 u from the baulk cushion, the D's
-    // radius, and each colour's spot.
+    // The baulk line (206.5 u from the baulk cushion), the D's radius, each colour's spot.
     const PS_BAULK_X = -293.5, PS_D_R = 81.8;
     const PS_SPOTS = {
         2: [PS_BAULK_X, -PS_D_R],                       // yellow
@@ -3705,9 +3463,7 @@
     const psName = id => (psIsRed(id) ? 'red' : PS_NAMES[id] || '');
     const psRedsOf = n => (PS_REDS.indexOf(n) >= 0 ? n : 15);
 
-    // The markings as the renderer draws them (pgDrawMarks: spots, the baulk line across the
-    // bed, the D's half-circle toward the baulk cushion), plus the numbers the rules and
-    // ball in hand read.
+    // The markings pgDrawMarks draws, plus the numbers the rules and ball in hand read.
     function psMarks(cfg) {
         const HW = cfg.halfWidth;
         return {
@@ -3718,17 +3474,14 @@
         };
     }
 
-    // A snooker world: pool's physics on the snooker table, with its markings.
     function psCreateWorld(overrides) {
         const w = ppCreateWorld(Object.assign({}, PS_TABLE, overrides));
         w.table.marks = psMarks(w.cfg);
         return w;
     }
 
-    // The rack: the reds in a pyramid (5, 4 or 3 rows) with its apex as close behind the pink
-    // as it can be without touching it, the colours exactly on their spots, and the cue ball
-    // in the D. `rng` jitters each red by a hair, as pool's rack does, so no two break-offs
-    // are the same; the colours are never jittered.
+    // Reds in a pyramid (5, 4 or 3 rows) just behind the pink, colours on their spots, the cue
+    // ball in the D. `rng` jitters each red by a hair; colours are never jittered.
     function psRack(w, rng, reds) {
         const R = w.cfg.ballR, n = psRedsOf(reds);
         const d = 2 * R + 0.02;                         // a hair between balls, as pool's rack
@@ -3750,25 +3503,19 @@
     // ═══════════════════════════════════════════════════════════════════
     // SNOOKER — RULES (v2 engine)
     // ═══════════════════════════════════════════════════════════════════
-    // Snooker to the 147 (POOL_V2_PLAN.md, Snooker: the rules table and the user's calls):
-    //   - the break-off is played from the D, on reds; there is no other break rule
-    //   - on reds any red may be hit first (several at once too), 1 a red; then a colour,
-    //     nominated every time, re-spotted when potted; after the last red, any colour once,
-    //     then the clearance, yellow to black, where potted balls stay down
-    //   - a foul costs max(4, the ball on, every ball involved), capped at 7, never a sum; a
-    //     foul before nominating is 7. The offender scores nothing, reds stay down and colours
-    //     come back. The incoming player chooses: play, make the offender play again, or
-    //     (snookered, and the cue ball not in-off) a free ball. No miss rule, no re-racks
+    // Snooker to the 147:
+    //   - the break-off is from the D, on reds; no other break rule
+    //   - on reds any red(s) first, 1 each; then a nominated colour, re-spotted; after the
+    //     last red any colour once, then the clearance, yellow to black, balls stay down
+    //   - a foul costs max(4, ball on, every ball involved) capped at 7, never a sum; a foul
+    //     before nominating is 7. Reds stay down, colours come back. The incoming player
+    //     chooses: play, put the offender back in, or (snookered, not in-off) a free ball.
+    //     No miss rule, no re-racks
     //   - a cue ball in-off is ball in hand in the D for whoever plays next
-    //   - the frame ends when the table is cleared, on a foul with only the black left, or
-    //     on a concession; a tie re-spots the black, played from the D, the first player
-    //     drawn by the frame's seeded lot
-    //
-    // Pure, as pool's judge is: psJudge reads a settled world and its event log and returns
-    // a verdict plus the next frame state, mutating neither. The caller applies the re-spots
-    // (psApplySpots) and places the cue ball when it is in hand. Seats are 1 and 2.
-    //
-    // frame = { v, game, reds, breaker, turn, isBreak, lot, scores {1, 2}, brk, high {1, 2},
+    //   - the frame ends on a cleared table, a foul with only the black left, or a
+    //     concession; a tie re-spots the black, first player drawn by the seeded lot
+    // Pure, as prJudge: the caller applies re-spots (psApplySpots) and places the cue ball.
+    // frame ={ v, game, reds, breaker, turn, isBreak, lot, scores {1, 2}, brk, high {1, 2},
     //   fouls {1, 2}, shots, phase 'reds' | 'colour' | 'clearance', next (the clearance's ball
     //   on, 2–7), freeBall, ballInHand 'D' | null, touching [ids], pending, respotBlack, over,
     //   winner, conceded }
@@ -3781,13 +3528,11 @@
         timeout: 'Out of time',
         freeSnooker: 'Snookered behind the free ball',
     };
-    // Which foul names the toast when a shot commits several: the one that set the penalty,
-    // and on equal values the first here.
+    // The toast names the foul that set the penalty; on equal values, the first here.
     const PS_FOUL_ORDER = ['wrongFirst', 'wrongPot', 'wrongPocket', 'noContact', 'inOff', 'noNomination', 'freeSnooker', 'timeout'];
     const PS_TOUCH_GAP = 0.1;                           // a ball this close to the cue ball is touching it
-    // The call pocket, as it is played where the user is from: 'off' (the rules as written),
-    // 'colours' (every colour is called, reds are not) or 'all' (every ball). A ball on potted
-    // with none in the pocket called is a foul on its value. The break-off is never called.
+    // Call pocket: 'off' (rules as written), 'colours' (colours called, reds not) or 'all'. A ball
+    // on potted with none in the called pocket is a foul on its value. The break-off is never called.
     const PS_CALLS = ['off', 'colours', 'all'];
     const psCallNeeded = state => !state.isBreak && (state.call === 'all' || (state.call === 'colours' && state.phase !== 'reds'));
 
@@ -3815,10 +3560,9 @@
         return state.phase === 'colour' ? cols : [];
     }
 
-    // What the shooter is on. ids: the balls that may be hit first and potted; also: the balls
-    // a free ball may be hit or potted together with (the reds, or the clearance's ball on);
-    // value: what a foul on it costs at least (a free ball takes the value of the ball it
-    // stands for; nothing nominated when a nomination is needed is 7).
+    // What the shooter is on. ids: may be hit first and potted; also: what a free ball may go
+    // with (reds, or the clearance's ball on); value: a foul's minimum (a free ball takes the
+    // value it stands for; a missing nomination is 7).
     function psBallOn(state, live, nominated) {
         const nominable = psNominable(state, live);
         const needsNomination = state.freeBall || state.phase === 'colour';
@@ -3833,9 +3577,8 @@
         return { ids: [state.next], also: [], value: state.next, freeId: -1, nominated: -1, needsNomination, nominable };
     }
 
-    // The last shot from the physics log: the ball(s) the cue ball met first (all those met
-    // at the same instant), what dropped, and whether the cue ball went in. Contacts with a
-    // ball the cue ball was touching at rest are left out: playing away from it is not a hit.
+    // The ball(s) the cue ball met first (all at that instant), what dropped, and whether the cue
+    // ball went in. A ball touching the cue ball at rest is left out: playing away is not a hit.
     function psSummarize(log, touching) {
         const touch = touching || [];
         let start = 0;
@@ -3854,8 +3597,7 @@
         return { firstT, first, pots, cueDown: pots.some(p => p.ball === 0) };
     }
 
-    // The balls as they will stand once the re-spots are applied (and without the cue ball
-    // when it is in hand): what the snookered and touching tests look at.
+    // The balls after re-spots (no cue ball when in hand), for the snookered and touching tests.
     function psAfter(world, spots, cueInHand) {
         const at = {};
         (spots || []).forEach(s => { at[s.id] = s; });
@@ -3863,11 +3605,9 @@
             .map(b => (at[b.id] ? { id: b.id, x: at[b.id].x, y: at[b.id].y, state: 'stationary' } : b));
     }
 
-    // Is the cue ball snookered on `onIds`? The cue ball's path to a ball on is a band 2R
-    // either side of its centre line; it is blocked by any ball not on (cushions are not
-    // looked at). mode 'free' (the free-ball test): snookered unless some ball on can be hit
-    // on both of its extreme edges. mode 'full': snookered only if no part of any ball on
-    // can be hit. `balls`: live balls, the cue ball among them; `R` the ball radius.
+    // Is the cue ball snookered on `onIds`? Its path is a band 2R either side of the centre
+    // line, blocked by any ball not on (cushions ignored). 'free': snookered unless some ball
+    // on can be hit on both extreme edges. 'full': only if no part of any ball on can be hit.
     function psSnookered(balls, R, onIds, mode) {
         const cue = balls.find(b => b.id === 0 && b.state !== 'pocketed');
         const on = balls.filter(b => b.state !== 'pocketed' && onIds.indexOf(b.id) >= 0);
@@ -3896,18 +3636,15 @@
         return !on.some(o => !blocked(o, edge) && !blocked(o, -edge));
     }
 
-    // The ids of the balls touching the cue ball at rest.
     function psTouching(balls, R) {
         const cue = balls.find(b => b.id === 0 && b.state !== 'pocketed');
         if (!cue) return [];
         return balls.filter(b => b.id !== 0 && b.state !== 'pocketed' && Math.hypot(b.x - cue.x, b.y - cue.y) <= 2 * R + PS_TOUCH_GAP).map(b => b.id);
     }
 
-    // Where re-spotted colours go, highest value first, each one occupying its place for the
-    // next: its own spot; else the highest-value free spot; else as close as it fits behind
-    // its own spot toward the top cushion; else in front of it. A place is free when no ball
-    // on the table (or already re-spotted) would touch the one placed there. Solved on the
-    // line exactly, not stepped.
+    // Re-spots, highest value first, each taking its place before the next: its own spot; else
+    // the highest-value free spot; else as close behind its spot (toward the top cushion) as
+    // fits; else in front. Solved on the line exactly, not stepped.
     function psSpotPositions(world, ids) {
         const R = world.cfg.ballR, gap = 2 * R + 0.02, hx = world.table.halfLength - R;
         const occ = world.balls.filter(b => b.state !== 'pocketed' && ids.indexOf(b.id) < 0).map(b => [b.x, b.y]);
@@ -3944,9 +3681,7 @@
         });
     }
 
-    // Points still on the table for the player at it: a red and a black for every red, then
-    // the colours (27); after a red, the colour that follows it; in the clearance, the ball
-    // on and everything after it.
+    // Points left: 8 per red plus the colours (27), +7 after a red; in the clearance, the ball on onward.
     function psRemaining(state, live) {
         if (state.respotBlack) return 7;
         if (state.phase === 'clearance') { let s = 0; for (let c = state.next; c <= 7; c++) s += c; return s; }
@@ -3979,8 +3714,7 @@
         };
     }
 
-    // The frame is decided (the table cleared, or a foul with only the black left): the
-    // higher score wins; a tie re-spots the black, played from the D by the lot's pick.
+    // The higher score wins; a tie re-spots the black, played from the D by the lot's pick.
     function psEndFrame(v, state, next) {
         if (next.scores[1] !== next.scores[2]) {
             v.frameOver = true; v.winner = next.scores[1] > next.scores[2] ? 1 : 2;
@@ -4024,9 +3758,7 @@
         next.pending = { offender: me, chooser: them, options, penalty: v.penalty };
     }
 
-    // Judges the shot that just settled. `nominated`: the colour tapped for it, or -1;
-    // `called`: the pocket called for it (when the frame's call rule asks), or -1.
-    // Returns the verdict; verdict.next is the state to play on.
+    // `nominated`: the colour tapped, or -1; `called`: the pocket called, or -1. verdict.next is the state to play on.
     function psJudge(state, world, nominated, called) {
         const call = Number.isInteger(called) && called >= 0 ? called : -1;
         const me = state.turn, them = 3 - me;
@@ -4099,8 +3831,7 @@
             next.phase = liveReds ? 'reds' : 'clearance';
             next.next = 2;
         } else {
-            // The clearance: the ball on (or the free ball for it) scores the ball on's value
-            // once; the free ball comes back, the ball on stays down.
+            // Clearance: the ball on (or a free ball for it) scores once; a free ball comes back.
             points = scored.length ? state.next : 0;
             if (free && scored.indexOf(on.freeId) >= 0) spotIds = [on.freeId];
             if (scored.indexOf(state.next) >= 0) next.next = state.next + 1;
@@ -4148,9 +3879,7 @@
         return Object.assign({}, state, { pending: null, turn: choice === 'back' ? p.offender : p.chooser, freeBall: choice === 'free', brk: 0 });
     }
 
-    // The shot clock ran out: a foul on the ball on (7 with nothing nominated when a colour
-    // was needed), with the usual choice; nothing moved, so the cue ball stays where it is,
-    // or in hand in the D if it was.
+    // Shot clock ran out: a foul on the ball on (7 if a needed nomination is missing); nothing moved.
     function psTimeout(state, world, nominated) {
         const me = state.turn, them = 3 - me;
         const on = psBallOn(state, psLiveIds(world.balls), nominated === undefined ? -1 : nominated);
@@ -4169,7 +3898,6 @@
         return v;
     }
 
-    // A seat gives the frame away.
     function psConcede(state, seat) {
         const winner = 3 - seat;
         const next = Object.assign({}, state, { over: true, winner, conceded: seat, pending: null, turn: 0, ballInHand: null });
@@ -4180,8 +3908,7 @@
         };
     }
 
-    // Seat-aware copy for the toast and the frame result, as prText's. names = { 1, 2 }; the
-    // name 'You' gets second-person grammar.
+    // Seat-aware toast copy, as prText's; the name 'You' gets second-person grammar.
     function psText(v, names) {
         const n = seat => names[seat];
         const you = seat => n(seat) === 'You';
@@ -4192,7 +3919,6 @@
                 : v.foul ? 'foul on the black' : nx.respotBlack ? 'potted the re-spotted black' : 'potted the black';
             return { kind: 'frame', title: you(w) ? 'You win' : n(w) + ' wins', sub: line + ' · ' + how };
         }
-        // SnkRespot: an info toast. SnkCentury: the trophy, in the accent.
         if (v.respotBlack) return { kind: 'notice', title: 'Scores level · re-spotted black', sub: (you(v.nextTurn) ? 'You have' : n(v.nextTurn) + ' has') + ' ball in hand in the D' };
         if (v.foul) {
             const why = v.foul === 'wrongFirst' ? 'Hit the ' + psName(v.foulBall) + ' first'
@@ -4218,8 +3944,7 @@
             : { id, label: 'Free ball', short: 'Free ball' }));
     }
 
-    // What the chooser decided, for a notice when it was not the viewer (the CPU, say):
-    // CPU plays on / CPU takes the free ball / CPU puts you back in.
+    // The chooser's decision as a notice, when it was not the viewer.
     function psChoiceNotice(pending, choice, names) {
         const who = names[pending.chooser], me = who === 'You', off = names[pending.offender];
         if (choice === 'back') return (me ? 'You put ' : who + ' puts ') + (off === 'You' ? 'you' : off) + ' back in';
@@ -4227,8 +3952,7 @@
         return (me ? 'You play on' : who + ' plays on');
     }
 
-    // The frame-over dialog's words (SnkWin / SnkLoss): the reason in a sentence, the score
-    // in seat order, and the frame's high break with who made it.
+    // The frame-over dialog's words: reason, score in seat order, the high break and who made it.
     function psResultText(v, names) {
         const n = seat => (names[seat] === 'You' ? 'You' : names[seat]);
         const nx = v.next, sc = nx.scores, h = nx.high;
@@ -4240,8 +3964,7 @@
     }
 
     // ── The cue ball in hand ─────────────────────────────────────────────
-    // A free spot in the D for the cue ball in hand: the design's break-off spot, else a
-    // walk out over the D.
+    // A free spot in the D: the break-off spot, else a walk out over the D.
     function psCueHome(w) {
         const tries = [[-320, -30], [-330, 0], [-320, 30]];
         for (let r = 10; r <= 80; r += 10) for (let a = 0; a < 12; a++) tries.push([PS_BAULK_X - r * Math.sin(a * Math.PI / 12 + 0.01), r * Math.cos(a * Math.PI / 12 + 0.01)]);
@@ -4251,25 +3974,17 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — TOURNAMENT MODEL (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // A single-elimination bracket for 3–16 people on one computer, humans
-    // only (POOL_V2_PLAN.md, Tournament). Pure: plain objects in, plain
-    // objects out, so it is tested in Node and saved as JSON.
-    //
-    //   size   S = the next power of two ≥ N (min 4); byes = S − N go to the
-    //          top seeds, so no first-round match is bye against bye
-    //   seeds  the standard order: seed s meets 2n+1−s, every other pair
-    //          flipped (1v8, 4v5, 3v6, 2v7), as the design's brackets draw it
-    //   play   a round is finished before the next starts, left to right;
-    //          winners feed forward by index (match j → j >> 1, side j & 1)
-    //   breaks the lower seed (the higher number) breaks first, then they
-    //          alternate
+    // A single-elimination bracket for 3–16 humans on one computer. Pure plain
+    // objects, so it is tested in Node and saved as JSON.
+    //   size   S = next power of two ≥ N (min 4); the S − N byes go to the top seeds
+    //   seeds  seed s meets 2n+1−s, every other pair flipped (1v8, 4v5, 3v6, 2v7)
+    //   play   round by round, left to right; match j feeds j >> 1, side j & 1
+    //   breaks the lower seed (higher number) first, then alternating
     // A tournament: { v, id, game, seed, name, created, settings, slots, size,
     // rounds, matches: [{ id, round, index, a, b, raceTo, frames, points, high,
-    // winner, status }], snapshot }. Slots are indices into `slots`; a is the upper
-    // line of a match, b the lower. game is 'pool' or 'snooker' (a save made before
-    // snooker has none, and is pool's); snooker's matches also keep each frame's
-    // points ([a, b]) and the match's high break ({ slot, frame, value }). raceTo is
-    // stored for both games; snooker says it as best of 2N − 1 (ptRaceText).
+    // winner, status }], snapshot }. a/b index `slots` (a the upper line). A save
+    // with no game is pool's. Snooker matches also keep per-frame points ([a, b])
+    // and the high break ({ slot, frame, value }); its raceTo reads as best of 2N − 1.
 
     const PT_VERSION = 1;
     const PT_MIN = 3, PT_MAX = 16;
@@ -4279,11 +3994,9 @@
 
     const ptSizeFor = n => (n <= 4 ? 4 : n <= 8 ? 8 : 16);
     const ptGameOf = x => (x && x.game === 'snooker' ? 'snooker' : 'pool');
-    // "Race to 2" in pool, "Best of 3" in snooker: the same match.
     const ptRaceText = (t, n) => (ptGameOf(t) === 'snooker' ? 'Best of ' + (2 * n - 1) : 'Race to ' + n);
-    // A tournament's settings, normalised for its game: a race of 1–5 per round, a clock of
-    // 0 / 30 / 45 (/ 60 in snooker), the guideline; pool's call (the 8 only or every shot),
-    // snooker's reds (15 / 10 / 6) and call pocket (off / the colours / every ball).
+    // Settings normalised for the game: race 1–5 per round, clock 0/30/45 (/60 snooker),
+    // guideline, pool's call (8 or every), snooker's reds and call pocket.
     function ptSettings(game, s0, rounds, size) {
         const s = s0 || {}, snk = game === 'snooker';
         const race = (Array.isArray(s.race) && s.race.length === rounds ? s.race : PT_RACE_DEFAULT[size]).map(x => Math.max(1, Math.min(5, x | 0 || 1)));
@@ -4297,7 +4010,6 @@
     }
     const ptRoundsFor = size => Math.round(Math.log2(size));
 
-    // "Final", "Semi-final", "Quarter-final", "Round of 16", from the end.
     function ptRoundName(rounds, r) {
         const fromEnd = rounds - 1 - r;
         return fromEnd === 0 ? 'Final' : fromEnd === 1 ? 'Semi-final' : fromEnd === 2 ? 'Quarter-final' : 'Round of ' + Math.pow(2, fromEnd + 1);
@@ -4329,9 +4041,8 @@
         return a;
     }
 
-    // opts: { game: 'pool'|'snooker', names: [...], you: 0 (the slot that is the account
-    //         owner, or -1), settings: { race: [per round], clock: 30|45|0 (|60), guide:
-    //         'full'|'short'|'off', call, reds (snooker), shuffle }, name, seed, created (ms) }
+    // opts: { game, names: [...], you: the account owner's slot (or -1), settings (see
+    //         ptSettings, plus shuffle), name, seed, created (ms) }
     function ptCreate(opts) {
         const o = opts || {};
         const names = (o.names || []).map(n => String(n || '').trim().slice(0, 16)).slice(0, PT_MAX);
@@ -4368,37 +4079,31 @@
     const ptMatch = (t, round, index) => t.matches.find(m => m.round === round && m.index === index);
     const ptById = (t, id) => t.matches.find(m => m.id === id);
 
-    // The winner goes up a round: match j feeds j >> 1, upper line if j is even.
     function ptAdvance(t, m) {
         if (m.round === t.rounds - 1) return;
         const next = ptMatch(t, m.round + 1, m.index >> 1);
         if (m.index % 2 === 0) next.a = m.winner; else next.b = m.winner;
     }
 
-    // Matches in the order they are played: round by round, left to right, byes left out.
+    // Matches in play order, byes left out.
     const ptPlayable = t => t.matches.filter(m => m.status !== 'bye').sort((x, y) => x.round - y.round || x.index - y.index);
-    // The next match to play: both players known, not finished. null once there is a champion.
     function ptNext(t) {
         return ptPlayable(t).find(m => m.status !== 'done' && m.a !== null && m.b !== null) || null;
     }
-    // "Match 3 of 5".
     function ptMatchNumber(t, m) {
         const list = ptPlayable(t);
         return { n: list.indexOf(m) + 1, of: list.length };
     }
-    // Frames won in a match, per line.
     function ptScore(m) {
         return [m.frames.filter(w => w === m.a).length, m.frames.filter(w => w === m.b).length];
     }
-    // Who breaks frame k (0-based) of a match: the lower seed first, then alternating.
     function ptBreaker(t, m, k) {
         const aSeed = t.slots[m.a].seed, bSeed = t.slots[m.b].seed;
         const lower = aSeed > bSeed ? m.a : m.b, upper = lower === m.a ? m.b : m.a;
         return k % 2 === 0 ? lower : upper;
     }
 
-    // A frame is over: returns { t, matchOver, winner }. Pure: t is copied. extra (snooker):
-    // { points: [a, b], high: [a, b] }, the frame's score and each line's best break in it.
+    // Pure (t is copied). extra (snooker): { points: [a, b], high: [a, b] } for the frame.
     function ptRecordFrame(t0, matchId, winnerSlot, extra) {
         const t = JSON.parse(JSON.stringify(t0));
         const m = ptById(t, matchId);
@@ -4425,12 +4130,11 @@
         return { t, matchOver, winner: matchOver ? m.winner : null };
     }
 
-    // The champion's slot, or null.
     function ptChampion(t) {
         const f = ptMatch(t, t.rounds - 1, 0);
         return f && f.status === 'done' ? f.winner : null;
     }
-    // Where a player went out, or null if they are still in (or won).
+    // The round a player went out in, or null.
     function ptOut(t, slot) {
         const lost = t.matches.find(m => m.status === 'done' && (m.a === slot || m.b === slot) && m.winner !== slot);
         return lost ? lost.round : null;
@@ -4451,17 +4155,14 @@
         }
         return out;
     }
-    // Frames won and lost across the whole tournament.
     function ptFrames(t, slot) {
         let won = 0, lost = 0;
         t.matches.forEach(m => { if (m.a === slot || m.b === slot) m.frames.forEach(w => { if (w === slot) won++; else lost++; }); });
         return { won, lost };
     }
 
-    // A saved tournament, or null when it is not one this version can resume.
-    // Checked field by field, because a half-loaded bracket is worse than none.
-    // game: the game asking (a save for the other game is not resumed); the settings come back
-    // normalised for it.
+    // A resumable save for `game`, or null. Checked field by field: a half-loaded
+    // bracket is worse than none.
     function ptValidate(x, game) {
         try {
             if (!x || typeof x !== 'object' || x.v !== PT_VERSION) return null;
@@ -4501,7 +4202,6 @@
         cab.recent = cab.recent.slice(0, PT_RECENT);
         return cab;
     }
-    // Title table rows, most titles first.
     function ptCabinetRows(cab) {
         return Object.keys((cab && cab.titles) || {}).map(k => {
             const r = cab.titles[k];
@@ -4512,24 +4212,14 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — CAMERA (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // Poses, projection and unprojection for the two cameras in the design
-    // (Table.dc.html), plus the director that moves between them.
-    //
-    //   chase      perspective, behind the cue ball along the aim. Lean 0–100
-    //              maps to pitch 19.5°→48° and distance 110→420, focal 1.1·H,
-    //              with the cue ball held 0.34·H below the centre
-    //   broadcast  perspective, high over the table, framed like the 2D view;
-    //              the camera eases here while balls run
-    //   survey     perspective, the whole table from the shooter's side at a
-    //              58° pitch; the shot camera's Stay 3D setting stands up
-    //              here while balls run instead of going overhead
-    //   ortho      the 2D top-down view, fitted with an 8 px margin
-    //
-    // World frame is the physics frame: x right, y up, z up (right-handed).
-    // The design's frame is left-handed (y down), which mirrors its 3D view
-    // left to right; this one is not mirrored, so what is on your right in
-    // 3D is on your right on the real table. Screen space is CSS pixels,
-    // y down. Pure: no DOM.
+    // Poses, projection and unprojection, plus the director that moves between them.
+    //   chase      behind the cue ball along the aim; lean 0–100 maps pitch 19.5°→48°
+    //              and distance 110→420, focal 1.1·H, cue ball 0.34·H below centre
+    //   broadcast  high over the table, framed like 2D; eased to while balls run
+    //   survey     the whole table from the shooter's side at 58° (Stay 3D while balls run)
+    //   ortho      the 2D top-down view, 8 px margin
+    // World frame is the physics frame (right-handed, so unlike the design's y-down
+    // frame the 3D view is not mirrored). Screen space is CSS px, y down. Pure: no DOM.
 
     const PC_NEAR = 4;                 // near plane, table units in front of the eye
     const PC_MARGIN = 8;               // 2D fit margin, px
@@ -4541,22 +4231,20 @@
     const pcLerp = (a, b, t) => a + (b - a) * t;
     const pcLerp3 = (a, b, t) => [pcLerp(a[0], b[0], t), pcLerp(a[1], b[1], t), pcLerp(a[2], b[2], t)];
 
-    // Outer size of the table, rails included, from the physics config.
+    // Outer size, rails included.
     function pcTableExtent(cfg) {
         return { OX: cfg.halfLength + cfg.railWidth, OY: cfg.halfWidth + cfg.railWidth };
     }
 
-    // The rail top the wide shots fit: the table's own when it sets one (snooker), else
-    // R + 2, which is pool's 16 at R = 14.
+    // The rail top wide shots fit: the table's own (snooker), else R + 2 (pool's 16).
     const pcRailTop = cfg => (cfg.railZ !== undefined ? cfg.railZ : cfg.ballR + 2);
 
-    // A perspective pose is an eye, a point it looks at, an up hint and a
-    // focal length; poses of that kind blend by lerping all four.
+    // A perspective pose: eye, target, up hint and focal length.
     function pcChase(cue, aim, lean, W, H, cfg) {
         const R = cfg ? cfg.ballR : 14;
         const lt = Math.max(0, Math.min(100, lean)) / 100;
         const phi = (19.5 + 28.5 * lt) * Math.PI / 180;
-        // The same at every ball size: the design frames snooker's small balls from pool's distances.
+        // Not scaled by R: snooker's small balls are framed from pool's distances.
         const dist = 110 + 310 * lt;
         const F = 1.1 * H;
         const pitch = phi - Math.atan(0.34 / 1.1);
@@ -4567,9 +4255,8 @@
         return { kind: 'persp', eye, target: [eye[0] + f[0] * k, eye[1] + f[1] * k, 0], up: [0, 0, 1], F, W, H };
     }
 
-    // Straight down on the table centre, screen-up = +y, framed like the 2D
-    // view. The long focal length keeps it close to orthographic, so the
-    // cut to and from 2D barely moves anything.
+    // Straight down, screen-up = +y. The long focal length keeps it near
+    // orthographic, so the cut to and from 2D barely moves anything.
     function pcBroadcast(W, H, cfg) {
         const { OX, OY } = pcTableExtent(cfg);
         const F = 4 * H, top = pcRailTop(cfg);    // fit the rail top
@@ -4577,13 +4264,10 @@
         return { kind: 'persp', eye: [0, 0, h], target: [0, 0, 0], up: [0, 1, 0], F, W, H };
     }
 
-    // The player standing up after the shot: still in 3D and still facing
-    // the way the shot went, but high and pulled back so the whole table is
-    // in frame. The distance is fitted to the viewport, and the framing is
-    // centred on the table's projected bounds (the near rail looks bigger).
+    // Standing up after the shot: facing the way it went, high and pulled back
+    // so the whole table fits, centred on its projected bounds.
     const PC_SURVEY_PITCH = 58 * Math.PI / 180;
-    // px kept clear around the table; the top also clears the camera
-    // toggle and the group pill that sit over the viewport
+    // px kept clear; the top also clears the camera toggle and group pill
     const PC_SURVEY_MARGIN = { side: 14, top: 52, bottom: 14 };
     const PC_APRON_Z = -46;            // the apron's bottom edge, as the renderer draws it
 
@@ -4611,9 +4295,7 @@
             let lo = 150, hi = 8000;
             for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (fits(bounds(at(T, mid)))) hi = mid; else lo = mid; }
             d = hi;
-            // Slide the camera over the felt until the bounds sit in the middle
-            // of the clear box: move by what lies under their centre minus
-            // what lies under the box's.
+            // Slide over the felt until the bounds sit mid clear box.
             const b = bounds(at(T, d));
             const p = b.v.unproject((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 0), q = b.v.unproject(cx, cy, 0);
             if (p && q) T = [T[0] + p[0] - q[0], T[1] + p[1] - q[1], 0];
@@ -4626,18 +4308,15 @@
         return { kind: 'ortho', s: Math.min((W - 2 * PC_MARGIN) / (2 * OX), (H - 2 * PC_MARGIN) / (2 * OY)), W, H };
     }
 
-    // Where the eye sits around the point it looks at, for poses that are
-    // upright (up = +z): heading, elevation and distance.
+    // Heading, elevation and distance of the eye around its target (upright poses).
     function pcOrbit(pose) {
         const o = pcSub(pose.eye, pose.target), d = Math.hypot(o[0], o[1], o[2]);
         return { az: Math.atan2(o[1], o[0]), el: Math.asin(o[2] / d), d };
     }
     const pcUpright = p => p.up[0] === 0 && p.up[1] === 0 && p.up[2] === 1;
 
-    // Perspective poses blend; anything involving ortho cuts at the midpoint.
-    // Two upright poses (chase and survey) orbit: the eye swings round the
-    // look point the short way, rising and backing off as it goes, rather
-    // than cutting a straight line across the table when the aim has turned.
+    // Perspective poses blend; ortho cuts at the midpoint. Two upright poses
+    // orbit the short way round rather than cutting across the table.
     function pcBlend(a, b, t) {
         if (t <= 0) return a;
         if (t >= 1) return b;
@@ -4657,7 +4336,6 @@
         };
     }
 
-    // Smoothstep: eases in and out.
     const pcEase = t => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 
     // A view is a pose made usable: toCam (world → camera, z = depth),
@@ -4673,7 +4351,6 @@
                 toScr: c => [W / 2 + s * c[0], H / 2 - s * c[1], s],
                 // The point on the plane z = h under a screen pixel.
                 unproject: (sx, sy) => [(sx - W / 2) / s, (H / 2 - sy) / s],
-                // Unit vector from a world point toward the viewer.
                 toViewer: () => [0, 0, 1],
             };
         }
@@ -4707,8 +4384,7 @@
         return [s[0], s[1], s[2], c[2]];
     }
 
-    // World polygon → screen polygon [[sx, sy], …], clipped at the near
-    // plane. Fewer than 3 points means nothing to draw.
+    // World polygon → screen [[sx, sy], …], near-clipped; under 3 points means nothing to draw.
     function pcPoly(view, pts) {
         const cam = pts.map(view.toCam), out = [];
         for (let i = 0; i < cam.length; i++) {
@@ -4735,12 +4411,10 @@
     }
 
     // ── Director ──────────────────────────────────────────────────────
-    // Chooses the pose for each frame and eases between them:
-    //   aim     chase behind the cue ball (or 2D if the player picked it)
-    //   moving  balls are running: ease out to broadcast, or, with the
-    //           shot camera set to stay in 3D, stand up into the survey
-    //   rest    back to the chase pose once everything stops; from the
-    //           survey, after a beat to take in the table
+    // Picks each frame's pose and eases between them:
+    //   aim     chase (or 2D if picked)
+    //   moving  ease to broadcast, or stand up into the survey (Stay 3D)
+    //   rest    back to chase; from the survey, after a beat
     //   bih     ball in hand always cuts to 2D
     // input = { camera: '3d'|'2d', shotCam: 'overhead'|'3d', phase: 'aim'|'moving'|'bih', cue, aim, lean }
     const PC_TWEEN_MS = { moving: 650, aim: 500, survey: 900, back: 750 };
@@ -4762,16 +4436,14 @@
         return { key: 'chase', pose: pcChase(input.cue, input.aim, input.lean, dir.W, dir.H, dir.cfg) };
     }
 
-    // Advances by dtMs and returns this frame's pose. A chase target is live
-    // (it follows aim and lean), so the blend is always toward where the
-    // camera should be now, not where it was when the move started.
+    // Advances by dtMs. A chase target is live (follows aim and lean), so the
+    // blend heads where the camera should be now, not where it was.
     function pcDirect(dir, input, dtMs) {
         const tg = pcTarget(dir, input);
         if (dir.key !== tg.key) {
             const cut = !dir.pose || tg.key === 'ortho' || dir.key === 'ortho';
             const fromSurvey = dir.key === 'survey';
-            // How far the stand-up got: a soft shot that stops early barely
-            // rose, so it gets a shorter beat before the camera comes back.
+            // A soft shot barely stood up, so it gets a shorter beat back.
             const risen = fromSurvey ? pcEase(dir.t) : 0;
             dir.from = dir.pose;
             dir.key = tg.key;
@@ -4793,8 +4465,7 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — RENDERER (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // Canvas2D port of the design's Table.dc.html, painted in the layer order
-    // of the plan's Rendering spec:
+    // Canvas2D, painted in layers:
     //   1  table shadow, apron, felt
     //   2  rail inner face, jaw faces, nose faces
     //   3  cushion tops, rail wood, lip, diamonds, spots
@@ -4804,22 +4475,15 @@
     //   7  balls, far to near
     //   8  ghost ball, cue, called-pocket rings, ball-in-hand ghost and hand
     // Layers 1–4 depend only on the camera, so they can be cached.
-    //
-    // Everything is a filled or stroked polygon; nothing uses ctx.clip().
-    // The pocket shafts and the ball markings are clipped as polygons
-    // (Sutherland–Hodgman against a convex outline), which is exact, and
-    // keeps the renderer usable on the headless rasterizer in the tests.
-    //
-    // Table materials and ball colours are physical and theme-independent.
-    // Anything drawn in a theme colour (the object-ball path, rings, the
-    // kitchen, ball in hand) comes in through scene.theme.
+    // Pool's pockets and ball markings are clipped as polygons (Sutherland–Hodgman),
+    // not ctx.clip(), so the tests' headless rasterizer can draw them.
+    // Table materials and ball colours are physical; theme colours come in via scene.theme.
 
     const PG_RAIL_Z = 16;              // rail top
     const PG_NOSE_Z = 10;              // cushion nose height
     const PG_POCKET_FLOOR = -64;
-    // Pool's heights, unless the table sets its own (snooker's smaller balls sit under a
-    // lower rail). Sizes drawn around a ball (cue, shadow, rings) scale by pgK: R over
-    // pool's 14, so pool draws exactly as it always has.
+    // Pool's heights unless the table sets its own. Sizes drawn around a ball (cue,
+    // shadow, rings) scale by pgK = R / 14, so pool's are unscaled.
     const pgRailZ = cfg => (cfg.railZ !== undefined ? cfg.railZ : PG_RAIL_Z);
     const pgNoseZ = cfg => (cfg.noseZ !== undefined ? cfg.noseZ : PG_NOSE_Z);
     const pgK = cfg => cfg.ballR / 14;
@@ -4831,10 +4495,8 @@
         lightgrey: { felt: ['#A3AEB8', '#86929D', '#59636D'], cushion: '#707C87', jaw: '#56606A', nose: '#4C565F' },
     };
     const PG_BALL_COLOURS = { 1: '#E9B825', 2: '#2457C5', 3: '#D2352B', 4: '#6A3FA0', 5: '#EE7A2E', 6: '#1F8A4C', 7: '#8C2A20', 8: '#141516' };
-    // What each game's balls look like, by id: { cue } for the cue ball, else
-    // { colour, stripe, number }. The renderer and the HUD's dots both read it.
-    // Snooker's balls are plain: a colour's id is its value (yellow 2 … black 7), reds are 8
-    // upward (pool-snooker.js). The design's colours.
+    // Each game's ball looks by id: { cue }, else { colour, stripe, number }. The HUD's
+    // dots read it too. Snooker ids: a colour's value (yellow 2 … black 7), reds 8 upward.
     const PG_SNOOKER_COLOURS = { 2: '#E8C21E', 3: '#1F7A3F', 4: '#6B3F22', 5: '#1F4FB5', 6: '#E88FA8', 7: '#121314' };
     const PG_SNOOKER_RED = '#B3202A';
     const PG_LOOKS = {
@@ -4850,7 +4512,7 @@
     const PG_GUIDE = '#F4F1E8';
     const PG_THEME = { accent: '#f093fb', hot: '#ff5d73', font: 'Inter, system-ui, sans-serif' };
     const PG_HAND = 'M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.83L7 15';
-    const PG_STRIPE = 0.46;            // stripe caps start 0.46 R from the centre (the design's 27–73% band)
+    const PG_STRIPE = 0.46;            // stripe caps start 0.46 R from the centre (a 27–73% band)
     const PG_NUMBER = 0.888;           // number disc: cos of its angular radius (0.46 of the diameter across)
 
     // ── Polygon helpers ───────────────────────────────────────────────
@@ -4927,11 +4589,9 @@
     }
 
     // ── Layers 1–4: the table ─────────────────────────────────────────
-    // The six cushions, from the physics config so they match the colliders. Each is
-    // { top, nose: [a, b], ends: [[p, q], …] }: its top face, the nose edge (its face drops to
-    // the felt), and the end edges whose faces are drawn in the jaw colour. Pool's are quads,
-    // [nose start, nose end, rail end, rail start] with a straight jaw at each end; nose at
-    // z = 10, rail at 16.
+    // The cushions, from the physics config so they match the colliders:
+    // { top, nose: [a, b], ends: [[p, q], …] } (nose face drops to the felt; end faces
+    // are jaw-coloured). Pool's are quads [nose start, nose end, rail end, rail start].
     function pgCushions(cfg) {
         if (cfg.pocketStyle === 'rounded') return pgRoundedCushions(cfg);
         const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth;
@@ -4948,16 +4608,13 @@
         return q.map(c => ({ top: c, nose: [c[0], c[1]], ends: [[c[0], c[3]], [c[1], c[2]]] }));
     }
 
-    // Snooker's cushions (the design's Table.dc.html): straight along the nose, a rounded nose
-    // of radius noseRound, then a straight jaw back to the rail, as ppBuildRoundedTable's
-    // colliders are. The top rises from the nose to the rail height across the cushion's depth.
+    // Snooker's cushions, matching ppBuildRoundedTable; the top rises from nose to rail height.
     function pgRoundedCushions(cfg) {
         const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth, RHO = cfg.noseRound;
         const c = cfg.cornerNose, s = cfg.sideNose, N = pgNoseZ(cfg), T = pgRailZ(cfg), NA = 8;
         const out = [];
-        // One run from u = a to u = b along a cushion; dirA and dirB point from each end toward
-        // its pocket, jbA / jbB how far each jaw leans that way at the rail; map(u, depth, z) is
-        // the point that fraction (depth) of the way to the rail.
+        // One run from u = a to b; dirA/dirB point toward each end's pocket, jbA/jbB are the
+        // jaw leans; map(u, depth, z) is the point that fraction of the way to the rail.
         const run = (a, b, dirA, dirB, jbA, jbB, map) => {
             const at = (u, dep) => map(u, dep, N + (T - N) * dep);
             const end = (e, dir, jb) => {
@@ -4982,8 +4639,7 @@
         return out;
     }
 
-    // The felt's markings: the table's own when it has them (snooker's baulk line, D and
-    // spots), else pool's two spots, the foot spot and the head spot.
+    // The table's own markings (snooker), else pool's foot and head spots.
     //   { spots: [{ x, y, r }], lines: [[[x, y], [x, y]]], arcs: [{ x, y, r, a0, a1 }] }
     function pgMarks(table) {
         return table.marks || { spots: [{ x: table.footX, y: 0, r: 3 }, { x: table.headX, y: 0, r: 3 }], lines: [], arcs: [] };
@@ -5022,7 +4678,7 @@
         }
         const felt = P(pgRect(IX, IY, 0));
         if (felt.length >= 3) {
-            // The design's radial at (50%, 46%), r 62% of the felt's bounding box.
+            // Radial at (50%, 46%), r 62% of the felt's bounding box.
             const b = pgBounds([felt]);
             ctx.save();
             ctx.beginPath(); pgTrace(ctx, felt);
@@ -5092,11 +4748,9 @@
         const bandRGB = ['#563C29', '#302117', '#150F0B'];
         const lit = [0.55, 0.8, 1.08];
         const NF = 30;
-        // Snooker in 3D (the design's revision 1790749498-5862): a pocket sits mostly behind the
-        // cushion line, so its lip is at rail height only where the rail is cut and drops to the
-        // felt across the cushion gap. The opening is that mixed-height rim (it also covers the
-        // rail face between the cushion ends); the wall's top band shows only over the rail. Then
-        // the cushions are drawn again, in front of the holes.
+        // Snooker in 3D: a pocket sits mostly behind the cushion line, so its lip is at rail
+        // height only over the rail and drops to the felt across the gap; the wall's top band
+        // shows only over the rail. The cushions are then redrawn in front of the holes.
         if (cfg.pocketStyle === 'rounded' && eye) {
             const over = (x, y) => Math.abs(x) > IX || Math.abs(y) > IY;
             table.pockets.forEach(p => {
@@ -5111,8 +4765,7 @@
                 const ap = P(rim);
                 if (ap.length < 3) return;
                 pgFill(ctx, [ap], '#040303');
-                // The walls and the floor rings are clipped to the opening (it need not be convex); a
-                // canvas without clip() (the tests' software one) shows the opening alone.
+                // The opening need not be convex, so this uses clip(); without it, the opening alone.
                 if (typeof ctx.clip !== 'function') return;
                 ctx.save();
                 ctx.beginPath(); pgTrace(ctx, ap); ctx.clip();
@@ -5169,10 +4822,9 @@
     }
 
     // ── Balls ─────────────────────────────────────────────────────────
-    // Body frame: x = the number's pole, z = the stripe axis (the digits'
-    // up), y = z × x. Each ball has a fixed "print" orientation so a fresh
-    // rack shows its numbers from above, each turned a little differently,
-    // as in the design; the physics quaternion rolls it from there.
+    // Body frame: x = the number's pole, z = the stripe axis (digits' up), y = z × x.
+    // A fixed per-id "print" shows a fresh rack's numbers from above, each turned a
+    // little; the physics quaternion rolls it from there.
     const pgPrintCache = {};
     function pgPrint(id) {
         if (pgPrintCache[id]) return pgPrintCache[id];
@@ -5226,10 +4878,8 @@
         return pts.map(scr);
     }
 
-    // A ball's number as a small image, drawn once per id, size and font: text is the
-    // dearest thing on the canvas (the font string is parsed and the glyphs shaped on every
-    // call), and up to fifteen of them change every frame. Rendered at 2× so the
-    // foreshortening transform does not blur it. Null when there is no canvas to draw into.
+    // A ball's number as a cached sprite per id, size and font: fillText is the dearest
+    // call on the canvas. At 2× so foreshortening does not blur it; null without a canvas.
     function pgDigit(sprites, make, id, fs, font) {
         if (!sprites || !make) return null;
         const px = Math.round(fs * 2) / 2, key = id + '|' + px + '|' + font;
@@ -5250,8 +4900,7 @@
         return s;
     }
 
-    // One ball at screen centre (cx, cy), radius rad. `v` is the view basis
-    // at the ball: right, up and toward the viewer, all world vectors.
+    // `v` is the view basis at the ball: right, up and toward the viewer, in world vectors.
     function pgDrawBall(ctx, b, cx, cy, rad, v, theme, alpha) {
         const dd = rad * 2, id = b.id;
         const local = w => [pcDot(w, v.r), pcDot(w, v.u), pcDot(w, v.t)];
@@ -5264,7 +4913,7 @@
             g.addColorStop(0, '#F8F4EB'); g.addColorStop(1, '#E6DFCF');
             ctx.fillStyle = g; ctx.fill();
         } else if (!look.stripe && !look.number) {
-            // A plain ball (snooker's): the colour, then the lamp, nothing printed to roll.
+            // Plain (snooker's): nothing printed to roll.
             disc(); ctx.fillStyle = look.colour; ctx.fill();
         } else {
             disc(); ctx.fillStyle = look.colour; ctx.fill();
@@ -5277,8 +4926,7 @@
             if (look.number) [N, [-N[0], -N[1], -N[2]]].forEach(n => ivory.push(pgCap(n, PG_NUMBER, cx, cy, rad)));
             ctx.beginPath(); ivory.forEach(p => pgTrace(ctx, p));
             ctx.fillStyle = PG_IVORY; ctx.fill();
-            // Digits on the disc that faces us, foreshortened with it; hidden
-            // on small balls and faded as the disc turns away (as designed).
+            // Digits on the facing disc, foreshortened; hidden on small balls, faded as it turns away.
             if (look.number && dd >= 15) {
                 [[N, 1], [[-N[0], -N[1], -N[2]], -1]].forEach(([n, sgn]) => {
                     const facing = n[2];
@@ -5302,7 +4950,7 @@
                 });
             }
         }
-        // Lamp highlight and rim shade, fixed to the view (the design's two gradients).
+        // Lamp highlight and rim shade, fixed to the view.
         disc();
         const hx = cx - 0.34 * rad, hy = cy - 0.46 * rad, hl = 0.991 * dd;
         const hg = ctx.createRadialGradient(hx, hy, 0, hx, hy, hl);
@@ -5324,11 +4972,9 @@
     }
 
     // ── Guides ────────────────────────────────────────────────────────
-    // The shot's opening, on the real physics: the cue ball's path to its
-    // first contact (squirt included), the object ball's line off it
-    // (throw included), and where the cue ball goes next, so a draw shot
-    // visibly bends back. Straight up to contact, since nothing curves a
-    // ball before it touches anything without masse.
+    // The shot's opening on the real physics: the cue ball's path to first contact
+    // (squirt included), the object ball's line (throw included), and where the cue
+    // ball goes next, so draw visibly bends back.
     function pgGuide(world, shot) {
         const w = ppCloneWorld(world);
         w.log = [];
@@ -5363,9 +5009,7 @@
             const sp = Math.hypot(ob.vx, ob.vy);
             if (sp > 1e-6) out.obj = { x: ob.x, y: ob.y, dx: ob.vx / sp, dy: ob.vy / sp };
         }
-        // Follow the cue ball on after contact, alone: the guide shows where
-        // its spin takes it, not the collisions after that (and a rack
-        // scattering would cost ten times as much to simulate).
+        // Follow the cue ball alone: where its spin takes it, not later collisions (and far cheaper).
         W2.balls = [c];
         let len = 0, px = c.x, py = c.y;
         out.after.push([px, py]);
@@ -5380,7 +5024,6 @@
         return out;
     }
 
-    // Cuts a polyline to a length.
     function pgTrim(pts, maxLen) {
         const out = [pts[0]];
         let len = 0;
@@ -5418,9 +5061,8 @@
     //   dpr,                                         backing-store scale of ctx
     //   aim: { angle, power, gap } | null,           null hides the cue and the guides
     //   guide: pgGuide(…) | null, guideMode: 'full' | 'short' | 'off', illegal,
-    //   guideLen: the object ball's line in full mode (150 unless ⚙️ Aim Guide shortens it;
-    //             0 draws neither path, only the aim line and the ghost ball),
-    //   bih: { x, y, valid, reason } | null, zone: 'kitchen' | 'D' | null (kitchen: the old name),
+    //   guideLen: the object ball's line in full mode (default 150; 0 draws no paths),
+    //   bih: { x, y, valid, reason } | null, zone: 'kitchen' | 'D' | null (or legacy kitchen),
     //   call: { called } | null, ring: the nominated ball's id (snooker) | null,
     //   drops: [{ ball, pocket, t }],
     // }
@@ -5433,10 +5075,8 @@
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, view.W, view.H);
 
-        // Layers 1–4, cached per camera pose when the caller supplies a canvas. While the
-        // camera is moving (aiming in 3D turns it every frame) a cached copy would be drawn
-        // once and thrown away, so the table goes straight to the screen, saving a
-        // whole-canvas copy; the first frame the pose holds, it is cached again.
+        // Layers 1–4, cached per camera pose. While the camera moves a cache would be
+        // thrown away each frame, so the table draws straight to screen until the pose holds.
         const key = JSON.stringify([view.pose, scene.felt, dpr, theme.game]);
         const moving = !!scene.cache && scene.cache.lastKey !== undefined && scene.cache.lastKey !== key;
         if (scene.cache) scene.cache.lastKey = key;
@@ -5460,13 +5100,12 @@
             pgDrawTable(ctx, view, cfg, table, scene.felt);
         }
 
-        // 5. The ball-in-hand zone: pool's kitchen (scene.kitchen is the older name for it).
+        // 5. The ball-in-hand zone.
         const zone = scene.zone || (scene.kitchen ? 'kitchen' : null);
         if (zone === 'kitchen') {
             pgFill(ctx, [pcPoly(view, [[-cfg.halfLength, -cfg.halfWidth, 0.2], [table.headX, -cfg.halfWidth, 0.2], [table.headX, cfg.halfWidth, 0.2], [-cfg.halfLength, cfg.halfWidth, 0.2]])], theme.accent, 0.12);
             pgStrokeLine(ctx, view, [[table.headX, -cfg.halfWidth], [table.headX, cfg.halfWidth]], 0.3, pgRgba(theme.accent, 0.8), 1.5, [6, 5], true);
         } else if (zone === 'D' && table.marks) {
-            // Snooker's D: tinted, and outlined round the arc and back along the baulk line.
             const m = table.marks, arc = [];
             for (let i = 0; i <= 24; i++) { const t = Math.PI / 2 + i / 24 * Math.PI; arc.push([m.baulkX + m.dR * Math.cos(t), m.dR * Math.sin(t)]); }
             pgFill(ctx, [pcPoly(view, arc.map(q => [q[0], q[1], 0.2]))], theme.accent, 0.12);
@@ -5489,7 +5128,6 @@
         const Z = 0.6;
         if (g && g.contact) {
             const short = scene.guideMode === 'short';
-            // ⚙️ Aim Guide None (guideLen 0): the aim line and the ghost ball, no paths after.
             const L = short ? 60 : typeof scene.guideLen === 'number' ? scene.guideLen : 150;
             const dx = g.contact[0] - g.start[0], dy = g.contact[1] - g.start[1], dl = Math.hypot(dx, dy) || 1;
             const ux = dx / dl, uy = dy / dl;
@@ -5544,7 +5182,7 @@
             const gap = a.gap !== undefined ? a.gap : 8 + (a.power || 0) * 1.1;
             const L = 600;
             const pt = (u, side) => {
-                // Pool's cue at every ball size, as the design draws snooker's.
+                // Pool's cue at every ball size.
                 const along = R + gap + u, wd = 3.3 + (8 - 3.3) * (u / L), z = R + 1.5 + 60 * (u / L);
                 return [cue.x - d[0] * along - d[1] * wd * side, cue.y - d[1] * along + d[0] * wd * side, z];
             };
@@ -5564,8 +5202,7 @@
             part(0, 3, '#3E73B8');
         }
         if (scene.ring) {
-            // Snooker's nominated ball: an accent ring round it, r + max(3 px, 0.4 r) (the design),
-            // see-through so the ball and what is near it still read (the user's report, 2026-10-01).
+            // Snooker's nominated ball: a see-through accent ring at r + max(3 px, 0.4 r).
             const b = w.balls.find(o => o.id === scene.ring && o.state !== 'pocketed');
             const s = b && pcProject(view, [b.x, b.y, R]);
             if (s && s[3] > PC_NEAR + R) {
@@ -5575,9 +5212,8 @@
                 ctx.strokeStyle = pgRgba(theme.accent, 0.6); ctx.lineWidth = 1.5; ctx.stroke();
             }
         }
-        // The pocket rings: the called one lit, the rest dashed. Snooker's are see-through, so its
-        // small pockets and a ball in their jaws still read under them (the user's report,
-        // 2026-10-01); pool's stay as they were.
+        // Pocket rings: the called one lit, the rest dashed. Snooker's are lighter so its small
+        // pockets and a ball in their jaws still read.
         if (scene.call) {
             const lite = theme.game === 'snooker';
             table.pockets.forEach((p, i) => {
@@ -5616,8 +5252,7 @@
         ctx.restore();
     }
 
-    // Screen positions of the six pockets for hit-testing a call, with
-    // whether each is on screen (the rest are called from the mini-map).
+    // Pocket screen positions for hit-testing a call; off-screen ones are called from the mini-map.
     function pgPocketMarks(view, table, cfg) {
         const Z = cfg ? pgRailZ(cfg) : PG_RAIL_Z, K = table.R / 14;
         return table.pockets.map((p, i) => {
@@ -5630,27 +5265,17 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — HUD (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // The panel around the table, from the design's Main, InMatch and Max
-    // artboards: player cards with group trackers and the shot clock, the
-    // frame count, the viewport's overlays (camera toggle, group pill,
-    // toast, lean, power gauge, spin, hint, ball-in-hand chip, move-cue-ball
-    // button, pocket
-    // mini-map, frame-over dialog) and the footer or the seat hand-off.
-    // Snooker (the snk* artboards) is the same HUD with its own parts: a score and a
-    // third line on each card, the tracker row (reds, colours, points remaining, snookers
-    // required, Concede), the colour chips, the choice after a foul in the toast, the
-    // frame's score and high break in the dialog, and the concede question
-    // (phSnookerModel).
+    // The panel around the table: player cards (group trackers, shot clock), the frame count,
+    // the viewport's overlays, the frame-over dialog, and the footer or the seat hand-off.
+    // Snooker adds a score and third line per card, the tracker row, the colour chips, the
+    // choice after a foul and the concede question (phSnookerModel).
     //
     // Three layers, so the logic can be tested without a browser:
-    //   phModel(game)      pure: game snapshot → view model (every string,
-    //                      flag and number the HUD shows)
+    //   phModel(game)      pure: game snapshot → view model (everything the HUD shows)
     //   phBuild(root, …)   DOM: builds the HUD once, compact or Max
-    //   phRender(hud, vm)  DOM: applies a view model, touching only what
-    //                      changed
-    // Colours come only from pool-theme.css (--pool-*). The canvas cannot
-    // read CSS, so phThemeTokens() is the bridge the renderer takes its
-    // theme colours from.
+    //   phRender(hud, vm)  DOM: applies a view model, touching only what changed
+    // Colours come only from pool-theme.css (--pool-*); the canvas cannot read CSS, so
+    // phThemeTokens() is the renderer's bridge.
 
     const PH_POCKETS = ['Top left', 'Top side', 'Top right', 'Bottom left', 'Bottom side', 'Bottom right'];
     const PH_SPINS = [
@@ -5660,8 +5285,7 @@
         { label: 'Left', x: -0.45, y: 0 },
         { label: 'Right', x: 0.45, y: 0 },
     ];
-    // The cue tip can strike anywhere inside the miscue ring, 0.6 R from the
-    // centre (PP_DEFAULTS.maxTip); the presets are quick picks inside it.
+    // The tip strikes anywhere inside the miscue ring, 0.6 R from centre (PP_DEFAULTS.maxTip).
     const PH_TIP_MAX = 0.6;
     const PH_TIP_DEAD = 0.05;        // closer to the centre than this reads as Center
     function phClampTip(x, y) {
@@ -5682,7 +5306,7 @@
         if (Math.abs(t.x) > PH_TIP_DEAD) parts.push((t.x > 0 ? 'Right ' : 'Left ') + pct(t.x));
         return parts.join(' · ') || 'Center ball';
     }
-    // The Game mode sheet's difficulty list (InMatch.dc.html, ModeSheet), in order.
+    // The Game mode sheet's difficulty list, in order.
     const PH_DIFFS = [
         { key: 'adaptive', name: 'Adaptive', desc: 'Matches your form, frame by frame' },
         { key: 'easy', name: 'Easy', desc: 'Takes simple pots · misses often' },
@@ -5690,7 +5314,7 @@
         { key: 'hard', name: 'Hard', desc: 'Plays position · rarely leaves a shot' },
         { key: 'pro', name: 'Pro', desc: 'Hardly misses · call every shot' },
     ];
-    // Snooker's list (InMatch.dc.html, snkMode): the same tiers, snooker's words.
+    // Snooker's: the same tiers, snooker's words.
     const PH_SNK_DIFFS = [
         { key: 'adaptive', name: 'Adaptive', desc: 'Matches your form, frame by frame' },
         { key: 'easy', name: 'Easy', desc: 'Pots the simple ones · leaves chances' },
@@ -5721,41 +5345,29 @@
 
     // ── View model ────────────────────────────────────────────────────
     // game = {
-    //   layout: 'compact' | 'max', mode: 'cpu' | 'pvp' | 'tour',
-    //   names: { 1, 2 }, records: { 1, 2 }, frames: [a, b], trophies,
-    //   game: 'pool' | 'snooker',    which game's balls and words (pool when absent)
-    //   title,                       the game's name, for the Max header
-    //   frame,                       the rules state (pool-rules.js)
-    //   status,                      the shooter's position, from the game's rules
-    //                                (poolRules().status: pool's prStatus)
-    //   world,                       the physics world, for the trackers
+    //   layout: 'compact' | 'max', mode: 'cpu' | 'pvp' | 'tour', game: 'pool' | 'snooker',
+    //   names: { 1, 2 }, records: { 1, 2 }, frames: [a, b], trophies, title (Max header),
+    //   frame (rules state), status (the shooter's position, poolRules().status), world,
     //   phase: 'aim' | 'strike' | 'moving' | 'bih' | 'over',
     //   camera: '3d' | '2d', lean, power, dragging, called,
-    //   tip: { x, y },               the cue tip in R (follow is +y, right is +x); or
-    //   spin (index into PH_SPINS),  a preset, when there is no tip
+    //   tip: { x, y },               the cue tip in R (follow +y, right +x); else
+    //   spin,                        a PH_SPINS index
     //   spinOpen,                    the big spin picker is open
-    //   clock: { left, total } | null,
-    //   toast: prText(…) | null, fouled: seat | 0,
+    //   clock: { left, total } | null, toast: prText(…) | null, fouled: seat | 0,
     //   handoff: seat | 0,           "Pass to …" while seats swap
     //   bih: { valid, reason, placed, sx, sy, sr } | null,
-    //   canReplace,                  the shooter placed the cue ball and may pick it up again
+    //   canReplace,                  the placed cue ball may be picked up again
     //   cpuTurn,                     the CPU is at the table: its own hint, no human controls
-    //   sheet: { open, mode, note, names: [{ value, placeholder }] },  the Game mode sheet: which
-    //                                tab, a line under the list, and 2 Players' two names
-    //   difficulty,                  the picked CPU difficulty ('adaptive' or a tier)
-    //   diffs,                       the difficulty list for this game (PH_DIFFS when absent)
-    //   pots: { 1: [ids], 2: [ids] } the object balls each seat has potted this frame, shown
-    //                                on its card while the table is open
-    //   tour: { kicker, title, frame } | null   a tournament match: the header strip, and
-    //                                the footer becomes Bracket / Pause / Max
-    //   tourSheet: { saved, name }   the sheet's Tournament tab: resume, or set one up
+    //   sheet: { open, mode, note, names: [{ value, placeholder }] },   the Game mode sheet
+    //   difficulty, diffs,           the picked difficulty; this game's list (PH_DIFFS)
+    //   pots: { 1: [ids], 2: [ids] } each seat's potted balls, shown while the table is open
+    //   tour: { kicker, title, frame } | null   header strip; the footer becomes Bracket / Pause / Max
+    //   tourSheet: { saved, name }   the sheet's Tournament tab
     //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
-    //   secondaryLabel,              the frame-over dialog's second button, when the default does not apply
+    //   secondaryLabel,              overrides the frame-over dialog's second button
     //   result: { win, title, reason, recordLabel, record, delta, note, stats? } | null,
-    //   Snooker also:
-    //   nom,                         the colour nominated for this shot, or -1
-    //   choice: { chooser, cpu, options: [{ id, label, short }] } | null   after a foul
-    //   confirm,                     the concede question is open
+    //   snooker: nom (nominated colour or -1), confirm (concede question open),
+    //            choice: { chooser, cpu, options: [{ id, label, short }] } | null
     // }
     function phModel(g) {
         const st = g.status;
@@ -5828,15 +5440,13 @@
             else hint = { text: 'Press and drag for power', tone: '' };
         }
 
-        // The call card (3D): the pocket map and the hint in one, bottom right. The pocket
-        // lit on the map names the call, so the caption only says what comes next. The spin
-        // picker covers the corner it would share with Move cue ball, so it steps aside then.
+        // The call card (3D): pocket map and hint in one, bottom right; the lit pocket names the
+        // call, so the caption says what comes next. It steps aside for the spin picker.
         const card = aiming && st.callRequired && g.camera === '3d' && !g.cpuTurn && !g.handoff && !toast && !pickerOpen && !sheetOpen;
         const pwr = Math.round(g.power || 0);
         const cardCap = g.dragging ? { text: 'Release · ' + pwr + '%', tone: pwr >= PH_POWER_HOT ? 'hot' : 'power' }
             : callNeeded ? { text: 'Tap a pocket', tone: 'call' } : { text: 'Drag to shoot', tone: '' };
 
-        // The tip: anywhere in the miscue ring (g.tip), or a preset by index (g.spin).
         const spin = g.tip ? phClampTip(g.tip.x, g.tip.y)
             : PH_SPINS[((g.spin || 0) % PH_SPINS.length + PH_SPINS.length) % PH_SPINS.length];
         const lean = Math.max(0, Math.min(100, Math.round(g.lean || 0)));
@@ -5858,8 +5468,7 @@
             pill: { show: !toast && !over, text: pill },
             toast: toast ? { show: true, foul: toast.kind === 'foul', title: toast.title, sub: toast.sub, icon: toast.icon || '', choices: [], chooser: '' } : { show: false, choices: [] },
             lean: {
-                // It stays for a call: the call card sits bottom right, not top left as in the
-                // design's 4a, so a call never needs the slider's side.
+                // It stays for a call: the call card sits bottom right, clear of the slider.
                 show: is3d && !over && !moving && !sheetOpen,
                 value: lean,
                 // The pitch the camera actually looks down at, as the design labels it.
@@ -5913,9 +5522,7 @@
         return vm.game === 'snooker' ? phSnookerModel(g, vm) : vm;
     }
 
-    // Snooker's HUD (the snk* artboards) over the shared model: the same cards, pill, toast
-    // and dialog, with a score and a third line on each card, the tracker row, the colour
-    // chips while a colour is to be nominated, the choice after a foul, and Concede.
+    // Snooker's parts over the shared model (see the file header).
     function phSnookerModel(g, vm) {
         const st = g.status, on = st.on || {}, f = g.frame;
         const over = g.phase === 'over', bih = g.phase === 'bih', aiming = g.phase === 'aim' || g.phase === 'strike';
@@ -5946,7 +5553,6 @@
             aria: 'Reds left ' + (st.redsLeft || 0) + ', colours ' + (left.length ? left.join(', ') : 'none') + ', ' + (over ? 0 : st.remaining) + ' points remaining' +
                 (need ? '; ' + g.names[seat] + ' needs ' + need + (need > 1 ? ' snookers' : ' snooker') : ''),
         };
-        // The pill: what the shooter is on.
         let pill;
         if (bih) pill = f.isBreak ? 'Break-off · in the D' : st.respotBlack ? 'Re-spotted black' : 'Ball in hand · the D';
         else if (st.freeBall) pill = nom >= 0 ? 'Free ball · ' + phCap(phSnkName(nom)) : 'Free ball';
@@ -5955,16 +5561,14 @@
         else pill = 'On the ' + phSnkName(st.next);
         if (max && !bih) { const who = g.names[seat]; pill = (who === 'You' ? 'Your shot' : who + "'s shot") + ' · ' + pill; }
         vm.pill = { show: !toast && !over, text: pill };
-        // Read out once a shot is over (S7): what the player at the table is on, the score and
-        // the tracker. Held while balls run (null: the last reading stays), so a pot mid-shot
-        // does not interrupt.
+        // Read out once a shot is over: what the shooter is on, the score, the tracker. Null
+        // while balls run (the last reading stays), so a pot mid-shot does not interrupt.
         const settled = g.phase !== 'moving' && g.phase !== 'strike', sc = st.scores || { 1: 0, 2: 0 };
         vm.track.say = !settled ? null : (over ? 'Frame over' : pill) + '. ' + g.names[1] + ' ' + sc[1] + ', ' + g.names[2] + ' ' + sc[2] + '. ' + vm.track.aria + '.';
         // The chips: while a colour is to be nominated (the gauge padlocks until one is).
         const chips = aiming && !!on.needsNomination && !g.cpuTurn && !g.handoff && !toast && !sheetOpen && !vm.spin.open && !g.confirm;
         const pw = Math.round(g.power || 0);
-        // Once a colour is nominated they fold to that one chip and the caption, freeing the
-        // corner for the stroke; the chip opens them again.
+        // Once a colour is nominated they fold to that chip and the caption; the chip reopens them.
         const folded = nom >= 0 && !g.chipsOpen, callNeeded = aiming && !!st.callRequired && !(g.called >= 0);
         vm.chips = chips ? {
             show: true, folded,
@@ -5991,7 +5595,6 @@
         }
         // While the choice is open the lean slider steps aside for the toast's buttons.
         if (g.phase === 'choice') vm.lean = Object.assign({}, vm.lean, { show: false });
-        // Concede, confirmed.
         const other = 3 - seat;
         vm.concede = g.confirm && seat ? { show: true, text: phWins(g.names[other]) + ' ' + st.scores[other] + '–' + st.scores[seat] } : { show: false };
         return vm;
@@ -6033,8 +5636,7 @@
             : top + '<div class="ph-rec" data-ph="rec"></div>' + l3 + group + score;
         return '<div class="ph-card" data-seat="' + seat + '">' + body + '<div class="ph-clock" data-ph="clock"></div></div>';
     }
-    // Snooker's tracker row: REDS × n, the six colours, and what is left to score, with
-    // SNOOKERS REQ. n and Concede when the player at the table needs them.
+    // Snooker's tracker row: REDS × n, the colours, what is left, SNOOKERS REQ. n and Concede.
     function phTrackHTML() {
         return '<div class="ph-track" data-ph="track" hidden><span class="ph-track-reds ph-label"><i class="ph-track-red" data-ph="trred"></i><span data-ph="trreds"></span></span>' +
             '<span class="ph-track-dots" role="img" data-ph="trdots"></span><span class="ph-track-gap"></span>' +
@@ -6093,7 +5695,7 @@
             '<div class="ph-dialog-note" data-ph="dlgn">' + PH_ICON.chip + '<span data-ph="dlgnt"></span></div>' +
             '<div class="ph-dialog-actions"><button type="button" class="ph-primary ph-label" data-ph="dlgp"></button><button type="button" class="ph-btn" data-ph="dlgs"></button></div>' +
             '</div></div>' +
-            // Snooker: Concede the frame? (SnkConcede)
+            // Snooker: the concede question.
             '<div class="ph-scrim" data-ph="cscrim" hidden><div class="ph-dialog is-alert" role="alertdialog" aria-label="Concede the frame" data-ph="cdlg">' +
             '<span class="ph-dialog-icon">' + PH_ICON.flag + '</span>' +
             '<span class="ph-cdlg-t"><span class="ph-dialog-title">Concede the frame?</span><span class="ph-dialog-reason" data-ph="cdlgt"></span></span>' +
@@ -6102,8 +5704,7 @@
             '</div></div>';
     }
 
-    // The Game mode sheet (InMatch.dc.html's ModeSheet): Vs CPU with the difficulty
-    // list, or 2 Players with its explainer. Tournament joins it in Phase 7.
+    // The Game mode sheet: Vs CPU with the difficulty list, 2 Players with its names, or Tournament.
     function phSheetHTML() {
         const diffs = PH_DIFFS.map(d => '<button type="button" role="radio" class="ph-sheet-diff" data-ph-diff="' + d.key + '" aria-checked="false">' +
             '<span class="ph-sheet-radio"><span></span></span><span class="ph-sheet-dt"><span class="ph-sheet-dn"><span>' + d.name + '</span>' +
@@ -6125,7 +5726,6 @@
             '<div class="ph-sheet-links"><button type="button" class="ph-btn" data-ph="sheetcab">' + PH_ICON.cup + '<span>Trophy cabinet</span></button>' +
             '<button type="button" class="ph-btn is-hot" data-ph="sheetabandon" hidden><span>Abandon</span></button></div></div>' +
             '<div class="ph-sheet-pvp" data-ph="sheetpvp" hidden><span>Hot-seat on this computer. Hand the panel over after each turn; the game tells you whose shot it is.</span>' +
-            // The two names, as a tournament's setup takes them; an empty one keeps its default.
             '<div class="ph-sheet-names">' + [1, 2].map(seat => '<label class="ph-sheet-name"><span class="ph-sheet-l ph-label">PLAYER ' + seat + '</span>' +
                 '<input type="text" class="ph-sheet-input" maxlength="16" autocomplete="off" spellcheck="false" data-ph="sheetp' + seat + '" aria-label="Player ' + seat + ' name"></label>').join('') + '</div>' +
             '<button type="button" class="ph-primary ph-label" data-ph="sheetstart">START 2-PLAYER FRAME</button></div>' +
@@ -6144,8 +5744,7 @@
             '<button type="button" class="ph-primary ph-label" data-ph="ready"></button></div>';
     }
 
-    // on = { camera(mode), lean(value), tip({x, y}), tipStep({x, y}), spinToggle(), spinClose(),
-    //        mode(), reset(), max(), call(i), ready(), replace(), primary(), secondary() }
+    // on: the controller's handlers by name (poolOn in pool-game.js); a missing one is a no-op.
     function phBuild(root, opts) {
         const o = opts || {}, max = o.layout === 'max', on = o.on || {};
         const cards = phCardHTML(1, max) + '<div class="ph-frames"><span class="ph-frames-n" data-ph="frames">0–0</span><span class="ph-frames-l ph-label">FRAMES</span></div>' + phCardHTML(2, max);
@@ -6198,10 +5797,9 @@
         hud.cam2d.addEventListener('click', () => fire('camera', '2d'));
         hud.cam3d.addEventListener('click', () => fire('camera', '3d'));
         hud.leani.addEventListener('input', e => fire('lean', +e.target.value));
-        // Spin. Dragging the dot on the small ball moves the tip there; a click on
-        // the control (no drag) opens the big picker, where a press puts the dot
-        // under the pointer at once. Both map the pointer onto the ball face (its
-        // radius is R) and clamp it to the miscue ring.
+        // Spin: dragging the small ball's dot moves the tip; a click (no drag) opens the big
+        // picker, where a press puts the dot under the pointer at once. Both map the pointer
+        // onto the ball face (radius R), clamped to the miscue ring.
         const tipAt = (el, e) => {
             const b = el.getBoundingClientRect(), r = b.width / 2 || 1;
             return phClampTip((e.clientX - b.left - r) / r, -(e.clientY - b.top - r) / r);
@@ -6297,8 +5895,7 @@
         return hud;
     }
 
-    // Writes a value only when it changed, so a 60 Hz render costs nothing
-    // when nothing moved.
+    // Writes only on change, so a 60 Hz render costs nothing when nothing moved.
     function phSet(hud, key, value, apply) {
         if (hud.last[key] === value) return;
         hud.last[key] = value;
@@ -6353,8 +5950,7 @@
                 });
                 s(k + 'tagHot', c.tagHot, v => r.tag.classList.toggle('is-hot', v));
                 s(k + 'tagPulse', c.tagPulse, v => r.tag.classList.toggle('is-pulse', v));
-                // When the name would be cut off beside the tag, the tag goes short
-                // (TO SHOOT → SHOOT). Measured only when the name, tag or width changes.
+                // A name cut off beside the tag gets the short tag (TO SHOOT → SHOOT); measured on change.
                 s(k + 'fit', c.name + '|' + c.tag + '|' + hud.el.clientWidth, () => {
                     r.el.classList.remove('is-tight');
                     if (c.tagShort && r.name.scrollWidth > r.name.clientWidth + 1) r.el.classList.add('is-tight');
@@ -6366,17 +5962,15 @@
             s(k + 'clock', c.clock, v => { r.clock.style.width = v + '%'; });
             s(k + 'open', c.open, v => { phShow(r.open, v); phShow(r.group, !v); });
             const ids = c.group.map(d => d.id).join();
-            // A new group (a new frame, or the open table decided) rebuilds the dots. Each is
-            // drawn potted or not at once, and the per-dot cache starts over: the old frame's
-            // values would otherwise match and skip the update, leaving a potted ball lit.
+            // A new group rebuilds the dots, each drawn potted or not, and resets the per-dot cache:
+            // the old frame's values would match and skip the update, leaving a potted ball lit.
             s(k + 'ids', ids, () => {
                 r.group.innerHTML = c.group.map(d => '<i class="ph-dot' + (d.down ? ' is-down' : '') + '" style="background:' + phDotStyle(d.id, vm.game) + '"></i>').join('');
                 r.dots = Array.prototype.slice.call(r.group.children);
                 for (let j = 0; j < 7; j++) delete hud.last[k + 'down' + j];
                 c.group.forEach((d, j) => { hud.last[k + 'down' + j] = d.down; });
             });
-            // For a screen reader, and anyone who cannot tell the balls apart by colour at this
-            // size: which are left and which are down, by number.
+            // For screen readers, and anyone who can't tell the colours apart: left and down, by number.
             const left = c.group.filter(d => !d.down).map(d => d.id), gone = c.group.filter(d => d.down).map(d => d.id);
             s(k + 'grpLabel', c.group.length ? (c.group[0].id < 8 ? 'Solids' : 'Stripes') + ': ' + (left.length ? left.join(', ') + ' on the table' : 'all down') + (gone.length ? '; ' + gone.join(', ') + ' potted' : '') : '',
                 v => r.group.setAttribute('aria-label', v));
@@ -6460,7 +6054,6 @@
             s('chips.called', ch.called === undefined ? -1 : ch.called, v => hud.chipCallButtons.forEach((b, i) => b.setAttribute('aria-pressed', i === v ? 'true' : 'false')));
             s('chips.tone', ch.tone || '', v => { hud.chips.className = 'ph-chips ph-glass' + (v ? ' is-' + v : ''); });
         }
-        // Concede the frame?
         const cq = vm.concede;
         s('concede.show', !!cq.show, v => phShow(hud.cscrim, v));
         if (cq.show) s('concede.text', cq.text, v => { hud.cdlgt.textContent = v; });
@@ -6591,8 +6184,7 @@
                 short.className = 'ph-ready-short'; short.textContent = 'READY';
                 hud.ready.append(long, short);
             });
-            // "Pass to <name>" beside "<NAME>'S READY": when the name would be cut off,
-            // the button says READY alone (the line beside it already names the player).
+            // When a name would be cut off, the button says READY alone (the line beside names them).
             s('ho.fit', vm.handoff.to + '|' + vm.handoff.ready + '|' + hud.el.clientWidth, () => {
                 hud.handoff.classList.remove('is-tight');
                 if (hud.hot.scrollWidth > hud.hot.clientWidth + 1 || hud.hof.scrollWidth > hud.hof.clientWidth + 1) hud.handoff.classList.add('is-tight');
@@ -6608,11 +6200,10 @@
     }
 
     // ── Out of the way of the shot ────────────────────────────────────
-    // At snooker's true scale the pockets and the balls near them sit under the corner
-    // overlays. While the aim line (from the cue ball), the object ball's path, the contact or the
-    // target pocket passes under one, it is marked data-shy and pool-theme.css fades it (in
-    // 3D, back while the pointer is on it). Max keeps its corner overlays in bars above and
-    // below the table (pool-theme.css), so there it only ever touches the lean slider.
+    // At snooker's true scale the corner overlays cover pockets and balls. While the shot (aim
+    // line, object ball's path, contact, target pocket) passes under one, it gets data-shy and
+    // pool-theme.css fades it (in 3D, back under the pointer). Max keeps its corner overlays in
+    // bars above and below the table, so there it only ever touches the lean slider.
     const PH_SHY = ['cam', 'pill', 'lean', 'spin', 'hint', 'mini', 'chips', 'replace'];
     const PH_SHY_PAD = 6;
     // Does the segment (x0, y0)–(x1, y1) cross the box { l, t, r, b }? (Liang–Barsky)
@@ -6640,8 +6231,7 @@
     function phShy(hud, shot, keep) {
         const on = {};
         if (shot && hud.view) {
-            // In canvas pixels, as the shot is (Max's canvas sits under its top bar), and the Max
-            // frame may be scaled to fit the window.
+            // In canvas pixels, as the shot is (Max's canvas sits under its top bar; Max may be scaled).
             const vr = hud.canvas.getBoundingClientRect(), k = vr.width / (hud.canvas.clientWidth || vr.width || 1) || 1, rects = {};
             PH_SHY.forEach(n => {
                 const el = hud[n];
@@ -6655,9 +6245,8 @@
     }
 
     // ── Canvas bridge ─────────────────────────────────────────────────
-    // The renderer's theme colours, read off the HUD's computed --pool-*
-    // values and normalised to #rrggbb. Cached until phThemeChanged(),
-    // which the host calls on every theme or colour change.
+    // The renderer's theme colours, from the HUD's computed --pool-* values as #rrggbb.
+    // Cached until phThemeChanged(), which the host calls on every theme or colour change.
     function phColour(css, fallback) {
         const v = String(css || '').trim();
         let m = /^#([0-9a-f]{3})$/i.exec(v);
@@ -6686,22 +6275,13 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — TOURNAMENT SCREENS (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // The tournament's screens from the design (TournamentSetup, BracketTree,
-    // BracketCompact, BracketFull, MatchIntro, MatchResult, Champion,
-    // ChampionFull, TrophyCabinet, and InMatch's resume, abandon and pause
-    // dialogs), over the pool HUD. Snooker's are the same screens in its words (the design's
-    // snooker variants): best of 2N − 1 for race to N, breaks off, its reds, the frames' points
-    // and the match's high break, and its own cabinet.
-    //
-    //   puTree(t, opts)        the bracket as HTML + SVG, the design's geometry:
-    //                          column (W − champ − rounds·gap) / rounds, card
-    //                          min(64, slot − 12), elbows at the gutter midpoint
-    //   pu*HTML(model)         each screen as HTML, from the tournament and the
-    //                          screen's own state
-    //   puMount / puSync       one overlay per HUD; the controller hands it the
-    //                          screen and it re-renders only when that changes.
-    //                          Clicks and edits come back through data-pu-act
-    //                          and data-pu-in to the controller's handlers
+    // The tournament screens (setup, bracket, intro, result, champion, cabinet and
+    // the in-match dialogs) over the pool HUD; snooker's say it in its own words.
+    //   puTree(t, opts)     the bracket as HTML + SVG: column (W − champ − rounds·gap)
+    //                       / rounds, card min(64, slot − 12), elbows mid-gutter
+    //   pu*HTML(model)      each screen as HTML
+    //   puMount / puSync    one overlay per HUD, re-rendered only when its key changes;
+    //                       clicks and edits return via data-pu-act / data-pu-in
     // Names are typed by people, so everything that goes into HTML is escaped.
 
     const puEsc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -6727,7 +6307,6 @@
         const fromEnd = rounds - 1 - r;
         return fromEnd === 0 ? 'F' : fromEnd === 1 ? 'SF' : fromEnd === 2 ? 'QF' : 'R' + Math.pow(2, fromEnd + 1);
     }
-    // How a match reads right now: 'bye' | 'done' | 'live' | 'next' | ''.
     function puState(t, m, liveId) {
         if (m.status === 'bye') return 'bye';
         if (m.status === 'done') return 'done';
@@ -6735,7 +6314,7 @@
         const n = ptNext(t);
         return n && n.id === m.id ? 'next' : '';
     }
-    // One line of a match: the player, or the bye, or who it is waiting for.
+    // The player, the bye, or who the line is waiting for.
     function puLine(t, m, side) {
         const slot = side === 'a' ? m.a : m.b;
         if (slot !== null) return { name: t.slots[slot].name, seed: String(t.slots[slot].seed), tbd: false };
@@ -6744,7 +6323,7 @@
         if (feeder && feeder.status === 'bye') return { name: t.slots[feeder.a].name, seed: String(t.slots[feeder.a].seed), tbd: false };
         return { name: 'Winner ' + puShort(t.rounds, m.round - 1) + ' ' + (2 * m.index + (side === 'a' ? 1 : 2)), seed: '', tbd: true };
     }
-    // The round's name where a column is narrow: Last 16, Quarters, Semis, Final.
+    // For narrow columns.
     function puRoundShort(rounds, r) {
         const fromEnd = rounds - 1 - r;
         return fromEnd === 0 ? 'Final' : fromEnd === 1 ? 'Semis' : fromEnd === 2 ? 'Quarters' : 'Last ' + Math.pow(2, fromEnd + 1);
@@ -6756,7 +6335,7 @@
         if (slot === null) { const y = t.slots.findIndex(s => s.you); slot = y >= 0 && ptOut(t, y) === null ? y : null; }
         const ids = new Set();
         if (slot === null) return { ids, champ: false, name: '' };
-        // Every match they won, and the one they are in now (the design lights the way in).
+        // Every match they won, and the one they are in now.
         t.matches.forEach(m => {
             if (m.a !== slot && m.b !== slot) return;
             if (((m.status === 'done' || m.status === 'bye') && m.winner === slot) || m.status === 'pending' || m.status === 'live') ids.add(m.id);
@@ -6764,7 +6343,7 @@
         return { ids, champ: champ !== null, name: t.slots[slot].name };
     }
 
-    // The mini tree's height: a row of first-round cards needs about 30 px each.
+    // About 30 px per first-round card.
     const puMiniH = t => Math.max(160, t.size / 2 * 30);
     // opts: { w, h, mini, liveId }
     function puTree(t, opts) {
@@ -6839,7 +6418,7 @@
             puSeg('Shot clock', 'clock', snk ? [[30, '30s'], [45, '45s'], [60, '60s'], [0, 'Off']] : [[30, '30s'], [45, '45s'], [0, 'Off']], s.clock) +
             (snk ? puSeg('Reds', 'reds', [[15, '15'], [10, '10'], [6, '6']], s.reds) : '') +
             puSeg('Guideline', 'guide', [['full', 'Full'], ['short', 'Short'], ['off', 'Off']], s.guide) +
-            // Pool: the 8 only or every shot; snooker: off, the colours, or every ball (the game's tourDefaults).
+            // Snooker passes its own options (the game's tourDefaults).
             puSeg('Call pocket', 'call', s.calls || [['8', '8 only'], ['every', 'Every shot']], s.call) +
             '<div class="pu-count"><span class="pu-count-t"><span class="pu-strong" id="pu-shuf">Shuffle seeds</span><span class="pu-note">Off keeps the list order as seeding</span></span>' +
             '<button type="button" class="pu-switch" role="switch" aria-checked="' + (s.shuffle ? 'true' : 'false') + '" aria-labelledby="pu-shuf" data-pu-act="shuffle"><span><span></span></span></button></div>' +
@@ -6847,7 +6426,6 @@
             '<button type="button" class="pu-primary" data-pu-act="start">' + PU_ICON.bracket + 'START TOURNAMENT</button></div>';
     }
 
-    // One match card on the compact bracket's round page.
     function puMatchCard(t, m, liveId) {
         const st = puState(t, m, liveId), [sa, sb] = ptScore(m), showScore = st === 'done' || st === 'live';
         const code = puShort(t.rounds, m.round) + (t.rounds - 1 - m.round === 0 ? 'INAL' : ' ' + (m.index + 1));
@@ -6926,8 +6504,7 @@
         const final = m.round === t.rounds - 1, next = ptNext(t);
         const snk = ptGameOf(t) === 'snooker';
         const frames = m.frames.map((w, i) => '<div class="pu-frame' + (w === m.winner ? ' is-win' : '') + '"><span class="pu-kicker">FRAME ' + (i + 1) + '</span><span>' + puEsc(t.slots[w].name) + '</span></div>').join('');
-        // Snooker (SnkMatchResult): a row per frame, its winner and its points winner-first,
-        // the frames the loser took muted; then the match's high break.
+        // Snooker: a row per frame, points winner-first, the loser's frames muted; then the high break.
         const pts = (i, w) => { const p = (m.points || [])[i]; if (!p) return ''; const a = w === m.a ? p[0] : p[1], b = w === m.a ? p[1] : p[0]; return a + '–' + b; };
         const frows = m.frames.map((w, i) => '<div class="pu-frow' + (w === m.winner ? '' : ' is-lost') + '"><span class="pu-frow-l pu-kicker">FRAME ' + (i + 1) + '</span>' +
             '<span class="pu-frow-n">' + puEsc(t.slots[w].name) + '</span><span class="pu-frow-p">' + puEsc(pts(i, w)) + '</span></div>').join('') +
@@ -7004,7 +6581,6 @@
     }
 
     // ── Mounting ──────────────────────────────────────────────────────
-    // One screen layer and one dialog layer per HUD, both inside .pool-hud.
     function puMount(hud, on) {
         if (hud.pu) return hud.pu;
         const screen = document.createElement('div'), dialog = document.createElement('div');
@@ -7034,8 +6610,7 @@
         const pu = puMount(hud, on);
         if (pu.key.screen !== view.key.screen) {
             pu.key.screen = view.key.screen;
-            // Keep keyboard focus on the same control across a re-render (a stepper
-            // press re-renders the list; the focus stays on that button).
+            // Keep keyboard focus on the same control across a re-render.
             const a = document.activeElement, had = a && pu.screen.contains(a) && a.getAttribute('data-pu-act');
             const sel = had ? '[data-pu-act="' + had + '"]' + (a.getAttribute('data-pu-arg') !== null ? '[data-pu-arg="' + a.getAttribute('data-pu-arg') + '"]' : '') : null;
             pu.screen.innerHTML = view.screen || '';
@@ -7053,24 +6628,18 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — CPU (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // Four tiers on one planner (POOL_V2_PLAN.md, CPU):
-    //   1  candidates, from geometry: direct pots (ghost ball), one-rail banks,
-    //      one-rail kicks and two-ball combos, each with a make probability
-    //      for the tier's own aim error, and the best few safeties
-    //   2  the best candidates are played out on a cloned world with the real
-    //      physics and judged by prJudge, so a line that scratches, fouls or
-    //      drops the 8 early is thrown away before it is ever hit. First the
-    //      aim is corrected for throw and squirt: the planner steps a copy to
-    //      the first contact, reads the object ball's real departure and moves
-    //      the cue by the error over the cut's gain
-    //   3  the survivors are tried with the tier's spins and speeds and scored
-    //      on where the cue ball stops: the make probability of the best next
-    //      shot (pro: the best two)
-    //   4  when no pot is likely enough, a safety: a legal hit that leaves the
-    //      opponent the least
+    // Four tiers on one planner:
+    //   1  geometric candidates (direct, one-rail banks and kicks, two-ball
+    //      combos), each with a make probability for the tier's aim error
+    //   2  the best are played out on a cloned world and judged by prJudge, so
+    //      scratches, fouls and early 8s are dropped unhit; the aim is first
+    //      corrected for throw and squirt from the object ball's real departure
+    //   3  survivors are tried with the tier's spins and speeds, scored on the
+    //      best next shot from where the cue ball stops (pro: the best two)
+    //   4  when no pot is likely enough, the safety that leaves the least
     //   5  execution noise per tier
-    // Pure and time-sliced: paPlan() returns a job; job.step(ms) works until
-    // the budget is spent (each full trial is one shot to rest, about 3 ms).
+    // Time-sliced: paPlan() returns a job; job.step(ms) works until the budget
+    // is spent (a full trial is one shot to rest, about 3 ms).
 
     const PA_DEG = Math.PI / 180;
     // Tip offsets, in R (follow +y, right +x).
@@ -7080,17 +6649,14 @@
         followLeft: { x: -0.25, y: 0.3 }, followRight: { x: 0.25, y: 0.3 },
         drawLeft: { x: -0.25, y: -0.35 }, drawRight: { x: 0.25, y: -0.35 },
     };
-    // The tiers. aim is σ in degrees on direct pots; aimAlt on banks, kicks and
-    // combos; power is σ as a fraction. top = candidates played out; keep = how
-    // many survivors get the spin × speed search; refine = aim corrections.
-    // safeBelow: take a safety when the best pot's make probability is under it.
-    // robust: the top three finished lines are replayed this many times with the
-    // tier's own noise, and a line that fouls or loses the frame when missed is
-    // marked down (a zero-noise tier needs none: it plays what it verified).
-    // robustSafe: the same for safeties and escapes, where it differs from robust.
-    // sweep: when nothing pots and no safety is legal, turn the cue all the way
-    // round (1°), keep the gaps where the first ball hit is a legal one, and play
-    // the middle of each gap out: the escape a blind roll used to be.
+    // aim: σ in degrees on direct pots, aimAlt on banks, kicks and combos; power: σ
+    // as a fraction. top: candidates played out; keep: survivors given the spin ×
+    // speed search; refine: aim corrections. safeBelow: play safe when the best
+    // pot's make probability is under it. robust: the top three lines are replayed
+    // this many times with the tier's noise, marking down any that foul or lose
+    // when missed (zero-noise tiers play what they verified); robustSafe: the same
+    // for safeties and escapes. sweep: with no pot or legal safety, turn the cue
+    // round in 1° steps and play out the middle of each legal-first-hit gap.
     const PA_TIERS = {
         easy:   { label: 'Easy',   desc: 'Takes simple pots · misses often',     top: 4,  keep: 1, refine: 0, spins: ['stun'], speeds: [1],
                   position: 0, bank: false, kick: false, combo: false, safeBelow: 0,    aim: 1.2, aimAlt: 1.8, power: 0.12 },
@@ -7103,8 +6669,7 @@
                   position: 2, bank: true,  kick: true,  combo: true,  safeBelow: 0.5,  aim: 0,   aimAlt: 0.15, power: 0.0025, callEvery: true, robustSafe: 3, sweep: true },
     };
     const PA_TIER_NAMES = ['easy', 'normal', 'hard', 'pro'];
-    // A zero-noise tier's make probability still allows a hair of error: the
-    // physics the planner verified on is the physics it plays, so this is small.
+    // A hair of error even at zero noise; small, as the planner verifies on the physics it plays.
     const PA_SIGMA_FLOOR = 0.02 * PA_DEG;
     // Candidates are ORDERED as a steady club player would rate them, so every
     // tier tries the easy lines first; DECISIONS use the tier's own error.
@@ -7126,8 +6691,7 @@
     }
     const paAngDiff = (a, b) => { let d = a - b; d -= 2 * Math.PI * Math.round(d / (2 * Math.PI)); return d; };
 
-    // Is the straight path from (ax, ay) to (bx, by) clear of every ball but
-    // the ones in `skip`? A ball blocks when its centre comes within `gap`.
+    // Is a→b clear of every ball not in `skip`? A ball blocks when its centre comes within `gap`.
     function paClear(balls, ax, ay, bx, by, skip, gap) {
         const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1;
         for (const b of balls) {
@@ -7151,16 +6715,15 @@
         const mx = (p.mouth[0] + p.mouth[2]) / 2, my = (p.mouth[1] + p.mouth[3]) / 2;
         return { x: (mx + p.x) / 2, y: (my + p.y) / 2 };
     }
-    // How far off line a ball arriving along (dx, dy) can be and still drop.
-    // Corners forgive more than sides, and both less as the approach flattens.
+    // How far off line a ball arriving along (dx, dy) can be and still drop;
+    // corners forgive more than sides, both less as the approach flattens.
     function paPocketTol(p, dx, dy) {
         const nx = p.kind === 'corner' ? p.sx / Math.SQRT2 : 0, ny = p.kind === 'corner' ? p.sy / Math.SQRT2 : p.sy;
         const c = Math.max(0, (dx * nx + dy * ny) / (Math.hypot(dx, dy) || 1));
         return p.kind === 'corner' ? 11 * (0.55 + 0.45 * c) : Math.max(0, 15 * (c - 0.25) / 0.75);
     }
-    // Make probability of a cut: the cue's aim error, amplified by the cut's
-    // gain (dθ_object / dθ_cue = d / (2R cos cut)), against the pocket's
-    // angular tolerance seen from the object ball.
+    // Aim error times the cut's gain (dθ_object / dθ_cue = d / (2R cos cut)),
+    // against the pocket's angular tolerance seen from the object ball.
     function paMakeProb(dcg, cut, lop, tol, sigma, R) {
         if (tol <= 0) return 0;
         const gain = dcg / (2 * R * Math.max(0.15, Math.cos(cut)));
@@ -7169,8 +6732,7 @@
         return p * (1 - 0.08 * Math.min(1, (dcg + lop) / 1400));
     }
 
-    // A reasonable base speed for a pot: the object ball reaches the pocket
-    // with a little pace left, the cue ball having rolled to the contact.
+    // Base speed: the object ball reaches the pocket with a little pace left.
     function paBaseSpeed(cfg, dcg, cut, lop) {
         const a = cfg.muRoll * cfg.gravity;
         const vObj = 1.4 * Math.sqrt(200 * 200 + 2 * a * lop);
@@ -7178,8 +6740,7 @@
         return Math.max(450, Math.min(cfg.maxSpeed * 0.85, 1.4 * Math.sqrt(vc * vc + 2 * a * dcg)));
     }
 
-    // Every pot from (cx, cy), best first: direct, and for the tiers that
-    // play them, one-rail banks, one-rail kicks and two-ball combos.
+    // Every pot from (cx, cy), best first.
     function paCandidates(world, frame, seat, cx, cy, tier, directOnly) {
         const T = directOnly ? Object.assign({}, PA_TIERS[tier] || PA_TIERS.normal, { bank: false, kick: false, combo: false }) : (PA_TIERS[tier] || PA_TIERS.normal);
         const R = world.cfg.ballR, t = world.table, cfg = world.cfg, out = [];
@@ -7275,13 +6836,11 @@
         return out.sort((a, b) => b.rank - a.rank);
     }
 
-    // The best pots left for `seat` from where the cue ball is, as make
-    // probabilities (direct only, so it is cheap): what position is worth.
+    // The pots left for `seat` from the cue ball (direct only, so cheap): what position is worth.
     function paNextShots(world, frame, seat, tier) {
         const cue = world.balls.find(b => b.id === 0);
         if (!cue || cue.state === 'pocketed') return [];
-        // Ranked as a steady player would see them: for a zero-noise tier every p is
-        // near 1, and position is about leaving an easy shot, not merely a possible one.
+        // Steady-player ranks: at zero noise every p is near 1, and position means an easy shot.
         return paCandidates(world, frame, seat, cue.x, cue.y, tier === 'pro' ? 'hard' : tier, true).map(c => c.rank);
     }
 
@@ -7298,8 +6857,7 @@
         return -1;
     }
 
-    // Steps a copy to the cue ball's first contact and returns the angle the
-    // first object ball actually left at, or null.
+    // The angle the first object ball actually leaves at, or null.
     function paDeparture(world, shot, ballId) {
         const w = ppCloneWorld(world);
         ppStrike(w, shot);
@@ -7317,8 +6875,7 @@
         }
         return null;
     }
-    // Corrects the aim for throw and squirt: the object ball's departure
-    // error, divided by the cut's gain, moves the cue.
+    // Corrects for throw and squirt: the departure error over the cut's gain moves the cue.
     function paRefine(world, cand, shot, n, R) {
         if (cand.kind === 'kick') return shot;
         let s = shot;
@@ -7334,15 +6891,13 @@
         return s;
     }
 
-    // Plays a shot to rest on a copy and judges it for the shooter.
     function paTrial(world, frame, seat, shot) {
         const w = ppCloneWorld(world);
         ppStrike(w, shot);
         ppSimulate(w);
         return { w, v: prJudge(frame, w, shot.call) };
     }
-    // How good a judged shot is for the shooter. `p` is the make probability
-    // of the line it was aimed on; position is the next shot's.
+    // `p` is the aimed line's make probability; position is the next shot's.
     function paScore(r, seat, tier, p) {
         const v = r.v, T = PA_TIERS[tier];
         if (v.frameOver) return v.winner === seat ? 1e6 : -1e6;
@@ -7366,11 +6921,9 @@
         return 400 * (1 - best);
     }
 
-    // opts: { tier, rng, noise (default true), aimDeg / powerFrac (override the
-    // tier's execution noise, for the balance check's human models) }.
-    // The job's shot is { angle, speed, tipX, tipY, call }, job.plan says
-    // what it is ('break' | 'pot' | 'safety' | 'escape' | 'fallback'), and job.kind the
-    // line ('direct' | 'bank' | 'kick' | 'combo' | 'safety').
+    // opts: { tier, rng, noise (default true), aimDeg / powerFrac (override the tier's
+    // execution noise) }. job.shot = { angle, speed, tipX, tipY, call }; job.plan is
+    // 'break' | 'pot' | 'safety' | 'escape' | 'fallback'; job.kind the line.
     function paPlan(world, frame, opts) {
         const o = opts || {}, seat = frame.turn, cfg = world.cfg, R = cfg.ballR;
         const tier = PA_TIERS[o.tier] ? o.tier : 'normal', T = PA_TIERS[tier];
@@ -7408,8 +6961,7 @@
         const sweep = [], escapes = [];
         const safeReps = T.robustSafe || T.robust;
 
-        // Safety lines: each legal ball, full and half-ball either side, soft; and
-        // one-rail kicks at it, for when the direct way is blocked.
+        // Safeties: each legal ball full and half-ball either side, soft; and one-rail kicks at it.
         const makeSafeties = () => {
             const tg = paTargets(world, frame, seat)
                 .sort((a, b) => Math.hypot(a.x - cue.x, a.y - cue.y) - Math.hypot(b.x - cue.x, b.y - cue.y)).slice(0, 3);
@@ -7464,8 +7016,7 @@
                             stage = 'R';
                             continue;
                         }
-                        // No pot at all: every tier looks for a legal escape. A pot the tier is
-                        // unlikely to make: the tiers that play safe look for a safety.
+                        // No pot: every tier looks for an escape; an unlikely pot: safe tiers look for a safety.
                         const needSafe = !bestPot || bestPot.score <= 0 || (T.safeBelow > 0 && bestPot.c.p < T.safeBelow);
                         if (needSafe) { makeSafeties(); stage = 'S'; } else stage = 'done';
                         continue;
@@ -7498,8 +7049,7 @@
                 } else if (stage === 'S') {
                     const shot = safeties.shift();
                     if (!shot) {
-                        // The best three safeties, replayed with the tier's noise: a safety or
-                        // an escape that fouls when it is a little off is no safety.
+                        // Replay the best three with noise: one that fouls when slightly off is no safety.
                         if (safeReps && o.rng && o.noise !== false && safeScored.length) {
                             safeScored.sort((a, b) => b.score - a.score).slice(0, 3).forEach(e => { e.bad = 0; e.n = 0; for (let i = 0; i < safeReps; i++) safeQ.push(e); });
                             stage = 'SR';
@@ -7528,8 +7078,7 @@
                     // The sweep: the first ball hit, one degree at a time.
                     const a = sweep.length;
                     if (a < 360) { sweep.push(legal.has(paFirstContact(world, { angle: a * PA_DEG, speed: 1800, tipX: 0, tipY: 0 }))); continue; }
-                    // The legal gaps, widest first; the middle of each is the escape that
-                    // forgives the most aim error, so that is the one played out.
+                    // Legal gaps, widest first; each gap's middle forgives the most aim error.
                     const gaps = [];
                     const start = sweep.indexOf(false);
                     if (start === -1) gaps.push({ mid: 0, n: 360 });
@@ -7551,12 +7100,11 @@
                     const score = paSafetyScore(r, seat);
                     if (!bestEscape || score > bestEscape.score) bestEscape = { shot, score };
                 } else {
-                    // Nothing that pots, no legal safety: hard and pro sweep for an escape
-                    // before they settle for a blind roll.
+                    // Nothing pots and no legal safety: sweeping tiers look for an escape first.
                     const settled = (bestPot && bestPot.score > 0) || (bestSafe && bestSafe.score > 0) || good.length;
                     if (!settled && T.sweep && !swept) { swept = true; stage = 'K'; continue; }
-                    // Choose. A likely pot; else a safety that leaves little; else the
-                    // best pot anyway; else a legal survivor from stage A; else a roll.
+                    // A likely pot; else a safety that leaves little; else the best pot; else a
+                    // stage A survivor; else an escape; else a roll.
                     const potOk = bestPot && bestPot.score > 0;
                     if (potOk && (bestPot.c.p >= T.safeBelow || !bestSafe || bestSafe.score < 250)) { lineKind = bestPot.c.kind; finish(bestPot.shot, 'pot'); }
                     else if (bestSafe && bestSafe.score > 0) { lineKind = 'safety'; finish(bestSafe.shot, 'safety'); }
@@ -7578,9 +7126,8 @@
         return job;
     }
 
-    // Where to put the cue ball with ball in hand: behind the ghost ball of
-    // the easiest pot, straight or at a slight angle; on the break, in the
-    // middle of the kitchen.
+    // Ball in hand: behind the easiest pot's ghost ball, straight or slightly angled;
+    // on the break, mid kitchen.
     function paPlace(world, frame, rng, tier) {
         const t = world.table, R = world.cfg.ballR, zone = frame.ballInHand;
         if (zone === 'kitchen') {
@@ -7614,10 +7161,8 @@
         return [t.headX - 60, 0];
     }
 
-    // Adaptive difficulty from your record against the CPU, as Ludo does it:
-    // eased off when you struggle, pushed when you win. It never climbs to pro
-    // by itself, because pro changes the rules for you too (every shot is
-    // called); pro is only ever picked. A pinned tier wins over all of it.
+    // Adaptive difficulty from your record, as Ludo's. Never climbs to pro on its
+    // own (pro calls every shot for you too); a pinned tier wins.
     function paAdaptiveTier(rec) {
         const wins = (rec && rec.wins) || 0, losses = (rec && rec.losses) || 0, games = wins + losses;
         if (games < 5) return 'normal';
@@ -7631,35 +7176,26 @@
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // SNOOKER — CPU (Phase S4)
+    // SNOOKER — CPU
     // ═══════════════════════════════════════════════════════════════════
-    // pool-ai.js's pipeline on snooker's rules (POOL_V2_PLAN.md, Snooker, CPU):
-    //   A  candidates from geometry: each ball the shooter may play (with the colour it
-    //      nominates and the pocket it calls) into each pocket that takes it, with the
-    //      tier's make probability against snooker's tight pockets; each played out on a
-    //      copy of the table, the aim corrected for throw first, and judged by psJudge
-    //   B  the survivors with the tier's spins and paces, scored in points expected:
+    // pool-ai.js's pipeline on snooker's rules:
+    //   A  each ball on (with its nomination and called pocket) into each pocket that
+    //      takes it, played out on a copy with the aim corrected, judged by psJudge
+    //   B  survivors with the tier's spins and paces, in points expected:
     //      p·(points + γ·position) − (1−p)·what a miss leaves − fouls·(penalty + 3)
-    //   R  the best lines replayed with the tier's own noise: how often they foul, and
-    //      what a miss leaves the opponent
-    //   S  safeties: the three nearest balls on, full, half-ball and thin either side and
-    //      one-rail kicks, at four paces, scored by the opponent's best shot after them (a
-    //      quarter less with the cue ball on a cushion, a snooker a bonus), then refined
-    //   K  snookered: pool's sweep, the cue turned round for the gaps that meet a ball on (every
-    //      tier: pro a degree at a time, easy every 6°)
-    // The break-off is a script per reds count (snooker-break-tune.js), checked in a trial
-    // or two, with a local search as the fallback. Pure and time-sliced like paPlan: each
-    // tier caps its trials (one shot to rest, 5–8 ms at 22 balls), and that is its time.
+    //   R  the best lines replayed with the tier's noise: fouls, and the leave on a miss
+    //   S  safeties (nearest three balls on, full/half/thin and one-rail kicks), scored
+    //      by the opponent's best shot after them, then refined
+    //   K  snookered: pool's sweep for gaps that meet a ball on (pro 1°, easy 6°)
+    // The break-off is a script per reds count (snooker-break-tune.js) with a local
+    // search fallback. Time-sliced like paPlan; each tier caps its trials (5–8 ms each).
 
-    // aim / power: execution σ (degrees, fraction); top: candidates played out; keep: how
-    // many survivors get the spin × pace search; refine: aim corrections; robust: noisy
-    // replays of the best lines; safeTrials: safeties tried; gamma: what position is worth;
-    // miss: how much the leave on a miss counts; attack: points of bias toward the pot over
-    // the safety; safeBelow: look for a safety when the best pot's p is under it; trials:
-    // the cap on shots played out; maxMs: the thinking time, once a legal shot is in hand (the
-    // worst positions, a sweep and a full safety search, would run on well past it). Picked
-    // (not by Adaptive), hard calls the colours and pro
-    // every ball (lockCall).
+    // aim / power: execution σ (degrees, fraction); top: candidates played out; keep:
+    // survivors given the spin × pace search; refine: aim corrections; robust: noisy
+    // replays; safeTrials: safeties tried; gamma: position's worth; miss: weight of the
+    // leave on a miss; attack: points of bias toward the pot; safeBelow: look for a
+    // safety under this p; trials: cap on shots played out; maxMs: thinking time once a
+    // legal shot is in hand. When picked, hard calls the colours and pro every ball (lockCall).
     const PA_SN_TIERS = {
         easy:   { label: 'Easy',   aim: 0.28, power: 0.10,  top: 5,  keep: 1, refine: 1, spins: ['stun'], speeds: [1],
                   robust: 0, safeTrials: 8,  gamma: 0,   miss: 0.2, attack: 3,   safeBelow: 0.1,  trials: 16,  maxMs: 250,  sweepStep: 6 },
@@ -7674,26 +7210,23 @@
     const PA_SN_NAMES = ['easy', 'normal', 'hard', 'pro'];
     // What a steady club player's odds are: candidates are ordered, and leaves judged, by it.
     const PA_SN_RANK = 0.12 * PA_DEG;
-    // The break-off (snooker-break-tune.js): the cue ball placed at (x, y·side) in the D, the
-    // back red on that side taken `off` R wide of its centre, at `speed`, with the tip at
-    // (tipX·side, tipY). side is the cue ball's side of the table, so each has its mirror.
+    // Break-offs (tuned by snooker-break-tune.js: no foul on 4 racks × ±0.1° × both sides):
+    // cue ball at (x, y·side) in the D, the back red on that side hit `off` R wide, at
+    // `speed`, tip (tipX·side, tipY); side mirrors it.
     const PA_SN_BREAKS = {
-        // snooker-break-tune.js, 2026-09-30 (the design revision 1790749498-5862 pockets): no foul on 4 racks × ±0.1° × both sides for each.
         15: { x: -305, y: 45, off: 1.6, speed: 1100, tipX: 0, tipY: 0 },
         10: { x: -305, y: 15, off: 1.6, speed: 1100, tipX: 0, tipY: 0 },
         6:  { x: -335, y: 15, off: 1.45, speed: 1250, tipX: 0, tipY: 0 },
     };
 
-    // Where to send a ball into snooker's pocket p: a little in from the hole's centre.
+    // A little in from the hole's centre.
     function paSnAimPoint(p) {
         const k = 0.35 * p.r;
         return p.kind === 'corner' ? { x: p.x - p.sx * k / Math.SQRT2, y: p.y - p.sy * k / Math.SQRT2 } : { x: p.x, y: p.y - p.sy * k };
     }
-    // How far off line a ball arriving along (dx, dy) can be and still drop, as snooker-verify §1
-    // measures the design's revision 1790749498-5862 pockets (rounded noses, straight jaws): a
-    // corner takes about ±6 u down its diagonal (±8 off a jaw) and still takes a ball rolled along
-    // the cushion; a middle pocket takes ±8 square on, closing as the angle opens (5 lines of 9
-    // at 60°).
+    // Drop tolerance as snooker-verify §1 measures it: a corner takes about ±6 u down its
+    // diagonal (±8 off a jaw), even along the cushion; a middle pocket ±8 square on,
+    // closing as the angle opens.
     function paSnPocketTol(p, dx, dy) {
         const L = Math.hypot(dx, dy) || 1;
         if (p.kind === 'corner') {
@@ -7703,8 +7236,7 @@
         const c = dy * p.sy / L;
         return c < Math.cos(70 * PA_DEG) ? 0 : 8.5 * Math.pow(c, 0.7);
     }
-    // What potting the ball on is worth now, and a little for what it opens (a red leads to
-    // a colour).
+    // What potting the ball on is worth now; paSnFollow adds a little for what it opens.
     function paSnPoints(frame, id) {
         if (frame.freeBall) return frame.phase === 'clearance' ? frame.next : 1;
         if (frame.phase === 'reds') return 1;
@@ -7713,9 +7245,8 @@
     }
     const paSnFollow = frame => (frame.phase === 'reds' && !frame.freeBall ? 2.5 : frame.phase === 'clearance' ? 0.4 * Math.min(7, frame.next + 1) : 0);
 
-    // Every direct pot from (cx, cy), best first by a steady player's odds: the ball on (or
-    // each colour that may be nominated, with that nomination) into each pocket that faces
-    // it, through clear paths. p is the make probability at `sigma`.
+    // Every direct pot from (cx, cy) (each nominable colour with its nomination), best first
+    // by a steady player's odds; p is the make probability at `sigma`.
     function paSnCandidates(world, frame, cx, cy, sigma) {
         const R = world.cfg.ballR, t = world.table, cfg = world.cfg, gap = 2 * R - 0.05, out = [];
         const st = psStatus(frame, world, frame.turn, -1);
@@ -7747,17 +7278,12 @@
         return out.sort((a, b) => b.rank * (b.points + 1) - a.rank * (a.points + 1));
     }
 
-    // The best pot `seat` would have from where the cue ball lies (or anywhere in the D with
-    // it in hand), in points expected at a steady player's odds: what a leave is worth to
-    // whoever is at the table next. The cue ball tight on a cushion is harder to cue: 0.75.
-    // two: the best and half the second (a leave with a choice is worth more to a break).
-    function paSnLeave(world, frame, two) {
+    // What a leave is worth to whoever plays next: their best pot in points expected (from
+    // anywhere in the D with ball in hand). Tight on a cushion is harder to cue: 0.75.
+    function paSnLeave(world, frame) {
         if (frame.over) return 0;
         const cue = world.balls.find(b => b.id === 0), R = world.cfg.ballR, t = world.table;
-        const best = (x, y) => {
-            const vals = paSnCandidates(world, frame, x, y, PA_SN_RANK).map(c => c.rank * (c.points + paSnFollow(frame))).sort((a, b) => b - a);
-            return (vals[0] || 0) + (two ? 0.5 * (vals.find((v, i) => i > 0) || 0) : 0);
-        };
+        const best = (x, y) => paSnCandidates(world, frame, x, y, PA_SN_RANK).reduce((m, c) => Math.max(m, c.rank * (c.points + paSnFollow(frame))), 0);
         if (frame.ballInHand === 'D' || !cue || cue.state === 'pocketed') {
             let m = 0;
             [[-300, 0], [-320, 40], [-320, -40], [-340, 60], [-340, -60], [-360, 0]].forEach(([x, y]) => { if (!prCanPlace(world, x, y, 'D')) m = Math.max(m, best(x, y)); });
@@ -7767,15 +7293,13 @@
         return best(cue.x, cue.y) * (tight ? 0.75 : 1);
     }
 
-    // Is the next player snookered on everything they are on?
     function paSnSnookered(world, frame) {
         if (frame.over || frame.ballInHand === 'D') return false;
         const st = psStatus(frame, world, frame.turn, -1), ids = st.on.needsNomination ? st.nominable : st.on.ids;
         return ids.length > 0 && psSnookered(world.balls, world.cfg.ballR, ids, 'full');
     }
 
-    // How good a break-off (or any safety) left the table: the opponent's leave, the cue ball
-    // back in baulk. Shared with snooker-break-tune.js.
+    // A break-off's (or safety's) leave, with the cue ball back in baulk. Shared with snooker-break-tune.js.
     function paSnBreakScore(r) {
         if (r.v.foul) return -100;
         const cue = r.w.balls.find(b => b.id === 0);
@@ -7784,12 +7308,10 @@
         return home - deep - 3 * paSnLeave(r.w, r.v.next);
     }
 
-    // opts: { tier, rng, noise (default true), aimDeg / powerFrac (override the tier's
-    // execution noise, for snooker-balance.js's human models), safeRun (safeties in a row:
-    // from 3 the CPU leans to the pot, so frames do not stall), timeCap (default true: stop at
-    // the tier's maxMs once something legal is found; snooker-balance.js turns it off so its
-    // numbers do not depend on the machine) }. job.shot = { angle, speed,
-    // tipX, tipY, nominate, call }; job.plan: 'break' | 'pot' | 'safety' | 'escape' | 'fallback'.
+    // opts: { tier, rng, noise (default true), aimDeg / powerFrac (override the tier's noise),
+    // safeRun (safeties in a row: from 3 it leans to the pot so frames do not stall),
+    // timeCap (default true: stop at maxMs once something legal is found; off makes results
+    // machine-independent) }. job.shot = { angle, speed, tipX, tipY, nominate, call }.
     function paSnPlan(world, frame, opts) {
         const o = opts || {}, cfg = world.cfg, R = cfg.ballR, seat = frame.turn;
         const tier = PA_SN_TIERS[o.tier] ? o.tier : 'normal', T = PA_SN_TIERS[tier];
@@ -7849,10 +7371,8 @@
         }
 
         const snookered = psSnookered(world.balls, R, onIds, 'full');
-        // Snookers it needs (the user's report, 2026-10-01: it gave frames away without trying).
-        // Needing any, it plays for them: a pot's points count for little (they do not close the
-        // gap that snookers have to), a snooker laid counts for a lot, and safeties are always
-        // looked at.
+        // Needing snookers, it plays for them: pot points count little (they cannot close
+        // the gap), a snooker laid counts a lot, and safeties are always looked at.
         const needSnk = psSnookersRequired(f0, world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed').map(b => b.id), seat);
         const ptsW = needSnk > 0 ? 0.25 : 1, snkBonus = needSnk > 0 ? 5 : 1.5;
         const cands = snookered ? [] : paSnCandidates(world, f0, cue.x, cue.y, Math.max(aimSig, 0.02 * PA_DEG)).slice(0, T.top);
@@ -7862,12 +7382,11 @@
         const attack = T.attack + ((o.safeRun || 0) >= 3 ? 2 : 0);
         const budgetLeft = reserve => job.tried < T.trials - reserve;
 
-        // A pot's value on the table after it: points, and what the next shot is worth.
         const potEV = (c, r) => {
             const v = r.v;
             if (v.frameOver) return v.winner === seat ? 1000 : -1000;
             if (v.foul || !v.continues) return null;
-            return ptsW * v.points + T.gamma * paSnLeave(r.w, v.next, T.pos2);
+            return ptsW * v.points + T.gamma * paSnLeave(r.w, v.next);
         };
         const safeEV = r => {
             const v = r.v;
@@ -7876,8 +7395,7 @@
             if (v.continues) return ptsW * v.points + T.gamma * paSnLeave(r.w, v.next);
             return -paSnLeave(r.w, v.next) + (paSnSnookered(r.w, v.next) ? snkBonus : 0);
         };
-        // Safeties: the three nearest balls on, full, half and thin either side, four paces;
-        // then one-rail kicks at them when the direct way is blocked.
+        // Unblocked contacts are tried first; one-rail kicks lead only when the direct way is blocked.
         const makeSafeties = () => {
             const mu = cfg.muRoll * cfg.gravity;
             const tg = world.balls.filter(b => onIds.indexOf(b.id) >= 0 && b.state !== 'pocketed')
@@ -7886,8 +7404,7 @@
             tg.forEach(b => {
                 const dist = Math.hypot(b.x - cue.x, b.y - cue.y), base = Math.atan2(b.y - cue.y, b.x - cue.x);
                 const clear = paClear(world.balls, cue.x, cue.y, b.x, b.y, [0, b.id], 2 * R - 0.05);
-                // Each contact on its own line: the cue ball's path to where it meets the ball, so a
-                // half-ball or thin contact past a ball in the way still counts.
+                // Each contact checked on its own path, so a thin contact past a blocker still counts.
                 const open = off => {
                     const s = dist * Math.sin(off), t = dist * Math.cos(off) - Math.sqrt(Math.max(0, 4 * R * R - s * s)), a = base + off;
                     return t > 0 && paClear(world.balls, cue.x, cue.y, cue.x + t * Math.cos(a), cue.y + t * Math.sin(a), [0, b.id], 2 * R - 0.05);
@@ -7914,8 +7431,7 @@
         job.step = budgetMs => {
             if (job.done) return true;
             const t0 = now();
-            // A slice ends when the next trial would take it past its budget (S7: they ran to
-            // 20–30 ms in 12 ms slices, finishing a long trial), after at least one trial.
+            // A slice ends before a trial that would overrun the budget, after at least one.
             const tried0 = job.tried;
             const spent = () => budgetMs !== undefined && job.tried > tried0 && now() - t0 + job.trialMs >= budgetMs;
             try {
@@ -7923,7 +7439,7 @@
                 // Out of time with something legal in hand: value what is scored, and choose.
                 if (capped(t0) && stage !== 'done') { if (!bestPot && scored.length && (stage === 'A' || stage === 'B' || stage === 'R')) { stage = 'P'; } else if (stage !== 'P') stage = 'done'; }
                 if (stage === 'A') {
-                    // A: does the line pot, fairly, with stun at its base pace?
+                    // A: does the line pot fairly with stun at its base pace?
                     const c = cands.shift();
                     if (!c || !budgetLeft(3 * T.robust + T.safeTrials)) {
                         stage = 'B';
@@ -8028,8 +7544,7 @@
                 } else {
                     // Snookered with nothing legal found: the sweep before a roll.
                     if (!bestPot && !bestSafe && !swept) { swept = true; stage = 'K'; continue; }
-                    // Needing snookers, a pot cannot win the frame (it shrinks what is left as much as
-                    // it scores), so a fair safety is played whenever there is one.
+                    // Needing snookers, a pot cannot win the frame, so a fair safety is preferred.
                     if (bestPot && (!bestSafe || (needSnk === 0 && bestPot.ev + attack >= bestSafe.ev))) finish(bestPot.shot, 'pot', bestPot.c.kind, bestPot.ev);
                     else if (bestSafe) finish(bestSafe.shot, 'safety', 'safety', bestSafe.ev);
                     else if (bestEscape) finish(bestEscape.shot, 'escape', 'safety', bestEscape.ev);
@@ -8048,8 +7563,7 @@
         return job;
     }
 
-    // Ball in hand in the D: for the break-off, the script's spot on a side of the D; else
-    // the point on a grid over the D with the best pot from it, else the break-off spot.
+    // Break-off: the script's spot; else the D grid point with the best pot, else psCueHome.
     function paSnPlace(world, frame, rng) {
         const S0 = PA_SN_BREAKS[frame.reds] || PA_SN_BREAKS[15];
         if (frame.isBreak) {
@@ -8068,9 +7582,8 @@
         return best ? [best.x, best.y] : psCueHome(world);
     }
 
-    // After a foul against it: a free ball when it has one and a pot to play with it; else
-    // play on when there is a pot or a fair hit, and put the offender back in when the
-    // table is worse for whoever is at it (snookered, nothing on).
+    // After a foul against it: a free ball with a pot to play; else play on, or put the
+    // offender back in when the table is bad (snookered, nothing on).
     function paSnChoose(frame, world) {
         const p = frame.pending;
         if (!p) return 'play';
@@ -8082,9 +7595,7 @@
         return p.options.indexOf('free') >= 0 && stuck ? 'free' : 'play';
     }
 
-    // Does the CPU give the frame away (POOL_V2_PLAN.md, Snooker, implementer's calls)? Easy
-    // never; the others only once it needs more than 3 snookers. Up to 3 it plays for them
-    // (paSnPlan): the user's report, 2026-10-01, was that it gave frames away at 2 without trying.
+    // Concede? Easy never; the others only past 3 snookers needed (up to 3 it plays for them).
     const PA_SN_CONCEDE_PAST = 3;
     function paSnConcede(frame, world, tier) {
         if (tier === 'easy' || frame.over || frame.isBreak) return false;
@@ -8095,62 +7606,45 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — GAME (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // The controller: it runs the match and ties the physics, rules, camera,
-    // renderer, HUD and CPU into the panel the host shows. Pool and snooker share it
-    // (POOL_V2_PLAN.md, Snooker): what differs between them is one profile in
+    // The controller: runs the match and ties physics, rules, camera, renderer, HUD and CPU
+    // into the host's panel. Pool and snooker share it; what differs is one profile in
     // POOL_GAMES, and poolRules() is the one being played.
     //
-    // What the rest of the userscript calls:
-    //   initPoolGame()        switchGame opened the panel: build it once, keep a
-    //                         frame in progress, attach input, start the loop
-    //   poolDetach()          switchGame left: stop the loop, drop the window
-    //                         listeners, close Max
+    // Host API:
+    //   initPoolGame()        switchGame opened the panel: build once, keep the frame, attach
+    //   poolDetach()          switchGame left: stop the loop, drop window listeners, close Max
     //   resetPoolGame()       a fresh rack
-    //   togglePoolMode()      Vs CPU ⇄ 2 Players, then a fresh rack (from a tournament
-    //                         match: back to the mode before it)
+    //   togglePoolMode()      Vs CPU ⇄ 2 Players (from a tournament: the mode before it)
     //   togglePoolMaximize()  the Max view, through the shared toggleGameMaxModal
     //   poolOnThemeChange()   applyPreferences ran: re-read the theme tokens
-    //   poolMode, poolGamesWon, poolMaximized, poolRecord, poolCpuTier
-    //   poolWinsByTier()      your CPU wins by the tier each frame was locked to
-    //                         read by the leaderboard, achievements and tests
-    //   poolSetVariant(game)  the cue game: 'pool' or 'snooker'. The frame in progress is
-    //                         parked and the other game's comes back (or a fresh rack)
-    //   poolToggleVariant()   the header's switch: the other game, remembered (poolVariant)
-    //   poolOnPrefChange(p)   a ⚙️ setting the controller follows changed (the game, the
-    //                         CPU difficulty, the shot clock, snooker's reds)
-    //   poolTitle()           "🎱 8-Ball Pool" or "🔴 Snooker"
+    //   poolWinsByTier()      CPU wins by each frame's locked tier (leaderboard, achievements)
+    //   poolSetVariant(game)  'pool' | 'snooker': parks this frame, brings the other's back
+    //   poolToggleVariant()   the header's switch, remembered (poolVariant)
+    //   poolOnPrefChange(p)   a ⚙️ setting changed (CPU difficulty, shot clock, snooker's reds)
     //   poolRenderTitle(el)   the panel header: the game's name behind the 🎱 | 🔴 switch
+    //   poolMode, poolGamesWon, poolMaximized, poolRecord, poolCpuTier
     //
-    // Input (POOL_V2_PLAN.md, Input):
-    //   3D     sideways mouse movement turns the aim (0.3°/px, Shift 0.05°/px),
-    //          and keeps doing so after the mouse leaves the table
+    // Input:
+    //   3D     sideways mouse turns the aim (0.3°/px, Shift finer), even off the table
     //   2D     point at the target
-    //   power  press, then pull back or push forward along the shot line;
-    //          back under 3% and release, or Esc, cancels
-    //   ←/→    ±0.1° while the table has the mouse or Max is open
-    //   ball in hand: drag the cue ball; it stops at the cushions and, on
-    //          the break, at the head string. Move cue ball picks it up again
-    // Tournaments (pool-tour.js, pool-tour-ui.js): poolMode 'tour' while a match is on
-    // the table. The bracket is saved to localStorage (poolTournament) after every frame,
-    // with a snapshot of the table after every shot, and offered back when the panel
-    // next opens. Titles go to the trophy cabinet (poolTrophyCabinet).
-    // Escape never resets the frame here; it cancels a power drag, else the
-    // Max modal's own handler closes Max.
+    //   power  press, then pull back or push along the shot line; under 3% or Esc cancels
+    //   ←/→    fine aim while the table has the mouse or Max is open
+    //   ball in hand: drag the cue ball; it stops at the cushions (and the head string on the break)
+    // Tournaments (pool-tour.js, pool-tour-ui.js): poolMode 'tour' while a match is on the
+    // table; the bracket is saved after every frame, with a table snapshot after every shot.
+    // Escape never resets the frame: it cancels a power drag, else Max's own handler closes Max.
 
-    const POOL_CLOCK_S = 30;                 // shot clock for human turns, as today
+    const POOL_CLOCK_S = 30;                 // shot clock for human turns, in seconds
     const POOL_AIM_REACH = 240;              // px past the table's edge the aim keeps following
     const POOL_DEAD_PX = 4;                  // power drag dead zone
     const POOL_STRIKE_MS = 90;               // the cue's forward stroke before the ball launches
     const POOL_TOAST_MS = 2200;
     const POOL_POT_XP = 5;
-    // A frame's XP (POOL_V2_PLAN.md, Progression): a CPU win by the tier it was played at,
-    // 2 Players as it has always paid Player 1, a tournament match for the YOU seat only.
+    // Frame XP: a CPU win by its tier, 2 Players pays Player 1, a tournament match the YOU seat only.
     const POOL_WIN_XP = { easy: 60, normal: 80, hard: 100, pro: 120 };
     const POOL_LOSS_XP = 15, POOL_PVP_WIN_XP = 80, POOL_TOUR_WIN_XP = 80;
-    // Snooker's (POOL_V2_PLAN.md, Snooker · XP): a CPU win by the tier and the reds (a longer
-    // frame pays more), a loss 20; your best break of the frame against the CPU adds a bonus,
-    // won or lost. At most 180 + 50 = 230 a frame, inside the bot's 250 a game. 2 Players and
-    // tournaments pay as pool; no pot pays.
+    // Snooker: a CPU win by tier and reds, a loss 20, plus a bonus for your best break, won or
+    // lost. At most 180 + 50 = 230 a frame, inside the bot's 250 a game. No pot pays.
     const POOL_SNK_WIN_XP = {
         15: { easy: 90, normal: 120, hard: 150, pro: 180 },
         10: { easy: 75, normal: 100, hard: 125, pro: 150 },
@@ -8165,19 +7659,17 @@
     const POOL_RESULT_MS = 1100;             // the last pot drops before the match result covers the table
 
     // ── Games ─────────────────────────────────────────────────────────
-    // Everything the controller asks of a game: its table and rack, its rules, its CPU,
-    // where its records live, what it pays and what it is called. Nothing below this
-    // block names a game's rules, CPU or storage directly (pool-verify.js checks it).
+    // Everything the controller asks of a game. Nothing below this block names a game's
+    // rules, CPU or storage directly (pool-verify.js checks it).
     const POOL_GAMES = {
         pool: {
             id: 'pool', title: '8-Ball Pool', icon: '🎱', lb: 'pool', xpType: 'pool', diffPref: 'poolDifficulty', diffs: PH_DIFFS,
             keys: { cpuRec: 'poolCpuRecord', byTier: 'poolWinsByTier', tour: 'poolTournament', cab: 'poolTrophyCabinet' },
             clock: POOL_CLOCK_S,
-            // ⚙️ Pool Shot Clock: the quick frame's clock, from the tournament's choices (0 is off).
+            // ⚙️ Shot Clock choices for a quick frame (0 is off).
             clockPref: 'poolClock', clocks: [30, 45, 0],
             // Aim steps: ←/→ and the Shift fine aim, in degrees.
             aimKey: 0.1, aimFine: 0.05,
-            // Seat records for the cards (p1Wins, p1Losses, p2Wins, p2Losses).
             record: () => poolRecord,
             world: () => ppCreateWorld(),
             rack: (w, rng) => ppRack(w, rng),
@@ -8203,20 +7695,16 @@
             canPlace: (w, x, y, zone) => prCanPlace(w, x, y, zone),
             clampPlace: (w, x, y, zone) => prClampPlace(w, x, y, zone),
             placeCue: (w, x, y) => prPlaceCue(w, x, y),
-            // The balls a card lists as potted on an open table: the 8 comes back on the break.
+            // Balls a card lists as potted on an open table (the 8 comes back on the break).
             tracksPot: id => id > 0 && id < 16 && id !== 8,
             ballCount: () => 16,
             validFrame: f => !!f && f.v === 1 && (f.turn === 1 || f.turn === 2) && !f.over,
             tourDefaults: { game: 'pool', call: '8', calls: [['8', '8 only'], ['every', 'Every shot']] },
             cpu: { tiers: PA_TIERS, names: PA_TIER_NAMES, plan: paPlan, place: paPlace, tierFor: paTierFor, adaptive: paAdaptiveTier },
-            // XP a pot, for your pots against the CPU (poolAwardPots).
             potXP: POOL_POT_XP,
-            // A quick frame's XP: a CPU win by the tier it was played at, 2 Players as it has
-            // always paid Player 1.
             frameXP: c => (!c.won ? POOL_LOSS_XP : c.vsCPU ? POOL_WIN_XP[c.tier] || POOL_WIN_XP.normal : POOL_PVP_WIN_XP),
-            // What else the award reports (the host's achievement check reads it): nothing more.
             xpPerf: () => ({}),
-            // A quick frame's records, through the host's storage helpers. Seat 1 is you.
+            // Quick-frame records, through the host's storage helpers. Seat 1 is you.
             fileResult: (w, vsCPU, tier) => {
                 if (!poolRecord) poolRecord = loadPoolRecord();
                 // Seed the per-mode split before the all-time count moves; seeded after,
@@ -8235,8 +7723,7 @@
                     savePoolRecord(poolRecord);
                 }
             },
-            // The wins button: the tier being played, 2 Players, or (in a tournament, which has
-            // no board) the all-time CPU total.
+            // The wins button: the tier being played, 2 Players, or (a tournament has no board) all CPU wins.
             wins: () => {
                 const byMode = loadPoolWinsByMode();
                 if (poolMode === 'pvp') return byMode.pvp;
@@ -8244,17 +7731,14 @@
                 return byMode.cpu;
             },
         },
-        // Snooker (POOL_V2_PLAN.md, Snooker): the same table component on snooker's table
-        // (pool-snooker.js), 147 rules, a colour nominated when one is on, the choice after a
-        // foul, and a frame that survives a reload. Its CPU is pool-snooker-ai.js (S4); its XP,
-        // records and high break are filed under its own names (S6).
+        // Snooker (pool-snooker.js; CPU pool-snooker-ai.js): 147 rules, a nominated colour, the
+        // choice after a foul, and a quick frame that survives a reload.
         snooker: {
             id: 'snooker', title: 'Snooker', icon: '🔴', lb: 'snooker', xpType: 'snooker', diffPref: 'snookerDifficulty', diffs: PH_SNK_DIFFS,
             keys: { cpuRec: 'snookerCpuRecord', byTier: 'snookerWinsByTier', tour: 'snookerTournament', cab: 'snookerTrophyCabinet', frame: 'snookerFrame' },
-            // Aiming at true scale is slower (implementer's call 4), and so is finer aim.
+            // True scale: aiming is slower, so a longer clock and finer aim steps.
             clock: 45, aimKey: 0.025, aimFine: 0.0125,
             clockPref: 'snookerClock', clocks: [30, 45, 60, 0],
-            // The ⚙️ setting a fresh frame racks from.
             rackPref: 'snookerReds',
             aimClear: true,
             world: () => psCreateWorld(),
@@ -8263,16 +7747,14 @@
             newFrame: o => psNewFrame({ breaker: o.breaker, reds: POOL_GAMES.snooker.framesReds(), seed: o.seed }),
             status: (f, w, seat) => psStatus(f, w, seat || f.turn, poolS.nom),
             judge: (f, w, pick) => psJudge(f, w, pick.nominate, pick.call),
-            // The call pocket (off / colours / all): a picked tier's (hard the colours, pro every
-            // ball; Adaptive hands no rule change), the tournament's, and none in 2 Players.
+            // Call pocket: a picked tier's (Adaptive changes no rule), the tournament's, none in 2 Players.
             lockCall: (f, tier) => { f.call = poolMode === 'tour' ? poolS.callMode : poolMode === 'cpu' && poolDifficulty() !== 'adaptive' ? (tier.call || 'off') : 'off'; },
             apply: (w, v) => psApplySpots(w, v.spots),
             timeout: (f, w) => psTimeout(f, w, poolS.nom),
             text: (v, names) => psText(v, names),
             // Just before the strike: the balls touching the cue ball at rest (touching ball).
             prime: (f, w) => Object.assign({}, f, { touching: psTouching(w.balls, w.cfg.ballR) }),
-            // What may be hit first: the ball on; before a colour is nominated, any of those
-            // that may be (so aim-at-nearest finds one).
+            // May be hit first: the ball on; before a nomination, any nominable one (for aim-at-nearest).
             legal: (f, w, id) => {
                 const on = psStatus(f, w, f.turn, poolS.nom).on;
                 return on.needsNomination && on.nominated < 0 ? on.nominable.indexOf(id) >= 0 : on.ids.indexOf(id) >= 0;
@@ -8284,8 +7766,7 @@
             ballCount: f => 7 + psRedsOf(f && f.reds),
             validFrame: f => !!f && f.v === 1 && f.game === 'snooker' && (f.turn === 1 || f.turn === 2) && !f.over && PS_REDS.indexOf(f.reds) >= 0 && (f.call === undefined || PS_CALLS.indexOf(f.call) >= 0),
             tourDefaults: { game: 'snooker', reds: 15, call: 'off', calls: [['off', 'Off'], ['colours', 'Colours'], ['all', 'All balls']] },
-            // A tournament frame's score and each seat's best break, for the bracket (the result
-            // screen lists them).
+            // A tournament frame's score and best breaks, for the bracket's result screen.
             tourFrame: v => ({ points: [v.next.scores[1], v.next.scores[2]], high: [v.next.high[1], v.next.high[2]] }),
             // The reds a frame racks: the tournament's own, else ⚙️'s.
             framesReds: () => psRedsOf(poolMode === 'tour' && poolS.tour.t && poolS.tour.t.settings.reds ? poolS.tour.t.settings.reds : +userPreferences.snookerReds),
@@ -8295,14 +7776,11 @@
             choiceNotice: (p, id, names) => psChoiceNotice(p, id, names),
             concede: (f, seat) => psConcede(f, seat),
             resultText: (v, names) => psResultText(v, names),
-            // The CPU (pool-snooker-ai.js). A trial is 5–8 ms at 22 balls, so it thinks in
-            // 12 ms slices (the table stands still meanwhile, so a frame costs next to nothing to
-            // draw); it concedes by tier.
+            // A CPU trial is 5–8 ms at 22 balls, so it thinks in 12 ms slices (the still table
+            // costs next to nothing to draw); it concedes by tier.
             cpu: { tiers: PA_SN_TIERS, names: PA_SN_NAMES, plan: paSnPlan, place: paSnPlace, choose: (f, w) => paSnChoose(f, w), concede: paSnConcede, slice: 12,
                 tierFor: (pref, rec) => (PA_SN_TIERS[pref] ? pref : paAdaptiveTier(rec)), adaptive: rec => paAdaptiveTier(rec) },
             potXP: 0,
-            // A quick frame's XP: against the CPU by the tier and the reds, plus the break bonus
-            // for seat 1's best break; 2 Players as pool.
             frameXP: c => {
                 if (!c.vsCPU) return c.won ? POOL_PVP_WIN_XP : POOL_LOSS_XP;
                 const byTier = POOL_SNK_WIN_XP[c.frame && c.frame.reds] || POOL_SNK_WIN_XP[15];
@@ -8313,8 +7791,8 @@
             xpPerf: f => ({ reds: f ? f.reds : 15, highBreak: f && f.high ? Math.min(POOL_SNK_BREAK_CAP, f.high[1] || 0) : 0 }),
             record: () => poolStoreRead('snookerRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 }),
             fileResult: (w, vsCPU, tier, f) => {
-                // Your best break against the CPU, at every frame end, lost or conceded too (the
-                // High break board). 2 Players' breaks are not kept: either seat is this account.
+                // Your best break vs the CPU at every frame end, lost or conceded too. 2 Players'
+                // breaks are not kept: either seat is this account.
                 if (vsCPU && f && f.high) {
                     const best = poolStoreNum('snookerHighBreak'), mine = Math.min(POOL_SNK_BREAK_CAP, f.high[1] || 0);
                     if (mine > best) poolStoreWrite('snookerHighBreak', mine);
@@ -8337,8 +7815,7 @@
             },
         },
     };
-    // A small record in localStorage, read with every field a whole number (a corrupt or
-    // missing one reads as the defaults, never as a throw).
+    // A small localStorage record, every field a whole number (corrupt or missing: the defaults).
     function poolStoreRead(key, defaults) {
         const out = Object.assign({}, defaults);
         try {
@@ -8347,12 +7824,10 @@
         } catch (_) {}
         return out;
     }
-    // A whole number in localStorage (0 when missing or corrupt).
     function poolStoreNum(key) { try { return Math.max(0, parseInt(localStorage.getItem(key) || '0', 10) || 0); } catch (_) { return 0; } }
     function poolStoreWrite(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {} }
     const poolRules = () => POOL_GAMES[poolS.game] || POOL_GAMES.pool;
-    // The panel plays this game from now: its table config, and a fresh camera and cache
-    // for it. The frame on the table is the caller's business.
+    // This game's table config, with a fresh camera and cache; the frame is the caller's business.
     function poolUseGame(game) {
         const S = poolS;
         // Each game has its own tournament (bracket, screens, saved key).
@@ -8365,7 +7840,6 @@
     }
     const poolTourFresh = () => ({ t: null, screen: null, dialog: null, dlgBack: null, tab: 0, matchId: null, setup: null, cab: null, cabBack: null,
         prevMode: 'cpu', pending: 0, rev: 0, checked: false });
-    function poolTitle() { const R = poolRules(); return R.icon + ' ' + R.title; }
     // A quick frame's shot clock: ⚙️'s pick for this game (0 is off), else the game's own.
     function poolQuickClock() { const R = poolRules(), v = userPreferences[R.clockPref]; return R.clocks.indexOf(v) >= 0 ? v : R.clock; }
 
@@ -8373,42 +7847,35 @@
     let poolGamesWon = 0;                    // all-time wins, as stored by savePoolHighScore
     let poolRecord = null;                   // { p1Wins, p1Losses, p2Wins, p2Losses }
     let poolMaximized = false;
-    // The CPU's tier for this frame: locked when the frame starts (adaptive or
-    // pinned, userPreferences.poolDifficulty), so it cannot shift mid-frame.
+    // The CPU's tier, locked when the frame starts so it cannot shift mid-frame.
     let poolCpuTier = 'normal';
 
-    // Everything else about the panel and the match lives in one object, so
-    // a reset is a reassignment rather than thirty lines of lets.
+    // The panel and match live in one object, so a reset is a reassignment, not thirty lets.
     const poolS = {
         game: 'pool',                        // the game on the table: a key of POOL_GAMES
         root: null, hudC: null, hudM: null, hud: null, canvas: null, ctx: null, maxFrame: null, maxPanel: null,
         W: 0, H: 0, dpr: 1, cfg: null, director: null, cache: {},
         world: null, frame: null, rackId: 0, awardedRack: -1, breaker: 1, frames: [0, 0], seed: 0, rng: null,
         phase: 'aim', aim: 0, power: 0, tip: { x: 0, y: 0 }, spinOpen: false, called: -1, guide: null, guideKey: '',
-        // Snooker: the colour nominated for this shot (-1: none), the concede question, and
-        // the frame parked by the other game while this one is on the table.
+        // Snooker: the nominated colour (-1: none), the concede question; each game's parked frame.
         nom: -1, confirm: false, parked: {}, tours: {},
         // Snooker: the chips opened again after a colour was nominated (they fold to that one).
         chipsOpen: false,
         // The CPU's safeties in a row this frame (snooker's CPU attacks after three).
         cpuSafeRun: 0,
         drops: [], down: new Set(), drag: null, strikeT: 0, shot: null,
-        // The object balls each seat has potted this frame (the cards show them on an open
-        // table).
+        // The object balls each seat has potted this frame (cards show them on an open table).
         pots: { 1: [], 2: [] },
         toast: null, toastMs: 0, fouled: 0, handoff: 0, result: null, placed: false, clockLeft: POOL_CLOCK_S,
         cpu: null, wins: 0,
         // Your record against the CPU (adaptive difficulty reads it), and the Game mode sheet.
         cpuRec: null, sheet: { open: false, mode: 'cpu' },
-        // Table settings: guide length (full | short | off) and call every shot. Fixed for
-        // quick matches today; tournaments (Phase 7) and the pro tier (Phase 6) set them.
+        // Table settings (guide full | short | off, call rules, clock): tournaments and tiers set them.
         guideMode: 'full', callEvery: false, callMode: 'off', clockTotal: POOL_CLOCK_S,
-        // The tournament: the bracket (t, with t.current the match in progress), the screen
-        // and dialog over the panel, the match on the table, setup's draft, the cabinet.
+        // The tournament: bracket (t.current: the match in progress), screen, dialog, setup, cabinet.
         tour: { t: null, screen: null, dialog: null, dlgBack: null, tab: 0, matchId: null, setup: null, cab: null, cabBack: null,
             prevMode: 'cpu', pending: 0, rev: 0, checked: false },
-        // The phase 'choice' holds the table after a foul in snooker until the incoming
-        // player picks how play continues.
+        // phase 'choice': after a snooker foul the table waits for the incoming player's pick.
         running: false, raf: null, lastMs: 0, acc: 0, sinceDraw: 0, drawKey: '',
         attached: false, armed: false, lastX: null, leanSave: null, nameSave: null, scheme: null,
     };
@@ -8440,7 +7907,6 @@
         const cpu = poolRules().cpu;
         poolCpuTier = cpu.tierFor(poolDifficulty(), poolCpuRec());
         poolRules().lockCall(S.frame, cpu.tiers[poolCpuTier]);
-        // The wins button shows the board being played for, and that is this frame's tier.
         poolRefreshScoreBtn();
     }
     // Nothing has been hit yet in this frame, so a new difficulty can apply to it.
@@ -8475,10 +7941,9 @@
         byTier[tier]++;
         try { localStorage.setItem(R.keys.byTier, JSON.stringify(byTier)); } catch (_) { /* quota */ }
     }
-    // The count on the wins button, by the game's own rule.
     const poolWins = () => poolRules().wins();
-    // The header button and the Max trophy show the same count; it only changes when a
-    // frame ends or the mode flips, so it is read here and cached, not every frame.
+    // The header button and Max trophy count only change when a frame ends or the mode flips,
+    // so it is cached here rather than read every frame.
     function poolRefreshScoreBtn() { poolS.wins = poolWins(); updateGameScoreBtn(poolRules().lb, null, poolS.wins); }
     const poolCpuTurn = () => poolMode === 'cpu' && poolS.frame && poolS.frame.turn === 2 && !poolS.frame.over;
     const poolCueBall = () => poolS.world.balls[0];
@@ -8529,7 +7994,7 @@
         S.awardedRack = S.rackId;
         // A frame that survives a reload is gone once it is decided, before anything is paid.
         poolClearSaved();
-        // Tournament frames go to the bracket, not to the quick-match records or XP (Phase 8).
+        // Tournament frames go to the bracket, not to the quick-match records or XP.
         if (poolMode === 'tour') { poolTourFrameOver(w, v); return; }
         const vsCPU = poolMode === 'cpu', tier = poolCpuTier, f = v.next || S.frame;
         R.fileResult(w, vsCPU, tier, f);
@@ -8546,9 +8011,8 @@
         poolRefreshScoreBtn();
     }
 
-    // XP per legal pot (pool's +5), for your pots against the CPU only, in a game that pays
-    // pots. 2 Players paid both seats (problem 8): the XP lands on this machine's account
-    // whoever is at the table.
+    // XP per legal pot, for your pots against the CPU only: in 2 Players it would land on this
+    // account whoever potted.
     function poolAwardPots(seat, n) {
         const per = poolRules().potXP;
         if (!n || !per || poolMode !== 'cpu' || seat !== 1 || !xpSystemReady) return;
@@ -8596,7 +8060,6 @@
         S.fouled = v.foul ? shooter : 0;
         // Hot-seat: when the table changes hands, the next player takes the seat first.
         if (poolMode !== 'cpu' && S.frame.turn !== shooter) S.handoff = S.frame.turn;
-        // Snooker after a foul: the table waits for the incoming player's choice.
         if (S.frame.pending) { S.phase = 'choice'; S.clockLeft = S.clockTotal || POOL_CLOCK_S; }
         else poolStartTurn();
         // A shot boundary: the table is still, so this is the state a reload comes back to.
@@ -8616,9 +8079,8 @@
         S.clockLeft = S.clockTotal || POOL_CLOCK_S;
     }
 
-    // The incoming player's choice after a snooker foul (psChoose): play, put the offender back
-    // in, or take the free ball. A CPU's choice is named in a notice; in hot-seat, a change of
-    // seat is handed over first.
+    // The incoming player's choice after a snooker foul (psChoose). A CPU's is named in a
+    // notice; in hot-seat, a change of seat is handed over first.
     function poolChoose(id, byCpu) {
         const S = poolS, R = poolRules(), p = S.frame && S.frame.pending;
         if (!p || !R.choose || p.options.indexOf(id) < 0) return;
@@ -8672,10 +8134,8 @@
         S.guide = pgGuide(S.world, { angle: S.aim, speed: poolSpeedOf(p), tipX: t.x, tipY: t.y });
     }
     // The shot on screen, for the HUD to keep its overlays off (phShy): the aim line to the
-    // first contact, the object ball's path on to the pocket it is heading for (else to the
-    // cushion), and as circles the contact, the object ball and that pocket. The cue ball is
-    // the line's start, not a circle: in 3D it always sits bottom centre, which the overlays
-    // are laid out round.
+    // contact, the object ball's path to its pocket (else the cushion), and those points as
+    // circles. The cue ball is not a circle: in 3D it sits bottom centre, clear of the overlays.
     function poolShotPath(v) {
         const S = poolS, g = S.guide, cfg = S.cfg, R = cfg.ballR, c = poolCueBall();
         if (!g || !g.contact || !c || c.state === 'pocketed') return null;
@@ -8717,12 +8177,10 @@
         }
         return { segs, dots };
     }
-    // A human may act: not in the hand-off, not while the CPU plays.
     const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over' && poolS.phase !== 'choice' && !poolS.confirm && !poolS.sheet.open && !poolTourBlocked();
 
     // ── The CPU's turn ────────────────────────────────────────────────
-    // Wait a beat, place the ball if it has it in hand, think (time-sliced),
-    // turn the cue onto the line, draw it back, then strike.
+    // Wait, place the ball if in hand, think (time-sliced), turn onto the line, draw back, strike.
     function poolCpuTick(dt) {
         const S = poolS, R = poolRules();
         if (!poolCpuTurn() || poolTourBlocked() || S.phase === 'moving' || S.phase === 'strike') return;
@@ -8744,7 +8202,6 @@
         if (S.phase !== 'aim') return;
         if (c.stage === 'wait') {
             if (c.t < 350) return;
-            // Snooker: a frame it cannot win any more, it gives away (by tier).
             if (R.cpu.concede && R.concede && R.cpu.concede(S.frame, S.world, poolCpuTier)) { S.cpu = null; poolAfterTurn(R.concede(S.frame, S.frame.turn)); return; }
             S.tip = { x: 0, y: 0 }; S.spinOpen = false;
             c.job = R.cpu.plan(S.world, S.frame, { rng: S.rng, tier: poolCpuTier, safeRun: S.cpuSafeRun });
@@ -8810,8 +8267,7 @@
                 if (ppSettled(S.world)) { ppSimulate(S.world, 0.001); poolSettle(); break; }
             }
         } else if (S.phase === 'aim' && poolCanAct() && !S.drag && S.clockTotal) {
-            // The clock waits for the hand-off and for ball in hand, as today, and a
-            // tournament can turn it off.
+            // The clock waits for the hand-off and ball in hand; a tournament can turn it off.
             S.clockLeft -= dt / 1000;
             if (S.clockLeft <= 0) {
                 const R = poolRules(), v = R.timeout(S.frame, S.world);
@@ -8939,8 +8395,7 @@
     const poolIsControl = el => !!(el && el.closest && el.closest('button, input, select, label, a, textarea'));
     function poolDisarm() { poolS.armed = false; poolS.lastX = null; }
 
-    // Power, as in the old engine: only movement along the shot line counts,
-    // pulled back or pushed forward; full power fits inside the canvas.
+    // Power: only movement along the shot line counts, back or forward; full power fits the canvas.
     function poolShotAxis() {
         const S = poolS, v = poolView(), c = poolCueBall(), R = S.cfg.ballR;
         const a = pcProject(v, [c.x, c.y, R]), b = pcProject(v, [c.x + Math.cos(S.aim) * 60, c.y + Math.sin(S.aim) * 60, R]);
@@ -8955,8 +8410,7 @@
         if (uy > 1e-9) t = Math.min(t, (S.H - py) / uy); else if (uy < -1e-9) t = Math.min(t, -py / uy);
         return Math.max(0, t);
     }
-    // The ball follows the pointer but stops at the cushions and, on the
-    // break, at the head string, so it can be dragged along them (as v1 did).
+    // The ball stops at the cushions (and the head string on the break), so it can be dragged along them.
     function poolPlace(sx, sy) {
         const S = poolS, R = poolRules();
         const p = pcView(pcOrtho(S.W, S.H, S.cfg)).unproject(sx, sy);
@@ -9037,9 +8491,8 @@
             const c = poolCueBall();
             if (!poolRules().canPlace(S.world, c.x, c.y, S.frame.ballInHand)) {
                 S.placed = true; S.phase = 'aim'; poolAimAtNearest();
-                // The foul that gave the ball in hand has no timer: it waits for the ball to be
-                // placed. Left up, it would keep the spin control, the hint and the call card
-                // hidden for the whole shot (against the CPU no hand-off clears it).
+                // The foul toast has no timer; left up, it would hide the spin control, hint and
+                // call card for the whole shot (against the CPU no hand-off clears it).
                 if (S.toast && S.toast.kind === 'foul') S.toast = null;
             }
             return;
@@ -9130,8 +8583,7 @@
         reset: () => resetPoolGame(),
         max: () => togglePoolMaximize(),
         call: i => { if (poolCanAct()) poolS.called = i; },
-        // A choice after a foul is still to be made: the toast carries it, and the fouled
-        // card keeps its tag, until it is.
+        // While a choice after a foul is pending, its toast and the fouled card's tag stay.
         ready: () => {
             const S = poolS;
             S.handoff = 0;
@@ -9144,14 +8596,12 @@
             if (!poolCanAct() || S.phase !== 'aim' || S.drag) return;
             const st = poolRules().status(S.frame, S.world);
             if (!st.on || st.on.nominable.indexOf(id) < 0) return;
-            // The folded chip (the colour nominated) opens the chips again; the same colour
-            // picked from them folds them back.
+            // The folded chip (the nominated colour) reopens the chips; picking it again folds them.
             if (id === S.nom) { S.chipsOpen = !S.chipsOpen; return; }
             S.nom = id; S.chipsOpen = false; poolAimAtNearest();
         },
-        // The choice after a foul, by the player choosing (a CPU chooses for itself).
         choose: id => { const S = poolS; if (S.phase === 'choice' && !S.handoff && !poolCpuTurn() && !poolTourBlocked()) poolChoose(id, false); },
-        // Concede: asked, then confirmed (SnkConcede), only by the player at the table.
+        // Concede: asked, then confirmed, only by the player at the table.
         concede: () => { const S = poolS; if (poolRules().concede && poolCanAct() && (S.phase === 'aim' || S.phase === 'bih')) { S.confirm = true; S.drag = null; S.power = 0; } },
         concedeNo: () => { poolS.confirm = false; },
         concedeYes: () => {
@@ -9160,8 +8610,7 @@
             S.confirm = false;
             poolAfterTurn(R.concede(S.frame, S.frame.turn));
         },
-        // Pick the cue ball up again. The clock pauses in ball in hand and
-        // carries on from where it was once the ball is down, so this never buys time back.
+        // Pick the cue ball up again. The clock pauses in hand and resumes, so this buys no time.
         replace: () => { const S = poolS; if (S.phase === 'aim' && S.frame.ballInHand && poolCanAct() && !S.drag) { S.phase = 'bih'; S.placed = false; S.power = 0; } },
         primary: () => { if (poolMode === 'tour') poolTourNextFrame(); else poolNewFrame(3 - poolS.breaker); },
         secondary: () => { if (poolMode === 'tour') poolOn.tourBracket(); else poolS.sheet = { open: true, mode: poolMode }; },
@@ -9189,8 +8638,7 @@
         if (!S.cfg) poolUseGame(userPreferences.poolVariant);
         poolS.cpuRec = poolLoadCpuRecord();
         if (!S.hudC || !root.contains(S.hudC.el)) poolBuild(root);
-        // A frame in progress survives switching to another game and back; a snooker frame
-        // survives a reload too.
+        // A frame in progress survives switching games; a snooker frame survives a reload too.
         if (!S.world && !poolRestoreTable(poolLoadSaved())) poolNewFrame(1);
         // Once per page: a tournament saved last time is offered back.
         if (!S.tour.checked) {
@@ -9251,22 +8699,35 @@
     }
 
     // ── The two games ─────────────────────────────────────────────────
-    // POOL_V2_PLAN.md, Snooker: the switch in the panel header chooses what the panel plays.
-    // Each game keeps its own frame: switching parks the one on the table and brings the
-    // other back as it was left (or racks a fresh one).
+    // The header's switch picks the game. Each keeps its own frame: switching parks the one
+    // on the table and brings the other back as it was left (or racks a fresh one).
 
-    // The table at rest, whole: the balls, the rules state, the mode and tier it is played
-    // at, the frame count and the clock. Null mid-shot or once the frame is decided.
+    // The whole table at rest (balls, rules state, mode, tier, frames, clock); null mid-shot or decided.
     function poolSnapshotTable() {
         const S = poolS;
         if (!S.world || !S.frame || S.frame.over || S.phase === 'over' || S.phase === 'moving' || S.phase === 'strike') return null;
+        return Object.assign(poolTableSnap(), { v: 1, game: S.game, mode: poolMode === 'pvp' ? 'pvp' : 'cpu', tier: poolCpuTier, frames: S.frames.slice() });
+    }
+    // What a quick frame and a tournament's match both save, and put back.
+    function poolTableSnap() {
+        const S = poolS;
         return {
-            v: 1, game: S.game, mode: poolMode === 'pvp' ? 'pvp' : 'cpu', tier: poolCpuTier, breaker: S.breaker, frames: S.frames.slice(),
-            frame: JSON.parse(JSON.stringify(S.frame)),
+            breaker: S.breaker, frame: JSON.parse(JSON.stringify(S.frame)),
             balls: S.world.balls.map(b => ({ id: b.id, x: b.x, y: b.y, q: b.q.slice(), state: b.state, pocket: b.pocket })),
             clockLeft: S.clockLeft, fouled: S.fouled, pots: { 1: S.pots[1].slice(), 2: S.pots[2].slice() },
         };
     }
+    function poolApplySnap(snap, world) {
+        const S = poolS, R = poolRules();
+        poolNewFrame(snap.breaker === 2 ? 2 : 1);
+        S.world = world; S.frame = JSON.parse(JSON.stringify(snap.frame));
+        S.fouled = snap.fouled === 1 || snap.fouled === 2 ? snap.fouled : 0;
+        const potsOf = a => (Array.isArray(a) ? a.filter(id => Number.isInteger(id) && R.tracksPot(id)) : []);
+        S.pots = { 1: potsOf(snap.pots && snap.pots[1]), 2: potsOf(snap.pots && snap.pots[2]) };
+    }
+    // The clock it was left on, within today's limit: ⚙️ may have lowered it since.
+    const poolSnapClock = snap => { const full = poolS.clockTotal || POOL_CLOCK_S; return snap.clockLeft > 0 ? Math.min(snap.clockLeft, full) : full; };
+    const poolDownSet = () => new Set(poolS.world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
     // A world rebuilt from a snapshot's balls, or null if any of them is not a ball.
     function poolWorldFrom(snap) {
         const R = poolRules();
@@ -9284,25 +8745,20 @@
             return world;
         } catch (_) { return null; }
     }
-    // Puts a parked or saved quick frame back on the table, as it was left. False if it is
-    // not this game's, or not a frame at all.
+    // Puts a parked or saved quick frame back as it was left; false if not this game's or not a frame.
     function poolRestoreTable(snap) {
         const S = poolS, R = poolRules();
         if (!snap || snap.v !== 1 || snap.game !== S.game || !R.validFrame(snap.frame)) return false;
         const world = poolWorldFrom(snap);
         if (!world) return false;
         if (poolMode !== 'tour') poolMode = snap.mode === 'pvp' ? 'pvp' : 'cpu';
-        poolNewFrame(snap.breaker === 2 ? 2 : 1);
-        S.world = world; S.frame = JSON.parse(JSON.stringify(snap.frame));
+        poolApplySnap(snap, world);
         if (Array.isArray(snap.frames) && snap.frames.length === 2 && snap.frames.every(n => Number.isInteger(n) && n >= 0)) S.frames = snap.frames.slice();
         // The tier stays the one the frame was locked to.
         if (poolMode === 'cpu' && R.cpu.tiers[snap.tier]) { poolCpuTier = snap.tier; poolRefreshScoreBtn(); }
-        S.fouled = snap.fouled === 1 || snap.fouled === 2 ? snap.fouled : 0;
-        const potsOf = a => (Array.isArray(a) ? a.filter(id => Number.isInteger(id) && R.tracksPot(id)) : []);
-        S.pots = { 1: potsOf(snap.pots && snap.pots[1]), 2: potsOf(snap.pots && snap.pots[2]) };
-        S.down = new Set(S.world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+        S.down = poolDownSet();
         if (S.frame.pending) S.phase = 'choice'; else poolStartTurn();
-        S.clockLeft = Number.isFinite(snap.clockLeft) && snap.clockLeft > 0 ? snap.clockLeft : S.clockTotal || POOL_CLOCK_S;
+        S.clockLeft = poolSnapClock(snap);
         // In hot-seat, whoever is to act takes the seat.
         S.handoff = poolMode === 'pvp' ? S.frame.turn : 0;
         S.drawKey = '';
@@ -9346,7 +8802,7 @@
             '</button><span class="pool-cue-name">' + poolRules().title + '</span>';
         el.firstChild.addEventListener('click', poolToggleVariant);
     }
-    // The header's switch: the other game, remembered as the one the panel opens on.
+    // The header's switch: the other game, remembered for next time.
     function poolToggleVariant() {
         userPreferences.poolVariant = poolS.game === 'snooker' ? 'pool' : 'snooker';
         savePreferences();
@@ -9386,13 +8842,10 @@
         }
         poolSyncChrome();
     }
-    // A ⚙️ setting the controller follows: the game; the CPU difficulty (in force now if
-    // nothing has been hit, else from the next frame); the shot clock (now); snooker's reds
-    // (a fresh rack, if nothing has been hit).
+    // ⚙️ settings: the CPU difficulty (now if nothing has been hit, else next frame), the shot
+    // clock (now), snooker's reds (a fresh rack, if nothing has been hit). Others are ignored.
     function poolOnPrefChange(pref) {
-        const S = poolS;
-        if (pref === 'poolVariant') { poolSetVariant(userPreferences.poolVariant); return; }
-        const R = poolRules();
+        const S = poolS, R = poolRules();
         if (!S.frame) return;
         if (pref === R.diffPref) { if (poolMode === 'cpu' && poolFrameFresh()) poolLockTier(); return; }
         // ⚙️ Shot Clock, now: the turn under way keeps what it has left, within the new limit
@@ -9408,9 +8861,8 @@
     }
 
     // ── Tournament ────────────────────────────────────────────────────
-    // The bracket lives in poolS.tour.t; poolMode is 'tour' only while one of its
-    // matches is on the table (tour.matchId). Screens and dialogs cover the panel
-    // and stop the clock and every input under them.
+    // The bracket lives in poolS.tour.t; poolMode is 'tour' only while one of its matches is
+    // on the table (tour.matchId). Screens and dialogs stop the clock and all input under them.
     const poolTourMatch = () => { const T = poolS.tour; return poolMode === 'tour' && T.t && T.matchId ? ptById(T.t, T.matchId) || null : null; };
     const poolTourBlocked = () => !!(poolS.tour.screen || poolS.tour.dialog || poolS.tour.pending);
     function poolTourBump() { poolS.tour.rev++; }
@@ -9431,8 +8883,7 @@
             else localStorage.removeItem(key);
         } catch (_) {}
     }
-    // The saved tournament, or null. A corrupt one, or one from another version, is
-    // dropped behind a toast; it is never half-loaded.
+    // The saved tournament, or null. A corrupt or outdated one is dropped behind a toast, never half-loaded.
     function poolTourLoad() {
         let raw = null;
         const key = poolRules().keys.tour;
@@ -9464,11 +8915,7 @@
     function poolTourSnapshot() {
         const S = poolS, T = S.tour, m = poolTourMatch();
         if (!m || !T.t.current || !S.world || S.phase === 'moving' || S.phase === 'strike' || S.phase === 'over' || S.frame.over) return;
-        T.t.snapshot = {
-            match: m.id, frames: m.frames.length, breaker: S.breaker, frame: JSON.parse(JSON.stringify(S.frame)),
-            balls: S.world.balls.map(b => ({ id: b.id, x: b.x, y: b.y, q: b.q.slice(), state: b.state, pocket: b.pocket })),
-            clockLeft: S.clockLeft, fouled: S.fouled, pots: { 1: S.pots[1].slice(), 2: S.pots[2].slice() },
-        };
+        T.t.snapshot = Object.assign(poolTableSnap(), { match: m.id, frames: m.frames.length });
         poolTourSave();
     }
     function poolTourRestore(snap, m) {
@@ -9476,14 +8923,10 @@
         if (!snap || snap.match !== m.id || snap.frames !== m.frames.length || !Array.isArray(snap.balls) || !R.validFrame(snap.frame)) return false;
         const world = poolWorldFrom(snap);
         if (!world) return false;
-        poolNewFrame(snap.breaker === 2 ? 2 : 1);
-        S.world = world; S.frame = JSON.parse(JSON.stringify(snap.frame));
-        S.clockLeft = Number.isFinite(snap.clockLeft) && snap.clockLeft > 0 ? snap.clockLeft : S.clockTotal || POOL_CLOCK_S;
-        S.fouled = snap.fouled === 1 || snap.fouled === 2 ? snap.fouled : 0;
-        const potsOf = a => (Array.isArray(a) ? a.filter(id => Number.isInteger(id) && R.tracksPot(id)) : []);
-        S.pots = { 1: potsOf(snap.pots && snap.pots[1]), 2: potsOf(snap.pots && snap.pots[2]) };
+        poolApplySnap(snap, world);
+        S.clockLeft = poolSnapClock(snap);
         if (poolCueBall().state === 'pocketed') { const home = R.cueHome(S.world); R.placeCue(S.world, home[0], home[1]); }
-        S.down = new Set(S.world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+        S.down = poolDownSet();
         if (S.frame.pending) S.phase = 'choice';
         else if (S.frame.ballInHand) { S.phase = 'bih'; S.placed = false; } else { S.phase = 'aim'; poolAimAtNearest(); }
         S.drawKey = '';
@@ -9509,8 +8952,7 @@
         if (!(fromSnapshot && poolTourRestore(T.t.snapshot, m))) poolNewFrame(poolTourBreakerSeat(m));
         poolTourSave();
     }
-    // Back to quick matches (the mode before the tournament, or the one asked for).
-    // The tournament stays saved and can be resumed from the Game mode sheet.
+    // Back to quick matches (the mode before, or the one asked for). The tournament stays saved.
     function poolLeaveTour(mode) {
         const S = poolS, T = S.tour;
         poolTourSnapshot();
@@ -9525,8 +8967,7 @@
         if (poolMode === 'tour') poolLeaveTour(mode);
         else if (poolMode !== mode) togglePoolMode();
     }
-    // Resume: the match in progress goes back on the table (the whole-table state from
-    // the last shot) and whoever is on the shot takes the seat; with none, the bracket.
+    // Resume: the match in progress as of its last shot, the shooter seated; with none, the bracket.
     function poolTourResume() {
         const S = poolS, T = S.tour, t = T.t;
         T.dialog = null; T.screen = null; poolTourBump();
@@ -9537,8 +8978,7 @@
         S.handoff = S.frame.turn;
     }
 
-    // Called by poolEndFrame: the frame goes into the bracket (with snooker's points and
-    // breaks), and it is saved.
+    // From poolEndFrame: the frame (with snooker's points and breaks) goes into the bracket.
     function poolTourFrameOver(seat, v) {
         const S = poolS, T = S.tour, m = poolTourMatch(), R = poolRules();
         if (!m || (seat !== 1 && seat !== 2)) return;
@@ -9547,8 +8987,8 @@
         S.frames = ptScore(ptById(T.t, m.id));
         if (r.matchOver) {
             T.t.current = null;
-            // Match XP for the YOU seat only, once per match: 80 won, 15 lost. Matches between
-            // other names pay nothing, byes and titles pay nothing (the bracket is farmable).
+            // Match XP for the YOU seat only, once per match. Other names' matches, byes and
+            // titles pay nothing (the bracket is farmable).
             const mm = ptById(T.t, m.id), mine = [mm.a, mm.b].find(s => T.t.slots[s] && T.t.slots[s].you);
             if (mine !== undefined) {
                 const won = mm.winner === mine;
@@ -9562,8 +9002,7 @@
         poolTourSave();
         poolTourBump();
     }
-    // The frame-over dialog for a frame that leaves the match going; a won match goes
-    // to its result screen instead, once the last ball has dropped.
+    // The frame-over dialog mid-match; a won match goes to its result screen once the last ball drops.
     function poolTourResult(text) {
         const S = poolS, m = poolTourMatch();
         S.phase = 'over'; S.toast = null;
@@ -9639,8 +9078,8 @@
         resumeTour: () => poolTourResume(),
         bracket: () => { const T = poolS.tour; if (!T.t) return; T.screen = 'bracket'; T.tab = poolTourTab(); poolTourBump(); },
         champion: () => { const T = poolS.tour; if (T.t && ptChampion(T.t) !== null) { T.screen = 'champion'; poolTourBump(); } },
-        // Leaving a screen. From the champion the tournament is finished and let go; with
-        // no match in progress, a tournament table goes back to quick matches.
+        // Leaving a screen: from the champion the tournament is let go; with no match in
+        // progress, a tournament table goes back to quick matches.
         close: () => {
             const T = poolS.tour;
             if (T.screen === 'champion' || (T.t && ptChampion(T.t) !== null)) T.t = null;
@@ -9667,7 +9106,7 @@
         },
     };
 
-    // The HUD's tournament header: "CITY OPEN" over "Semi-final · race to 2" (snooker: "best of 3"), FRAME n.
+    // The HUD's tournament header: "CITY OPEN" over "Semi-final · race to 2", FRAME n.
     function poolTourHead() {
         const S = poolS, m = poolTourMatch();
         if (!m) return null;
@@ -9703,15 +9142,15 @@
         else if (screen === 'cabinet') html = puCabinetHTML({ cab: poolCabinet(), game: S.game });
         puSync(hud, poolTourOn, { screen: html, dialog: dialog ? puDialogHTML(dialog, { t: T.t, liveId }) : '', key });
         hud.el.classList.toggle('is-pu', !!screen);
-        // The mini tree is laid out for its box's real width (the body's scrollbar takes
-        // some): measured after the render, and drawn again once if it was off.
+        // The mini tree needs its box's real width (minus the scrollbar): measured after the
+        // render, and drawn again once if it was off.
         const box = screen && pu.screen.querySelector('.pu-mini:not(.is-big)');
         if (box && box.clientWidth && Math.abs(box.clientWidth - miniW) > 0.5) { hud.miniW = { w: hud.el.clientWidth, v: box.clientWidth }; pu.key.screen = null; }
     }
 
     // ── Theme ─────────────────────────────────────────────────────────
-    // The Max view is body-level: give it the widget's theme classes and
-    // tokens, as the host does for its PiP clone, so Cyberpunk resolves there.
+    // The Max view is body-level: give it the widget's theme classes and tokens (as the host
+    // does for its PiP clone) so Cyberpunk resolves there.
     function poolSyncMaxTheme() {
         const f = poolS.maxFrame;
         if (!f) return;
@@ -9731,8 +9170,7 @@
     }
 
     // ── Max ───────────────────────────────────────────────────────────
-    // The design's full view (1280 × 800), scaled down to fit the window.
-    // Layout stays in design pixels; poolLocal() maps the pointer through the scale.
+    // 1280 × 800 design pixels, scaled to fit the window; poolLocal() maps the pointer back.
     function poolFitMax() {
         const S = poolS;
         if (!S.maxFrame || !S.maxPanel) return;
@@ -9930,14 +9368,8 @@
     // SNAKE GAME — CORE
     // ═══════════════════════════════════════════════════════════════════
     // 20×20 grid on a 368×368 canvas. Three modes share one engine and differ
-    // only in their edge rule and obstacle set, so nothing below branches on
-    // the mode name except snakeApplyRules().
-    //
-    // The render loop (snake-ui.js) is unchanged in shape from v1: a fixed
-    // logic tick with an accumulator, interpolated between ticks from
-    // snakePrevSnap, capped at userPreferences.gameFps. That foundation was
-    // already right; what v1 got wrong was the collision code, which could
-    // not carry a visible wall (see snakeStepCell).
+    // only in edge rule and obstacle set; only snakeApplyRules() branches on
+    // the mode name. The fixed-tick render loop lives in snake-ui.js.
 
     // ── State ──────────────────────────────────────────────────────────
     let snakeCanvas, snakeCtx;
@@ -9957,7 +9389,7 @@
     let snakeGameRunning = false;
     let snakeGamePaused  = false;
     let snakeMoving      = false;   // set by the first arrow press of a run
-    let snakeRestartTimer = null;   // v1 leaked this one; cleanup clears it now
+    let snakeRestartTimer = null;   // cleared by every reset
 
     let snakePendingGrowth = 0;     // segments still owed — a golden bite owes 3
     let snakeBulges    = [];        // [{ pos, size }] swallowed lumps travelling tailward
@@ -9980,16 +9412,13 @@
     const snakeGridSize = 20;
 
     // ── Tuning ─────────────────────────────────────────────────────────
-    // The golden bite's lifetime is measured in MOVES, not seconds. Wall-clock
-    // TTL would make it strictly harder as the snake speeds up; a fixed move
-    // count means the window is always the same distance, which is the thing
-    // the player is actually judging.
-    // Four, not one. A single-segment start renders as a dot with a face on it.
+    // Four, not one: a single-segment start renders as a dot with a face on it.
     const SNAKE_START_LEN = 4;
-    // Clear cells the spawn tries to leave straight ahead, so the first forward
-    // press is never the one that kills you.
+    // Clear cells the spawn tries to leave ahead, so the first press is safe.
     const SNAKE_MIN_RUNWAY = 4;
 
+    // Golden-bite lifetime is in MOVES, not seconds, so the window stays the
+    // same distance as the snake speeds up.
     const SNAKE_BIG_FOOD_TICKS  = 45;
     const SNAKE_BIG_FOOD_CHANCE = 0.22;
     const SNAKE_BIG_FOOD_VALUE  = 3;   // points AND segments
@@ -10000,9 +9429,8 @@
     const SNAKE_RESTART_MS = 1600;     // after the animation finishes
     const SNAKE_BANNER_MS  = 1300;
 
-    // Bumped whenever a scoring rule changes. Stamped into every synced record
-    // so a later reader can tell which ruleset a score was set under — without
-    // it, a rule change silently makes old and new scores incomparable.
+    // Bump whenever a scoring rule changes. Stamped into every synced record so
+    // a reader can tell which ruleset a score was set under.
     const SNAKE_RULESET_VERSION = 2;
 
     let snakeFoodsSinceBig = 0;
@@ -10026,12 +9454,10 @@
     }
 
     // ── Stages ─────────────────────────────────────────────────────────
-    // Authored as wall RUNS rather than 20×20 ASCII art: twelve literal grids
-    // would be 240 lines of characters nobody can diff or edit in place.
+    // Authored as wall runs rather than ASCII grids:
     //   ['h', y, x0, x1]  horizontal run, inclusive
     //   ['v', x, y0, y1]  vertical run, inclusive
-    // Every stage is flood-filled at load and by snake-verify.js, so an
-    // unwinnable layout is caught at author time rather than by a player.
+    // snake-verify.js flood-fills every stage to catch unwinnable layouts.
     const SNAKE_STAGES = [
         { name: 'Open Road', goal: 5,  wrap: 'all',  walls: [] },
         { name: 'The Gate',  goal: 6,  wrap: 'lr',   walls: [['v', 10, 0, 7], ['v', 10, 12, 19]] },
@@ -10053,9 +9479,8 @@
                                                              ['h', 15, 2, 6], ['h', 15, 13, 17]] },
         { name: 'Bottleneck', goal: 11, wrap: 'tb',  walls: [['v', 6, 0, 8],  ['v', 6, 11, 19],
                                                              ['v', 13, 0, 8], ['v', 13, 11, 19]] },
-        // The four gaps at x/y 9-10 are load-bearing: a closed box seals its own
-        // interior, and food spawning inside an unreachable pocket makes the
-        // stage silently unwinnable. snake-verify.js flood-fills for exactly this.
+        // The four gaps at x/y 9-10 are load-bearing: a closed box would seal an
+        // unreachable pocket that food could spawn in.
         { name: 'The Vault', goal: 12, wrap: 'none', walls: [['h', 4, 4, 8],  ['h', 4, 11, 15],
                                                              ['h', 15, 4, 8], ['h', 15, 11, 15],
                                                              ['v', 4, 5, 8],  ['v', 4, 11, 14],
@@ -10107,10 +9532,7 @@
     }
 
     // ── The one place edges and obstacles are resolved ─────────────────
-    // v1 checked `head.x < -1 || head.x > snakeGridSize`, which let the snake
-    // survive a full cell outside the board. That was invisible when the board
-    // had no border; with a drawn wall the snake passes through the bricks and
-    // dies a frame later, which just reads as broken. Bounds are exact here.
+    // Bounds are exact: with a drawn wall, dying a cell late reads as broken.
     function snakeStepCell(from, dir, wrap, walls) {
         let x = from.x + dir.x, y = from.y + dir.y;
         const W = wrap || snakeWrap;
@@ -10134,13 +9556,8 @@
     }
 
     // Lay the starting body out behind the spawn cell, facing whichever way has
-    // the most room. Starting as ONE segment rendered as a single dot with a
-    // face on it — you couldn't tell it was a snake, or which way it pointed,
-    // until you had already eaten twice.
-    //
-    // The returned facing also seeds snakeDir, so the 180°-into-yourself guard
-    // works on the very first keypress rather than letting the player reverse
-    // straight into their own body.
+    // the most room. The facing also seeds snakeDir, so the 180° guard works
+    // from the very first keypress.
     function snakeSpawnBody() {
         const head = snakeSpawnCell();
         const dirs = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
@@ -10161,10 +9578,8 @@
                 body.push(cur);
             }
 
-            // Clear cells straight ahead. Without this the snake could spawn
-            // nose-to-wall on a Levels stage, and the very first forward press
-            // would kill it — the player's only other options being the two
-            // turns, which the same wall layout may also block.
+            // Clear cells straight ahead, so a Levels spawn is never
+            // nose-to-wall with the first forward press fatal.
             let runway = 0, ahead = head;
             while (runway < SNAKE_MIN_RUNWAY) {
                 const step = snakeStepCell(ahead, d);
@@ -10202,12 +9617,10 @@
     }
 
     // ── Storage ────────────────────────────────────────────────────────
-    // Per-mode invalidation, ready before there is any data to invalidate.
-    // REFLEX_RESET_FLAG exists because "raise, never lower" makes one bad score
-    // immortal — it re-infects every clean client from the gist forever — and
-    // that guard had to be retrofitted under fire. Bumping a mode's number here
-    // wipes it locally and makes applyPlayerRecordToLocal refuse to restore it,
-    // which breaks the loop. Cheap now, expensive later.
+    // Per-mode reset flags. "Raise, never lower" makes one bad score immortal
+    // (every client re-imports it from the gist), so bumping a mode's number
+    // here wipes it locally and makes applyPlayerRecordToLocal refuse to
+    // restore it.
     const SNAKE_RESET_FLAGS = { endless: 0, walled: 0, levels: 0 };
 
     function snakeResetFlagKey(mode) { return 'snakeReset_' + mode + '_' + SNAKE_RESET_FLAGS[mode]; }
@@ -10230,8 +9643,8 @@
         if (raw && typeof raw === 'object') {
             SNAKE_MODES.forEach(m => { out[m] = parseInt(raw[m], 10) || 0; });
         } else {
-            // First run on this build. The pre-v2 game had lethal edges, so the
-            // legacy score belongs to Walled — that is where it was actually set.
+            // First run on this build: the legacy score was set with lethal
+            // edges, so it belongs to Walled.
             out.walled = loadSnakeHighScore();
         }
         SNAKE_MODES.forEach(m => { if (snakeModeInvalidated(m)) out[m] = 0; });
@@ -10240,9 +9653,8 @@
 
     function snakeSaveHighScores(scores) {
         localStorage.setItem('snakeHighScores', JSON.stringify(scores));
-        // Keep the legacy key as the overall best. collectGameBests(),
-        // revalidateAchievements() and the cloud restore all still read it, so
-        // retiring it would mean touching all three for no gain.
+        // Keep the legacy key as the overall best: collectGameBests(),
+        // revalidateAchievements() and the cloud restore still read it.
         const best = Math.max(scores.endless || 0, scores.walled || 0, scores.levels || 0);
         if (best > loadSnakeHighScore()) saveSnakeHighScore(best);
     }
@@ -10289,10 +9701,9 @@
     }
 
     // ── Input ──────────────────────────────────────────────────────────
-    // v1 kept a single nextDirection, so a fast ↑ then ← inside one 300ms tick
-    // silently dropped the ←. Two buffered turns is enough for every real input
-    // burst and still can't run the snake into itself: each entry is validated
-    // against the one before it, not against the direction currently drawn.
+    // Up to two buffered turns, so a fast ↑ then ← inside one tick is not
+    // dropped. Each is validated against the one before it, not the drawn
+    // direction, so the snake still cannot reverse into itself.
     function snakeQueueDir(nd) {
         const prev = snakeDirQueue.length ? snakeDirQueue[snakeDirQueue.length - 1] : snakeDir;
         if (prev.x === nd.x && prev.y === nd.y) return;             // no-op
@@ -10312,20 +9723,16 @@
                  : key === 'ArrowLeft' ? { x: -1, y: 0 }
                  :                       { x: 1,  y: 0 };
 
-        // Starting the run is NOT the same as queueing a turn. Routing both
-        // through snakeQueueDir meant its no-op guard swallowed the forward key,
-        // so a resting snake could only be started by turning — and on a stage
-        // with a wall directly above and below, both turns were fatal.
-        //
-        // A straight reversal is still not a move, so it starts nothing.
+        // Starting the run is NOT queueing a turn: the queue's no-op guard would
+        // swallow the forward key, leaving only turns (maybe fatal) to start.
+        // A straight reversal is not a move, so it starts nothing.
         const reverse = nd.x === -snakeDir.x && nd.y === -snakeDir.y;
         if (!reverse) snakeMoving = true;
         snakeQueueDir(nd);
     }
 
-    // rAF already stalls in a hidden tab, but the widget also runs inside a
-    // Picture-in-Picture document where it does not — so a run left in PiP kept
-    // playing unattended.
+    // rAF stalls in a hidden tab but not in a Picture-in-Picture document, so
+    // pause explicitly.
     function handleSnakeVisibility() {
         if (document.hidden && snakeGameRunning && !snakeGamePaused) {
             snakeGamePaused = true;
@@ -10336,9 +9743,8 @@
     // ── Speed ──────────────────────────────────────────────────────────
     function snakeGetInterval() {
         if (snakeMode === 'levels') {
-            // Ramp per STAGE, not per food. Ramping per food on top of twelve
-            // stages of accumulated score puts stage 12 past the point of being
-            // playable rather than merely hard.
+            // Ramp per STAGE, not per food: per food on top of twelve stages of
+            // score makes the late stages unplayable.
             return Math.max(80, 260 - snakeStageIdx * 14);
         }
         return Math.max(60, 300 - snakeScore * 8);
@@ -10370,15 +9776,11 @@
     }
 
     function resetSnakeGame() {
-        // v1 left this timer running, so switching panels within 3s of dying
-        // resurrected the loop on a hidden canvas and burned a core until the
-        // page was reloaded.
+        // A pending restart would resurrect the loop on a hidden canvas.
         if (snakeRestartTimer) { clearTimeout(snakeRestartTimer); snakeRestartTimer = null; }
 
-        // Levels restarts from stage 1, not from wherever you died. The run is
-        // the unit — score, stages cleared and the campaign all reset together,
-        // and "clear all 12 in one run" only means anything if a death costs
-        // the run. snakeLevelsBest keeps the furthest stage you ever reached.
+        // Levels restarts from stage 1: the run is the unit, so "clear all 12"
+        // means one run. snakeLevelsBest keeps the furthest stage reached.
         snakeStageIdx = 0;
         snakeApplyRules();
 
@@ -10419,11 +9821,8 @@
     }
 
     // ── Food ───────────────────────────────────────────────────────────
-    // v1 rejection-sampled in a `do…while` with no exit, so a full board hung
-    // the tab outright. At 20×20 open that was theoretical; Levels shrinks the
-    // playable area enough to reach it, and this runs inside an HR portal where
-    // a hung tab is a visible incident. Enumerate instead: an empty list is a
-    // won board, not an infinite loop.
+    // Enumerated rather than rejection-sampled: on a full board an empty list
+    // is a won board, not an infinite loop that hangs the tab.
     function snakeFreeCells() {
         const taken = new Set(snakeBody.map(s => snakeKey(s.x, s.y)));
         if (snakeBigFood) taken.add(snakeKey(snakeBigFood.x, snakeBigFood.y));
@@ -10438,9 +9837,8 @@
         return cells;
     }
 
-    // Returns false when the board was full, i.e. the caller's tick is over:
-    // snakeBoardCleared has either advanced the stage (rebuilding the body) or
-    // ended the run, and any further bookkeeping in that tick is stale.
+    // Returns false when the board was full: snakeBoardCleared has advanced the
+    // stage or ended the run, so the caller's tick is over.
     function spawnFood() {
         const cells = snakeFreeCells();
         if (!cells.length) { snakeBoardCleared(); return false; }
@@ -10515,8 +9913,7 @@
 
         snakePrevSnap = snakeBody.map(s => ({ ...s }));
 
-        // snakeDir now carries the spawn facing, so it can't double as the
-        // "hasn't started yet" sentinel the way a zero vector did.
+        // snakeDir holds the spawn facing, so snakeMoving marks the start.
         if (snakeDirQueue.length) { snakeDir = snakeDirQueue.shift(); snakeMoving = true; }
         if (!snakeMoving) return;
 
@@ -10534,10 +9931,8 @@
         const eatsBig  = !!snakeBigFood && head.x === snakeBigFood.x && head.y === snakeBigFood.y;
         const willGrow = eatsFood || eatsBig || snakePendingGrowth > 0;
 
-        // The tail vacates this tick unless something is owed, so the cell it is
-        // leaving is not a collision. v1 tested the whole body before pop(),
-        // which killed a snake following its own tail — rare on an open 20×20,
-        // routine in a Level corridor.
+        // The tail vacates this tick unless growth is owed, so its cell is not a
+        // collision: following your own tail is legal.
         const limit = willGrow ? snakeBody.length : snakeBody.length - 1;
         for (let i = 0; i < limit; i++) {
             if (snakeBody[i].x === head.x && snakeBody[i].y === head.y) {
@@ -10562,10 +9957,8 @@
             snakeBulges.push({ pos: 0, size: 0 });
             snakeFoodsSinceBig++;
             snakeStageEaten++;
-            // A full board either advances the stage (which rebuilds the body
-            // from one segment) or ends the run. Falling through would then pop
-            // that single segment and leave an empty body for the next tick to
-            // dereference.
+            // A full board advances the stage (rebuilding the body) or ends the
+            // run; falling through would pop the rebuilt body and empty it.
             if (!spawnFood()) return;
             snakeMaybeSpawnBigFood();
         }
@@ -10592,13 +9985,9 @@
         if (snakeBigFood && snakeBigFoodRemaining(performance.now()) <= 0) snakeBigFood = null;
     }
 
-    // Kept so any stray caller from v1 still resolves.
-    function updateSnakeGame() { snakeTick(); }
-
     // ── Death ──────────────────────────────────────────────────────────
-    // Enters the animation rather than ending the run outright — v1 cleared the
-    // canvas here, which left nowhere for a death animation to exist. Scoring
-    // and XP happen in snakeFinalizeDeath once the animation has played.
+    // Starts the death animation; scoring and XP happen in snakeFinalizeDeath
+    // once it has played.
     function snakeGameOver(cause) {
         if (snakeDying) return;
         snakeDying  = true;
@@ -10615,9 +10004,8 @@
         if (snakeAnimFrame) { cancelAnimationFrame(snakeAnimFrame); snakeAnimFrame = null; }
         snakeAccumulatorMs = 0;
 
-        // v1 read `snakeScore >= snakeHighScore` AFTER raising the high score,
-        // so it was true on every tie and on the very first game — a permanent
-        // free +15 XP. Capture it first.
+        // Compare BEFORE raising the stored best, and strictly: a tie is not a
+        // new high score.
         const scores  = snakeLoadHighScores();
         const wasHigh = snakeScore > (scores[snakeMode] || 0);
         if (wasHigh) {
@@ -10631,10 +10019,8 @@
             score: snakeScore,
             isHighScore: wasHigh,
             mode: snakeMode,
-            // Stages CLEARED, not the stage number reached. snakeLevelsBest is
-            // only written on a clear, so reporting the stage you died on would
-            // let checkGameAchievements grant a badge revalidateAchievements
-            // could never rebuild.
+            // Stages CLEARED, not reached: snakeLevelsBest is written only on a
+            // clear, so revalidateAchievements can rebuild every badge granted.
             stagesCleared: snakeStagesCleared,
             bigEaten: snakeBigEaten,
             maxLength: snakeMaxLength,
@@ -10654,26 +10040,19 @@
     // ═══════════════════════════════════════════════════════════════════
     // SNAKE GAME — RENDER, SKINS, ANIMATION
     // ═══════════════════════════════════════════════════════════════════
-    // Everything here is procedural Canvas 2D; there are no image assets. The
-    // loop keeps v1's shape — fixed logic tick, accumulator, interpolation from
-    // snakePrevSnap, render capped by userPreferences.gameFps — because that
-    // part was already right. What is new is that it also drives the death
-    // animation, the golden-bite timer and the legendary hue flow, all off the
-    // same delta, so none of them need a timer of their own.
+    // Procedural Canvas 2D, no image assets. One loop (fixed logic tick,
+    // accumulator, interpolation from snakePrevSnap, render capped by gameFps)
+    // also drives the death animation, golden-bite timer and hue flow.
 
     const SNAKE_WALL_PX = 7;   // brick frame thickness, in canvas margin — NOT a grid cell
 
     let snakeSkinDelegationInit = false;
 
     // ── Skins ──────────────────────────────────────────────────────────
-    // Each skin is a three-colour preset: [primary, secondary, pattern/shade].
-    // The first two make the body gradient, the third darkens toward the tail
-    // and draws the polka dots or tiger stripes.
-    //
-    // NOTE: unlocks are a client-side honour system and deliberately NOT
-    // enforced anywhere. Anyone willing to edit localStorage can wear any of
-    // these; the blast radius is a colour gradient. This is not a security
-    // boundary — do not build one on top of it.
+    // colors: [primary, secondary, pattern/shade]. The first two make the body
+    // gradient; the third darkens toward the tail and draws the pattern.
+    // Unlocks are a client-side honour system, deliberately NOT enforced. This
+    // is not a security boundary; do not build one on top of it.
     const SNAKE_SKINS = {
         emerald: {
             name: 'Emerald Green', colors: ['#55efc4', '#00b894', '#0a6b52'],
@@ -10705,9 +10084,8 @@
         catch (_) { return false; }
     }
 
-    // Falls back to emerald when the saved skin is locked, which is what a
-    // cloud restore into a fresh profile looks like: prefs come back before the
-    // achievements that justify them.
+    // Falls back to emerald when the saved skin is locked, e.g. after a cloud
+    // restore where prefs arrive before the achievements that justify them.
     function snakeActiveSkinId() {
         let id = 'emerald';
         try { id = userPreferences.snakeSkin || 'emerald'; } catch (_) {}
@@ -10733,10 +10111,8 @@
         return 'rgb(' + ch(16) + ',' + ch(8) + ',' + ch(0) + ')';
     }
 
-    // The legendary's hue wave is the canvas equivalent of the widget's
-    // gradientFlow / rgbFlowBacklight keyframes: those scroll background-position
-    // across an over-sized gradient, this offsets hue by time and segment index
-    // so the same band travels head to tail.
+    // Legendary hue wave: hue offset by time and segment index, so a band
+    // travels head to tail like the widget's gradientFlow keyframes.
     function snakeSegmentColors(skin, idx, total) {
         if (skin.legendary) {
             const h = ((snakeSkinTime * 60 - idx * 9) % 360 + 360) % 360;
@@ -10763,14 +10139,11 @@
     // Body thickness before taper and bulges. Slightly under a cell so the
     // grid still reads underneath.
     const snakeBodyRadius = m => m.cs * 0.42;
-    // Slightly wider than the body so the head reads as a head, not as the
-    // segment that happens to be at the front.
+    // Wider than the body so the head reads as a head.
     const snakeHeadRadius = m => m.cs * 0.52;
 
-    // Only the last few segments taper. A body that thins along its whole
-    // length reads as a worm; a real snake is even until the tail tip. Ramped
-    // rather than stepped — four discrete widths made a visible staircase on a
-    // short body.
+    // Only the last few segments taper (a full-length taper reads as a worm),
+    // ramped rather than stepped to avoid a visible staircase.
     const SNAKE_TAIL_SEGMENTS = 3;
     function snakeTaper(idx, total) {
         if (total <= 2) return 1;
@@ -10780,9 +10153,8 @@
     }
 
     // ── Board geometry ─────────────────────────────────────────────────
-    // The brick frame lives in canvas MARGIN, not in grid cells, so the
-    // playfield stays 20×20 in every mode and scores set before v2 remain
-    // comparable with scores set after it.
+    // The brick frame lives in canvas MARGIN, not grid cells, so the playfield
+    // stays 20×20 in every mode and scores stay comparable.
     function snakeBoardMetrics() {
         const W = snakeCanvas.width, H = snakeCanvas.height;
         const anySolid = !snakeWrap.left || !snakeWrap.right || !snakeWrap.top || !snakeWrap.bottom;
@@ -10889,9 +10261,8 @@
         ctx.fill();
     }
 
-    // The depleting ring IS the timer — putting it on the bite means the player
-    // reads the remaining window where they are already looking, instead of
-    // glancing at a HUD counter mid-run.
+    // The depleting ring IS the timer, on the bite where the player is already
+    // looking.
     function snakeDrawBigFood(m, nowMs) {
         if (!snakeBigFood) return;
         const ctx = snakeCtx;
@@ -10940,11 +10311,9 @@
         return 1 + extra;
     }
 
-    // A wrapped segment must not be lerped across the whole board — that would
-    // drag it visibly back over the playfield in a single frame. Snap it to the
-    // destination rather than holding it at the source: the portal jump then
-    // happens as the segment enters the edge and the rest of the body follows
-    // it through, instead of the segment waiting a whole tick and teleporting.
+    // A wrapped segment is not lerped across the board (it would sweep over
+    // the playfield); it snaps to the destination so the body follows it
+    // through the portal.
     function snakeLerpSeg(prev, seg, t, m) {
         const dx = seg.x - prev.x, dy = seg.y - prev.y;
         if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
@@ -10956,10 +10325,8 @@
         };
     }
 
-    // Interpolated centre of every segment, plus the runs they form. A run
-    // breaks wherever two consecutive segments aren't grid-adjacent, i.e. across
-    // a portal edge — drawing one continuous stroke through that gap would put a
-    // bar straight across the board.
+    // Interpolated segment centres, split into runs wherever neighbours are not
+    // grid-adjacent (a portal edge), or one stroke would bar across the board.
     function snakeCenters(m, t) {
         const eff = snakeDying ? 1 : t;
         return snakeBody.map((seg, idx) => {
@@ -10983,9 +10350,8 @@
         return runs;
     }
 
-    // Banding rather than a tile pattern: a per-cell motif looked like a row of
-    // stamped squares once the body became continuous. Real snakes band across
-    // the body, so dots sit on the spine and stripes run perpendicular to it.
+    // Banding across the body rather than a per-cell motif: dots sit on the
+    // spine and stripes run perpendicular to it.
     function snakeDrawBanding(runs, skin, radiusFor, total) {
         if (skin.pattern === 'none') return;
         const ctx = snakeCtx;
@@ -11070,8 +10436,7 @@
         ctx.shadowBlur = 9 * alpha;
 
         if (gap < 0.5) {
-            // Closed: one rounded head. The large corner radius is what stops
-            // it reading as the stamped square v1 drew.
+            // Closed: one rounded head; the large radius keeps it from reading square.
             ctx.fillStyle = hg;
             ctx.beginPath();
             ctx.roundRect(-r, -r, r * 2, r * 2, r * 0.78);
@@ -11108,10 +10473,8 @@
         ctx.restore();
     }
 
-    // The body is stroked as a continuous rounded path rather than one rounded
-    // square per cell. v1's per-cell squares left visible gaps on every turn and
-    // made a one-segment snake look like a stray glyph; round joins and caps
-    // give a single unbroken creature at any length.
+    // Stroked as one continuous rounded path, not a square per cell, so turns
+    // have no gaps and the snake reads as one creature at any length.
     function snakeDrawBody(m, t) {
         const ctx = snakeCtx;
         const skin = snakeActiveSkin();
@@ -11134,8 +10497,7 @@
         const centers = snakeCenters(m, t);
         const runs = snakeRuns(centers);
         const base = snakeBodyRadius(m);
-        // The swallowed lump now swells the body itself, which is the whole
-        // point of tracking bulges — v1 could only nudge a square's inset.
+        // Swallowed lumps swell the body radius itself.
         const radiusFor = idx => base * snakeTaper(idx, total) * snakeBulgeScale(idx, eff);
 
         ctx.save();
@@ -11152,15 +10514,12 @@
                 const colors = snakeSegmentColors(skin, pt.idx, total);
                 const r = radiusFor(pt.idx);
                 const next = run[k - 1];                  // toward the head
-                // Link and joint share one colour. Using the two gradient stops
-                // made every joint a visibly darker bead, so the body read as a
-                // chain of circles rather than one tube.
+                // Link and joint share one colour, or every joint shows as a
+                // darker bead.
                 ctx.fillStyle = ctx.strokeStyle = colors[0];
                 if (next) {
-                    // Average the two ends' radii. Stroking at one end's width
-                    // stepped the outline wherever the radius changed, which
-                    // turned every swallowed lump and the tail taper into a
-                    // staircase instead of a curve.
+                    // Average the two ends' radii; one end's width steps the
+                    // outline at every lump and along the taper.
                     ctx.lineWidth = r + radiusFor(next.idx);
                     ctx.beginPath();
                     ctx.moveTo(pt.x, pt.y);
@@ -11289,9 +10648,8 @@
         snakeAnimFrame = requestAnimationFrame(snakeRenderLoop);
 
         if (!snakeLastTickMs) snakeLastTickMs = timestamp;
-        // Clamped: coming back from a background tab hands us a delta of many
-        // seconds, and an unclamped accumulator would then run hundreds of ticks
-        // in one frame — the snake dies instantly through no fault of the player.
+        // Clamped: returning from a background tab would otherwise run hundreds
+        // of ticks in one frame and kill the snake.
         const delta = Math.min(250, timestamp - snakeLastTickMs);
         snakeLastTickMs = timestamp;
 
@@ -11343,15 +10701,9 @@
         if (el) el.classList.remove('active');
     }
 
-    // "Best:" and "Score:" were two of four chips fighting over one header row.
-    // The pair now lives inside the button that opens this mode's leaderboard —
-    // the number you just scored and the number to beat belong next to the list
-    // of numbers to beat.
-    // The stage readout rides the mode chip rather than the canvas. On the board
-    // it was drawn top-left, which is inside the playfield — the snake spawns
-    // and travels through exactly that corner, so the label sat on top of the
-    // gameplay. The chip has room because the mode name is already on the button
-    // below it, so the chip can spend its width on the stage instead.
+    // Score and best live in the button that opens this mode's leaderboard.
+    // The stage readout rides the mode chip, not the canvas, where it would sit
+    // on the playfield; the mode name is already on the button below.
     function updateSnakeScoreDisplay() {
         const mode = document.getElementById('snake-mode-chip');
         const best = snakeModeBest(snakeMode);
@@ -11381,9 +10733,8 @@
         }
     }
 
-    // The in-game leaderboard overlay is generic and lives in the host — every
-    // game panel opens the same element. Snake only has to say which mode it is
-    // currently showing, which gameLbMode() reads straight off snakeMode.
+    // The in-game leaderboard overlay is generic and lives in the host;
+    // gameLbMode() reads the mode straight off snakeMode.
 
     function updateSnakePlayButton() {
         const btn = document.getElementById('snake-play-btn');
@@ -11401,9 +10752,8 @@
     }
 
     // ── Skin tray ──────────────────────────────────────────────────────
-    // Swatches are pure CSS so the tray costs no canvas work: repeating
-    // gradients for the two patterns, and the widget's own gradientFlow
-    // keyframe for the legendary.
+    // Swatches are pure CSS, so the tray costs no canvas work; the legendary
+    // reuses the widget's gradientFlow keyframe.
     function snakeSwatchStyle(id) {
         const skin = SNAKE_SKINS[id];
         if (skin.legendary) {
@@ -11495,12 +10845,10 @@
     }
     // ═══ END SNAKE ENGINE ═══
 
-
     function initReflexGame() {
         gameAreaElement = document.getElementById('multi-game-area');
         if (!gameAreaElement) return;
 
-        const highScores = loadReflexHighScores();
         updateReflexScoreDisplay();
         updateReflexDisplay();
     }
@@ -11899,7 +11247,6 @@
         }
     }
 
-
     function initAimTrainerGame() {
         gameAreaElement = document.getElementById('multi-game-area');
         if (!gameAreaElement) return;
@@ -11914,7 +11261,6 @@
         aimHits = 0;
         aimBulletHoles = [];
 
-        const highScore = loadAimHighScore();
         updateAimScoreDisplay();
         renderAimGame();
     }
@@ -12617,8 +11963,7 @@
         tetrisAnimFrame = requestAnimationFrame(tetrisLoop);
         if (!now) return; // first manual call has no timestamp
 
-        // Logic: timestamp-based drop interval — already frame-rate independent
-        // Softer curve: 30ms per level (was 35), floor 300ms (was 350). Level 21+ caps.
+        // Timestamp-based drop interval, so frame-rate independent: 20 ms faster a level, floor 300 ms (level 31).
         const dropInterval = Math.max(300, 900 - (tetrisLevel - 1) * 20);
         if (now - tetrisLastDrop >= dropInterval) {
             if (!moveTetris(0, 1)) lockTetrisPiece();
@@ -12929,7 +12274,6 @@
         if (lv) lv.textContent = tetrisLevel;
         updateGameScoreBtn('tetris', tetrisScore, tetrisHighScore);
     }
-
 
     function initPrayerCounter() {
         prayerCount = loadPrayerCount();
@@ -15012,7 +14356,6 @@
         return LUDO_MODE_LABEL[ludoMode];
     }
 
-
     // GAME SWITCHING SYSTEM
 
     function switchToGame(gameKey) {
@@ -15103,142 +14446,56 @@
         }
     }
 
-    function initCurrentGame() {
-        const snakeCv = document.getElementById('snake-canvas');
-        const flappyCv = document.getElementById('flappy-canvas');
-        const tetrisCv = document.getElementById('tetris-canvas');
-        const gameArea = document.getElementById('multi-game-area');
-        const breakoutCv = document.getElementById('breakout-canvas');
-        const poolCv = document.getElementById('pool-root');
-        const ludoCv = document.getElementById('ludo-canvas');
-        const prayerPanel = document.getElementById('prayer-panel');
-        const lbPanelEl = document.getElementById('leaderboard-panel');
-        [snakeCv, flappyCv, tetrisCv, breakoutCv, poolCv, ludoCv].forEach(c => { if (c) c.style.display = 'none'; });
-        if (gameArea) gameArea.style.display = 'none';
-        if (prayerPanel) prayerPanel.style.display = 'none';
-        if (lbPanelEl) lbPanelEl.style.display = 'none';
-
-        switch (currentGame) {
-            case 'snake':
-                if (snakeCv) snakeCv.style.display = 'block';
-                initSnakeGame();
-                break;
-
-            case 'reflex':
-                if (gameArea) gameArea.style.display = 'block';
-                initReflexGame();
-                updateReflexDisplay();
-                break;
-
-            case 'aim':
-                if (gameArea) gameArea.style.display = 'block';
-                initAimTrainerGame();
-                renderAimGame();
-                break;
-
-            case 'flappy':
-                if (flappyCv) flappyCv.style.display = 'block';
-                initFlappyGame();
-                break;
-
-            case 'tetris':
-                if (tetrisCv) tetrisCv.style.display = 'block';
-                initTetrisGame();
-                break;
-            case 'breakout':
-                if (breakoutCv) breakoutCv.style.display = 'block';
-                initBreakoutGame();
-                if (breakoutCanvas) {
-                    breakoutCanvas.addEventListener('mousemove', handleBreakoutMouseMove);
-                    breakoutCanvas.addEventListener('touchmove', handleBreakoutTouchMove, { passive: false });
-                }
-                break;
-            case 'pool':
-                if (poolCv) poolCv.style.display = 'block';
-                // Builds the panel once, binds its own input and starts the loop.
-                initPoolGame();
-                break;
-            case 'ludo':
-                if (ludoCv) ludoCv.style.display = 'block';
-                // initLudoGame binds its own pointer listeners and starts the
-                // loop — unlike Pool, whose listeners are attached out here.
-                initLudoGame();
-                break;
-            case 'prayer':
-                if (prayerPanel) prayerPanel.style.display = 'flex';
-                initPrayerCounter();
-                break;
-            case 'leaderboard': {
-                const lbPanel = document.getElementById('leaderboard-panel');
-                if (lbPanel) lbPanel.style.display = 'flex';
-                initLeaderboard();
-                break;
+    // Each panel: the element it shows (and how), its stats box if it has one, its title, and what
+    // starts it. Its controls row and scoreboard are '<key>-controls' and '<key>-scoreboard'.
+    const GAME_PANELS = {
+        snake: { el: 'snake-canvas', title: '🐍 Snake', start: () => initSnakeGame() },
+        reflex: { el: 'multi-game-area', stats: 'reflex-stats', title: () => '⚡ RefleX - ' + reflexGameModes[reflexMode].name,
+            start: () => { initReflexGame(); updateReflexDisplay(); } },
+        aim: { el: 'multi-game-area', stats: 'aim-stats', title: '💥 Chaos Aim Trainer', start: () => { initAimTrainerGame(); renderAimGame(); } },
+        flappy: { el: 'flappy-canvas', title: '🐦 Flappy Bird', start: () => initFlappyGame() },
+        tetris: { el: 'tetris-canvas', title: '🧱 Tetris', start: () => initTetrisGame() },
+        breakout: { el: 'breakout-canvas', title: '🏓 Breakout', start: () => {
+            initBreakoutGame();
+            if (breakoutCanvas) {
+                breakoutCanvas.addEventListener('mousemove', handleBreakoutMouseMove);
+                breakoutCanvas.addEventListener('touchmove', handleBreakoutTouchMove, { passive: false });
             }
-        }
+        } },
+        // Pool has no controls row (its panel has its own footer), and its title is the switch
+        // between 8-Ball Pool and Snooker (poolRenderTitle). initPoolGame builds the panel once,
+        // binds its own input and starts the loop; initLudoGame does the same for Ludo.
+        pool: { el: 'pool-root', noControls: true, title: '🎱 8-Ball Pool', start: () => initPoolGame() },
+        ludo: { el: 'ludo-canvas', title: '🎲 Ludo', start: () => initLudoGame(), shown: () => { updateLudoScoreboard(); refreshGameScoreBtn('ludo'); } },
+        prayer: { el: 'prayer-panel', show: 'flex', title: '📿 Prayer Counter', start: () => initPrayerCounter() },
+        leaderboard: { el: 'leaderboard-panel', show: 'flex', title: '🏆 Leaderboard', start: () => initLeaderboard() }
+    };
+    const showById = (id, display) => { const el = document.getElementById(id); if (el) el.style.display = display; };
+
+    function initCurrentGame() {
+        for (const k in GAME_PANELS) showById(GAME_PANELS[k].el, 'none');
+        const g = GAME_PANELS[currentGame];
+        if (!g) return;
+        showById(g.el, g.show || 'block');
+        g.start();
     }
 
     function updateGameSwitcher() {
-        const ids = ['snake', 'reflex', 'aim', 'flappy', 'tetris', 'breakout', 'pool', 'ludo', 'prayer', 'leaderboard'];
-        ids.forEach(id => {
-            const btn = document.getElementById('game-switch-' + id);
-            if (btn) btn.classList.toggle('active', currentGame === id);
-        });
-    }
-
-    function updateGameControls() {
-        const ctrlIds = ['snake-controls', 'reflex-controls', 'aim-controls', 'flappy-controls', 'tetris-controls', 'breakout-controls', 'pool-controls', 'ludo-controls', 'prayer-controls', 'leaderboard-controls'];
-        const statIds = ['snake-scoreboard', 'reflex-scoreboard', 'reflex-stats', 'aim-scoreboard', 'aim-stats', 'flappy-scoreboard', 'tetris-scoreboard', 'breakout-scoreboard', 'pool-scoreboard', 'ludo-scoreboard', 'prayer-scoreboard', 'leaderboard-scoreboard'];
-        ctrlIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
-        statIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
-
-        switch (currentGame) {
-            case 'snake':
-                { const c = document.getElementById('snake-controls'); if (c) c.style.display = 'flex'; }
-                { const s = document.getElementById('snake-scoreboard'); if (s) s.style.display = 'flex'; }
-                break;
-            case 'reflex':
-                { const c = document.getElementById('reflex-controls'); if (c) c.style.display = 'flex'; }
-                { const s = document.getElementById('reflex-stats'); if (s) s.style.display = 'block'; }
-                { const sb = document.getElementById('reflex-scoreboard'); if (sb) sb.style.display = 'flex'; }
-                break;
-            case 'aim':
-                { const c = document.getElementById('aim-controls'); if (c) c.style.display = 'flex'; }
-                { const s = document.getElementById('aim-stats'); if (s) s.style.display = 'block'; }
-                { const sb = document.getElementById('aim-scoreboard'); if (sb) sb.style.display = 'flex'; }
-                break;
-            case 'flappy':
-                { const c = document.getElementById('flappy-controls'); if (c) c.style.display = 'flex'; }
-                { const s = document.getElementById('flappy-scoreboard'); if (s) s.style.display = 'flex'; }
-                break;
-            case 'tetris':
-                { const c = document.getElementById('tetris-controls'); if (c) c.style.display = 'flex'; }
-                { const s = document.getElementById('tetris-scoreboard'); if (s) s.style.display = 'flex'; }
-                break;
-            case 'breakout':
-                { const c = document.getElementById('breakout-controls'); if (c) c.style.display = 'flex'; }
-                { const s = document.getElementById('breakout-scoreboard'); if (s) s.style.display = 'flex'; }
-                break;
-            case 'pool':
-                // No controls row: the pool panel has its own footer (Vs CPU / Reset / Max).
-                { const s = document.getElementById('pool-scoreboard'); if (s) s.style.display = 'flex'; }
-                break;
-            case 'ludo':
-                { const c = document.getElementById('ludo-controls'); if (c) c.style.display = 'flex'; }
-                { const s = document.getElementById('ludo-scoreboard'); if (s) s.style.display = 'flex'; }
-                updateLudoScoreboard();
-                refreshGameScoreBtn('ludo');
-                break;
-            case 'prayer':
-                { const c = document.getElementById('prayer-controls'); if (c) c.style.display = 'flex'; }
-                { const s = document.getElementById('prayer-scoreboard'); if (s) s.style.display = 'flex'; }
-                break;
-            case 'leaderboard':
-                { const c = document.getElementById('leaderboard-controls'); if (c) c.style.display = 'flex'; }
-                { const s = document.getElementById('leaderboard-scoreboard'); if (s) s.style.display = 'flex'; }
-                break;
+        for (const k in GAME_PANELS) {
+            const btn = document.getElementById('game-switch-' + k);
+            if (btn) btn.classList.toggle('active', currentGame === k);
         }
     }
 
+    function updateGameControls() {
+        for (const k in GAME_PANELS) [k + '-controls', k + '-scoreboard', GAME_PANELS[k].stats].forEach(id => id && showById(id, 'none'));
+        const g = GAME_PANELS[currentGame];
+        if (!g) return;
+        if (!g.noControls) showById(currentGame + '-controls', 'flex');
+        showById(currentGame + '-scoreboard', 'flex');
+        if (g.stats) showById(g.stats, 'block');
+        if (g.shown) g.shown();
+    }
 
     function initQuotesSystem() {
         // Prevent re-initialization to avoid resetting animations
@@ -15314,7 +14571,6 @@
             unlockAchievement('curator');
         }
     }
-
 
     function initXPSystem() {
         userXP = loadUserXP();
@@ -15550,241 +14806,85 @@
             userXP.totalWorkDays = (userXP.totalWorkDays || 0) + 1;
         }
 
-        if (!userXP.achievements.includes('firstDay') && shiftCompletedToday) {
-            unlockAchievement('firstDay');
-        }
-        if (!userXP.achievements.includes('week1') && (userXP.totalWorkDays || 0) >= 5) {
-            unlockAchievement('week1');
-        }
-        if (!userXP.achievements.includes('workdays20') && (userXP.totalWorkDays || 0) >= 20) {
-            unlockAchievement('workdays20');
-        }
-        if (!userXP.achievements.includes('centurion') && (userXP.totalWorkDays || 0) >= 100) {
-            unlockAchievement('centurion');
-        }
+        const x = userXP, days = x.totalWorkDays || 0, streak = x.consecutiveDays || 0, games = x.gameSessions || 0;
+        // Levels are read when reached: an unlock above pays XP, which can level up.
+        const lv = n => () => userXP.level >= n;
+        unlockWhen({
+            firstDay: shiftCompletedToday, week1: days >= 5, workdays20: days >= 20, centurion: days >= 100,
+            // Badge of Balance: within shift…shift+5min, on the float hours, so it can't fire at an
+            // hour tick before the shift ends.
+            onTime: hoursWorked >= shiftHours && hoursWorked <= shiftHours + (5 / 60),
+            overtimeHero: hoursWorked >= shiftHours + 2, marathon: hoursWorked >= 10,
+            streak7: streak >= 7, streak30: streak >= 30, comeback: x.hadStreakReset && streak >= 3,
+            level10: lv(10), level25: lv(25), level50: lv(50), level100: lv(100),
+            gamer: games >= 50, gamer50: games >= 100
+        });
+    }
 
-        // Badge of Balance: precisely within shift…shift+5min, evaluated on actual
-        // float hours so it can't fire at hour-tick boundaries before the shift ends.
-        if (!userXP.achievements.includes('onTime') &&
-            hoursWorked >= shiftHours && hoursWorked <= shiftHours + (5 / 60)) {
-            unlockAchievement('onTime');
-        }
-
-        if (!userXP.achievements.includes('overtimeHero') && hoursWorked >= shiftHours + 2) {
-            unlockAchievement('overtimeHero');
-        }
-        if (!userXP.achievements.includes('marathon') && hoursWorked >= 10) {
-            unlockAchievement('marathon');
-        }
-
-        if (!userXP.achievements.includes('streak7') && (userXP.consecutiveDays || 0) >= 7) {
-            unlockAchievement('streak7');
-        }
-        if (!userXP.achievements.includes('streak30') && (userXP.consecutiveDays || 0) >= 30) {
-            unlockAchievement('streak30');
-        }
-        if (!userXP.achievements.includes('comeback') &&
-            userXP.hadStreakReset && (userXP.consecutiveDays || 0) >= 3) {
-            unlockAchievement('comeback');
-        }
-
-        if (!userXP.achievements.includes('level10') && userXP.level >= 10) {
-            unlockAchievement('level10');
-        }
-        if (!userXP.achievements.includes('level25') && userXP.level >= 25) {
-            unlockAchievement('level25');
-        }
-        if (!userXP.achievements.includes('level50') && userXP.level >= 50) {
-            unlockAchievement('level50');
-        }
-        if (!userXP.achievements.includes('level100') && userXP.level >= 100) {
-            unlockAchievement('level100');
-        }
-
-        if (!userXP.achievements.includes('gamer') && (userXP.gameSessions || 0) >= 50) {
-            unlockAchievement('gamer');
-        }
-        if (!userXP.achievements.includes('gamer50') && (userXP.gameSessions || 0) >= 100) {
-            unlockAchievement('gamer50');
-        }
+    // Unlocks each achievement whose condition holds (a function is asked when its turn comes);
+    // unlockAchievement skips one already held.
+    function unlockWhen(conds, silent) {
+        for (const id in conds) if (typeof conds[id] === 'function' ? conds[id]() : conds[id]) unlockAchievement(id, silent);
     }
 
     // Re-check all data-verifiable achievements against current stats. Called on load and after
     // restore, so badges lost during a wipe are re-awarded when the data supports them.
     function revalidateAchievements() {
-        const a = userXP.achievements || [];
-        const has = id => a.includes(id);
-        // Silent=true: revalidation only restores badges, does NOT award XP.
-        // XP was already earned when the achievement was first unlocked during gameplay.
-        const S = true;
-
-        if (!has('firstDay')    && (userXP.totalWorkDays || 0) >= 1)   unlockAchievement('firstDay', S);
-        if (!has('week1')       && (userXP.totalWorkDays || 0) >= 5)   unlockAchievement('week1', S);
-        if (!has('workdays20')  && (userXP.totalWorkDays || 0) >= 20)  unlockAchievement('workdays20', S);
-        if (!has('centurion')   && (userXP.totalWorkDays || 0) >= 100) unlockAchievement('centurion', S);
-
-        const bestStreak = Math.max(userXP.consecutiveDays || 0, userXP.longestStreak || 0);
-        if (!has('streak7')     && bestStreak >= 7)  unlockAchievement('streak7', S);
-        if (!has('streak30')    && bestStreak >= 30) unlockAchievement('streak30', S);
-
-        if (!has('level10')     && (userXP.level || 1) >= 10)  unlockAchievement('level10', S);
-        if (!has('level25')     && (userXP.level || 1) >= 25)  unlockAchievement('level25', S);
-        if (!has('level50')     && (userXP.level || 1) >= 50)  unlockAchievement('level50', S);
-        if (!has('level100')    && (userXP.level || 1) >= 100) unlockAchievement('level100', S);
-
-        if (!has('gamer')       && (userXP.gameSessions || 0) >= 50)  unlockAchievement('gamer', S);
-        if (!has('gamer50')     && (userXP.gameSessions || 0) >= 100) unlockAchievement('gamer50', S);
-
-        // Game high-score achievements (check localStorage bests)
-        const snakeHS    = parseInt(localStorage.getItem('snakeHighScore')    || '0', 10);
-        const flappyHS   = parseInt(localStorage.getItem('flappyHighScore')   || '0', 10);
-        const tetrisHS   = parseInt(localStorage.getItem('tetrisHighScore')   || '0', 10);
-        const breakoutHS = parseInt(localStorage.getItem('breakoutHighScore') || '0', 10);
-        const poolWon    = parseInt(localStorage.getItem('poolGamesWon')      || '0', 10);
-        const ludoWon    = parseInt(localStorage.getItem('ludoGamesWon')      || '0', 10);
-        const aimHS      = parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10);
-        const reflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
-        const reflexBest = (reflexData.screen && typeof reflexData.screen.best === 'number') ? reflexData.screen.best : Infinity;
-
-        if (!has('snakeCharmer') && snakeHS >= 40)     unlockAchievement('snakeCharmer', S);
-
-        // Snake per-mode bests and campaign progress survive a wipe, so these four rebuild.
-        // snakeGourmand (10 golden bites in one run) and snakeLong (60 segments) are per-run facts
-        // with no localStorage trace, so they cannot.
-        let snakeModeHS = { endless: 0, walled: 0, levels: 0 };
-        try {
-            const parsed = JSON.parse(localStorage.getItem('snakeHighScores') || 'null');
-            if (parsed && typeof parsed === 'object') snakeModeHS = { ...snakeModeHS, ...parsed };
-        } catch (_) {}
-        const snakeStageBest = parseInt(localStorage.getItem('snakeLevelsBest') || '0', 10) || 0;
-        if (!has('snakeEndless')   && (snakeModeHS.endless || 0) >= 40) unlockAchievement('snakeEndless', S);
-        if (!has('snakeWalled')    && (snakeModeHS.walled  || 0) >= 40) unlockAchievement('snakeWalled', S);
-        if (!has('snakeCampaign')  && snakeStageBest >= 6)              unlockAchievement('snakeCampaign', S);
-        if (!has('snakeConqueror') && snakeStageBest >= 12)             unlockAchievement('snakeConqueror', S);
-
-        if (!has('flapMaster')   && flappyHS >= 50)    unlockAchievement('flapMaster', S);
-        if (!has('poolShark')    && poolWon >= 100)    unlockAchievement('poolShark', S);
-        // Pro wins are filed by tier (poolWinsByTier), so Called It survives a wipe too.
-        let poolTierWins = {};
-        try { poolTierWins = JSON.parse(localStorage.getItem('poolWinsByTier') || '{}') || {}; } catch (_) {}
-        if (!has('calledIt')     && (parseInt(poolTierWins.pro, 10) || 0) >= 1) unlockAchievement('calledIt', S);
-        // Snooker's best break against the CPU is kept (snookerHighBreak), so both come back.
-        const snookerHigh = Math.min(155, parseInt(localStorage.getItem('snookerHighBreak') || '0', 10) || 0);
-        if (!has('snookerCentury') && snookerHigh >= 100) unlockAchievement('snookerCentury', S);
-        if (!has('snookerMaximum') && snookerHigh >= 147) unlockAchievement('snookerMaximum', S);
-        if (!has('ludoChamp')    && ludoWon >= 100)    unlockAchievement('ludoChamp', S);
-        // tetrisMaster, sharpshooter, brickBuster and lightning need session metrics (lines, accuracy,
-        // level, avgTime) absent from localStorage; ludoFlawless and ludoHunter are per-match facts.
-        // All are granted live via checkGameAchievements() only.
-        if (!has('sharpshooter') && aimHS >= 600)      unlockAchievement('sharpshooter', S);
-        if (!has('lightning')    && reflexBest <= 200 && reflexBest > 0) unlockAchievement('lightning', S);
-
-        if (!has('teamPlayer') && lbRegistered) unlockAchievement('teamPlayer', S);
-
-        if (!has('picturePerfect') && localStorage.getItem('customImageURL')) unlockAchievement('picturePerfect', S);
-
-        const prayerCount = parseInt(localStorage.getItem('prayerCount') || '0', 10);
-        if (!has('meditative') && prayerCount >= 1000) unlockAchievement('meditative', S);
-
+        // Silent: this only restores badges; their XP was paid when they were first unlocked.
+        const x = userXP, days = x.totalWorkDays || 0, lvl = x.level || 1, games = x.gameSessions || 0;
+        const bestStreak = Math.max(x.consecutiveDays || 0, x.longestStreak || 0);
+        const snake = lsJSON('snakeHighScores', {}), stage = lsInt('snakeLevelsBest');
+        const reflex = lsJSON('reflexHighScores', {});
+        const reflexBest = reflex.screen && typeof reflex.screen.best === 'number' ? reflex.screen.best : Infinity;
+        const snookerHigh = Math.min(155, lsInt('snookerHighBreak'));
+        // Only what localStorage can prove. Per-run and per-match facts (snakeGourmand, snakeLong,
+        // tetrisMaster, brickBuster, ludoFlawless, ludoHunter) are granted live, in checkGameAchievements.
+        unlockWhen({
+            firstDay: days >= 1, week1: days >= 5, workdays20: days >= 20, centurion: days >= 100,
+            streak7: bestStreak >= 7, streak30: bestStreak >= 30,
+            level10: lvl >= 10, level25: lvl >= 25, level50: lvl >= 50, level100: lvl >= 100,
+            gamer: games >= 50, gamer50: games >= 100,
+            snakeCharmer: lsInt('snakeHighScore') >= 40,
+            snakeEndless: (snake.endless || 0) >= 40, snakeWalled: (snake.walled || 0) >= 40,
+            snakeCampaign: stage >= 6, snakeConqueror: stage >= 12,
+            flapMaster: lsInt('flappyHighScore') >= 50, poolShark: lsInt('poolGamesWon') >= 100,
+            // Pro wins are filed by tier and snooker's best break is kept, so these survive a wipe.
+            calledIt: (parseInt(lsJSON('poolWinsByTier', {}).pro, 10) || 0) >= 1,
+            snookerCentury: snookerHigh >= 100, snookerMaximum: snookerHigh >= 147,
+            ludoChamp: lsInt('ludoGamesWon') >= 100,
+            sharpshooter: lsInt('aimChaosHighScore') >= 600, lightning: reflexBest <= 200 && reflexBest > 0,
+            teamPlayer: lbRegistered, picturePerfect: !!localStorage.getItem('customImageURL'),
+            meditative: lsInt('prayerCount') >= 1000
+        }, true);
         saveUserXP(userXP);
     }
 
     // Per-game performance achievements — called from awardGameXP after a session ends.
     function checkGameAchievements(gameType, performance) {
-        const p = performance || {};
-        switch (gameType) {
-            case 'snake':
-                if (!userXP.achievements.includes('snakeCharmer') && (p.score || 0) >= 40) {
-                    unlockAchievement('snakeCharmer');
-                }
-                if (p.mode === 'endless' && !userXP.achievements.includes('snakeEndless') && (p.score || 0) >= 40) {
-                    unlockAchievement('snakeEndless');
-                }
-                if (p.mode === 'walled' && !userXP.achievements.includes('snakeWalled') && (p.score || 0) >= 40) {
-                    unlockAchievement('snakeWalled');
-                }
-                // Per-run facts with no localStorage trace — granted live only, never backfilled.
-                if (!userXP.achievements.includes('snakeGourmand') && (p.bigEaten || 0) >= 10) {
-                    unlockAchievement('snakeGourmand');
-                }
-                if (!userXP.achievements.includes('snakeLong') && (p.maxLength || 0) >= 60) {
-                    unlockAchievement('snakeLong');
-                }
-                // Stages cleared, not the stage reached: the badge says clear stage 6 and the backfill reads
-                // snakeLevelsBest, which is written only on a clear. Gating on the stage died on would hand
-                // out 110 XP the revalidator could never rebuild.
-                if (!userXP.achievements.includes('snakeCampaign') && (p.stagesCleared || 0) >= 6) {
-                    unlockAchievement('snakeCampaign');
-                }
-                if (!userXP.achievements.includes('snakeConqueror') && p.allStages) {
-                    unlockAchievement('snakeConqueror');
-                }
-                break;
-            case 'flappy':
-                if (!userXP.achievements.includes('flapMaster') && (p.score || 0) >= 50) {
-                    unlockAchievement('flapMaster');
-                }
-                break;
-            case 'tetris':
-                if (!userXP.achievements.includes('tetrisMaster') && (p.lines || 0) >= 50) {
-                    unlockAchievement('tetrisMaster');
-                }
-                break;
-            case 'aim':
-                if (!userXP.achievements.includes('sharpshooter') &&
-                    (p.accuracy || 0) >= 95 && (p.score || 0) >= 600) {
-                    unlockAchievement('sharpshooter');
-                }
-                break;
-            case 'reflex':
-                if (!userXP.achievements.includes('lightning') &&
-                    (p.avgTime || 9999) > 0 && (p.avgTime || 9999) < 220 &&
-                    (p.falseStarts || 0) === 0) {
-                    unlockAchievement('lightning');
-                }
-                break;
-            case 'breakout':
-                if (!userXP.achievements.includes('brickBuster') && (p.level || 0) >= 30) {
-                    unlockAchievement('brickBuster');
-                }
-                break;
-            case 'pool':
-                if (!userXP.achievements.includes('poolShark') &&
-                    typeof poolGamesWon === 'number' && poolGamesWon >= 100) {
-                    unlockAchievement('poolShark');
-                }
-                // Pro is the one tier that cannot be farmed: it calls every shot, both seats.
-                if (!userXP.achievements.includes('calledIt') && p && p.vsCPU && p.won && p.tier === 'pro') {
-                    unlockAchievement('calledIt');
-                }
-                break;
-            case 'snooker':
-                // Its own case, so a Pro snooker win never reaches pool's Called It. Both are breaks
-                // against the CPU (2 Players' breaks would be this account's whichever seat made
-                // them); a break of 147 or more needs 15 reds.
-                if (!p.vsCPU) break;
-                if (!userXP.achievements.includes('snookerCentury') && (p.highBreak || 0) >= 100) {
-                    unlockAchievement('snookerCentury');
-                }
-                if (!userXP.achievements.includes('snookerMaximum') && (p.highBreak || 0) >= 147) {
-                    unlockAchievement('snookerMaximum');
-                }
-                break;
-            case 'ludo':
-                // All three are CPU-only: hot-seat wins cost nothing to farm,
-                // so endLudoGame reports vsCPU and they are gated on it.
-                if (!p.vsCPU) break;
-                if (!userXP.achievements.includes('ludoChamp') && (p.gamesWon || 0) >= 100) {
-                    unlockAchievement('ludoChamp');
-                }
-                if (!userXP.achievements.includes('ludoFlawless') && p.won && (p.tokensLost || 0) === 0) {
-                    unlockAchievement('ludoFlawless');
-                }
-                if (!userXP.achievements.includes('ludoHunter') && (p.captures || 0) >= 5) {
-                    unlockAchievement('ludoHunter');
-                }
-                break;
-        }
+        const p = performance || {}, score = p.score || 0, avg = p.avgTime || 9999;
+        const conds = {
+            snake: {
+                snakeCharmer: score >= 40, snakeEndless: p.mode === 'endless' && score >= 40, snakeWalled: p.mode === 'walled' && score >= 40,
+                // Per-run facts with no localStorage trace: granted live only, never backfilled.
+                snakeGourmand: (p.bigEaten || 0) >= 10, snakeLong: (p.maxLength || 0) >= 60,
+                // Stages cleared, not the stage reached: the backfill reads snakeLevelsBest, written
+                // only on a clear, so gating on the stage died on would pay XP it could never rebuild.
+                snakeCampaign: (p.stagesCleared || 0) >= 6, snakeConqueror: !!p.allStages
+            },
+            flappy: { flapMaster: score >= 50 },
+            tetris: { tetrisMaster: (p.lines || 0) >= 50 },
+            aim: { sharpshooter: (p.accuracy || 0) >= 95 && score >= 600 },
+            reflex: { lightning: avg > 0 && avg < 220 && (p.falseStarts || 0) === 0 },
+            breakout: { brickBuster: (p.level || 0) >= 30 },
+            // Pro is the one tier that cannot be farmed: it calls every shot, both seats.
+            pool: { poolShark: typeof poolGamesWon === 'number' && poolGamesWon >= 100, calledIt: p.vsCPU && p.won && p.tier === 'pro' },
+            // Breaks against the CPU only (2 Players' would be this account's whichever seat made
+            // them). Its own entry, so a Pro snooker win never reaches pool's Called It.
+            snooker: p.vsCPU && { snookerCentury: (p.highBreak || 0) >= 100, snookerMaximum: (p.highBreak || 0) >= 147 },
+            // CPU only: hot-seat wins cost nothing to farm.
+            ludo: p.vsCPU && { ludoChamp: (p.gamesWon || 0) >= 100, ludoFlawless: p.won && (p.tokensLost || 0) === 0, ludoHunter: (p.captures || 0) >= 5 }
+        }[gameType];
+        if (conds) unlockWhen(conds);
     }
 
     // XP rewards per achievement tier
@@ -15962,7 +15062,6 @@
         }
 
         if (nextMilestoneElement) {
-            const nextHour = Math.ceil((userXP.lastHourTracked + 1));
             const milestoneHours = [2, 4, 6, 8];
             const nextMilestone = milestoneHours.find(h => h > userXP.todayHours);
 
@@ -15995,6 +15094,10 @@
         }, 3000);
     }
 
+    // The XP of the first step a score reaches (each [threshold, xp], best first), else floor.
+    // below: lower is better (reaction times).
+    const xpTier = (v, steps, floor, below) => { for (const [t, xp] of steps) if (below ? v < t : v >= t) return xp; return floor; };
+
     function awardGameXP(gameType, performance) {
         let xpGained = 0;
         let message = '';
@@ -16003,19 +15106,7 @@
             case 'snake': {
                 // Award XP based on snake score (each food = points)
                 const snakeScoreVal = performance.score || 0;
-                if (snakeScoreVal >= 20) {
-                    xpGained = 60;
-                } else if (snakeScoreVal >= 15) {
-                    xpGained = 45;
-                } else if (snakeScoreVal >= 10) {
-                    xpGained = 30;
-                } else if (snakeScoreVal >= 5) {
-                    xpGained = 18;
-                } else if (snakeScoreVal >= 1) {
-                    xpGained = 8;
-                } else {
-                    xpGained = 2;
-                }
+                xpGained = xpTier(snakeScoreVal, [[20, 60], [15, 45], [10, 30], [5, 18], [1, 8]], 2);
                 // Levels pays for progress as well as score: scoring alone would pay a long Endless run more
                 // than clearing the twelve authored stages.
                 const snakeStages = performance.stagesCleared || 0;
@@ -16036,17 +15127,7 @@
             case 'flappy': {
                 // Award XP based on pipes cleared
                 const flappyScoreVal = performance.score || 0;
-                if (flappyScoreVal >= 20) {
-                    xpGained = 70;
-                } else if (flappyScoreVal >= 10) {
-                    xpGained = 45;
-                } else if (flappyScoreVal >= 5) {
-                    xpGained = 25;
-                } else if (flappyScoreVal >= 1) {
-                    xpGained = 10;
-                } else {
-                    xpGained = 3;
-                }
+                xpGained = xpTier(flappyScoreVal, [[20, 70], [10, 45], [5, 25], [1, 10]], 3);
                 if (performance.isHighScore) xpGained += 20;
                 message = `🐦 +${xpGained} XP (Flappy: ${flappyScoreVal} pipes${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
                 break;
@@ -16056,19 +15137,7 @@
                 // Award XP based on lines cleared and level reached
                 const tetrisLinesVal = performance.lines || 0;
                 const tetrisLevelVal = performance.level || 1;
-                if (tetrisLinesVal >= 40) {
-                    xpGained = 100;
-                } else if (tetrisLinesVal >= 20) {
-                    xpGained = 65;
-                } else if (tetrisLinesVal >= 10) {
-                    xpGained = 40;
-                } else if (tetrisLinesVal >= 4) {
-                    xpGained = 20;
-                } else if (tetrisLinesVal >= 1) {
-                    xpGained = 10;
-                } else {
-                    xpGained = 3;
-                }
+                xpGained = xpTier(tetrisLinesVal, [[40, 100], [20, 65], [10, 40], [4, 20], [1, 10]], 3);
                 xpGained += Math.min(tetrisLevelVal * 5, 25); // Level bonus
                 if (performance.isHighScore) xpGained += 25;
                 message = `🧱 +${xpGained} XP (Tetris: ${tetrisLinesVal} lines, Lvl ${tetrisLevelVal}${performance.isHighScore ? ' 🏆!' : ''})`;
@@ -16078,19 +15147,7 @@
             case 'reflex': {
                 // Award XP based on reaction time (faster = more XP)
                 const avgTime = performance.avgTime || 999;
-                if (avgTime < 180) {
-                    xpGained = 85;
-                } else if (avgTime < 220) {
-                    xpGained = 65;
-                } else if (avgTime < 260) {
-                    xpGained = 50;
-                } else if (avgTime < 300) {
-                    xpGained = 40;
-                } else if (avgTime < 400) {
-                    xpGained = 28;
-                } else {
-                    xpGained = 15;
-                }
+                xpGained = xpTier(avgTime, [[180, 85], [220, 65], [260, 50], [300, 40], [400, 28]], 15, true);
                 // Bonus for zero false starts
                 if (performance.falseStarts === 0) xpGained += 15;
                 else xpGained = Math.max(8, xpGained - (performance.falseStarts * 5));
@@ -16103,21 +15160,7 @@
                 // Award XP based on score and accuracy
                 const aimScoreVal = performance.score || 0;
                 const aimAcc = performance.accuracy || 0;
-                if (aimScoreVal >= 400) {
-                    xpGained = 100;
-                } else if (aimScoreVal >= 300) {
-                    xpGained = 80;
-                } else if (aimScoreVal >= 250) {
-                    xpGained = 65;
-                } else if (aimScoreVal >= 200) {
-                    xpGained = 50;
-                } else if (aimScoreVal >= 150) {
-                    xpGained = 38;
-                } else if (aimScoreVal >= 100) {
-                    xpGained = 25;
-                } else {
-                    xpGained = 12;
-                }
+                xpGained = xpTier(aimScoreVal, [[400, 100], [300, 80], [250, 65], [200, 50], [150, 38], [100, 25]], 12);
                 if (aimAcc >= 90) {
                     xpGained += 25;
                     message = `🎯 +${xpGained} XP (Aim: ${aimScoreVal} pts + ${Math.round(aimAcc)}% accuracy 🔥)!`;
@@ -16134,53 +15177,25 @@
             case 'breakout': {
                 const brkScore = performance.score || 0;
                 const brkLevel = performance.level || 1;
-                if (brkScore >= 1500) {
-                    xpGained = 120;
-                } else if (brkScore >= 800) {
-                    xpGained = 85;
-                } else if (brkScore >= 400) {
-                    xpGained = 55;
-                } else if (brkScore >= 200) {
-                    xpGained = 35;
-                } else if (brkScore >= 100) {
-                    xpGained = 25;
-                } else {
-                    xpGained = 12;
-                }
+                xpGained = xpTier(brkScore, [[1500, 120], [800, 85], [400, 55], [200, 35], [100, 25]], 12);
                 xpGained += Math.min(brkLevel * 8, 50); // level bonus
                 if (performance.isHighScore) xpGained += 30;
                 message = `🧱 +${xpGained} XP (Breakout: ${brkScore} pts, Lvl ${brkLevel}${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
                 break;
             }
 
-            case 'pool': {
-                // The award is computed in pool-game.js (the CPU's tier, 2 Players, a tournament match for
-                // the YOU seat), where the headless XP tests pin it; re-clamped here as Ludo's is.
-                xpGained = Math.max(0, Math.min(AC_MAX_XP_PER_GAME, Math.round(performance.xp || 0)));
-                const poolTier = { easy: 'Easy', normal: 'Normal', hard: 'Hard', pro: 'Pro' }[performance.tier];
-                if (performance.tour) {
-                    message = performance.won ? `🎱 +${xpGained} XP (Pool: ${performance.round} won! 🏆)` : `🎱 +${xpGained} XP (Pool: ${performance.round}, good game)`;
-                } else if (performance.vsCPU) {
-                    message = performance.won ? `🎱 +${xpGained} XP (Pool: beat the ${poolTier || ''} CPU! 🏆)` : `🎱 +${xpGained} XP (Pool: good game vs the ${poolTier || ''} CPU)`;
-                } else {
-                    message = performance.won ? `🎱 +${xpGained} XP (Pool: Player 1 wins 🏆)` : `🎱 +${xpGained} XP (Pool: good game)`;
-                }
-                break;
-            }
-
+            case 'pool':
             case 'snooker': {
-                // Computed in pool-game.js (the tier, the reds, the break bonus; 2 Players and tournaments
-                // as pool), where the headless XP tests pin it; re-clamped here as pool's is.
+                // Computed in pool-game.js (the CPU's tier, 2 Players, a tournament match; snooker's reds
+                // and break bonus), where the headless XP tests pin it; re-clamped here as Ludo's is.
                 xpGained = Math.max(0, Math.min(AC_MAX_XP_PER_GAME, Math.round(performance.xp || 0)));
-                const snkTier = { easy: 'Easy', normal: 'Normal', hard: 'Hard', pro: 'Pro' }[performance.tier];
-                const snkBreak = performance.vsCPU && (performance.highBreak || 0) >= 50 ? `, a ${performance.highBreak} break` : '';
-                if (performance.tour) {
-                    message = performance.won ? `🔴 +${xpGained} XP (Snooker: ${performance.round} won! 🏆)` : `🔴 +${xpGained} XP (Snooker: ${performance.round}, good game)`;
-                } else if (performance.vsCPU) {
-                    message = performance.won ? `🔴 +${xpGained} XP (Snooker: beat the ${snkTier || ''} CPU${snkBreak}! 🏆)` : `🔴 +${xpGained} XP (Snooker: good frame vs the ${snkTier || ''} CPU${snkBreak})`;
-                } else {
-                    message = performance.won ? `🔴 +${xpGained} XP (Snooker: Player 1 wins 🏆)` : `🔴 +${xpGained} XP (Snooker: good game)`;
-                }
+                const snk = gameType === 'snooker', p = performance;
+                const tier = { easy: 'Easy', normal: 'Normal', hard: 'Hard', pro: 'Pro' }[p.tier] || '';
+                const brk = snk && p.vsCPU && (p.highBreak || 0) >= 50 ? `, a ${p.highBreak} break` : '';
+                const what = p.tour ? (p.won ? `${p.round} won! 🏆` : `${p.round}, good game`)
+                    : p.vsCPU ? (p.won ? `beat the ${tier} CPU${brk}! 🏆` : `good ${snk ? 'frame' : 'game'} vs the ${tier} CPU${brk}`)
+                    : p.won ? 'Player 1 wins 🏆' : 'good game';
+                message = `${snk ? '🔴' : '🎱'} +${xpGained} XP (${snk ? 'Snooker' : 'Pool'}: ${what})`;
                 break;
             }
 
@@ -16225,7 +15240,6 @@
         }
     }
 
-
     // IMAGE BOX — the image fills the card; everything else lives in a menu opened by
     // right-clicking the image or its hover kebab. Every handler is delegated from document,
     // because renderFullContent() can rebuild the right panel and drop per-node listeners.
@@ -16251,7 +15265,7 @@
             <div class="ib-drop-icon">${IB_ICONS.upload}</div>
             <div class="ib-drop-title">${failed ? 'That image didn’t load' : 'Drop an image here'}</div>
             <button type="button" class="ib-browse" data-ib="browse">Browse files</button>
-            <div class="ib-drop-note">PNG, JPG, GIF or WebP · <button type="button" class="ib-link-btn" data-ib="link">paste a link</button></div>
+            <div class="ib-drop-note">PNG, JPG, GIF or WebP · <button type="button" class="ib-link-btn" data-ib="link">paste a link</button>${failed ? ' · <button type="button" class="ib-link-btn" data-ib="remove">remove it</button>' : ''}</div>
         </div>`;
     }
 
@@ -16683,11 +15697,6 @@
                 --aurora-2: #764ba2;
                 --aurora-3: #f093fb;
                 --aurora-4: #4facfe;
-                --neon-cyan: #00f0ff;
-                --neon-magenta: #ff00ff;
-                --neon-green: #00ff41;
-                --retro-dark: #0a0e27;
-                --retro-dark-alt: #1a1d3a;
             }
 
             .attendance-summary {
@@ -17814,46 +16823,6 @@
                 }
             }
 
-            @keyframes glitchText {
-                0%, 90%, 100% {
-                    transform: translate(0);
-                    text-shadow:
-                        0 0 10px var(--neon-cyan),
-                        0 0 20px var(--neon-cyan),
-                        0 0 30px rgba(0, 240, 255, 0.5);
-                }
-                92% {
-                    transform: translate(-2px, 1px);
-                    text-shadow:
-                        2px 0 var(--neon-magenta),
-                        -2px 0 var(--neon-cyan),
-                        0 0 20px var(--neon-cyan);
-                }
-                94% {
-                    transform: translate(2px, -1px);
-                    text-shadow:
-                        -2px 0 var(--neon-magenta),
-                        2px 0 var(--neon-cyan),
-                        0 0 20px var(--neon-cyan);
-                }
-            }
-
-            @keyframes neonPulse {
-                0%, 100% {
-                    box-shadow:
-                        0 0 5px var(--neon-cyan),
-                        0 0 10px var(--neon-cyan),
-                        inset 0 0 5px rgba(0, 240, 255, 0.2);
-                }
-                50% {
-                    box-shadow:
-                        0 0 10px var(--neon-cyan),
-                        0 0 20px var(--neon-cyan),
-                        0 0 30px var(--neon-magenta),
-                        inset 0 0 10px rgba(0, 240, 255, 0.3);
-                }
-            }
-
             @keyframes rgbFlowBacklight {
                 0% {
                     background-position: 0% 50%;
@@ -18135,24 +17104,16 @@
                 gap: 6px;
                 margin: -8px 0 18px;
             }
-            .settings-tab {
-                padding: 6px 12px;
-                border-radius: 999px;
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                background: rgba(255, 255, 255, 0.05);
-                color: rgba(255, 255, 255, 0.7);
-                font: inherit;
-                font-size: 0.8rem;
-                font-weight: 600;
-                white-space: nowrap;
-                cursor: pointer;
+            /* Pill tabs: ⚙️'s groups, and the leaderboard's boards. */
+            .settings-tab { padding: 6px 12px; color: rgba(255, 255, 255, 0.7); font: inherit; font-size: 0.8rem; }
+            .game-lb-tab { flex: 0 0 auto; padding: 3px 8px; color: rgba(255, 255, 255, 0.6); font-size: 0.62rem; }
+            .settings-tab, .game-lb-tab {
+                border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.05);
+                font-weight: 600; white-space: nowrap; cursor: pointer;
             }
             .settings-tab:hover { color: rgba(255, 255, 255, 0.95); }
-            .settings-tab.is-active {
-                background: rgba(108, 92, 231, 0.35);
-                border-color: rgba(162, 155, 254, 0.7);
-                color: #fff;
-            }
+            .game-lb-tab:hover { color: rgba(255, 255, 255, 0.9); }
+            .settings-tab.is-active, .game-lb-tab.is-active { background: rgba(108, 92, 231, 0.35); border-color: rgba(162, 155, 254, 0.7); color: #fff; }
             .settings-tab:focus-visible { outline: 2px solid rgba(162, 155, 254, 0.9); outline-offset: 2px; }
             /* Inside a group: which game the rows below it set. */
             .settings-subhead {
@@ -18252,10 +17213,6 @@
 
             /* Responsive Design */
             @media (max-width: 768px) {
-                .attendance-summary {
-                    margin: 16px;
-                    padding: 24px 20px;
-                }
 
                 .summary-title {
                     font-size: 1.5rem;
@@ -18514,50 +17471,10 @@
                     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
                 }
 
-                .attendance-summary:not(.retro-theme) .stat-card.worked-time-card {
-                    background: linear-gradient(135deg, rgba(0, 184, 148, 0.15), rgba(0, 184, 148, 0.05));
-                    border-color: rgba(0, 184, 148, 0.3);
-                }
-
-                .attendance-summary:not(.retro-theme) .stat-card.remaining-time-card {
-                    background: linear-gradient(135deg, rgba(225, 112, 85, 0.15), rgba(225, 112, 85, 0.05));
-                    border-color: rgba(225, 112, 85, 0.3);
-                }
-
-                .attendance-summary:not(.retro-theme) .stat-card.completion-time-card {
-                    background: linear-gradient(135deg, rgba(108, 92, 231, 0.15), rgba(108, 92, 231, 0.05));
-                    border-color: rgba(108, 92, 231, 0.3);
-                }
-
-                .attendance-summary:not(.retro-theme) .stat-label {
-                    color: rgba(0, 0, 0, 0.6);
-                }
-
                 .attendance-summary:not(.retro-theme) .developer-info {
                     background: rgba(255, 255, 255, 0.8);
                     border-color: rgba(0, 0, 0, 0.1);
                     color: #667eea;
-                }
-
-                .attendance-summary:not(.retro-theme) .developer-info:hover {
-                    background: rgba(255, 255, 255, 0.9);
-                    border-color: rgba(0, 0, 0, 0.2);
-                    z-index: 1000;
-                }
-
-                .attendance-summary:not(.retro-theme) .progress-bar {
-                    background: rgba(0, 0, 0, 0.1);
-                }
-
-                .attendance-summary:not(.retro-theme) .gap-warning {
-                    background: linear-gradient(135deg, #ffeaa7, #fab1a0) !important;
-                    color: #2d3436 !important;
-                }
-
-                .attendance-summary:not(.retro-theme) .stat-card:hover {
-                    background: rgba(255, 255, 255, 0.85);
-                    border-color: rgba(102, 126, 234, 0.2);
-                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
                 }
 
                 .attendance-summary:not(.retro-theme):hover {
@@ -18620,33 +17537,10 @@
                     background: rgba(0, 0, 0, 0.05);
                 }
 
-                .attendance-summary:not(.retro-theme) .quote-add-btn {
-                    background: rgba(0, 0, 0, 0.08);
-                    border-color: rgba(0, 0, 0, 0.15);
-                    color: rgba(0, 0, 0, 0.8);
-                }
-
-                .attendance-summary:not(.retro-theme) .quote-add-btn:hover {
-                    background: rgba(0, 0, 0, 0.12);
-                }
-
-                .attendance-summary:not(.retro-theme) .xp-stat-item {
-                    background: rgba(0, 0, 0, 0.05);
-                }
-
-                .attendance-summary:not(.retro-theme) .xp-progress-bar {
-                    background: rgba(0, 0, 0, 0.1);
-                }
-
                 .attendance-summary:not(.retro-theme) .settings-button {
                     background: rgba(255, 255, 255, 0.8);
                     border-color: rgba(0, 0, 0, 0.1);
                     color: #764ba2;
-                }
-
-                .attendance-summary:not(.retro-theme) .settings-button:hover {
-                    background: rgba(255, 255, 255, 0.9);
-                    border-color: rgba(0, 0, 0, 0.2);
                 }
 
                 .attendance-summary:not(.retro-theme) .game-switcher {
@@ -18721,95 +17615,6 @@
                     border-color: rgba(239,68,68,0.3);
                 }
 
-                .attendance-summary:not(.retro-theme) .settings-modal {
-                    background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(245,245,250,0.95));
-                    border-color: rgba(0,0,0,0.12);
-                    box-shadow: 0 20px 60px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.9);
-                }
-                .attendance-summary:not(.retro-theme) .settings-option {
-                    background: rgba(0,0,0,0.03);
-                    border-color: rgba(0,0,0,0.08);
-                }
-                .attendance-summary:not(.retro-theme) .settings-option:hover {
-                    background: rgba(0,0,0,0.06);
-                }
-                .attendance-summary:not(.retro-theme) .settings-option-label {
-                    color: rgba(0,0,0,0.85);
-                }
-                .attendance-summary:not(.retro-theme) .toggle-switch {
-                    background: rgba(0,0,0,0.15);
-                }
-                .attendance-summary:not(.retro-theme) .settings-select {
-                    background: rgba(255,255,255,0.85);
-                    border-color: rgba(0,0,0,0.15);
-                    color: rgba(0,0,0,0.85);
-                }
-                .attendance-summary:not(.retro-theme) .settings-select:hover {
-                    background: rgba(255,255,255,0.95);
-                    border-color: rgba(0,0,0,0.25);
-                }
-                .attendance-summary:not(.retro-theme) .settings-select option {
-                    background: #fff;
-                    color: #222;
-                }
-                .attendance-summary:not(.retro-theme) .settings-modal-overlay {
-                    background: rgba(0,0,0,0.35);
-                }
-
-                .attendance-summary:not(.retro-theme) .pool-modal-panel {
-                    background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(245,245,250,0.95));
-                    border-color: rgba(0,0,0,0.12);
-                    box-shadow: 0 24px 80px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.9);
-                }
-                .attendance-summary:not(.retro-theme) .pool-modal-title {
-                    color: rgba(0,0,0,0.85);
-                }
-                .attendance-summary:not(.retro-theme) .pool-modal-close {
-                    background: rgba(0,0,0,0.06);
-                    border-color: rgba(0,0,0,0.12);
-                    color: rgba(0,0,0,0.7);
-                }
-                .attendance-summary:not(.retro-theme) .pool-modal-close:hover {
-                    background: rgba(255,80,80,0.15);
-                    color: #dc2626;
-                }
-
-                .attendance-summary:not(.retro-theme) .xp-info {
-                    color: rgba(0,0,0,0.55);
-                }
-                .attendance-summary:not(.retro-theme) .xp-stat-value {
-                    color: #6c5ce7;
-                }
-                .attendance-summary:not(.retro-theme) .xp-streak {
-                    background: rgba(255,107,53,0.08);
-                    border-color: rgba(255,107,53,0.22);
-                    color: rgba(0,0,0,0.8);
-                }
-                .attendance-summary:not(.retro-theme) .xp-achievements {
-                    background: rgba(0,0,0,0.04);
-                }
-                .attendance-summary:not(.retro-theme) .xp-achievements:empty::before {
-                    color: rgba(0,0,0,0.35);
-                }
-                .attendance-summary:not(.retro-theme) .xp-next-milestone {
-                    background: rgba(255,193,7,0.1);
-                    border-color: rgba(255,193,7,0.25);
-                    color: #b8860b;
-                }
-                .attendance-summary:not(.retro-theme) .level-badge {
-                    color: white;
-                }
-
-                .attendance-summary:not(.retro-theme) .quote-author {
-                    color: rgba(0,0,0,0.5);
-                }
-
-                .attendance-summary:not(.retro-theme) .progress-text {
-                    color: rgba(0,0,0,0.6);
-                }
-                .attendance-summary:not(.retro-theme) .progress-fill {
-                    box-shadow: none;
-                }
             }
 
             /* NEUMORPHIC DEPTH — class-toggled via .neumorphic-active
@@ -19034,29 +17839,17 @@
             /* CYBERPUNK HUD THEME
                Generated from cyber-dev/cyber-theme.css. Do not edit the copy in the
                userscript; run node cyber-dev/reinsert.js.
-            
-               THE TOKEN CONTRACT
-               Three groups of user-set tokens. NO token in one group is ever derived
-               from a token in another:
-            
+
+               TOKEN CONTRACT: three user-set groups, none derived from another.
                  STRUCTURE   --rt-bg-1  --rt-bg-2
                  ACCENTS     --rt-accent  --rt-cyber-hl  --rt-cyber-panel
                  LEGIBILITY  --rt-text  --rt-glow-color  --rt-border-color
-            
-               Dim variants derive from their OWN parent by opacity alone, never by
-               mixing in another hue.
-            
-                 ALL TYPE   -> var(--rt-text) / var(--rt-text-dim)
-                 ALL BLOOM  -> var(--rt-glow) / rgba(var(--rt-glow-rgb), a)
-                 ALL FRAMES -> var(--rt-border*) / var(--rt-outline)
-            
-               KNOCKED-OUT TYPE is the one allowed inversion, and in one direction
-               only: a --rt-text fill carrying --rt-bg-1 glyphs. An ACCENT fill
-               carrying text is never allowed — a dark Highlight would hide the label.
-            
-               clip-path removes the border along a cut edge; --rt-outline draws it
-               back with four 1px drop-shadows that follow the clip exactly, so one
-               token outlines every shape without a wrapper element. */
+               Dim variants derive from their OWN parent by opacity alone.
+               All type reads --rt-text, all bloom --rt-glow, all frames --rt-border
+               or --rt-outline. The one allowed inversion is a --rt-text fill carrying
+               --rt-bg-1 glyphs; an accent fill carrying text never is (a dark
+               Highlight would hide the label). --rt-outline redraws the border a
+               clip-path cuts away, with four 1px drop-shadows that follow the clip. */
 
             .retro-theme {
                 /* -- STRUCTURE (user-set) -- */
@@ -19068,8 +17861,7 @@
                 /* -- ACCENTS (user-set) -- */
                 --rt-accent: #fff200;
                 --rt-accent-rgb: 255, 242, 0;
-                /* Highlight + Panel default to cyan until applyPreferences() writes them;
-                   without these every rule consuming them resolves to an invalid value.
+                /* Highlight + Panel need pre-JS defaults, or every consumer is invalid.
                    Panel has no -rgb companion: nothing takes it at partial alpha. */
                 --rt-cyber-hl: var(--rt-cyan, #00e5ff);
                 --rt-cyber-hl-rgb: var(--rt-cyan-rgb, 0, 229, 255);
@@ -19083,18 +17875,13 @@
                 --rt-border-color: #fff200;
                 --rt-border-rgb: 255, 242, 0;
 
-                /* --rt-cyan is the fallback Highlight and Panel resolve to before
-                   applyPreferences() runs. It is NOT a colour anything paints with
-                   directly. No other fixed hue exists: a hue no swatch can reach is one
-                   the user cannot fix. */
+                /* Pre-JS fallback for Highlight and Panel only, never painted directly.
+                   No other fixed hue exists: one no swatch can reach cannot be fixed. */
                 --rt-cyan: #00e5ff;
                 --rt-cyan-rgb: 0, 229, 255;
 
-                /* -- SEMANTIC ROLES --
-                   Two roles, both derived from user swatches: accent marks what is
-                   TARGETED (remaining, live, awaited), data marks what is MEASURED
-                   (worked, elapsed, logged). Reading one against the other is the
-                   widget's whole job, so they get names rather than bare swatch refs. */
+                /* -- SEMANTIC ROLES -- accent marks what is TARGETED (remaining, live),
+                   data marks what is MEASURED (worked, elapsed, logged). */
                 --rt-data: var(--rt-cyber-hl);
                 --rt-data-rgb: var(--rt-cyber-hl-rgb);
 
@@ -19104,16 +17891,11 @@
                 --rt-border: rgba(var(--rt-border-rgb), 0.38);
                 --rt-border-strong: rgba(var(--rt-border-rgb), 0.85);
                 --rt-grid: rgba(var(--rt-border-rgb), 0.07);
-                /* Raw preference, 0 upward. Kept because it is what the setting stores and
-                   what the teardown list clears; no CSS rule reads it directly. */
+                /* Raw stored preference; no CSS rule may read it. */
                 --rt-glow-mul: 0.6;
 
-                /* GLOW SCALE — the Glow Intensity slider, 0 to 1. Written by
-                   applyCyberTokens() rather than derived in CSS, because the settings
-                   modal is body-level and cannot see a property declared on the widget.
-                   This declaration is the pre-JS fallback and mirrors the shipped default.
-                   RADIUS scales with it, not just alpha, and it scales from ZERO — so 0%
-                   is genuinely no glow, not a dimmer one. */
+                /* GLOW SCALE, 0 to 1: pre-JS fallback for the value applyCyberTokens()
+                   writes. Every glow scales RADIUS and alpha from zero, so 0 is no glow. */
                 --rt-glow-k: 0.6;
 
                 --rt-glow:
@@ -19133,10 +17915,9 @@
                 --rt-scanline: rgba(var(--rt-border-rgb), 0.055);
 
                 /* -- RUNTIME: written from outside this stylesheet -- */
-                /* Written per render by renderFullContent() as an inline style on
-                   .progress-bar: the track needs the percentage because the playhead is
-                   drawn on the track, not the fill. Declared here so the var is never
-                   unset — an unset var() would invalidate the whole declaration. */
+                /* Written per render by renderFullContent() on .progress-bar, where the
+                   playhead is drawn. Declared so it is never unset: an unset var()
+                   invalidates the whole declaration. */
                 --rt-progress: 0%;
 
                 /* 45-degree hazard hatching. */
@@ -19148,14 +17929,13 @@
                     45deg,
                     rgba(var(--rt-border-rgb), 0.30) 0 5px,
                     transparent 5px 11px);
-                /* Chevron fill for meters — the >>>> run in the reference. */
+                /* Subtractive chevrons for meters. */
                 --rt-chevron: repeating-linear-gradient(
                     115deg,
                     rgba(0, 0, 0, 0.55) 0 3px,
                     transparent 3px 9px);
 
-                /* Chromatic aberration: one text-shadow, warm ghost one way, cool the
-                   other. Offsets stay at 2px. */
+                /* Chromatic aberration, warm one way, cool the other. Keep it at 2px. */
                 --rt-aberr:
                     2px 0 rgba(var(--rt-accent-rgb), 0.55),
                     -2px 0 rgba(var(--rt-data-rgb), 0.40);
@@ -19174,9 +17954,8 @@
                     var(--rt-border-color) 0 4px,
                     transparent 4px 8px);
 
-                /* POSITIVE chevron: two-tone diagonal fill for meters. --rt-chevron above
-                   is subtractive (notches cut out of what is behind); this one IS the fill.
-                   Sized 16px so rtHazardCrawl walks it exactly one period. */
+                /* POSITIVE chevron: this one IS the meter fill. One 16px period, which
+                   rtHazardCrawl walks exactly. */
                 --rt-chevron-fill: repeating-linear-gradient(
                     115deg,
                     var(--rt-data) 0 8px,
@@ -19191,11 +17970,9 @@
                     drop-shadow(0 -1px 0 var(--rt-border-color));
             }
 
-            /* PANEL SHAPE — userPreferences.cyberPanelShape, applied as .rt-shape-* on
-               #total-time-summary.
+            /* PANEL SHAPE — cyberPanelShape, as .rt-shape-NAME on #total-time-summary.
                clip-path clips overflow AND box-shadow, so it goes only on elements with
-               nothing escaping their box. The container therefore takes border-radius
-               only; --rt-outline supplies the edge the clip would otherwise remove. */
+               nothing escaping their box; the container takes border-radius only. */
 
             /* Default is notched. */
             .retro-theme,
@@ -19287,10 +18064,8 @@
                 --rt-bk-inset: 7px;
             }
 
-            /* CORNER BRACKETS + SCHEMATIC DOTS — background layers, no DOM.
-               ::before and ::after are already taken on nearly every panel (top rail,
-               CRT layer, shimmer bar, sensor sweep), so these are painted as extra
-               background layers instead. */
+            /* CORNER BRACKETS + SCHEMATIC DOTS — painted as background layers because
+               ::before and ::after are already taken on nearly every panel. */
 
             .retro-theme {
                 --rt-bk-len: 12px;
@@ -19333,12 +18108,9 @@
                         bottom calc(var(--rt-bk-inset) - 1px) /
                         var(--rt-bk-dot) var(--rt-bk-dot) no-repeat;
 
-                /* Container ambient grid: plain 44px square lattice, not the hex one — the
-                   diagonal lattice fights the 45-degree hazard hatching. --rt-hex stays for
-                   panel interiors, where nothing is hatched. */
-                /* Position and size live IN the layer, as --rt-studs and --rt-brackets do.
-                   Mixing the two styles (sizes inside the shorthand for some layers, a
-                   separate background-size for others) makes the longhand lists disagree. */
+                /* Container grid: square, not hex, which fights the 45-degree hatching.
+                   Position and size live IN each layer, as in --rt-studs and
+                   --rt-brackets, so the longhand lists never disagree. */
                 --rt-grid-sq:
                     linear-gradient(var(--rt-grid) 1px, transparent 1px)
                         left top / 44px 44px,
@@ -19363,10 +18135,9 @@
                         var(--rt-grid) 0 1px, transparent 1px 19px);
             }
 
-            /* KEYFRAMES — rt-prefixed so they cannot collide with the shared
-               glassmorphic set. Every one animates transform, opacity, filter or
-               background-position ONLY. Nothing animates box-shadow: an animated
-               box-shadow overrides the static declaration outright. */
+            /* KEYFRAMES — rt-prefixed to avoid the glassmorphic set. Transform, opacity,
+               filter or background-position ONLY: an animated box-shadow overrides the
+               static declaration outright. */
 
             @keyframes rtRailFlow {
                 0%   { background-position: 0% 50%; }
@@ -19406,7 +18177,6 @@
                 100% { transform: translateX(220%); }
             }
 
-            /* One clean linear pass, far enough to clear the edges. */
             @keyframes rtMeterSweep {
                 0%   { transform: translateX(-100%); }
                 100% { transform: translateX(200%); }
@@ -19446,16 +18216,14 @@
                 100% { opacity: 1; transform: translateY(0) scaleY(1); filter: none; }
             }
 
-            /* The run holds its text twice, so -50% lands exactly on the
-               start of the second copy and the loop is invisible. */
+            /* The run holds its text twice; -50% lands on the second copy. */
             @keyframes rtTicker {
                 0%   { transform: translateX(0); }
                 100% { transform: translateX(-50%); }
             }
 
-            /* translateY percentages resolve against the BAND's own height, not the
-               container's — 2400% of a 64px band is 1536px of travel, enough for a
-               centre column over 1000px tall with the table expanded. */
+            /* Percentages resolve against the 64px BAND, not the container: 2400% is
+               1536px of travel, enough for a 1000px+ column with the table expanded. */
             @keyframes rtSweepDown {
                 0%   { transform: translateY(-100%); }
                 100% { transform: translateY(2400%); }
@@ -19467,9 +18235,8 @@
                 100%      { opacity: 1; }
             }
 
-            /* Used by the compact-PiP display, which lives outside this block but
-               belongs to this theme. Animates filter only, so it composites over the
-               declared shadow and follows the Glow tokens. */
+            /* For the compact-PiP display (outside this block). Filter only, so it
+               composites over the declared shadow and follows the Glow tokens. */
             @keyframes rtGlowBreathe {
                 0%, 100% {
                     filter: drop-shadow(0 0 calc(12px * var(--rt-glow-k))
@@ -19481,11 +18248,8 @@
                 }
             }
 
-            /* MAIN CONTAINER
-               No filter here, deliberately: a filter on an ancestor becomes the
-               containing block for position:fixed descendants, and the widget has two
-               (#aim-results and .lb-ach-popover) that must position against the
-               viewport. */
+            /* MAIN CONTAINER — never a filter: it would become the containing block
+               for the position:fixed #aim-results and .lb-ach-popover. */
 
             .attendance-summary.retro-theme {
                 background:
@@ -19524,12 +18288,9 @@
                 opacity: 1;
             }
 
-            /* CRT layer + vignette + a hazard strip along the bottom edge.
-               THREE LAYERS, TWO DIRECTIONS, NO TRANSFORM: a transform moves every
-               layer it paints, so the bottom hazard strip would travel with the
-               scanline jitter. Animate background-position instead — the scanlines
-               move vertically, the hazard strip horizontally, and the vignette is
-               static. */
+            /* CRT layer + vignette + bottom hazard strip. NO TRANSFORM: it would move
+               every layer together. background-position moves the scanlines
+               vertically and the strip horizontally; the vignette stays put. */
             .attendance-summary.retro-theme::after {
                 content: '';
                 position: absolute;
@@ -19616,10 +18377,8 @@
                 animation-delay: 140ms;
             }
 
-            /* TITLE — aberrated display type, NOT a knocked-out plate. The permanent
-               fringe is --rt-aberr; the glitch burst adds two transient RGB ghosts.
-               A solid plate here would collide with the .rt-sec header bar directly
-               below it. */
+            /* TITLE — aberrated display type, NOT a knocked-out plate, which would
+               collide with the .rt-sec header bar directly below it. */
 
             .attendance-summary.retro-theme .summary-title {
                 font-family: 'Orbitron', sans-serif !important;
@@ -19639,8 +18398,8 @@
                 animation: rtGlitch 7s steps(1, end) infinite !important;
             }
 
-            /* The fringe above is mis-convergence; these two are the transient RGB
-               split during a glitch burst, at opacity 0 for 88% of the cycle. */
+            /* Transient RGB-split ghosts for the glitch burst; opacity 0 for 88% of
+               the cycle. */
             .attendance-summary.retro-theme .summary-title::before,
             .attendance-summary.retro-theme .summary-title::after {
                 content: attr(data-rt-text);
@@ -19676,8 +18435,7 @@
                         rgba(var(--rt-glow-rgb), calc(0.85 * var(--rt-glow-k)))) !important;
             }
 
-            /* HUD CHROME — decorative only: faint tone, pointer-transparent,
-               unselectable. */
+            /* HUD CHROME — decorative only. */
 
             .attendance-summary.retro-theme .rt-hud-rail {
                 display: flex;
@@ -19735,15 +18493,10 @@
                 background: var(--rt-comb);
             }
 
-            /* SECTION HEADER — glyph bar, letterspaced caps, hazard filler, right
-               aligned mono readout. Repeated on every panel. */
-
-            /* Rendered as a caption element on .modern-table so it sits inside the
-               clipped plate; a sibling div above the table would be outside it, and a
-               wrapper would re-flow Glassmorphic.
-               THE DISPLAY MUST STAY table-caption: setting display:flex stops it being
-               a proper table child, so the browser wraps it in an anonymous box and it
-               narrows to one column. An inner element does the flex layout instead. */
+            /* SECTION HEADER — glyph bar, caps, hazard filler, mono readout; on every
+               panel. On the table it is a caption, so it sits inside the clipped plate.
+               THE DISPLAY MUST STAY table-caption: display:flex gets it wrapped in an
+               anonymous box that narrows to one column. An inner element flexes. */
             .attendance-summary.retro-theme .rt-sec {
                 --rt-sec-c: var(--rt-data);
                 border-bottom: 1px solid rgba(var(--rt-border-rgb), 0.30);
@@ -19821,9 +18574,7 @@
                 user-select: none;
             }
 
-            /* SYS TICKER — translateX on a duplicated string, so it composites. The run
-               holds its text twice and travels exactly -50%, putting the loop point on
-               the start of the second copy. */
+            /* SYS TICKER — translateX on a duplicated string, so it composites. */
 
             .attendance-summary.retro-theme .rt-ticker {
                 display: flex;
@@ -19847,11 +18598,8 @@
                     transparent, #000 3%, #000 97%, transparent);
                 -webkit-mask-image: linear-gradient(90deg,
                     transparent, #000 3%, #000 97%, transparent);
-                /* Game Mode OFF sizes the widget with width:fit-content, which asks every
-                   descendant how wide it would like to be unconstrained — and a
-                   white-space:nowrap span answers with its full un-wrapped width, blowing
-                   the widget out. The ticker is therefore width:0 / min-width:100% so it
-                   contributes nothing to the intrinsic measurement. */
+                /* Keeps the nowrap run out of the intrinsic width that Game Mode OFF's
+                   width:fit-content measures; otherwise it blows the widget out. */
                 contain: inline-size;
             }
 
@@ -19907,9 +18655,7 @@
                 overflow: hidden;
             }
 
-            /* The column header is deliberately quiet: the table already carries a
-               .rt-sec header directly above it, and two heavy bars stacked read as a
-               mistake rather than a hierarchy. */
+            /* Quiet on purpose: two heavy bars stacked under .rt-sec read as a mistake. */
             .attendance-summary.retro-theme .modern-table thead {
                 background:
                     var(--rt-hazard-dim) left top / 100% 3px no-repeat,
@@ -19933,9 +18679,8 @@
                 border-bottom: 1px dashed rgba(var(--rt-border-rgb), 0.20) !important;
             }
 
-            /* COLUMN COLOUR CODING — by meaning, not by row. Column order is the
-               host's: # / check-in / check-out / worked / difference. Two hues and a
-               dim tone across the five. Scoped to tbody so the footer is unaffected. */
+            /* COLUMN COLOUR CODING by meaning. Host column order: # / check-in /
+               check-out / worked / difference. tbody only, so the footer is unaffected. */
             .attendance-summary.retro-theme .modern-table tbody td:nth-child(1) {
                 color: var(--rt-text-faint) !important;
                 font-size: 0.7rem !important;
@@ -19973,9 +18718,8 @@
                 border-bottom: 0 !important;
             }
 
-            /* Hazard-hatched footer: a single colspan cell in tfoot, inside the plate
-               for the same reason the header is a caption. The cell keeps
-               display:table-cell; an inner element does the flex layout. */
+            /* Footer: one colspan cell in tfoot, inside the plate. It keeps
+               display:table-cell; an inner element flexes. */
             .attendance-summary.retro-theme .modern-table td.rt-tbl-foot {
                 padding: 0 !important;
                 border-top: 1px solid rgba(var(--rt-border-rgb), 0.30) !important;
@@ -20009,10 +18753,8 @@
                 color: var(--rt-accent);
             }
 
-            /* STAT CARDS
-               The breathing glow is a filter, not an animated box-shadow: an animated
-               property beats the static declaration outright, which would leave every
-               declared shadow layer here unrendered. */
+            /* STAT CARDS — glow is a filter: an animated box-shadow would override
+               every declared shadow layer. */
 
             .attendance-summary.retro-theme .stat-card {
                 background:
@@ -20092,9 +18834,8 @@
                 animation-delay: 3.6s;
             }
 
-            /* Per-card identity lives in the bracket, the border and the hazard tab —
-               never in the type. A dark Highlight must not be able to hide a number,
-               and no control could undo it if it did. */
+            /* Per-card identity lives in bracket, border and hazard tab, never in the
+               type: a dark Highlight must not be able to hide a number. */
             .attendance-summary.retro-theme .stat-card.worked-time-card {
                 --rt-bk-c: var(--rt-data);
                 border: 1px solid rgba(var(--rt-data-rgb), 0.35) !important;
@@ -20106,9 +18847,8 @@
                 clip-path: var(--rt-clip-alt);
             }
 
-            /* THE HERO CARD — the time-remaining figure: tinted fill, solid accent
-               border, wide bloom, largest type. The two flanking cards are reference
-               values and stay quiet. */
+            /* THE HERO CARD — time remaining gets the emphasis; the flanking cards are
+               reference values and stay quiet. */
             .attendance-summary.retro-theme .stat-card.remaining-time-card {
                 --rt-bk-c: var(--rt-accent);
                 background:
@@ -20131,8 +18871,7 @@
                         rgba(var(--rt-glow-rgb), calc(0.55 * var(--rt-glow-k))) !important;
             }
 
-            /* The sublabel the host renders. Small, dim and wide: it is a caption and
-               must not compete with the number above it. */
+            /* Host sublabel: a caption, so it must not compete with the number. */
             .attendance-summary.retro-theme .remaining-desc {
                 font-family: 'Rajdhani', sans-serif !important;
                 font-weight: 600 !important;
@@ -20191,9 +18930,8 @@
                 z-index: 2;
             }
 
-            /* DAY TIMELINE — an hour ruler, a tick comb, a chevron-hatched fill, the
-               break bitten out in hazard stripes, and a hard playhead at the boundary,
-               so position in the day is readable, not just percentage done. */
+            /* DAY TIMELINE — hour ruler, tick comb, chevron fill and a hard playhead,
+               so position in the day reads, not just percentage done. */
 
             .attendance-summary.retro-theme .rt-ruler {
                 display: flex;
@@ -20250,17 +18988,14 @@
                     0 0 calc(26px * var(--rt-glow-k))
                         rgba(var(--rt-glow-rgb), calc(0.5 * var(--rt-glow-k))) !important;
                 position: relative;
-                /* HIDDEN, and load-bearing. The highlight sweep is a child of this element
-                   and travels well past both ends; with overflow visible it runs out across
-                   the whole widget. */
+                /* Load-bearing: the highlight sweep child travels past both ends and
+                   would otherwise run across the whole widget. */
                 overflow: hidden;
                 border-radius: 0 !important;
             }
 
-            /* PLAYHEAD — a hard bright edge at the boundary, standing proud of the
-               track top and bottom. It belongs to the TRACK, not the fill: as a child
-               of .progress-fill it would be clipped by the fill's own overflow and
-               would ride the fill's width transition a frame behind the number. */
+            /* PLAYHEAD — on the TRACK, not the fill: inside .progress-fill it would be
+               clipped by the fill's overflow and lag its width transition. */
             .attendance-summary.retro-theme .progress-bar::after {
                 content: '';
                 position: absolute;
@@ -20294,10 +19029,8 @@
                 animation: rtMeterSweep 2.2s linear infinite !important;
             }
 
-            /* Everything the host renders FOR this theme must disappear in Glassmorphic.
-               The markup is shared — renderFullContent() emits one tree for both themes —
-               so an rt-* element styled only under .retro-theme still needs an explicit
-               display:none under .attendance-summary:not(.retro-theme). */
+            /* renderFullContent() emits one tree for both themes, so every rt-* element
+               needs an explicit hide rule here for Glassmorphic. */
             .attendance-summary:not(.retro-theme) .rt-hud-rail,
             .attendance-summary:not(.retro-theme) .rt-sec,
             .attendance-summary:not(.retro-theme) .rt-subcode,
@@ -20441,9 +19174,8 @@
                         rgba(var(--rt-glow-rgb), calc(0.45 * var(--rt-glow-k))) !important;
             }
 
-            /* SEGMENTED XP — discrete slabs with slanted ends, because a segmented
-               meter reads as a count and XP is a count. The host renders one continuous
-               fill, so the gaps are knocked back out over the top. */
+            /* SEGMENTED XP — XP is a count. The host renders one continuous fill, so
+               the gaps are knocked back out over the top. */
             .attendance-summary.retro-theme .xp-progress-bar::after {
                 content: '';
                 position: absolute;
@@ -20526,10 +19258,8 @@
                 color: var(--rt-bg-1) !important;
             }
 
-            /* IMAGE BOX — the frame, its kebab and hint, the drop zone, the options menu and
-               the Undo toast. Selected states invert to a text fill, as every Cyberpunk
-               toggle does; Remove takes the accent because it is the one action aimed at
-               something, and the theme has no fixed red to spend on it. */
+            /* IMAGE BOX — selected states invert to a text fill like every toggle;
+               Remove takes the accent because the theme has no fixed red. */
 
             .attendance-summary.retro-theme .image-display {
                 background: var(--rt-bg-1) !important;
@@ -20722,19 +19452,15 @@
             /* SETTINGS MODAL — body-level, so it reads the tokens applyPreferences()
                mirrors onto documentElement. */
 
-            /* EMOJI TINT handles. Declared on the body scope, not inside .retro-theme,
-               because the settings modal is body-level and cannot see a property
-               declared on the widget. Each set gets its own hue-rotate so the tint
-               lands on the same perceived colour whatever the source glyph. */
+            /* EMOJI TINT handles, on body scope so the body-level modal sees them. */
             body:has(.retro-theme) {
                 --rt-emo-tint: url(#rt-emoji-tint);
                 --rt-emo-progress: var(--rt-emo-tint);
             }
 
 
-            /* A bare wrapper around a single emoji and nothing else: a filter applies
-               to everything its element paints, so tinting .game-switch-btn directly
-               would duotone its border and its knocked-out glyphs too. */
+            /* A bare wrapper around one emoji: a filter on the button itself would
+               duotone its border and knocked-out glyphs too. */
             body:has(.retro-theme) .rt-emo {
                 display: inline-block;
                 filter: var(--rt-emo-tint, opacity(1));
@@ -20811,25 +19537,17 @@
             /* ═══════════════════════════════════════════════════════════════
                8-BALL POOL — HUD THEME (v2)
                ═══════════════════════════════════════════════════════════════
-               Layout, components and states follow the design canvas; colour,
-               type and shape come from the widget's own presets. Every rule
-               below the token blocks reads only --pool-* properties, and the
-               token blocks are the only place those are mapped:
+               Colour, type and shape come from the widget's presets. Rules below
+               the token blocks read only --pool-* properties, mapped only in:
                  1  Glassmorphic Aurora, dark (the default)
                  2  Glassmorphic Aurora, light (prefers-color-scheme)
                  3  Cyberpunk HUD (user-picked colours, so no light variant)
-               Overlays sit on the felt, not on the panel, so they stay dark
-               glass in light mode too. The table and balls are physical and
-               drawn on the canvas from their own materials.
-               Nothing here sets clip-path or filter on .ph-view or anything
-               around it: the canvas and its popovers live inside.
-
-               Scope is ".retro-theme .pool-hud", not ".attendance-summary …",
-               because the Max view lives in a body-level modal: its root carries
-               copies of the widget's retro-theme and shape classes, so the
-               Cyberpunk tokens (declared on .retro-theme) resolve there too.
-               The Cyberpunk block comes after the light block and redefines
-               everything it sets, so light mode never leaks into Cyberpunk. */
+               Overlays sit on the felt, so they stay dark glass in light mode.
+               Never clip-path or filter on .ph-view or around it: the canvas
+               and its popovers live inside.
+               Scope is ".retro-theme .pool-hud": the body-level Max modal copies
+               the widget's theme classes, so Cyberpunk tokens resolve there too.
+               Cyberpunk follows the light block and redefines all it sets. */
 
             .pool-hud {
                 --pool-card: rgba(255, 255, 255, 0.08);
@@ -20846,9 +19564,8 @@
                 --pool-accent: var(--aurora-4);
                 --pool-accent-rgb: 79, 172, 254;
                 /* The accent as text on the panel (tags, the Max trophy); overlays on the felt keep --pool-accent. */
-                /* On the dark panel the aurora accent and the hot red read under 4.5:1 at tag size,
-                   so their text forms are lifted toward white. --pool-accent-lite is the same for
-                   accent text on the dark glass overlays (the sheet's chip). */
+                /* The accent and hot red read under 4.5:1 at tag size on the dark panel, so their
+                   text forms are lifted toward white; --pool-accent-lite does it on dark glass. */
                 --pool-accent-lite: color-mix(in srgb, var(--pool-accent) 62%, #ffffff);
                 --pool-accent-ink: var(--pool-accent-lite);
                 --pool-hot-ink: color-mix(in srgb, var(--pool-hot) 58%, #ffffff);
@@ -20913,8 +19630,7 @@
                 --pool-muted: var(--rt-text-dim);
                 /* Cyberpunk's faint tone is decoration-grade; text that means something takes dim. */
                 --pool-faint: var(--rt-text-dim);
-                /* The theme's one allowed inversion: a --rt-text fill with --rt-bg-1
-                   type. An accent fill carrying text is never allowed in Cyberpunk. */
+                /* The one allowed inversion: --rt-text fill, --rt-bg-1 type. Never an accent fill with text. */
                 --pool-primary: var(--rt-text);
                 --pool-primary-text: var(--rt-bg-1);
                 --pool-accent: var(--rt-accent);
@@ -20954,13 +19670,10 @@
             }
 
             /* ── Components ─────────────────────────────────────────────── */
-            /* The design is 368 wide, but the widget's side panel is 350 on screens up
-               to 1400 px (316 for the HUD) and full width below 1200. So the compact HUD
-               is fluid: the viewport keeps 368:412, the overlays that run down it are
-               anchored to its height (they land on the design's pixels at 368), and
-               below 360 px wide the camera toggle drops its "AUTO" suffix. It stops
-               growing at 420 px so a stacked layout does not get a table taller than
-               the screen. */
+            /* The compact HUD is fluid (the side panel is 316 px up to 1400, full width
+               below 1200): the viewport keeps 368:412, overlays anchor to its height,
+               below 360 px the camera toggle drops "AUTO", and it stops at 420 px wide
+               so a stacked layout's table is never taller than the screen. */
             .pool-hud {
                 display: flex;
                 flex-direction: column;
@@ -21057,10 +19770,9 @@
                 color: var(--pool-overlay-text);
             }
             .pool-hud [hidden] { display: none !important; }
-            /* Out of the way of the shot (phShy): an overlay the shot passes under fades, and stays
-               a working control. In 3D it comes back while the pointer is on it (3D aim follows the
-               mouse's movement, so reaching it does not move the shot); in 2D the pointer is the aim,
-               often out toward the pocket, so it stays see-through. Focus brings it back in both. */
+            /* phShy: an overlay the shot passes under fades but stays usable. In 3D hover brings
+               it back (3D aim follows mouse movement); in 2D the pointer is the aim, so it stays
+               see-through. Focus brings it back in both. */
             .pool-hud .ph-cam, .pool-hud .ph-pill, .pool-hud .ph-lean, .pool-hud .ph-spin, .pool-hud .ph-hint,
             .pool-hud .ph-mini, .pool-hud .ph-chips, .pool-hud .ph-replace { transition: opacity 0.15s ease; }
             .pool-hud .ph-layer > [data-shy] { opacity: 0.22; }
@@ -21119,7 +19831,7 @@
                 cursor: ns-resize; writing-mode: vertical-lr; direction: rtl;
             }
 
-            /* Anchored above Move cue ball and the hint: at 412 tall this is the design's 190–330. */
+            /* Anchored above Move cue ball and the hint. */
             .pool-hud .ph-gauge {
                 right: 12px; bottom: 82px; width: 8px; height: min(140px, calc(100% - 232px)); border-radius: 4px; overflow: hidden;
                 background: var(--pool-overlay); border: 1px solid var(--pool-overlay-line); opacity: 0.45;
@@ -21152,8 +19864,7 @@
             .pool-hud .ph-spin-ball { cursor: grab; touch-action: none; }
             .pool-hud .ph-spin-ball:active { cursor: grabbing; }
 
-            /* The spin picker: a big ball face above the control, the miscue ring
-               (0.6 R) drawn on it, and the presets beside it. */
+            /* The spin picker: a big ball face with the miscue ring (0.6 R), presets beside it. */
             .pool-hud .ph-spinpop {
                 left: 10px; bottom: 62px; z-index: 3; box-sizing: border-box; padding: 10px;
                 display: flex; flex-direction: column; gap: 8px; border-radius: var(--pool-radius);
@@ -21206,9 +19917,8 @@
             .pool-hud .ph-replace:hover { border-color: rgba(var(--pool-accent-rgb), 0.6); color: var(--pool-accent); }
             .pool-hud .ph-replace:focus-visible { outline: 2px solid var(--pool-accent); outline-offset: 2px; }
 
-            /* The call card (3D): the hint's corner, holding the hint's line and the pocket map,
-               so calling adds nothing else to the table. Bottom right is the near rail in the
-               chase camera, clear of the shot. Six 24 px targets on a 52 x 26 table. */
+            /* The call card (3D): the hint's corner holds the hint and the pocket map (six 24 px
+               targets on a 52 x 26 table); bottom right is the near rail, clear of the shot. */
             .pool-hud .ph-mini {
                 right: 10px; bottom: 10px; min-width: 88px; width: max-content; box-sizing: border-box; padding: 5px 6px 6px; border-radius: var(--pool-radius-sm);
                 display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: auto;
@@ -21230,8 +19940,8 @@
             }
             .pool-hud .ph-mini-pad button[aria-pressed="true"] span { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.25); }
             .pool-hud .ph-mini-pad button:hover span { border-color: var(--pool-accent); }
-            /* While the card holds the corner: the gauge and its padlock step up over it, and
-               Move cue ball goes bottom left, over the spin control (the lean slider is hidden). */
+            /* With the card in the corner, the gauge and padlock step up over it and Move cue ball
+               goes bottom left (the lean slider is hidden). */
             .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-gauge { bottom: 98px; height: min(140px, calc(100% - 248px)); }
             .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-lock { bottom: calc(102px + min(140px, calc(100% - 248px))); }
             .pool-hud[data-layout="compact"] .ph-view.is-calling .ph-replace { right: auto; left: 10px; bottom: 62px; }
@@ -21288,8 +19998,7 @@
             .pool-hud .ph-handoff-from { font-size: 11px; color: var(--pool-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .pool-hud .ph-handoff .ph-primary { height: 44px; padding: 0 14px; font-size: 13px; letter-spacing: 0.06em; white-space: nowrap; }
 
-            /* Cyberpunk shape: buttons get the .snake-btn corner cut; panels keep
-               only the radius (never clip-path on the viewport or its parents). */
+            /* Cyberpunk: buttons get the .snake-btn corner cut; panels keep only the radius. */
             .retro-theme .pool-hud .ph-btn,
             .retro-theme .pool-hud .ph-primary {
                 clip-path: polygon(7px 0, 100% 0, 100% 100%, 0 100%, 0 7px);
@@ -21300,7 +20009,7 @@
             /* Orbitron runs wide: a card tag in it squeezes the name to a few letters. */
             .retro-theme .pool-hud .ph-tag { font-family: var(--pool-num); letter-spacing: 0.08em; font-size: 10px; }
 
-            /* ── Max layout (Max.dc.html) ───────────────────────────────── */
+            /* ── Max layout ─────────────────────────────────────────────── */
             .pool-hud[data-layout="max"] { gap: 16px; height: 100%; }
             .pool-hud[data-layout="max"] .ph-top {
                 height: 64px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 24px;
@@ -21357,10 +20066,8 @@
             .pool-hud[data-layout="max"] .ph-handoff { width: 520px; align-self: center; }
 
             /* ── The Max view's surface ─────────────────────────────────── */
-            /* toggleGameMaxModal builds the overlay and panel (cfg.build); pool
-               empties the panel and draws its own 1280 x 800 frame, scaled to fit
-               the window by poolFitMax(). The frame is body-level, so it carries
-               copies of the widget's theme classes for Cyberpunk to resolve. */
+            /* Pool fills toggleGameMaxModal's panel with its own 1280 x 800 frame, scaled by
+               poolFitMax(); body-level, it copies the widget's theme classes. */
             .pool-modal-panel.pool-max-panel {
                 position: relative;
                 width: auto;
@@ -21421,8 +20128,7 @@
             .pool-hud .ph-card.is-tight .ph-tag-long { display: none; }
             .pool-hud .ph-card.is-tight .ph-tag-short { display: inline; }
             .pool-hud .ph-spin-side-s { display: none; }
-            /* Snooker's break-off pill ("Break-off · in the D") in Cyberpunk's wider face would meet the
-               toggle's "2D · AUTO": the toggle says 2D, as it does in the widget's column. */
+            /* Cyberpunk's wider face: snooker's break-off pill would meet "2D · AUTO", so the toggle says 2D. */
             .retro-theme .pool-hud[data-game="snooker"][data-layout="compact"] .ph-cam-more { display: none; }
             @container pool-hud (max-width: 359px) {
                 .pool-hud .ph-spin-side { display: none; }
@@ -21432,10 +20138,9 @@
             .pool-hud .ph-handoff.is-tight .ph-ready-long { display: none; }
             .pool-hud .ph-handoff.is-tight .ph-ready-short { display: inline; }
 
-            /* ── The Game mode sheet (InMatch.dc.html, ModeSheet) ─────────── */
-            /* A bottom sheet over the whole panel: the modes, then the CPU's
-               difficulty (Adaptive carries a chip with the tier it plays now), or
-               the 2 Players explainer. */
+            /* ── The Game mode sheet ─────────────────────────────────────── */
+            /* A bottom sheet: the modes, then the CPU's difficulty (Adaptive shows its
+               current tier) or the 2 Players explainer. */
             .pool-hud { position: relative; }
             .pool-hud .ph-sheet-scrim {
                 position: absolute; inset: 0; z-index: 8; border-radius: var(--pool-radius);
@@ -21528,9 +20233,8 @@
             .pool-hud .ph-sheet-links .ph-btn.is-hot { color: var(--pool-hot-lite); border-color: rgba(var(--pool-hot-rgb), 0.5); }
 
             /* ── Tournament screens (pool-tour-ui.js) ───────────────────── */
-            /* Each screen covers the whole panel, opaque; its body scrolls and its
-               primary button stays pinned at the bottom. Dialogs sit on the table
-               in the frame-over dialog's dark glass. */
+            /* Each screen covers the panel; its body scrolls, its primary button stays pinned.
+               Dialogs sit on the table in dark glass. */
             .pool-hud .pu-screen {
                 position: absolute; inset: 0; z-index: 12; overflow: hidden; border-radius: var(--pool-radius);
                 background: var(--pool-screen); color: var(--pool-text); color-scheme: var(--pool-scheme);
@@ -21681,7 +20385,7 @@
             .pool-hud .pu-chip.is-next { border-color: rgba(var(--pool-accent-rgb), 0.5); color: var(--pool-accent-ink); }
             .pool-hud .pu-chip.is-bye { color: var(--pool-faint); }
 
-            /* The tree (the design's geometry, laid out by puTree) */
+            /* The tree (laid out by puTree) */
             .pool-hud .pu-mini { overflow: hidden; flex-shrink: 0; }
             .pool-hud .pu-tree { position: relative; flex-shrink: 0; }
             .pool-hud .pu-tree > svg { position: absolute; left: 0; top: 0; overflow: visible; }
@@ -21857,8 +20561,7 @@
             .pool-hud .pu-dlg .pu-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--pool-overlay-text); }
             .pool-hud .pu-dlg .pu-btn.is-hot { color: var(--pool-hot-lite); border-color: rgba(var(--pool-hot-rgb), 0.5); }
 
-            /* Max: the bracket and champion have their own full layouts; the rest
-               keep the compact column, centred. */
+            /* Max: the bracket and champion have full layouts; the rest keep the column, centred. */
             .pool-hud[data-layout="max"] .pu-screen { border-radius: 18px; border: 0; }
             .pool-hud[data-layout="max"] .pu-screen-in:not(.is-max) { width: 456px; margin: 0 auto; padding: 24px 8px; }
             .pool-hud[data-layout="max"] .pu-screen-in.is-max { padding: 0; gap: 16px; }
@@ -21894,11 +20597,9 @@
                 .pool-hud .ph-sheet-mode { font-size: 11px; }
             }
 
-            /* ── Snooker (POOL_V2_PLAN.md, Snooker: the snk* artboards) ───── */
-            /* The same HUD with data-game="snooker": a tighter rhythm so the tracker row fits,
-               cards with a score and a third line, the tracker, the colour chips, the frame's
-               stats in the dialog, and the concede question. The balls' colours are materials,
-               set inline from the renderer's; everything else reads --pool-* only. */
+            /* ── Snooker ────────────────────────────────────────────────── */
+            /* data-game="snooker": a tighter rhythm for the tracker row, scored cards, colour
+               chips, frame stats and concede. Ball colours are set inline from the renderer's. */
             .pool-hud:not([data-game="snooker"]) .ph-l3, .pool-hud:not([data-game="snooker"]) .ph-score { display: none; }
             .pool-hud[data-game="snooker"] .ph-tag, .pool-hud[data-game="snooker"] .ph-group, .pool-hud[data-game="snooker"] .ph-open { display: none !important; }
             .pool-hud[data-game="snooker"][data-layout="compact"] { gap: 8px; }
@@ -21951,8 +20652,7 @@
             .pool-hud .ph-track-rem { font-size: 10px; letter-spacing: 0.12em; color: var(--pool-muted); white-space: nowrap; }
             .pool-hud .ph-track > * { flex-shrink: 0; }
             .pool-hud .ph-track > .ph-track-gap { flex-shrink: 1; }
-            /* With SNOOKERS REQ. and Concede in the row, the reds count keeps its dot and number
-               ("● × 2"); in the widget's column the colour dots give way too. Max has the room. */
+            /* With SNOOKERS REQ. and Concede in the row, reds shrink to "● × 2"; in the column the colour dots go too. */
             .pool-hud[data-layout="compact"] .ph-track.is-snk { gap: 6px; padding: 0 2px; }
             .pool-hud[data-layout="compact"] .ph-track.is-snk .ph-track-word { display: none; }
             /* Cyberpunk's wider label face needs 12 px more than the row has: its dots give way too. */
@@ -21983,9 +20683,8 @@
             .pool-hud .ph-chips.is-hot .ph-chips-cap { color: var(--pool-hot-lite); }
             .pool-hud .ph-chips.is-call { border-color: rgba(var(--pool-accent-rgb), 0.6); }
             .pool-hud .ph-chips.is-call .ph-chips-cap { color: var(--pool-accent-lite); }
-            /* Folded with a call to make (3D): the pocket map beside the chip. In compact the caption
-               goes under them (a 144 x 78 card, the widget's column included), and the gauge and its
-               padlock step up over it as they do over the call card; Max keeps it in a row. */
+            /* Folded with a call to make (3D): the pocket map beside the chip, the caption under
+               them in compact (a 144 x 78 card, gauge stepped up over it); Max keeps a row. */
             .pool-hud .ph-chips-pad { flex-shrink: 0; }
             .pool-hud[data-layout="compact"] .ph-chips[data-fold][data-pad] {
                 display: grid; grid-template-columns: auto auto; grid-template-areas: "chip pad" "cap cap"; align-items: center; justify-items: center; gap: 2px 6px; padding: 5px 8px 6px;
@@ -21995,12 +20694,10 @@
             .pool-hud[data-layout="compact"] .ph-chips[data-fold][data-pad] .ph-chips-pad { grid-area: pad; }
             .pool-hud[data-layout="compact"] .ph-view.is-nompad .ph-gauge { bottom: 98px; height: min(140px, calc(100% - 248px)); }
             .pool-hud[data-layout="compact"] .ph-view.is-nompad .ph-lock { bottom: calc(102px + min(140px, calc(100% - 248px))); }
-            /* While the chips hold the corner: the gauge and padlock step up over them, and
-               Move cue ball goes bottom left. */
+            /* With the chips in the corner, the gauge steps up and Move cue ball goes bottom left. */
             .pool-hud[data-layout="compact"] .ph-view.is-nominating:not(.is-nomfold) .ph-gauge { bottom: 146px; height: min(140px, calc(100% - 290px)); }
             .pool-hud[data-layout="compact"] .ph-view.is-nominating:not(.is-nomfold) .ph-lock { bottom: calc(150px + min(140px, calc(100% - 290px))); }
-            /* Folded once a colour is nominated: that chip and the caption in a row, the corner
-               free for the stroke; the chip opens the six again. */
+            /* Folded once nominated: that chip and the caption in a row; the chip reopens the six. */
             .pool-hud .ph-chips[data-fold] { width: max-content; flex-direction: row; align-items: center; gap: 4px; padding: 6px 14px 6px 6px; }
             .pool-hud .ph-chips[data-fold] .ph-chips-grid { display: flex; }
             .pool-hud .ph-chips[data-fold] .ph-chip { width: 44px; }
@@ -22016,14 +20713,14 @@
             .pool-hud .ph-dialog-stat-v { font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
             @container pool-hud (max-width: 359px) { .pool-hud .ph-dialog-stat-v { font-size: 15px; } }
 
-            /* Concede the frame? (SnkConcede): an alert dialog, CONCEDE hot. */
+            /* Concede the frame?: an alert dialog, CONCEDE hot. */
             .pool-hud .ph-dialog.is-alert { width: min(300px, calc(100% - 32px)); padding: 20px; gap: 14px; border-color: rgba(var(--pool-hot-rgb), 0.55); background: var(--pool-hot-edge) left top / 4px 100% no-repeat, var(--pool-overlay-strong); }
             .pool-hud .ph-dialog.is-alert .ph-dialog-icon { background: rgba(var(--pool-hot-rgb), 0.16); color: var(--pool-hot); }
             .pool-hud .ph-cdlg-t { display: flex; flex-direction: column; gap: 6px; }
             .pool-hud .ph-cdlg-t .ph-dialog-title { font-size: 22px; line-height: 1.15; }
             .pool-hud .ph-primary.is-hot { background: var(--pool-hot-fill); color: #ffffff; font-size: 14px; }
 
-            /* Max (SnkMaxRed / SnkMaxNominate / SnkMaxOver). */
+            /* Max. */
             .pool-max-frame.is-snooker { padding: 12px 24px 16px; }
             .pool-hud[data-game="snooker"][data-layout="max"] { gap: 8px; }
             .pool-hud[data-game="snooker"][data-layout="max"] .ph-frames { width: 80px; }
@@ -22040,20 +20737,13 @@
             .pool-hud[data-layout="max"] .ph-track-red { width: 10px; height: 10px; }
             .pool-hud[data-layout="max"] .ph-track-dots { gap: 6px; }
             .pool-hud[data-layout="max"] .ph-track-dot { width: 11px; height: 11px; }
-            .pool-hud[data-layout="max"] .ph-chips { right: 16px; bottom: 16px; width: 212px; padding: 12px 12px 14px; gap: 6px; }
-            .pool-hud[data-layout="max"] .ph-chips-grid { grid-auto-rows: 58px; }
-            .pool-hud[data-layout="max"] .ph-chip { height: 58px; }
+            .pool-hud[data-layout="max"] .ph-chips { right: 16px; bottom: 16px; }
             .pool-hud[data-layout="max"] .ph-chip span { width: 42px; height: 42px; font-size: 18px; }
             .pool-hud[data-layout="max"] .ph-chips-cap { font-size: 14px; }
-            .pool-hud[data-layout="max"] .ph-chips[data-fold] { width: max-content; padding: 8px 18px 8px 8px; gap: 6px; }
-            .pool-hud[data-layout="max"] .ph-chips[data-fold] .ph-chip { width: 58px; }
-            .pool-hud[data-layout="max"] .ph-view.is-nominating .ph-replace { right: auto; left: 16px; bottom: 100px; }
 
-            /* Max (S3 follow-up): the corner overlays leave the corners, where at true scale the
-               pockets are. ⚙️ Max View picks where they go: the full table (the design's 1232 × 672,
-               the default), with them on it between the corner and middle pockets and fading out of
-               the way of the shot (phShy); or the table between two bars (data-bars), with them off
-               it. Either way only the lean slider and the power gauge stay by the cushions. */
+            /* Max: the corner overlays leave the true-scale pockets. ⚙️ Max View puts them on the
+               full table (default; between corner and middle pockets, with phShy) or off it,
+               between two bars (data-bars). Only the lean slider and gauge stay by the cushions. */
             /* Both: spin, the chips and the call card in rows, 56 px tall. */
             .pool-hud[data-layout="max"] .ph-spin { height: 56px; padding: 0 18px 0 5px; border-radius: 28px; }
             .pool-hud[data-layout="max"] .ph-spin-ball { width: 46px; height: 46px; }
@@ -22065,14 +20755,12 @@
             .pool-hud[data-layout="max"] .ph-chips-grid { display: grid; grid-template-columns: repeat(6, 50px); grid-auto-rows: 50px; }
             .pool-hud[data-layout="max"] .ph-chips[data-fold] .ph-chips-grid { display: flex; }
             .pool-hud[data-layout="max"] .ph-chip, .pool-hud[data-layout="max"] .ph-chips[data-fold] .ph-chip { width: 50px; height: 50px; }
-            /* The full table: each centred on a long cushion between a corner and the middle
-               pocket, a quarter of the way in; Move cue ball and the spin picker above spin. */
+            /* Full table: each on a long cushion a quarter of the way in; Move cue ball and the picker above spin. */
             .pool-hud[data-layout="max"]:not([data-bars]) .ph-cam, .pool-hud[data-layout="max"]:not([data-bars]) .ph-spin, .pool-hud[data-layout="max"]:not([data-bars]) .ph-spinpop,
             .pool-hud[data-layout="max"]:not([data-bars]) .ph-view .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-view.is-calling .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-view.is-nominating .ph-replace { left: 25%; right: auto; transform: translateX(-50%); }
             .pool-hud[data-layout="max"]:not([data-bars]) .ph-pill, .pool-hud[data-layout="max"]:not([data-bars]) .ph-hint, .pool-hud[data-layout="max"]:not([data-bars]) .ph-mini, .pool-hud[data-layout="max"]:not([data-bars]) .ph-chips { left: 75%; right: auto; transform: translateX(-50%); }
             .pool-hud[data-layout="max"]:not([data-bars]) .ph-view .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-view.is-calling .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-view.is-nominating .ph-replace, .pool-hud[data-layout="max"]:not([data-bars]) .ph-spinpop { bottom: 84px; }
-            /* Between bars: the canvas is sized between them (poolFit measures it); canvas-placed
-               marks (the ball-in-hand note) are offset by the top bar. */
+            /* Between bars: poolFit sizes the canvas between them; canvas-placed marks offset by the top bar. */
             .pool-hud[data-layout="max"][data-bars] { --ph-bar-t: 60px; --ph-bar-b: 68px; }
             .pool-hud[data-layout="max"][data-bars] .ph-canvas { top: var(--ph-bar-t); height: calc(100% - var(--ph-bar-t) - var(--ph-bar-b)); }
             .pool-hud[data-layout="max"][data-bars] .ph-view::before {
@@ -22088,6 +20776,19 @@
             .pool-hud[data-layout="max"][data-bars] .ph-hint { bottom: 17px; }
             .pool-hud[data-layout="max"][data-bars] .ph-view .ph-replace, .pool-hud[data-layout="max"][data-bars] .ph-view.is-calling .ph-replace,
             .pool-hud[data-layout="max"][data-bars] .ph-view.is-nominating .ph-replace { left: 50%; right: auto; bottom: 18px; transform: translateX(-50%); }
+
+            /* The pool panel's title (poolRenderTitle): 🎱 | 🔴, the game on the table lit, then its name.
+               The 8-ball is black: fainter than 0.6 and it disappears on the dark panel. */
+            .pool-cue-switch { display: inline-flex; align-items: center; gap: 2px; padding: 2px; margin-right: 8px; vertical-align: middle; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.06); font: inherit; line-height: 1; cursor: pointer; }
+            .pool-cue-opt { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 20px; border-radius: 999px; font-size: 0.8rem; opacity: 0.6; transition: background 0.2s ease, opacity 0.2s ease; }
+            .pool-cue-opt.is-on { opacity: 1; background: rgba(108, 92, 231, 0.45); box-shadow: inset 0 0 0 1px rgba(162, 155, 254, 0.7); }
+            .pool-cue-switch:hover .pool-cue-opt:not(.is-on) { opacity: 0.85; }
+            .pool-cue-switch:focus-visible { outline: 2px solid rgba(162, 155, 254, 0.9); outline-offset: 2px; }
+            .pool-cue-name { vertical-align: middle; }
+            @media (prefers-color-scheme: light) {
+                .attendance-summary:not(.retro-theme) .pool-cue-switch { border-color: rgba(0, 0, 0, 0.14); background: rgba(0, 0, 0, 0.04); }
+                .attendance-summary:not(.retro-theme) .pool-cue-opt.is-on { background: rgba(108, 92, 231, 0.2); box-shadow: inset 0 0 0 1px rgba(108, 92, 231, 0.55); }
+            }
             /* ═══ END POOL THEME ═══ */
 
             /* Borderless PiP Window - Hide Browser Chrome */
@@ -22169,41 +20870,6 @@
                 font-weight: 600;
                 color: rgba(255, 255, 255, 0.9);
             }
-            /* The pool panel's title: 🎱 | 🔴, the game on the table lit, then its name. */
-            .pool-cue-switch {
-                display: inline-flex;
-                align-items: center;
-                gap: 2px;
-                padding: 2px;
-                margin-right: 8px;
-                vertical-align: middle;
-                border-radius: 999px;
-                border: 1px solid rgba(255, 255, 255, 0.18);
-                background: rgba(255, 255, 255, 0.06);
-                font: inherit;
-                line-height: 1;
-                cursor: pointer;
-            }
-            .pool-cue-opt {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                width: 24px;
-                height: 20px;
-                border-radius: 999px;
-                font-size: 0.8rem;
-                /* The 8-ball is black: much fainter and it disappears on the dark panel. */
-                opacity: 0.6;
-                transition: background 0.2s ease, opacity 0.2s ease;
-            }
-            .pool-cue-opt.is-on {
-                opacity: 1;
-                background: rgba(108, 92, 231, 0.45);
-                box-shadow: inset 0 0 0 1px rgba(162, 155, 254, 0.7);
-            }
-            .pool-cue-switch:hover .pool-cue-opt:not(.is-on) { opacity: 0.85; }
-            .pool-cue-switch:focus-visible { outline: 2px solid rgba(162, 155, 254, 0.9); outline-offset: 2px; }
-            .pool-cue-name { vertical-align: middle; }
             .snake-scoreboard {
                 display: flex;
                 gap: 12px;
@@ -22403,24 +21069,6 @@
                 flex-shrink: 0;
             }
             .game-lb-tabs::-webkit-scrollbar { display: none; }
-            .game-lb-tab {
-                flex: 0 0 auto;
-                padding: 3px 8px;
-                border-radius: 999px;
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                background: rgba(255, 255, 255, 0.05);
-                color: rgba(255, 255, 255, 0.6);
-                font-size: 0.62rem;
-                font-weight: 600;
-                cursor: pointer;
-                white-space: nowrap;
-            }
-            .game-lb-tab:hover { color: rgba(255, 255, 255, 0.9); }
-            .game-lb-tab.is-active {
-                background: rgba(108, 92, 231, 0.35);
-                border-color: rgba(162, 155, 254, 0.7);
-                color: #fff;
-            }
             /* Marks the board the next win actually lands on, so switching tabs
                to compare can't leave you unsure which one that is. */
             .game-lb-live {
@@ -22748,28 +21396,6 @@
                 }
             }
 
-            .reflex-mode-toggle {
-                position: absolute;
-                top: 10px;
-                right: 10px;
-                padding: 6px 12px;
-                background: rgba(255, 255, 255, 0.15);
-                backdrop-filter: blur(10px);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                border-radius: 8px;
-                color: white;
-                font-size: 0.75rem;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                z-index: 20;
-            }
-
-            .reflex-mode-toggle:hover {
-                background: rgba(255, 255, 255, 0.25);
-                transform: scale(1.05);
-            }
-
             #reflex-stats,
             #aim-stats {
                 background: rgba(0, 0, 0, 0.2);
@@ -22916,11 +21542,6 @@
                 transform: translateY(0);
                 /* Prevent animation resets from parent updates */
                 contain: layout style paint;
-            }
-
-            @keyframes fadeIn {
-                from { opacity: 0; transform: translateY(10px); }
-                to { opacity: 1; transform: translateY(0); }
             }
 
             @keyframes fadeOut {
@@ -23090,18 +21711,6 @@
             .achievement-badge.earned {
                 filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
                 opacity: 1;
-            }
-
-            .achievement-badge.unearned {
-                filter: grayscale(1) brightness(0.5);
-                opacity: 0.35;
-                transform: scale(0.85);
-            }
-
-            .achievement-badge.unearned:hover {
-                filter: grayscale(0.5) brightness(0.7);
-                opacity: 0.6;
-                transform: scale(1);
             }
 
             .achievement-badge:hover {
@@ -23986,13 +22595,6 @@
                 cursor: pointer;
             }
 
-            .tetris-wrapper {
-                display: flex;
-                justify-content: center;
-                align-items: flex-start;
-                width: 100%;
-            }
-
             /* Responsive adjustments */
             @media (max-width: 1400px) {
                 .attendance-summary {
@@ -24141,14 +22743,6 @@
                 #aim-stats {
                     background: rgba(0, 0, 0, 0.06);
                     color: rgba(0, 0, 0, 0.80);
-                }
-                .reflex-mode-toggle {
-                    background: rgba(0, 0, 0, 0.08);
-                    border-color: rgba(0, 0, 0, 0.12);
-                    color: rgba(0, 0, 0, 0.75);
-                }
-                .reflex-mode-toggle:hover {
-                    background: rgba(0, 0, 0, 0.14);
                 }
                 #reflex-results,
                 #aim-results {
@@ -24302,62 +22896,6 @@
                     box-shadow: 0 0 8px rgba(0, 0, 0, 0.25);
                 }
 
-                .attendance-summary:not(.retro-theme) .settings-modal {
-                    background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(248,248,252,0.96));
-                    border-color: rgba(0, 0, 0, 0.10);
-                    box-shadow: 0 20px 60px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.95);
-                }
-                .attendance-summary:not(.retro-theme) .settings-title {
-                    -webkit-text-fill-color: transparent;
-                }
-                .attendance-summary:not(.retro-theme) .settings-option {
-                    background: rgba(0, 0, 0, 0.03);
-                    border-color: rgba(0, 0, 0, 0.06);
-                }
-                .attendance-summary:not(.retro-theme) .settings-option:hover {
-                    background: rgba(0, 0, 0, 0.06);
-                }
-                .attendance-summary:not(.retro-theme) .settings-option-label {
-                    color: rgba(0, 0, 0, 0.85);
-                }
-                .attendance-summary:not(.retro-theme) .toggle-switch {
-                    background: rgba(0, 0, 0, 0.14);
-                }
-                .attendance-summary:not(.retro-theme) .settings-select {
-                    background: rgba(255, 255, 255, 0.88);
-                    border-color: rgba(0, 0, 0, 0.14);
-                    color: rgba(0, 0, 0, 0.85);
-                }
-                .attendance-summary:not(.retro-theme) .settings-select:hover {
-                    background: rgba(255, 255, 255, 0.96);
-                    border-color: rgba(0, 0, 0, 0.22);
-                }
-                .attendance-summary:not(.retro-theme) .settings-select option {
-                    background: #fff;
-                    color: #222;
-                }
-                .attendance-summary:not(.retro-theme) .settings-modal-overlay {
-                    background: rgba(0, 0, 0, 0.30);
-                }
-
-                .attendance-summary:not(.retro-theme) .pool-modal-panel {
-                    background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(248,248,252,0.96));
-                    border-color: rgba(0, 0, 0, 0.10);
-                    box-shadow: 0 24px 80px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.95);
-                }
-                .attendance-summary:not(.retro-theme) .pool-modal-title {
-                    color: rgba(0, 0, 0, 0.85);
-                }
-                .attendance-summary:not(.retro-theme) .pool-modal-close {
-                    background: rgba(0, 0, 0, 0.05);
-                    border-color: rgba(0, 0, 0, 0.10);
-                    color: rgba(0, 0, 0, 0.65);
-                }
-                .attendance-summary:not(.retro-theme) .pool-modal-close:hover {
-                    background: rgba(255, 80, 80, 0.12);
-                    color: #dc2626;
-                }
-
                 /* Attendance core (re-assert after retro theme) --- */
                 .attendance-summary:not(.retro-theme) {
                     background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(240,240,240,0.90));
@@ -24501,14 +23039,6 @@
                     color: #3d2fa8;
                 }
                 body:not(:has(.attendance-summary.retro-theme)) .settings-subhead { color: rgba(0, 0, 0, 0.6); }
-                .attendance-summary:not(.retro-theme) .pool-cue-switch {
-                    border-color: rgba(0, 0, 0, 0.14);
-                    background: rgba(0, 0, 0, 0.04);
-                }
-                .attendance-summary:not(.retro-theme) .pool-cue-opt.is-on {
-                    background: rgba(108, 92, 231, 0.2);
-                    box-shadow: inset 0 0 0 1px rgba(108, 92, 231, 0.55);
-                }
                 body:not(:has(.attendance-summary.retro-theme)) .pool-modal-panel:not(.pool-max-panel) {
                     background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(248,248,252,0.96));
                     border-color: rgba(0, 0, 0, 0.10);
@@ -24594,15 +23124,6 @@
                 opacity: 0.6;
                 cursor: not-allowed;
                 transform: none;
-            }
-            .lb-header {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-            }
-            .lb-title {
-                font-size: 1rem;
-                font-weight: 700;
             }
             .lb-sync-btn {
                 background: rgba(255,255,255,0.1);
@@ -24785,22 +23306,6 @@
                 padding: 0 2px;
             }
 
-            .lb-board-section {
-                margin-top: 10px;
-                border-top: 1px solid rgba(255, 255, 255, 0.12);
-                padding-top: 10px;
-            }
-            .lb-board-note {
-                font-size: 0.62rem;
-                opacity: 0.55;
-                white-space: nowrap;
-                flex-basis: 100%;
-            }
-            .lb-board-wrap {
-                max-height: 190px;
-                overflow-y: auto;
-                overflow-x: hidden;
-            }
             .lb-board-table td {
                 padding: 5px 6px;
             }
@@ -24846,6 +23351,34 @@
                 opacity: 0.6;
                 color: #fff;
                 white-space: nowrap;
+            }
+            /* Light mode: the boards' own surfaces (their text already follows the widget's).
+               The sticky rank and name cells stay opaque, so scrolled scores never show through. */
+            @media (prefers-color-scheme: light) {
+                .attendance-summary:not(.retro-theme) .lb-table-wrap { background: rgba(255, 255, 255, 0.65); border-color: rgba(0, 0, 0, 0.08); scrollbar-color: rgba(0, 0, 0, 0.25) transparent; }
+                .attendance-summary:not(.retro-theme) .lb-table-wrap::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.25); }
+                .attendance-summary:not(.retro-theme) .lb-table-wrap .lb-table thead th { background-color: rgba(240, 241, 247, 0.97) !important; border-bottom-color: rgba(0, 0, 0, 0.1); }
+                .attendance-summary:not(.retro-theme) .lb-table-wrap .lb-table thead .lb-rank,
+                .attendance-summary:not(.retro-theme) .lb-table-wrap .lb-table thead .lb-name { background-color: #f0f1f7 !important; }
+                .attendance-summary:not(.retro-theme) .lb-table tbody td { border-bottom-color: rgba(0, 0, 0, 0.06); }
+                .attendance-summary:not(.retro-theme) .lb-rank, .attendance-summary:not(.retro-theme) .lb-name { background: #fafafd; }
+                .attendance-summary:not(.retro-theme) .lb-name { box-shadow: 2px 0 6px rgba(0, 0, 0, 0.08); }
+                .attendance-summary:not(.retro-theme) .lb-table tbody tr:hover td:not(.lb-rank):not(.lb-name) { background: rgba(0, 0, 0, 0.035); }
+                .attendance-summary:not(.retro-theme) .lb-table tbody tr:hover .lb-rank,
+                .attendance-summary:not(.retro-theme) .lb-table tbody tr:hover .lb-name { filter: brightness(0.97); }
+                .attendance-summary:not(.retro-theme) .lb-row-me .lb-rank,
+                .attendance-summary:not(.retro-theme) .lb-row-me .lb-name { background: linear-gradient(rgba(102, 126, 234, 0.18), rgba(102, 126, 234, 0.18)), #fafafd; }
+                .attendance-summary:not(.retro-theme) .lb-level-pill { background: rgba(0, 0, 0, 0.05); border-color: rgba(0, 0, 0, 0.1); }
+                .attendance-summary:not(.retro-theme) .lb-you { background: rgba(102, 126, 234, 0.2); }
+                .attendance-summary:not(.retro-theme) .game-lb-overlay { background: rgba(250, 250, 253, 0.97); border-color: rgba(0, 0, 0, 0.1); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18); }
+                .attendance-summary:not(.retro-theme) .game-lb-head { color: rgba(0, 0, 0, 0.85); border-bottom-color: rgba(0, 0, 0, 0.08); }
+                .attendance-summary:not(.retro-theme) .game-lb-close { color: rgba(0, 0, 0, 0.5); }
+                .attendance-summary:not(.retro-theme) .game-lb-close:hover { color: #000; }
+                .attendance-summary:not(.retro-theme) .game-lb-foot { border-top-color: rgba(0, 0, 0, 0.08); }
+                .attendance-summary:not(.retro-theme) .game-lb-live { color: #00977a; }
+                .attendance-summary:not(.retro-theme) .game-lb-tab { border-color: rgba(0, 0, 0, 0.12); background: rgba(0, 0, 0, 0.03); color: rgba(0, 0, 0, 0.68); }
+                .attendance-summary:not(.retro-theme) .game-lb-tab:hover { color: rgba(0, 0, 0, 0.9); }
+                .attendance-summary:not(.retro-theme) .game-lb-tab.is-active { background: rgba(108, 92, 231, 0.16); border-color: rgba(108, 92, 231, 0.55); color: #3d2fa8; }
             }
         </style>
     `;
@@ -25002,6 +23535,16 @@
         }
     }
 
+    // A ⚙️ dropdown row: the pref it sets, its label and its [value, text] options. A value it does
+    // not offer shows def (the first option unless given); id names the select, row adds attributes.
+    function sel(pref, label, options, { def = options[0][0], id, row = '' } = {}) {
+        const v = String(userPreferences[pref]), cur = options.some(o => o[0] === v) ? v : def;
+        return `<div class="settings-option"${row}>
+                    <span class="settings-option-label">${label}</span>
+                    <select class="settings-select" data-pref="${pref}"${id ? ` id="${id}"` : ''}>${options.map(([val, text]) => `<option value="${val}"${val === cur ? ' selected' : ''}>${text}</option>`).join('')}</select>
+                </div>`;
+    }
+
     function createSettingsModal() {
         const overlay = document.createElement('div');
         overlay.id = 'settings-modal-overlay';
@@ -25030,33 +23573,15 @@
                         ${SHIFT_DURATIONS.map(([v, name]) => `<option value="${v}" ${userPreferences.shiftDuration === v ? 'selected' : ''}>${v} — ${name}</option>`).join('')}
                     </select>
                 </div>
-                <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">😎</span> Emoji Style</span>
-                    <select class="settings-select" data-pref="emojiSet">
-                        <option value="fun" ${userPreferences.emojiSet === 'fun' ? 'selected' : ''}>Fun (GenZ)</option>
-                        <option value="none" ${userPreferences.emojiSet === 'none' ? 'selected' : ''}>None (No Emoji)</option>
-                    </select>
-                </div>
+                ${sel('emojiSet', '<span class="rt-emo">😎</span> Emoji Style', [['fun', 'Fun (GenZ)'], ['none', 'None (No Emoji)']])}
                 <div class="settings-option">
                     <span class="settings-option-label"> Game Mode <small style="opacity:0.6;font-size:0.75rem;">Hides side panels</small></span>
                     <div class="toggle-switch ${userPreferences.gameModeHidden ? 'active' : ''}" data-pref="gameModeHidden"></div>
                 </div>
-                <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">🖥️</span> VSync</span>
-                    <select class="settings-select" data-pref="gameFps" id="fps-selector">
-                        <option value="60" ${userPreferences.gameFps === 60 || userPreferences.gameFps === '60' ? 'selected' : ''}>Full (60 FPS)</option>
-                        <option value="30" ${userPreferences.gameFps === 30 || userPreferences.gameFps === '30' ? 'selected' : ''}>Half (30 FPS)</option>
-                    </select>
-                </div>
+                ${sel('gameFps', '<span class="rt-emo">🖥️</span> VSync', [['60', 'Full (60 FPS)'], ['30', 'Half (30 FPS)']], { id: 'fps-selector' })}
             </div>
             <div class="settings-group" role="tabpanel" data-settings-group="theme" hidden>
-                <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">🎨</span> Display Theme</span>
-                    <select class="settings-select" data-pref="displayTheme" id="theme-selector">
-                        <option value="glassmorphic" ${userPreferences.displayTheme === 'glassmorphic' ? 'selected' : ''}>Glassmorphic Aurora</option>
-                        <option value="retro-futuristic" ${userPreferences.displayTheme === 'retro-futuristic' ? 'selected' : ''}>Cyberpunk HUD</option>
-                    </select>
-                </div>
+                ${sel('displayTheme', '<span class="rt-emo">🎨</span> Display Theme', [['glassmorphic', 'Glassmorphic Aurora'], ['retro-futuristic', 'Cyberpunk HUD']], { id: 'theme-selector' })}
                 <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
                     <span class="settings-option-label"><span class="rt-emo">🎨</span> Neumorphic Depth <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
                     <div class="toggle-switch ${userPreferences.neumorphicDepth ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="neumorphicDepth"></div>
@@ -25153,96 +23678,20 @@
                         <div class="pool-color-swatch ${userPreferences.poolTableColor === 'lightgrey' ? 'active' : ''}" data-pool-color="lightgrey" style="background: linear-gradient(135deg, #a8b0b8, #c8cfd6);" title="Light Grey"></div>
                     </div>
                 </div>
-                <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">🎱</span> Shot Camera</span>
-                    <select class="settings-select" data-pref="poolShotCam">
-                        <option value="overhead" ${userPreferences.poolShotCam !== '3d' ? 'selected' : ''}>Overhead — rise to the top view</option>
-                        <option value="3d" ${userPreferences.poolShotCam === '3d' ? 'selected' : ''}>Stay 3D — stand up, whole table</option>
-                    </select>
-                </div>
-                <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">🎯</span> Guideline</span>
-                    <select class="settings-select" data-pref="poolGuideLen">
-                        <option value="long" ${['medium', 'short', 'none'].indexOf(userPreferences.poolGuideLen) === -1 ? 'selected' : ''}>Long — the object ball's line in full</option>
-                        <option value="medium" ${userPreferences.poolGuideLen === 'medium' ? 'selected' : ''}>Medium</option>
-                        <option value="short" ${userPreferences.poolGuideLen === 'short' ? 'selected' : ''}>Short — a hint of the line</option>
-                        <option value="none" ${userPreferences.poolGuideLen === 'none' ? 'selected' : ''}>None — the aim line and ghost ball only</option>
-                    </select>
-                </div>
-                <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">🎱</span> Max View</span>
-                    <select class="settings-select" data-pref="poolMaxLayout">
-                        <option value="full" ${userPreferences.poolMaxLayout !== 'bars' ? 'selected' : ''}>Full table — controls on it, between the pockets</option>
-                        <option value="bars" ${userPreferences.poolMaxLayout === 'bars' ? 'selected' : ''}>Table between bars — nothing over the table</option>
-                    </select>
-                </div>
+                ${sel('poolShotCam', '<span class="rt-emo">🎱</span> Shot Camera', [['overhead', 'Overhead — rise to the top view'], ['3d', 'Stay 3D — stand up, whole table']])}
+                ${sel('poolGuideLen', '<span class="rt-emo">🎯</span> Guideline', [['long', 'Long — the object ball\'s line in full'], ['medium', 'Medium'], ['short', 'Short — a hint of the line'], ['none', 'None — the aim line and ghost ball only']])}
+                ${sel('poolMaxLayout', '<span class="rt-emo">🎱</span> Max View', [['full', 'Full table — controls on it, between the pockets'], ['bars', 'Table between bars — nothing over the table']])}
                 <div class="settings-subhead">🎱 8-Ball Pool</div>
-                <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">🎱</span> CPU</span>
-                    <select class="settings-select" data-pref="poolDifficulty">
-                        <option value="adaptive" ${userPreferences.poolDifficulty === 'adaptive' || !userPreferences.poolDifficulty ? 'selected' : ''}>Adaptive — matches your form</option>
-                        <option value="easy" ${userPreferences.poolDifficulty === 'easy' ? 'selected' : ''}>Easy — simple pots, misses often</option>
-                        <option value="normal" ${userPreferences.poolDifficulty === 'normal' ? 'selected' : ''}>Normal — solid, little position</option>
-                        <option value="hard" ${userPreferences.poolDifficulty === 'hard' ? 'selected' : ''}>Hard — plays position</option>
-                        <option value="pro" ${userPreferences.poolDifficulty === 'pro' ? 'selected' : ''}>Pro — hardly misses, call every shot</option>
-                    </select>
-                </div>
-                <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">⏱️</span> Shot Clock</span>
-                    <select class="settings-select" data-pref="poolClock">
-                        <option value="30" ${[45, 0].indexOf(Number(userPreferences.poolClock)) === -1 ? 'selected' : ''}>30s — the default</option>
-                        <option value="45" ${Number(userPreferences.poolClock) === 45 ? 'selected' : ''}>45s</option>
-                        <option value="0" ${Number(userPreferences.poolClock) === 0 ? 'selected' : ''}>Off — no clock</option>
-                    </select>
-                </div>
+                ${sel('poolDifficulty', '<span class="rt-emo">🎱</span> CPU', [['adaptive', 'Adaptive — matches your form'], ['easy', 'Easy — simple pots, misses often'], ['normal', 'Normal — solid, little position'], ['hard', 'Hard — plays position'], ['pro', 'Pro — hardly misses, call every shot']])}
+                ${sel('poolClock', '<span class="rt-emo">⏱️</span> Shot Clock', [['30', '30s — the default'], ['45', '45s'], ['0', 'Off — no clock']])}
                 <div class="settings-subhead">🔴 Snooker</div>
-                <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">🔴</span> Reds</span>
-                    <select class="settings-select" data-pref="snookerReds">
-                        <option value="15" ${+userPreferences.snookerReds !== 10 && +userPreferences.snookerReds !== 6 ? 'selected' : ''}>15 — the full frame</option>
-                        <option value="10" ${+userPreferences.snookerReds === 10 ? 'selected' : ''}>10</option>
-                        <option value="6" ${+userPreferences.snookerReds === 6 ? 'selected' : ''}>6 — quick</option>
-                    </select>
-                </div>
-                <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">🔴</span> CPU</span>
-                    <select class="settings-select" data-pref="snookerDifficulty">
-                        <option value="adaptive" ${userPreferences.snookerDifficulty === 'adaptive' || !userPreferences.snookerDifficulty ? 'selected' : ''}>Adaptive — matches your form</option>
-                        <option value="easy" ${userPreferences.snookerDifficulty === 'easy' ? 'selected' : ''}>Easy — pots the simple ones</option>
-                        <option value="normal" ${userPreferences.snookerDifficulty === 'normal' ? 'selected' : ''}>Normal — small breaks, some safety</option>
-                        <option value="hard" ${userPreferences.snookerDifficulty === 'hard' ? 'selected' : ''}>Hard — position and safety, call the colours</option>
-                        <option value="pro" ${userPreferences.snookerDifficulty === 'pro' ? 'selected' : ''}>Pro — hardly misses, call every ball</option>
-                    </select>
-                </div>
-                <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">⏱️</span> Shot Clock</span>
-                    <select class="settings-select" data-pref="snookerClock">
-                        <option value="30" ${Number(userPreferences.snookerClock) === 30 ? 'selected' : ''}>30s</option>
-                        <option value="45" ${[30, 60, 0].indexOf(Number(userPreferences.snookerClock)) === -1 ? 'selected' : ''}>45s — the default</option>
-                        <option value="60" ${Number(userPreferences.snookerClock) === 60 ? 'selected' : ''}>60s</option>
-                        <option value="0" ${Number(userPreferences.snookerClock) === 0 ? 'selected' : ''}>Off — no clock</option>
-                    </select>
-                </div>
+                ${sel('snookerReds', '<span class="rt-emo">🔴</span> Reds', [['15', '15 — the full frame'], ['10', '10'], ['6', '6 — quick']])}
+                ${sel('snookerDifficulty', '<span class="rt-emo">🔴</span> CPU', [['adaptive', 'Adaptive — matches your form'], ['easy', 'Easy — pots the simple ones'], ['normal', 'Normal — small breaks, some safety'], ['hard', 'Hard — position and safety, call the colours'], ['pro', 'Pro — hardly misses, call every ball']])}
+                ${sel('snookerClock', '<span class="rt-emo">⏱️</span> Shot Clock', [['30', '30s'], ['45', '45s — the default'], ['60', '60s'], ['0', 'Off — no clock']], { def: '45' })}
             </div>
             <div class="settings-group" role="tabpanel" data-settings-group="ludo" hidden>
-                <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">🎲</span> Board</span>
-                    <select class="settings-select" data-pref="ludoRotation">
-                        <option value="0" ${Number(userPreferences.ludoRotation) === 0 ? 'selected' : ''}>Blue top-left (default)</option>
-                        <option value="1" ${Number(userPreferences.ludoRotation) === 1 ? 'selected' : ''}>Blue bottom-left</option>
-                        <option value="2" ${Number(userPreferences.ludoRotation) === 2 ? 'selected' : ''}>Blue bottom-right</option>
-                        <option value="3" ${Number(userPreferences.ludoRotation) === 3 ? 'selected' : ''}>Blue top-right</option>
-                    </select>
-                </div>
-                <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">🎲</span> CPU</span>
-                    <select class="settings-select" data-pref="ludoDifficulty">
-                        <option value="adaptive" ${userPreferences.ludoDifficulty === 'adaptive' || !userPreferences.ludoDifficulty ? 'selected' : ''}>Adaptive — follows your win rate</option>
-                        <option value="easy" ${userPreferences.ludoDifficulty === 'easy' ? 'selected' : ''}>Easy — often plays a random move</option>
-                        <option value="normal" ${userPreferences.ludoDifficulty === 'normal' ? 'selected' : ''}>Normal — plays well, ignores danger</option>
-                        <option value="hard" ${userPreferences.ludoDifficulty === 'hard' ? 'selected' : ''}>Hard — also dodges your tokens</option>
-                    </select>
-                </div>
+                ${sel('ludoRotation', '<span class="rt-emo">🎲</span> Board', [['0', 'Blue top-left (default)'], ['1', 'Blue bottom-left'], ['2', 'Blue bottom-right'], ['3', 'Blue top-right']])}
+                ${sel('ludoDifficulty', '<span class="rt-emo">🎲</span> CPU', [['adaptive', 'Adaptive — follows your win rate'], ['easy', 'Easy — often plays a random move'], ['normal', 'Normal — plays well, ignores danger'], ['hard', 'Hard — also dodges your tokens']])}
                 <div class="settings-option" style="align-items: flex-start; flex-direction: column; gap: 10px;">
                     <span class="settings-option-label"><span class="rt-emo">🎲</span> Rules</span>
                     <div class="ludo-rule-toggles">
@@ -25317,9 +23766,8 @@
                     ? parseInt(this.value, 10) : this.value;
                 savePreferences();
                 applyPreferences();
-                // The shot clocks, and snooker's reds and CPU: the pool panel follows them now (a
-                // new difficulty or reds count applies to a frame nothing has been hit in yet).
-                if (['poolClock', 'snookerClock', 'snookerReds', 'snookerDifficulty'].indexOf(pref) !== -1 && typeof poolOnPrefChange === 'function') poolOnPrefChange(pref);
+                // The pool panel follows its settings now and ignores the rest.
+                if (typeof poolOnPrefChange === 'function') poolOnPrefChange(pref);
 
                 // If theme changed, update dependent options visibility
                 if (pref === 'displayTheme') {
@@ -25466,53 +23914,24 @@
     // Generated from cyber-dev/cyber-hud.js. Do not edit the copy in the
     // userscript; edit here and run node cyber-dev/reinsert.js.
     //
-    // This is an indented block of the userscript's IIFE body and has no
-    // exports of its own — cyber-dev/load.js wraps it in a Function to make
-    // the same source both drop-in-able and testable, the trick ludo-dev/
-    // and snake-dev/ use.
-    //
-    // Function declarations hoist within the IIFE, so applyPreferences() can
-    // call into here regardless of where this block lands in the file.
+    // A block of the userscript's IIFE body with no exports; cyber-dev/load.js
+    // wraps it in a Function for testing. Function declarations hoist, so
+    // applyPreferences() can call in wherever this block lands.
     // ============================================================
 
-    // The four panel geometries, most-cyberpunk first. Anything not in this
-    // list falls back to 'notched' rather than leaving the container with no
-    // shape class at all, which would drop --rt-radius and --rt-clip.
-    //
-    // 'notched' is the default because it is the asymmetric one: a right-angle
-    // step cut out of a single corner. Symmetry is most of what makes a HUD
-    // read as clean sci-fi instead of cyberpunk, so the soft option is kept
-    // but is no longer what ships.
+    // Panel geometries, most-cyberpunk first. Unknown values fall back to
+    // 'notched' (the asymmetric default) so the container always has a shape
+    // class; without one, --rt-radius and --rt-clip are never set.
     const CYBER_PANEL_SHAPES = ['notched', 'chamfered', 'stepped', 'rounded'];
 
     // ------------------------------------------------------------------
     // The token map: pref name -> the CSS custom properties it drives.
     //
-    // ONE list, used for both writing and teardown. The original theme kept
-    // those as two hand-maintained lists, and the write list had grown six
-    // entries past the teardown list — which is how --rt-text and friends
-    // ended up permanently yellow no matter what the Accent picker said.
-    // Deriving both directions from this array makes them impossible to
-    // desynchronise.
-    //
-    // 'rgb' emits a second property holding "r, g, b" for use inside
-    // rgba(var(--x-rgb), a).
-    //
-    // 'rgbName' STATES that property's name instead of deriving it, and the
-    // two swatches that need it are why this field exists. The name used to
-    // be built as varName + '-rgb', which is right for six of the eight
-    // swatches and wrong for the two whose varName already ends in '-color':
-    // it wrote --rt-glow-color-rgb and --rt-border-color-rgb, while the
-    // stylesheet consumes --rt-glow-rgb (21 sites) and --rt-border-rgb (17).
-    // Nothing read what was written, so Glow and Border kept their yellow
-    // defaults for every frame, grid line and bloom in the theme no matter
-    // what the pickers said — the exact defect this rework exists to remove,
-    // one layer below where it was fixed.
-    //
-    // It survived 1523 assertions because teardown derived the name the same
-    // wrong way, so the write list and the teardown list agreed with each
-    // other perfectly. Neither agreed with the CSS. Section H2 of
-    // cyber-verify.js now checks that boundary.
+    // ONE list drives both writing and teardown, so the two cannot drift.
+    // 'rgb' also emits "r, g, b" for use inside rgba(var(--x-rgb), a).
+    // 'rgbName' states that property's name where varName + '-rgb' would be
+    // wrong: the CSS reads --rt-glow-rgb / --rt-border-rgb, not
+    // --rt-*-color-rgb. Section H2 of cyber-verify.js checks JS against CSS.
     // ------------------------------------------------------------------
     const CYBER_TOKENS = [
         // -- STRUCTURE --
@@ -25521,12 +23940,10 @@
         // -- ACCENTS --
         { pref: 'cyberAccent',      varName: '--rt-accent',      fallback: '#fff200', rgb: true },
         { pref: 'cyberHighlight',   varName: '--rt-cyber-hl',    fallback: '#00e5ff', rgb: true },
-        // No 'rgb' — nothing consumes var(--rt-cyber-panel-rgb). See the note
-        // beside the Panel default in cyber-theme.css.
+        // No 'rgb': nothing consumes var(--rt-cyber-panel-rgb).
         { pref: 'cyberPanelTint',   varName: '--rt-cyber-panel', fallback: '#00e5ff' },
-        // -- LEGIBILITY: independent of everything above, by design. Linking
-        //    any of these to an accent or a background is what put dark text
-        //    on a dark panel with no control that could undo it.
+        // -- LEGIBILITY: never linked to an accent or background, or a dark
+        //    pick puts dark text on a dark panel with no way to undo it.
         { pref: 'cyberText',        varName: '--rt-text',         fallback: '#fff200', rgb: true },
         { pref: 'cyberGlow',        varName: '--rt-glow-color',   fallback: '#fff200', rgb: true,
           rgbName: '--rt-glow-rgb' },
@@ -25534,15 +23951,13 @@
           rgbName: '--rt-border-rgb' }
     ];
 
-    // The companion property's name. Single source for both the write path
-    // and the teardown path — if these two ever disagree, teardown leaves a
-    // token behind and it bleeds into Glassmorphic.
+    // Single source of the -rgb name for write and teardown; if they disagree,
+    // teardown leaves a token behind that bleeds into Glassmorphic.
     function cyberRgbVarName(t) {
         return t.rgbName || t.varName + '-rgb';
     }
 
     // Every property name this subsystem may have written, for teardown.
-    // Derived, never typed out by hand.
     function cyberTokenVarNames() {
         const names = [];
         CYBER_TOKENS.forEach(function (t) {
@@ -25554,9 +23969,8 @@
         return names;
     }
 
-    // Writes the whole token set onto one element. Used for the widget, for
-    // documentElement (so body-level modal rules resolve) and for the PiP
-    // clone, which is why it takes the element rather than assuming one.
+    // Writes the token set onto the widget, documentElement (so body-level
+    // modal rules resolve) or the PiP clone.
     function applyCyberTokens(el) {
         if (!el || !el.style) return;
         CYBER_TOKENS.forEach(function (t) {
@@ -25564,58 +23978,33 @@
             el.style.setProperty(t.varName, hex);
             if (t.rgb) el.style.setProperty(cyberRgbVarName(t), hexToRgbStr(hex));
         });
-        // GLOW.
-        //
-        // Two properties for one value. --rt-glow-mul is the raw preference,
-        // kept because it is what gets stored and torn down; --rt-glow-k is
-        // the same number guarded and clamped, and is what the stylesheet
-        // actually multiplies by.
-        //
-        // Written here rather than derived in CSS because the settings modal
-        // is body-level: a property declared inside .retro-theme is invisible
-        // to it, but everything applyCyberTokens() writes is mirrored onto
-        // documentElement and so reachable from there.
+        // GLOW. --rt-glow-mul is the raw stored preference; --rt-glow-k is the
+        // clamped value the stylesheet multiplies by. Written here, not derived
+        // in CSS, because the body-level settings modal cannot see properties
+        // declared inside .retro-theme, only what is mirrored onto
+        // documentElement.
         const mul = userPreferences.cyberGlowIntensity;
         const safeMul = mul === undefined ? CYBER_GLOW_DEFAULT : Number(mul);
         el.style.setProperty('--rt-glow-mul', String(safeMul));
         el.style.setProperty('--rt-glow-k', String(cyberGlowScale(safeMul)));
     }
 
-    // Removes every property applyCyberTokens could have set. Anything left
-    // behind here bleeds into the Glassmorphic theme, where these tokens have
-    // no meaning but still win over the stylesheet.
+    // Removes every property applyCyberTokens could have set. Leftovers bleed
+    // into Glassmorphic, where inline tokens still win over the stylesheet.
     function clearCyberTokens(el) {
         if (!el || !el.style) return;
         cyberTokenVarNames().forEach(function (p) { el.style.removeProperty(p); });
     }
 
     // ------------------------------------------------------------------
-    // Glow scale — a plain 0–100% that means what it says.
-    //
-    // The slider IS the scale: 0 is off, 1 is everything the theme has. No
-    // conversion, no normalisation, no "percent of some other number".
-    //
-    // It took two wrong turns to get here and both are worth remembering,
-    // because both looked like the fix at the time.
-    //
-    //   1. The multiplier scaled ALPHA against fixed blur radii. Opacity
-    //      saturates long before a slider does, so the top half did nothing.
-    //   2. Radius scaled too, but off a 7px base, and the range was widened
-    //      to 300% to compensate. That was treating the symptom: at 7px there
-    //      is barely a halo to scale, so most of a longer slider still did
-    //      nothing — and a slider whose useful range is its last third is a
-    //      worse control than a short one.
-    //
-    // The base radii were the problem. They are 3–5x larger now and layered,
-    // so the full 0–100% does visible work and the ceiling is genuinely the
-    // ceiling. See --rt-glow in cyber-theme.css.
+    // Glow scale: the slider value IS the scale, 0 (off) to 1 (full). The
+    // CSS scales radius as well as alpha, from large layered base radii, so
+    // the whole range does visible work. See --rt-glow in cyber-theme.css.
     // ------------------------------------------------------------------
     const CYBER_GLOW_DEFAULT = 0.6;
     const CYBER_GLOW_MAX_PCT = 100;
 
-    // Guarded rather than trusted: a NaN here would invalidate every glow
-    // declaration in the theme at once, which reads as "the glow broke"
-    // rather than "a preference is malformed".
+    // Guarded: a NaN would invalidate every glow declaration at once.
     function cyberGlowScale(mul) {
         const m = Number(mul);
         if (!isFinite(m) || m < 0) return CYBER_GLOW_DEFAULT;
@@ -25637,9 +24026,7 @@
     // ------------------------------------------------------------------
     function cyberPanelShape() {
         const s = userPreferences.cyberPanelShape;
-        // Must match the shape the bare .retro-theme token block declares, or
-        // an unknown value would render with tokens from one shape and a class
-        // from none.
+        // Fallback must match the shape the bare .retro-theme block declares.
         return CYBER_PANEL_SHAPES.indexOf(s) === -1 ? 'notched' : s;
     }
 
@@ -25655,15 +24042,11 @@
     }
 
     // ------------------------------------------------------------------
-    // Contrast guard
-    //
-    // Warns, never corrects. Silently overriding a colour the user chose on
-    // purpose is worse than showing them it fails — they may be mid-way
-    // through picking a palette, and an auto-correction would fight them.
+    // Contrast guard. Warns, never corrects: overriding a colour the user
+    // chose would fight them while they are still picking a palette.
     // ------------------------------------------------------------------
 
-    // WCAG relative luminance. Reuses hexToRgbStr for the channel parse so
-    // there is exactly one hex reader in the file.
+    // WCAG relative luminance; hexToRgbStr stays the only hex parser.
     function relativeLuminance(hex) {
         const parts = hexToRgbStr(hex).split(',').map(function (n) {
             const c = parseInt(n, 10) / 255;
@@ -25680,23 +24063,10 @@
         return (hi + 0.05) / (lo + 0.05);
     }
 
-    // EVERY SWATCH THAT CARRIES TYPE IS MEASURED.
-    //
-    // This used to check the Text swatch alone, because Text was the only
-    // colour any glyph in the theme resolved to. The rework changed that:
-    // the reference console reads its punch log by MEANING, so arrival
-    // times took Accent and banked time took Highlight, and suddenly two
-    // more swatches could hide a number.
-    //
-    // That is the precise defect this whole theme exists to make
-    // impossible, so the fix is not to trust the palette — it is to widen
-    // the guard. Any swatch allowed to colour text has to appear in
-    // CYBER_TEXT_SWATCHES, and cyber-verify.js asserts the CSS never
-    // colours type with a swatch that is missing from this list. Adding a
-    // coloured readout without adding its swatch here fails the suite.
-    //
-    // Each is checked against the DARKER background stop, which is the
-    // worst case anywhere along the gradient.
+    // EVERY SWATCH THAT CARRIES TYPE IS MEASURED. cyber-verify.js (C2) fails
+    // if the CSS colours type with a swatch missing from this list, so a new
+    // coloured readout must add its swatch here. Each is checked against the
+    // darker background stop, the worst case along the gradient.
     const CYBER_TEXT_SWATCHES = [
         { pref: 'cyberText',      label: 'Text',      fallback: '#fff200' },
         { pref: 'cyberAccent',    label: 'Accent',    fallback: '#fff200' },
@@ -25710,15 +24080,12 @@
         return Math.min(contrastRatio(hex, bg1), contrastRatio(hex, bg2));
     }
 
-    // Kept as the Text-only reading. The chip reports the worst swatch, but
-    // Text is the one a caller may want on its own.
+    // Text alone; the chip reports the worst swatch.
     function cyberTextContrast() {
         return cyberSwatchContrast('cyberText', '#fff200');
     }
 
-    // The worst offender, by name. Reporting "Highlight 2.4:1" instead of a
-    // bare number is the difference between a warning the user can act on
-    // and one they have to go hunting for.
+    // The worst offender, by name, so the warning is actionable.
     function cyberWorstContrast() {
         let worst = null;
         CYBER_TEXT_SWATCHES.forEach(function (s) {
@@ -25728,8 +24095,7 @@
         return worst;
     }
 
-    // Repaints the chip in the Cyberpunk Colors row. No-op when the settings
-    // modal is closed.
+    // Repaints the Cyberpunk Colors chip; no-op while the modal is closed.
     function updateCyberContrastChip(root) {
         const scope = root || document;
         const chip = scope.querySelector('.cyber-contrast-chip');
@@ -25749,31 +24115,24 @@
     }
 
     // ------------------------------------------------------------------
-    // Title glitch ghosts
-    //
-    // The two RGB-split ghosts are pseudo-elements using content:
-    // attr(data-rt-text), so the text has to be mirrored onto the attribute.
-    // Without it the ghosts render empty and the title simply looks normal,
-    // which is the correct degradation.
+    // Title glitch ghosts: pseudo-elements using content: attr(data-rt-text),
+    // so the title text is mirrored onto the attribute. Without it they
+    // render empty, which degrades to a plain title.
     // ------------------------------------------------------------------
     function updateCyberTitleGhosts(container) {
         const root = container || document.getElementById('total-time-summary');
         if (!root) return;
         const title = root.querySelector('.summary-title');
         if (!title) return;
-        // textContent, not innerHTML: the ghosts are decorative and must never
-        // be able to reproduce markup.
+        // textContent: the decorative ghosts must never reproduce markup.
         const text = (title.textContent || '').trim();
         if (text) title.setAttribute('data-rt-text', text);
         else title.removeAttribute('data-rt-text');
     }
 
     // ------------------------------------------------------------------
-    // Boot-in scan reveal
-    //
-    // The class has to come off again or the animation can never replay —
-    // re-adding a class that is already present does not restart a CSS
-    // animation.
+    // Boot-in scan reveal. The class comes off on a timer: re-adding a class
+    // that is already present does not restart a CSS animation.
     // ------------------------------------------------------------------
     let cyberBootTimer = null;
 
@@ -25781,8 +24140,7 @@
         const root = container || document.getElementById('total-time-summary');
         if (!root || !root.classList.contains('retro-theme')) return;
         root.classList.remove('rt-booting');
-        // Force a reflow so removing and re-adding in the same frame still
-        // restarts the animation.
+        // Forced reflow so remove + re-add in one frame still restarts it.
         void root.offsetWidth;
         root.classList.add('rt-booting');
         if (cyberBootTimer) clearTimeout(cyberBootTimer);
@@ -25794,23 +24152,10 @@
     }
 
     // ------------------------------------------------------------------
-    // The whole Cyberpunk presentation pass, in one call.
-    // applyPreferences() delegates here so there is a single place that knows
-    // what "apply the cyberpunk theme" means.
-    // ------------------------------------------------------------------
-    // ------------------------------------------------------------------
-    // PALETTES — six built-in swatch sets, defined ONCE so the shipped
-    // settings modal and the dev harness cannot drift the way the glow
-    // converter once did (cyberGlowFromPct/ToPct exists for the same
-    // reason: two places computing the same thing by hand is how they stop
-    // agreeing).
-    //
-    // Each is a complete, independently-authored set of all eight swatches
-    // — never a formula derived from one seed hue. A formula is exactly
-    // what the ORIGINAL bug was: every token but Accent hardcoded to the
-    // same yellow, because nobody had to independently decide what Border
-    // or Glow should be. Six full sets, each checked against the contrast
-    // guard (section H4), is the opposite of that shortcut.
+    // PALETTES: six built-in swatch sets, defined once and shared by the
+    // settings modal and the dev harness. Each is a complete hand-picked set
+    // of all eight swatches, never derived from one seed hue, and each must
+    // pass the contrast guard (section H4).
     // ------------------------------------------------------------------
     const CYBER_PALETTES = {
         yellowCyan:  { label: 'Yellow / Cyan', cyberBgPrimary: '#07091a', cyberBgSecondary: '#11142b',
@@ -25828,10 +24173,8 @@
         ghostMono:   { label: 'Ghost Mono', cyberBgPrimary: '#0c0c0f', cyberBgSecondary: '#16161c',
                        cyberAccent: '#9aa4b8', cyberHighlight: '#e6ebf5', cyberPanelTint: '#6b7488',
                        cyberText: '#eef2fa', cyberGlow: '#c3ccdd', cyberBorder: '#7d879c' },
-        // The 6th slot. Not a "dark" palette pretending to be a mistake —
-        // that role belongs to the dev harness alone, never to something
-        // shipped as a real user choice. Every swatch here is independently
-        // checked against the contrast guard, same as the other five.
+        // A real choice; the deliberately failing palette lives only in the
+        // dev harness.
         violetHaze:  { label: 'Violet Haze', cyberBgPrimary: '#0b0616', cyberBgSecondary: '#180d2c',
                        cyberAccent: '#c88bf5', cyberHighlight: '#e3b8ff', cyberPanelTint: '#7c3aed',
                        cyberText: '#ecdcff', cyberGlow: '#c77dff', cyberBorder: '#9d4edd' }
@@ -25840,43 +24183,28 @@
     // ------------------------------------------------------------------
     // EMOJI TINT
     //
-    // The widget's emoji are colour glyphs supplied by the system emoji font.
-    // No CSS colour property reaches them - `color` styles text, and these
-    // carry their own palette (COLR layers or a bitmap strike). An SVG filter
-    // does reach them: desaturate to luminance, then map that luminance
-    // through a ramp built from the theme hue. Silhouette and shading
-    // survive; the palette becomes the theme's.
+    // Colour emoji ignore CSS `color`, but an SVG filter reaches them:
+    // desaturate to luminance, then map it through a ramp built from the
+    // theme hue, keeping silhouette and shading.
     //
-    // WHY AN SVG FILTER AND NOT A CSS FILTER CHAIN. The swatches are
-    // arbitrary user hex. The well-known sepia()/saturate()/hue-rotate()
-    // recipe only *approaches* a target hue by iterative solving, never lands
-    // on a given hex, and drifts badly for dark or desaturated picks.
-    // feComponentTransfer takes the channel values directly.
+    // SVG rather than a CSS filter chain: sepia()/hue-rotate() recipes only
+    // approximate an arbitrary hex and drift on dark picks, while
+    // feComponentTransfer takes the channel values directly. Three ramp
+    // stops, not two: a plain duotone crushes the highlights to mud.
     //
-    // WHY THREE RAMP STOPS AND NOT TWO. A plain black->hue duotone collapses
-    // every specular highlight into the hue and the glyphs go muddy - a gear
-    // stops reading as a gear. A third bright stop keeps the highlights. Both
-    // were rendered before choosing; two stops is visibly worse.
-    //
-    // WHERE THIS MAY NOT GO. A filter applies to everything its element
-    // paints, background and border included - so it never goes on a button,
-    // only on the glyph itself or on a bare .rt-emo wrapper around it.
-    // Filtering .game-switch-btn would duotone its border and its knocked-out
-    // --rt-text fill along with the emoji. A filter also becomes the
-    // containing block for position:fixed descendants, which is why it stays
-    // off the container and the side panels; see the --rt-outline note.
+    // Never filter a button, only the glyph or a bare .rt-emo wrapper: a
+    // filter also paints over background and border, and it becomes the
+    // containing block for position:fixed descendants, so it stays off the
+    // container and the side panels.
     // ------------------------------------------------------------------
 
-    // Must match the url(#...) spelled in cyber-theme.css. Section H3 of
-    // cyber-verify.js asserts the two agree: the last time a name was coupled
-    // across the JS/CSS boundary by hand, it silently stopped matching and
-    // two swatches were dead for three passes.
+    // Must match the url(#...) in cyber-theme.css; section H3 of
+    // cyber-verify.js asserts they agree.
     const CYBER_EMOJI_FILTER_ID = 'rt-emoji-tint';
     const CYBER_EMOJI_DEFS_ID   = 'rt-emoji-defs';
 
-    // How far the top stop is pushed toward white. 0 is a flat duotone, 1
-    // blows highlights to pure white and loses the hue in them. 0.75 keeps a
-    // highlight that still reads as the theme colour.
+    // How far the top stop is pushed toward white: 0 is a flat duotone, 1
+    // loses the hue in the highlights.
     const CYBER_TINT_HILITE = 0.75;
 
     // One "0 mid hi" table per channel. Luminance 0 stays black so the glyph
@@ -25894,15 +24222,12 @@
     }
 
     // Idempotent: builds the <defs> once per document, then only rewrites the
-    // ramp. Takes a document because a filter reference resolves per-document
-    // and the PiP clone is a separate one. A missing id there degrades to
-    // untinted rather than to a blank element (checked in a real engine), but
-    // untinted is still the wrong answer, so PiP gets its own copy.
+    // ramp. Per document because filter references do not cross documents,
+    // so the PiP clone gets its own copy.
     function ensureCyberEmojiFilter(doc) {
         if (!doc || !doc.body) return;
-        // Feature-detected rather than assumed, same reason as cyberSweepEmoji:
-        // a hand-rolled test stub with no real SVG DOM should no-op here, not
-        // throw and take the rest of applyCyberpunkTheme() down with it.
+        // Feature-detected so a test stub without an SVG DOM no-ops instead
+        // of throwing out of applyCyberpunkTheme().
         if (typeof doc.createElementNS !== 'function') return;
         const table = cyberTintTable(userPreferences.cyberAccent || '#fff200');
         if (!table) return;
@@ -25928,9 +24253,8 @@
             sat.setAttribute('values', '0');
             filter.appendChild(sat);
             const xfer = doc.createElementNS(NS, 'feComponentTransfer');
-            // Tagged with a data attribute rather than found by tag name:
-            // feFuncR is camelCase, and tag lookups are case-folded in an
-            // HTML document, so getElementsByTagName('feFuncR') finds nothing.
+            // Tagged with data-rt-ch: tag lookups are case-folded in HTML, so
+            // getElementsByTagName('feFuncR') finds nothing.
             ['r', 'g', 'b'].forEach(function (ch) {
                 const f = doc.createElementNS(NS, 'feFunc' + ch.toUpperCase());
                 f.setAttribute('type', 'table');
@@ -25955,42 +24279,20 @@
     }
 
     // ------------------------------------------------------------------
-    // EMOJI SWEEP — universal coverage
-    //
-    // The wrap-every-known-template-literal approach this shipped with
-    // first covered 32 sites and still missed the achievement badges, the
-    // leaderboard join card and the settings-modal close button — because
-    // those inject their icon from a DATA STRUCTURE at render time
-    // (`badge.innerHTML = achievement.icon`), not a literal sitting in an
-    // HTML template string. A regex over the SOURCE can only ever find the
-    // second kind.
-    //
-    // So this is no longer "wrap every place an emoji was found by hand" —
-    // it is "sweep the RENDERED DOM for anything the platform paints
-    // through its colour emoji font, and keep watching." That is a
-    // property of the page, not of the source text, and it is the only
-    // formulation that also covers whatever the next feature injects.
+    // EMOJI SWEEP: wraps emoji in the RENDERED DOM and keeps watching, so
+    // icons injected from data at render time (badge.innerHTML =
+    // achievement.icon) are covered as well as literals in templates.
     // ------------------------------------------------------------------
 
-    // Emoji_Presentation: codepoints the platform renders through its
-    // colour emoji font BY DEFAULT (faces, food, tools with no trailing
-    // FE0F). Extended_Pictographic + U+FE0F: codepoints that default to a
-    // plain TEXT glyph — already correctly following `color` — but are
-    // explicitly forced into emoji presentation by a trailing variation
-    // selector-16: the gear/hourglass/warning family (\u2699\uFE0F etc).
-    //
-    // Extended_Pictographic ALONE, with no FE0F, is deliberately EXCLUDED.
-    // It also matches things like a bare check mark, star or arrow, which
-    // render as plain monochrome glyphs already correctly following
-    // --rt-text. Tinting those would re-derive a colour CSS already had
-    // right, through a lossier path.
+    // Emoji_Presentation: colour emoji by default. Extended_Pictographic +
+    // U+FE0F: text glyphs forced into emoji presentation (the gear/hourglass
+    // family). Bare Extended_Pictographic is excluded: check marks, stars and
+    // arrows already follow --rt-text, and tinting them would be lossier.
     const CYBER_EMOJI_RUN_RE =
         /(?:(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F)(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F))*)+/gu;
 
-    // Never split text inside these. SCRIPT/STYLE hold source text, not
-    // content — splitting it would corrupt the page, not decorate it.
-    // TITLE/OPTION/SELECT render through native chrome the SVG filter
-    // cannot reach anyway, so wrapping their text only adds dead spans.
+    // Never split text inside these: SCRIPT/STYLE hold source, and
+    // TITLE/OPTION/SELECT render in native chrome the filter cannot reach.
     const CYBER_EMOJI_SKIP_TAGS = {
         SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEXTAREA: 1, TITLE: 1, OPTION: 1, SELECT: 1
     };
@@ -25999,15 +24301,11 @@
         while (el) {
             if (CYBER_EMOJI_SKIP_TAGS[el.tagName]) return true;
             if (el.classList) {
-                // Already wrapped. The guard that stops the observer
-                // re-wrapping its own output and recursing forever: inserting
-                // <span class="rt-emo"> is itself a mutation the observer
-                // sees, and without this it would walk straight back in.
+                // Already wrapped. Stops the observer recursing on its own
+                // output, since inserting the span is itself a mutation.
                 if (el.classList.contains('rt-emo')) return true;
-                // The progress glyph carries its own bespoke filter chain —
-                // chained ahead of its drop-shadows, with a per-emoji-set
-                // opt-out (see --rt-emo-progress). Wrapping its text too
-                // would nest one filter inside another for no benefit.
+                // The progress glyph has its own filter chain (see
+                // --rt-emo-progress); wrapping it would nest filters.
                 if (el.classList.contains('emoji-display')) return true;
             }
             el = el.parentElement;
@@ -26015,11 +24313,9 @@
         return false;
     }
 
-    // Splits one text node in place, wrapping every emoji run in a bare
-    // <span class="rt-emo">. Returns whether it changed anything. Creates
-    // through node.ownerDocument rather than the global `document`, because
-    // the PiP clone is a second document and a node built in one document
-    // cannot always be trusted to insert cleanly into another.
+    // Wraps every emoji run in one text node in a bare <span class="rt-emo">;
+    // returns whether it changed anything. Builds through node.ownerDocument,
+    // not `document`, because the PiP clone is a separate document.
     function cyberWrapEmojiTextNode(node) {
         const text = node.nodeValue;
         if (!text) return false;
@@ -26043,14 +24339,9 @@
         return true;
     }
 
-    // Full sweep of one subtree. Safe on a root with no emoji in it (the
-    // TreeWalker filter rejects almost everything before the regex ever
-    // runs) and safe to call twice (already-wrapped runs are skipped by the
-    // ancestor check, not re-split). Feature-detected rather than assumed:
-    // cyber-verify.js exercises applyCyberpunkTheme() against a hand-rolled
-    // Node stub with no TreeWalker or NodeFilter, and a silent no-op there
-    // is correct — the stub is for token/shape assertions, not DOM behaviour,
-    // which is proven separately in a real engine (see the plan).
+    // Full sweep of one subtree; cheap on emoji-free roots and safe to repeat
+    // (wrapped runs are skipped). Feature-detected: cyber-verify.js runs it
+    // against a Node stub with no TreeWalker, where a no-op is correct.
     function cyberSweepEmoji(root) {
         if (!root || !root.ownerDocument) return;
         const doc = root.ownerDocument;
@@ -26065,40 +24356,25 @@
         const hits = [];
         let n;
         while ((n = walker.nextNode())) hits.push(n);
-        // Collected before wrapping rather than wrapped during the walk:
-        // replaceChild() during traversal detaches the node the walker is
-        // sitting on, which is exactly the kind of thing a live TreeWalker
-        // does not guarantee survives.
+        // Collect first, then wrap: replaceChild() mid-walk would detach the
+        // node the TreeWalker is sitting on.
         hits.forEach(cyberWrapEmojiTextNode);
     }
 
-    // True only while Cyberpunk is the active theme. Every observer
-    // callback below gates on this first: the widget-container observer has
-    // to stay attached across a theme switch (see cyberWatchEmoji), but must
-    // do nothing while Glassmorphic is showing, or every achievement toast
-    // and modal open pays for a DOM walk that has no reason to run.
+    // True only while Cyberpunk is active. Observers stay attached across
+    // theme switches, so every callback gates on this to skip DOM walks while
+    // Glassmorphic is showing.
     let cyberEmojiTintActive = false;
 
-    // One observer per root, ever. Re-attaching on every call would stack a
-    // new MutationObserver on the same element each time it runs — and the
-    // widget's container observer is wired from applyCyberpunkTheme(),
-    // which runs on every colour-slider tick, not just on theme entry.
+    // One observer per root: applyCyberpunkTheme() runs on every
+    // colour-slider tick, and re-attaching would stack observers.
     const cyberEmojiObservedRoots = typeof WeakSet === 'function' ? new WeakSet() : null;
 
-    // Attaches a persistent MutationObserver to `root`, watching for any
-    // future content change (childList + subtree + characterData) and
-    // sweeping whatever changed. Idempotent — a second call on the same
-    // root is a WeakSet lookup and nothing else. Does NOT sweep existing
-    // content itself; callers that need an immediate pass call
-    // cyberSweepEmoji() explicitly (see applyPreferences()'s enteringRetro
-    // branch), because a sweep on every one of the many calls this makes
-    // during a colour drag would walk the whole widget on every tick.
-    //
-    // This is what makes the achievement badges the report was about
-    // actually stay covered: updateXPDisplay() sets
-    // `badge.innerHTML = achievement.icon` — a plain data-driven write with
-    // no idea the Cyberpunk theme exists — and the observer catches it
-    // exactly the same way it would catch a change nobody wrote yet.
+    // Persistent observer that sweeps whatever changes under `root`, which is
+    // what keeps data-driven writes such as achievement badges tinted.
+    // Idempotent. Does NOT sweep existing content: callers needing an
+    // immediate pass call cyberSweepEmoji() (see applyPreferences()'s
+    // enteringRetro branch), so a colour drag does not walk the widget per tick.
     function cyberWatchEmoji(root) {
         if (!root || !cyberEmojiObservedRoots || cyberEmojiObservedRoots.has(root)) return;
         if (typeof MutationObserver !== 'function') return;
@@ -26119,6 +24395,7 @@
         observer.observe(root, { childList: true, subtree: true, characterData: true });
     }
 
+    // The whole Cyberpunk presentation pass; applyPreferences() delegates here.
     function applyCyberpunkTheme(container) {
         if (!container) return;
         cyberEmojiTintActive = true;
@@ -26127,9 +24404,8 @@
         applyCyberShape(container);
         updateCyberTitleGhosts(container);
         ensureCyberEmojiFilter(document);
-        // Published so the stylesheet can opt the progress glyph out of the
-        // tint for the one set whose meaning is its hue. See the note beside
-        // --rt-emo-progress in cyber-theme.css.
+        // Lets the stylesheet opt the progress glyph out of the tint for the
+        // one set whose meaning is its hue (see --rt-emo-progress).
         container.setAttribute('data-emoji-set', userPreferences.emojiSet || 'fun');
 
         // Mirror onto the document root so body-level modal rules
@@ -26360,7 +24636,6 @@
         let checkInTime = null;
         let lastCheckOutTime = null;
         let checkInOutList = [];
-        let totalBreakTime = 0;
 
         const rows = document.querySelectorAll('.main-attendance-table tbody tr');
 
@@ -26531,7 +24806,6 @@
         return `rgba(${result[0]}, ${result[1]}, ${result[2]}, 0.2)`;
     }
 
-
     function isPipSupported() {
         return 'documentPictureInPicture' in window;
     }
@@ -26617,33 +24891,7 @@
                     summaryClone.classList.add('retro-theme');
                 }
 
-                // Remove PiP button from cloned content
-                const pipButtonClone = summaryClone.querySelector('.pip-button');
-                if (pipButtonClone) {
-                    pipButtonClone.remove();
-                }
-
-                // Remove developer info from cloned content for more space
-                const developerInfoClone = summaryClone.querySelector('.developer-info');
-                if (developerInfoClone) {
-                    developerInfoClone.remove();
-                }
-
-                // Remove settings button from cloned content
-                const settingsButtonClone = summaryClone.querySelector('.settings-button');
-                if (settingsButtonClone) {
-                    settingsButtonClone.remove();
-                }
-
-                // Add compact mode button to PiP window
-                const compactButton = document.createElement('button');
-                compactButton.className = 'pip-compact-button';
-                compactButton.innerHTML = '[≡]';
-                compactButton.title = 'Toggle Compact Mode';
-                compactButton.onclick = () => toggleCompactMode(pipWindow, summaryClone);
-
-                summaryClone.appendChild(compactButton);
-
+                pipChrome(summaryClone, pipWindow);
                 pipWindow.document.body.appendChild(summaryClone);
 
                 showPipPlaceholder(attendanceSummary);
@@ -26677,34 +24925,13 @@
             pipWindow.document.head.appendChild(pipStyleElement);
         }
 
-        // Detect current color scheme from browser/OS
         const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-        // Determine background based on user's theme preference
-        let backgroundStyle;
-        if (userPreferences.displayTheme === 'retro-futuristic') {
-            // Cyberpunk HUD theme — uses user-customizable colors
-            const bg1 = userPreferences.cyberBgPrimary   || '#07091a';
-            const bg2 = userPreferences.cyberBgSecondary || '#11142b';
-            backgroundStyle = isDarkMode ? `
-                background: linear-gradient(135deg, ${bg1} 0%, ${bg2} 100%);
-            ` : `
-                background: linear-gradient(135deg, #f4f6fb 0%, #e6ebf3 100%);
-            `;
-        } else {
-            backgroundStyle = isDarkMode ? `
-                background: linear-gradient(135deg, #2d3436 0%, #636e72 100%);
-            ` : `
-                background: linear-gradient(135deg, #ddd6fe 0%, #8b5cf6 100%);
-            `;
-        }
-
-        // Set body styles for PiP window - borderless and theme-aware
+        // Borderless and theme-aware.
         pipWindow.document.body.style.cssText = `
             margin: 0;
             padding: 0;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            ${backgroundStyle}
+            background: ${pipBackground(isDarkMode)};
             min-height: 100vh;
             overflow: hidden;
             border: none;
@@ -26729,30 +24956,29 @@
         });
     }
 
-    // Update PiP window color scheme dynamically
+    // The PiP window's backdrop: the Cyberpunk colours, else the glass gradient; light or dark.
+    function pipBackground(isDark) {
+        if (userPreferences.displayTheme === 'retro-futuristic') return isDark
+            ? `linear-gradient(135deg, ${userPreferences.cyberBgPrimary || '#07091a'} 0%, ${userPreferences.cyberBgSecondary || '#11142b'} 100%)`
+            : 'linear-gradient(135deg, #f4f6fb 0%, #e6ebf3 100%)';
+        return isDark ? 'linear-gradient(135deg, #2d3436 0%, #636e72 100%)' : 'linear-gradient(135deg, #ddd6fe 0%, #8b5cf6 100%)';
+    }
+
     function updatePipColorScheme(pipWindow, isDark) {
         if (!pipWindow || pipWindow.closed) return;
-
-        let newBg;
-        if (userPreferences.displayTheme === 'retro-futuristic') {
-            const bg1 = userPreferences.cyberBgPrimary   || '#07091a';
-            const bg2 = userPreferences.cyberBgSecondary || '#11142b';
-            newBg = isDark
-                ? `linear-gradient(135deg, ${bg1} 0%, ${bg2} 100%)`
-                : 'linear-gradient(135deg, #f4f6fb 0%, #e6ebf3 100%)';
-        } else {
-            newBg = isDark
-                ? 'linear-gradient(135deg, #2d3436 0%, #636e72 100%)'
-                : 'linear-gradient(135deg, #ddd6fe 0%, #8b5cf6 100%)';
-        }
-
-        // Apply the new background with smooth transition
-        Object.assign(pipWindow.document.body.style, {
-            background: newBg,
-            colorScheme: isDark ? 'dark' : 'light'
-        });
-
+        Object.assign(pipWindow.document.body.style, { background: pipBackground(isDark), colorScheme: isDark ? 'dark' : 'light' });
         pipWindow.document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+    }
+
+    // The PiP copy drops the main window's own buttons and gains the compact toggle.
+    function pipChrome(el, pipWindow) {
+        el.querySelectorAll('.pip-button, .developer-info, .settings-button').forEach(n => n.remove());
+        const btn = document.createElement('button');
+        btn.className = 'pip-compact-button';
+        btn.textContent = '[≡]';
+        btn.title = 'Toggle Compact Mode';
+        btn.onclick = () => toggleCompactMode(pipWindow, el);
+        el.appendChild(btn);
     }
 
     // Toggle compact mode in PiP window
@@ -26785,24 +25011,7 @@
                 // Copy the fresh content to PiP window
                 if (tempContainer.innerHTML) {
                     summaryElement.innerHTML = tempContainer.innerHTML;
-
-                    // Remove PiP button, developer info, and settings button from PiP content
-                    const pipButtonClone = summaryElement.querySelector('.pip-button');
-                    if (pipButtonClone) pipButtonClone.remove();
-
-                    const developerInfoClone = summaryElement.querySelector('.developer-info');
-                    if (developerInfoClone) developerInfoClone.remove();
-
-                    const settingsButtonClone = summaryElement.querySelector('.settings-button');
-                    if (settingsButtonClone) settingsButtonClone.remove();
-
-                    const compactButton = document.createElement('button');
-                    compactButton.className = 'pip-compact-button';
-                    compactButton.innerHTML = '[≡]';
-                    compactButton.title = 'Toggle Compact Mode';
-                    compactButton.onclick = () => toggleCompactMode(pipWindow, summaryElement);
-
-                    summaryElement.appendChild(compactButton);
+                    pipChrome(summaryElement, pipWindow);
                 }
 
                 tempContainer.remove();
@@ -27072,7 +25281,6 @@
 
             if (index > 0) {
                 const prevItem = checkInOutList[index - 1];
-                console.log(prevItem.checkOut + '    ' + item.checkIn);
                 durationDifference = calculateTimeDifference(prevItem.checkOut, item.checkIn);
                 if (durationDifference >= 21600) {
                     isSixHourGap = true;
@@ -27196,6 +25404,12 @@
         }
 
         // Left panel - Multi-Game System & Quotes
+        // A game's header button, which opens its board: this run / best and a trophy, or the best
+        // (wins) alone when there is no run figure.
+        const gameScoreBtn = (g, best, cur, blank = '0', hidden) =>
+            `<button id="${g}-lb-btn" class="game-score-btn"${hidden ? ' style="display: none;"' : ''} onclick="window.openGameLeaderboard('${g}')">` +
+            (cur ? `<span class="gsb-score" id="${cur}">${blank}</span><span class="gsb-sep">/</span>` : '') +
+            `<span class="gsb-best" id="${best}">${blank}</span><span class="gsb-trophy">🏆</span></button>`;
         const leftPanelHTML = `
             <div class="left-panel">
                 <!-- Multi-Game Container -->
@@ -27219,76 +25433,37 @@
                         <span id="game-title" class="snake-game-title">🐍 Snake</span>
                         <div id="snake-scoreboard" class="snake-scoreboard">
                             <span id="snake-mode-chip" class="snake-score snake-mode-chip">🧱 Walled</span>
-                            <button id="snake-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('snake')">
-                                <span class="gsb-score" id="snake-current-score">0</span>
-                                <span class="gsb-sep">/</span>
-                                <span class="gsb-best" id="snake-high-score">0</span>
-                                <span class="gsb-trophy">🏆</span>
-                            </button>
+                            ${gameScoreBtn('snake', 'snake-high-score', 'snake-current-score')}
                         </div>
                         <div id="flappy-scoreboard" class="snake-scoreboard" style="display: none;">
-                            <button id="flappy-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('flappy')">
-                                <span class="gsb-score" id="flappy-current-score">0</span>
-                                <span class="gsb-sep">/</span>
-                                <span class="gsb-best" id="flappy-high-score">0</span>
-                                <span class="gsb-trophy">🏆</span>
-                            </button>
+                            ${gameScoreBtn('flappy', 'flappy-high-score', 'flappy-current-score')}
                         </div>
                         <div id="tetris-scoreboard" class="snake-scoreboard" style="display: none;">
                             <span class="snake-score gsb-aside">Ln <span id="tetris-lines">0</span> · Lv <span id="tetris-level">1</span></span>
-                            <button id="tetris-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('tetris')">
-                                <span class="gsb-score" id="tetris-score">0</span>
-                                <span class="gsb-sep">/</span>
-                                <span class="gsb-best" id="tetris-high-score">0</span>
-                                <span class="gsb-trophy">🏆</span>
-                            </button>
+                            ${gameScoreBtn('tetris', 'tetris-high-score', 'tetris-score')}
                         </div>
                         <div id="reflex-scoreboard" class="snake-scoreboard" style="display: none;">
                             <span class="snake-score gsb-aside" id="reflex-mode-chip">⚡ Screen</span>
-                            <button id="reflex-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('reflex')">
-                                <span class="gsb-score" id="reflex-last-score">—</span>
-                                <span class="gsb-sep">/</span>
-                                <span class="gsb-best" id="reflex-high-score">—</span>
-                                <span class="gsb-trophy">🏆</span>
-                            </button>
+                            ${gameScoreBtn('reflex', 'reflex-high-score', 'reflex-last-score', '—')}
                         </div>
                         <div id="aim-scoreboard" class="snake-scoreboard" style="display: none;">
-                            <button id="aim-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('aim')">
-                                <span class="gsb-score" id="aim-current-score">0</span>
-                                <span class="gsb-sep">/</span>
-                                <span class="gsb-best" id="aim-high-score">0</span>
-                                <span class="gsb-trophy">🏆</span>
-                            </button>
+                            ${gameScoreBtn('aim', 'aim-high-score', 'aim-current-score')}
                         </div>
                         <div id="breakout-scoreboard" class="snake-scoreboard" style="display: none;">
                             <span class="snake-score gsb-aside">Lv <span id="breakout-level">1</span></span>
                             <span id="breakout-lives" class="snake-score gsb-aside">❤️❤️❤️</span>
-                            <button id="breakout-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('breakout')">
-                                <span class="gsb-score" id="breakout-score">0</span>
-                                <span class="gsb-sep">/</span>
-                                <span class="gsb-best" id="breakout-hiscore">0</span>
-                                <span class="gsb-trophy">🏆</span>
-                            </button>
+                            ${gameScoreBtn('breakout', 'breakout-hiscore', 'breakout-score')}
                         </div>
                         <div id="pool-scoreboard" class="snake-scoreboard" style="display: none;">
-                            <button id="pool-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('pool')">
-                                <span class="gsb-best" id="pool-wins">0</span>
-                                <span class="gsb-trophy">🏆</span>
-                            </button>
-                            <button id="snooker-lb-btn" class="game-score-btn" style="display: none;" onclick="window.openGameLeaderboard('snooker')">
-                                <span class="gsb-best" id="snooker-wins">0</span>
-                                <span class="gsb-trophy">🏆</span>
-                            </button>
+                            ${gameScoreBtn('pool', 'pool-wins')}
+                            ${gameScoreBtn('snooker', 'snooker-wins', null, '0', true)}
                         </div>
                         <div id="ludo-scoreboard" class="snake-scoreboard" style="display: none;">
                             <span class="snake-score gsb-aside" id="ludo-mode-label">PvCPU</span>
                             <span class="snake-score gsb-aside" id="ludo-tier-label">⚔️ normal</span>
                             <span class="snake-score gsb-aside" id="ludo-home-label">🏠 0/4</span>
                             <span class="snake-score gsb-aside" id="ludo-turn-label">Press Play</span>
-                            <button id="ludo-lb-btn" class="game-score-btn" onclick="window.openGameLeaderboard('ludo')">
-                                <span class="gsb-best" id="ludo-wins">0</span>
-                                <span class="gsb-trophy">🏆</span>
-                            </button>
+                            ${gameScoreBtn('ludo', 'ludo-wins')}
                         </div>
                         <div id="prayer-scoreboard" class="snake-scoreboard" style="display: none;">
                             <span class="snake-score">📿 Count: <span id="prayer-hdr-count">0</span></span>
@@ -27658,8 +25833,6 @@
             renderGameLeaderboard(gameLbOpen);
         };
         window.addQuote = addCustomQuote;
-        window.changeImageBox = changeImage;
-        window.changeImageAspectRatio = changeAspectRatio;
 
         window.switchGame = (gameKey) => {
             switchToGame(gameKey);
@@ -27710,6 +25883,13 @@
         window.prayerIncrementBtn = prayerIncrement;
         window.prayerResetBtn = prayerReset;
 
+        // This player's board row from local state, ahead of the API's cached copy.
+        const lbOwnEntry = () => ({
+            level: userXP.level || 1, totalXP: userXP.totalXP || 0, totalWorkDays: userXP.totalWorkDays || 0,
+            consecutiveDays: userXP.consecutiveDays || 0, longestStreak: userXP.longestStreak || 0,
+            achievements: Array.isArray(userXP.achievements) ? userXP.achievements.slice() : [],
+            gameBests: collectGameBests(), gameModeBests: collectGameModeBests()
+        });
         window.lbRegister = async () => {
             const input = document.getElementById('lb-name-input');
             const name = (input ? input.value : '').trim();
@@ -27724,29 +25904,8 @@
                 await fetchLeaderboard();
                 // Ensure own entry is visible immediately even if sync hasn't run
                 if (leaderboardData.length === 0) {
-                    leaderboardData = [{
-                        clientId: lbClientId,
-                        displayName: lbDisplayName,
-                        level: userXP.level || 1,
-                        totalXP: userXP.totalXP || 0,
-                        totalWorkDays: userXP.totalWorkDays || 0,
-                        consecutiveDays: userXP.consecutiveDays || 0,
-                        longestStreak: userXP.longestStreak || 0,
-                        achievements: Array.isArray(userXP.achievements) ? userXP.achievements.slice() : [],
-                        gameBests: {
-                            snake: parseInt(localStorage.getItem('snakeHighScore') || '0', 10),
-                            flappy: parseInt(localStorage.getItem('flappyHighScore') || '0', 10),
-                            tetris: parseInt(localStorage.getItem('tetrisHighScore') || '0', 10),
-                            breakout: parseInt(localStorage.getItem('breakoutHighScore') || '0', 10),
-                            pool: parseInt(localStorage.getItem('poolGamesWon') || '0', 10),
-                            ludo: parseInt(localStorage.getItem('ludoGamesWon') || '0', 10),
-                            aim: parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
-                            reflex: (() => { const d = JSON.parse(localStorage.getItem('reflexHighScores') || '{}'); return (d?.screen?.best && d.screen.best !== Infinity && d.screen.best > 0) ? d.screen.best : 0; })()
-                        },
-                        gameModeBests: collectGameModeBests(),
-                        joinedAt: new Date().toISOString().split('T')[0],
-                        lastSync: new Date().toISOString()
-                    }];
+                    leaderboardData = [Object.assign({ clientId: lbClientId, displayName: lbDisplayName }, lbOwnEntry(),
+                        { joinedAt: new Date().toISOString().split('T')[0], lastSync: new Date().toISOString() })];
                 }
                 renderLeaderboardPanel();
             } else if (btn) { btn.disabled = false; btn.textContent = '🚀 Join Now'; }
@@ -27757,73 +25916,16 @@
             await fetchLeaderboard();
             // Ensure local entry reflects latest localStorage scores (avoids stale API cache)
             const myEntry = leaderboardData.find(p => p.clientId === lbClientId);
-            if (myEntry) {
-                myEntry.level = userXP.level || 1;
-                myEntry.totalXP = userXP.totalXP || 0;
-                myEntry.totalWorkDays = userXP.totalWorkDays || 0;
-                myEntry.consecutiveDays = userXP.consecutiveDays || 0;
-                myEntry.longestStreak = userXP.longestStreak || 0;
-                myEntry.achievements = Array.isArray(userXP.achievements) ? userXP.achievements.slice() : [];
-                const syncReflexData = JSON.parse(localStorage.getItem('reflexHighScores') || '{}');
-                const syncReflexBest = syncReflexData?.screen?.best;
-                myEntry.gameBests = {
-                    snake: parseInt(localStorage.getItem('snakeHighScore') || '0', 10),
-                    flappy: parseInt(localStorage.getItem('flappyHighScore') || '0', 10),
-                    tetris: parseInt(localStorage.getItem('tetrisHighScore') || '0', 10),
-                    breakout: parseInt(localStorage.getItem('breakoutHighScore') || '0', 10),
-                    pool: parseInt(localStorage.getItem('poolGamesWon') || '0', 10),
-                    ludo: parseInt(localStorage.getItem('ludoGamesWon') || '0', 10),
-                    aim: parseInt(localStorage.getItem('aimChaosHighScore') || '0', 10),
-                    reflex: (syncReflexBest && syncReflexBest !== Infinity && syncReflexBest > 0) ? syncReflexBest : 0
-                };
-                myEntry.gameModeBests = collectGameModeBests();
-            }
+            if (myEntry) Object.assign(myEntry, lbOwnEntry());
             renderLeaderboardPanel();
             showXPNotification('✅ Leaderboard updated!', 'hourly');
         };
 
         function updateGameTitle(gameKey) {
-            const titleElement = document.getElementById('game-title');
-            if (!titleElement) return;
-
-            switch (gameKey) {
-                case 'snake':
-                    // Short: the header also carries a mode chip and the score
-                    // button, and "Snake Game" wrapped onto a second line.
-                    titleElement.textContent = '🐍 Snake';
-                    break;
-                case 'flappy':
-                    titleElement.textContent = '🐦 Flappy Bird';
-                    break;
-                case 'tetris':
-                    titleElement.textContent = '🧱 Tetris';
-                    break;
-                case 'reflex':
-                    const modeName = reflexGameModes[reflexMode].name;
-                    titleElement.textContent = `⚡ RefleX - ${modeName}`;
-                    break;
-                case 'aim':
-                    titleElement.textContent = '💥 Chaos Aim Trainer';
-                    break;
-                case 'breakout':
-                    titleElement.textContent = '🏓 Breakout';
-                    break;
-                case 'pool':
-                    // 8-Ball Pool or Snooker, whichever the panel plays, behind the 🎱 | 🔴 switch
-                    // between them (pool-game.js poolRenderTitle).
-                    if (typeof poolRenderTitle === 'function') poolRenderTitle(titleElement);
-                    else titleElement.textContent = '🎱 8-Ball Pool';
-                    break;
-                case 'ludo':
-                    titleElement.textContent = '🎲 Ludo';
-                    break;
-                case 'prayer':
-                    titleElement.textContent = '📿 Prayer Counter';
-                    break;
-                case 'leaderboard':
-                    titleElement.textContent = '🏆 Leaderboard';
-                    break;
-            }
+            const el = document.getElementById('game-title'), g = GAME_PANELS[gameKey];
+            if (!el || !g) return;
+            if (gameKey === 'pool' && typeof poolRenderTitle === 'function') poolRenderTitle(el);
+            else el.textContent = typeof g.title === 'function' ? g.title() : g.title;
         }
 
         // Reset cached values for new render

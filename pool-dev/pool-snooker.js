@@ -1,40 +1,28 @@
     // ═══════════════════════════════════════════════════════════════════
     // SNOOKER — TABLE (v2 engine)
     // ═══════════════════════════════════════════════════════════════════
-    // Snooker on pool's engine (POOL_V2_PLAN.md, Snooker). The physics, cameras and
-    // renderer are pool's; this module is what makes the table a snooker table: its
-    // config, its balls, its markings and its rack; and, below the table, its rules (Phase S2).
-    //
-    // True scale on the same 1000 × 500 bed (1 u = 3.569 mm, a 3569 mm bed): 52.5 mm balls
-    // are R 7.36. The pockets, cushion ends and markings are the design's
-    // (pool-dev/ref/design/Table.dc.html, revision 1790715495-3a1b), so what is drawn is
-    // what plays. The design's y points down the screen; ours points up, so its +y is
-    // our −y (yellow sits at y < 0: on the right of the D, seen from the baulk end).
-    //
-    // Ball ids: 0 the cue ball; a colour's id is its value (yellow 2, green 3, brown 4,
-    // blue 5, pink 6, black 7); reds are 8 upward (8–22 with 15 reds). No id means what
-    // it means in pool.
+    // Snooker on pool's physics, cameras and renderer: the table's config, balls,
+    // markings and rack, and below them its rules.
+    // True scale on the same 1000 × 500 bed (1 u = 3.569 mm): 52.5 mm balls are R 7.36.
+    // The design's y points down; ours points up, so yellow sits at y < 0.
+    // Ball ids: 0 the cue ball; a colour's id is its value (yellow 2 … black 7); reds are
+    // 8 upward (8–22 with 15 reds). No id means what it means in pool.
 
     const PS_TABLE = {
         game: 'snooker',
         ballR: 7.36,
-        // The design's pockets (revision 1790749498-5862): the cushions stop 17 u from each
-        // corner and 14.5 u either side of each middle pocket (mouth 29 u); every end is a
-        // rounded nose of radius 6 and then a straight jaw to the rail, square at the middle
-        // pockets and leaning 5 u toward the corners.
+        // Cushions stop 17 u from each corner and 14.5 u either side of a middle pocket; each
+        // end is a nose of radius 6, then a jaw to the rail, square at the middle, leaning 5 u at corners.
         pocketStyle: 'rounded',
         cornerNose: 17, sideNose: 14.5, noseRound: 6, cornerJawBack: 5, sideJawBack: 0,
         cornerPocketOffset: 2, cornerPocketR: 18,       // holes at (±502, ±252)
         sidePocketOffset: 9, sidePocketR: 15.5,         // holes at (0, ±259)
-        // A 12 ft table's cloth on a 1000 u bed: gravity in these units, the same 8 m/s top
-        // speed as pool, and snooker cloth's lower rolling resistance (a feel number; see
-        // the harness).
+        // Pool's 8 m/s top speed; snooker cloth's lower rolling resistance (a feel number).
         gravity: 2749,                                  // 9.81 m/s² at 3.569 mm/u
         maxSpeed: 2240,
         muRoll: 0.011,
         clusterGap: 0.26,                               // pool's 0.5, scaled with R
-        // Pool's rail and nose heights, as the design draws them (a nose at 1.36 R is close
-        // to a real snooker table's), set explicitly so the wide shots fit the real rail.
+        // Pool's rail and nose heights (a nose at 1.36 R is near real), explicit so wide shots fit the rail.
         railZ: 16, noseZ: 10,
         diamonds: false,
     };
@@ -44,8 +32,7 @@
     const PS_NAMES = { 0: 'cue ball', 2: 'yellow', 3: 'green', 4: 'brown', 5: 'blue', 6: 'pink', 7: 'black' };
     const PS_REDS = [15, 10, 6];                        // the frame lengths offered
 
-    // The markings, in our frame: the baulk line 206.5 u from the baulk cushion, the D's
-    // radius, and each colour's spot.
+    // The baulk line (206.5 u from the baulk cushion), the D's radius, each colour's spot.
     const PS_BAULK_X = -293.5, PS_D_R = 81.8;
     const PS_SPOTS = {
         2: [PS_BAULK_X, -PS_D_R],                       // yellow
@@ -61,9 +48,7 @@
     const psName = id => (psIsRed(id) ? 'red' : PS_NAMES[id] || '');
     const psRedsOf = n => (PS_REDS.indexOf(n) >= 0 ? n : 15);
 
-    // The markings as the renderer draws them (pgDrawMarks: spots, the baulk line across the
-    // bed, the D's half-circle toward the baulk cushion), plus the numbers the rules and
-    // ball in hand read.
+    // The markings pgDrawMarks draws, plus the numbers the rules and ball in hand read.
     function psMarks(cfg) {
         const HW = cfg.halfWidth;
         return {
@@ -74,17 +59,14 @@
         };
     }
 
-    // A snooker world: pool's physics on the snooker table, with its markings.
     function psCreateWorld(overrides) {
         const w = ppCreateWorld(Object.assign({}, PS_TABLE, overrides));
         w.table.marks = psMarks(w.cfg);
         return w;
     }
 
-    // The rack: the reds in a pyramid (5, 4 or 3 rows) with its apex as close behind the pink
-    // as it can be without touching it, the colours exactly on their spots, and the cue ball
-    // in the D. `rng` jitters each red by a hair, as pool's rack does, so no two break-offs
-    // are the same; the colours are never jittered.
+    // Reds in a pyramid (5, 4 or 3 rows) just behind the pink, colours on their spots, the cue
+    // ball in the D. `rng` jitters each red by a hair; colours are never jittered.
     function psRack(w, rng, reds) {
         const R = w.cfg.ballR, n = psRedsOf(reds);
         const d = 2 * R + 0.02;                         // a hair between balls, as pool's rack
@@ -106,25 +88,19 @@
     // ═══════════════════════════════════════════════════════════════════
     // SNOOKER — RULES (v2 engine)
     // ═══════════════════════════════════════════════════════════════════
-    // Snooker to the 147 (POOL_V2_PLAN.md, Snooker: the rules table and the user's calls):
-    //   - the break-off is played from the D, on reds; there is no other break rule
-    //   - on reds any red may be hit first (several at once too), 1 a red; then a colour,
-    //     nominated every time, re-spotted when potted; after the last red, any colour once,
-    //     then the clearance, yellow to black, where potted balls stay down
-    //   - a foul costs max(4, the ball on, every ball involved), capped at 7, never a sum; a
-    //     foul before nominating is 7. The offender scores nothing, reds stay down and colours
-    //     come back. The incoming player chooses: play, make the offender play again, or
-    //     (snookered, and the cue ball not in-off) a free ball. No miss rule, no re-racks
+    // Snooker to the 147:
+    //   - the break-off is from the D, on reds; no other break rule
+    //   - on reds any red(s) first, 1 each; then a nominated colour, re-spotted; after the
+    //     last red any colour once, then the clearance, yellow to black, balls stay down
+    //   - a foul costs max(4, ball on, every ball involved) capped at 7, never a sum; a foul
+    //     before nominating is 7. Reds stay down, colours come back. The incoming player
+    //     chooses: play, put the offender back in, or (snookered, not in-off) a free ball.
+    //     No miss rule, no re-racks
     //   - a cue ball in-off is ball in hand in the D for whoever plays next
-    //   - the frame ends when the table is cleared, on a foul with only the black left, or
-    //     on a concession; a tie re-spots the black, played from the D, the first player
-    //     drawn by the frame's seeded lot
-    //
-    // Pure, as pool's judge is: psJudge reads a settled world and its event log and returns
-    // a verdict plus the next frame state, mutating neither. The caller applies the re-spots
-    // (psApplySpots) and places the cue ball when it is in hand. Seats are 1 and 2.
-    //
-    // frame = { v, game, reds, breaker, turn, isBreak, lot, scores {1, 2}, brk, high {1, 2},
+    //   - the frame ends on a cleared table, a foul with only the black left, or a
+    //     concession; a tie re-spots the black, first player drawn by the seeded lot
+    // Pure, as prJudge: the caller applies re-spots (psApplySpots) and places the cue ball.
+    // frame ={ v, game, reds, breaker, turn, isBreak, lot, scores {1, 2}, brk, high {1, 2},
     //   fouls {1, 2}, shots, phase 'reds' | 'colour' | 'clearance', next (the clearance's ball
     //   on, 2–7), freeBall, ballInHand 'D' | null, touching [ids], pending, respotBlack, over,
     //   winner, conceded }
@@ -137,13 +113,11 @@
         timeout: 'Out of time',
         freeSnooker: 'Snookered behind the free ball',
     };
-    // Which foul names the toast when a shot commits several: the one that set the penalty,
-    // and on equal values the first here.
+    // The toast names the foul that set the penalty; on equal values, the first here.
     const PS_FOUL_ORDER = ['wrongFirst', 'wrongPot', 'wrongPocket', 'noContact', 'inOff', 'noNomination', 'freeSnooker', 'timeout'];
     const PS_TOUCH_GAP = 0.1;                           // a ball this close to the cue ball is touching it
-    // The call pocket, as it is played where the user is from: 'off' (the rules as written),
-    // 'colours' (every colour is called, reds are not) or 'all' (every ball). A ball on potted
-    // with none in the pocket called is a foul on its value. The break-off is never called.
+    // Call pocket: 'off' (rules as written), 'colours' (colours called, reds not) or 'all'. A ball
+    // on potted with none in the called pocket is a foul on its value. The break-off is never called.
     const PS_CALLS = ['off', 'colours', 'all'];
     const psCallNeeded = state => !state.isBreak && (state.call === 'all' || (state.call === 'colours' && state.phase !== 'reds'));
 
@@ -171,10 +145,9 @@
         return state.phase === 'colour' ? cols : [];
     }
 
-    // What the shooter is on. ids: the balls that may be hit first and potted; also: the balls
-    // a free ball may be hit or potted together with (the reds, or the clearance's ball on);
-    // value: what a foul on it costs at least (a free ball takes the value of the ball it
-    // stands for; nothing nominated when a nomination is needed is 7).
+    // What the shooter is on. ids: may be hit first and potted; also: what a free ball may go
+    // with (reds, or the clearance's ball on); value: a foul's minimum (a free ball takes the
+    // value it stands for; a missing nomination is 7).
     function psBallOn(state, live, nominated) {
         const nominable = psNominable(state, live);
         const needsNomination = state.freeBall || state.phase === 'colour';
@@ -189,9 +162,8 @@
         return { ids: [state.next], also: [], value: state.next, freeId: -1, nominated: -1, needsNomination, nominable };
     }
 
-    // The last shot from the physics log: the ball(s) the cue ball met first (all those met
-    // at the same instant), what dropped, and whether the cue ball went in. Contacts with a
-    // ball the cue ball was touching at rest are left out: playing away from it is not a hit.
+    // The ball(s) the cue ball met first (all at that instant), what dropped, and whether the cue
+    // ball went in. A ball touching the cue ball at rest is left out: playing away is not a hit.
     function psSummarize(log, touching) {
         const touch = touching || [];
         let start = 0;
@@ -210,8 +182,7 @@
         return { firstT, first, pots, cueDown: pots.some(p => p.ball === 0) };
     }
 
-    // The balls as they will stand once the re-spots are applied (and without the cue ball
-    // when it is in hand): what the snookered and touching tests look at.
+    // The balls after re-spots (no cue ball when in hand), for the snookered and touching tests.
     function psAfter(world, spots, cueInHand) {
         const at = {};
         (spots || []).forEach(s => { at[s.id] = s; });
@@ -219,11 +190,9 @@
             .map(b => (at[b.id] ? { id: b.id, x: at[b.id].x, y: at[b.id].y, state: 'stationary' } : b));
     }
 
-    // Is the cue ball snookered on `onIds`? The cue ball's path to a ball on is a band 2R
-    // either side of its centre line; it is blocked by any ball not on (cushions are not
-    // looked at). mode 'free' (the free-ball test): snookered unless some ball on can be hit
-    // on both of its extreme edges. mode 'full': snookered only if no part of any ball on
-    // can be hit. `balls`: live balls, the cue ball among them; `R` the ball radius.
+    // Is the cue ball snookered on `onIds`? Its path is a band 2R either side of the centre
+    // line, blocked by any ball not on (cushions ignored). 'free': snookered unless some ball
+    // on can be hit on both extreme edges. 'full': only if no part of any ball on can be hit.
     function psSnookered(balls, R, onIds, mode) {
         const cue = balls.find(b => b.id === 0 && b.state !== 'pocketed');
         const on = balls.filter(b => b.state !== 'pocketed' && onIds.indexOf(b.id) >= 0);
@@ -252,18 +221,15 @@
         return !on.some(o => !blocked(o, edge) && !blocked(o, -edge));
     }
 
-    // The ids of the balls touching the cue ball at rest.
     function psTouching(balls, R) {
         const cue = balls.find(b => b.id === 0 && b.state !== 'pocketed');
         if (!cue) return [];
         return balls.filter(b => b.id !== 0 && b.state !== 'pocketed' && Math.hypot(b.x - cue.x, b.y - cue.y) <= 2 * R + PS_TOUCH_GAP).map(b => b.id);
     }
 
-    // Where re-spotted colours go, highest value first, each one occupying its place for the
-    // next: its own spot; else the highest-value free spot; else as close as it fits behind
-    // its own spot toward the top cushion; else in front of it. A place is free when no ball
-    // on the table (or already re-spotted) would touch the one placed there. Solved on the
-    // line exactly, not stepped.
+    // Re-spots, highest value first, each taking its place before the next: its own spot; else
+    // the highest-value free spot; else as close behind its spot (toward the top cushion) as
+    // fits; else in front. Solved on the line exactly, not stepped.
     function psSpotPositions(world, ids) {
         const R = world.cfg.ballR, gap = 2 * R + 0.02, hx = world.table.halfLength - R;
         const occ = world.balls.filter(b => b.state !== 'pocketed' && ids.indexOf(b.id) < 0).map(b => [b.x, b.y]);
@@ -300,9 +266,7 @@
         });
     }
 
-    // Points still on the table for the player at it: a red and a black for every red, then
-    // the colours (27); after a red, the colour that follows it; in the clearance, the ball
-    // on and everything after it.
+    // Points left: 8 per red plus the colours (27), +7 after a red; in the clearance, the ball on onward.
     function psRemaining(state, live) {
         if (state.respotBlack) return 7;
         if (state.phase === 'clearance') { let s = 0; for (let c = state.next; c <= 7; c++) s += c; return s; }
@@ -335,8 +299,7 @@
         };
     }
 
-    // The frame is decided (the table cleared, or a foul with only the black left): the
-    // higher score wins; a tie re-spots the black, played from the D by the lot's pick.
+    // The higher score wins; a tie re-spots the black, played from the D by the lot's pick.
     function psEndFrame(v, state, next) {
         if (next.scores[1] !== next.scores[2]) {
             v.frameOver = true; v.winner = next.scores[1] > next.scores[2] ? 1 : 2;
@@ -380,9 +343,7 @@
         next.pending = { offender: me, chooser: them, options, penalty: v.penalty };
     }
 
-    // Judges the shot that just settled. `nominated`: the colour tapped for it, or -1;
-    // `called`: the pocket called for it (when the frame's call rule asks), or -1.
-    // Returns the verdict; verdict.next is the state to play on.
+    // `nominated`: the colour tapped, or -1; `called`: the pocket called, or -1. verdict.next is the state to play on.
     function psJudge(state, world, nominated, called) {
         const call = Number.isInteger(called) && called >= 0 ? called : -1;
         const me = state.turn, them = 3 - me;
@@ -455,8 +416,7 @@
             next.phase = liveReds ? 'reds' : 'clearance';
             next.next = 2;
         } else {
-            // The clearance: the ball on (or the free ball for it) scores the ball on's value
-            // once; the free ball comes back, the ball on stays down.
+            // Clearance: the ball on (or a free ball for it) scores once; a free ball comes back.
             points = scored.length ? state.next : 0;
             if (free && scored.indexOf(on.freeId) >= 0) spotIds = [on.freeId];
             if (scored.indexOf(state.next) >= 0) next.next = state.next + 1;
@@ -504,9 +464,7 @@
         return Object.assign({}, state, { pending: null, turn: choice === 'back' ? p.offender : p.chooser, freeBall: choice === 'free', brk: 0 });
     }
 
-    // The shot clock ran out: a foul on the ball on (7 with nothing nominated when a colour
-    // was needed), with the usual choice; nothing moved, so the cue ball stays where it is,
-    // or in hand in the D if it was.
+    // Shot clock ran out: a foul on the ball on (7 if a needed nomination is missing); nothing moved.
     function psTimeout(state, world, nominated) {
         const me = state.turn, them = 3 - me;
         const on = psBallOn(state, psLiveIds(world.balls), nominated === undefined ? -1 : nominated);
@@ -525,7 +483,6 @@
         return v;
     }
 
-    // A seat gives the frame away.
     function psConcede(state, seat) {
         const winner = 3 - seat;
         const next = Object.assign({}, state, { over: true, winner, conceded: seat, pending: null, turn: 0, ballInHand: null });
@@ -536,8 +493,7 @@
         };
     }
 
-    // Seat-aware copy for the toast and the frame result, as prText's. names = { 1, 2 }; the
-    // name 'You' gets second-person grammar.
+    // Seat-aware toast copy, as prText's; the name 'You' gets second-person grammar.
     function psText(v, names) {
         const n = seat => names[seat];
         const you = seat => n(seat) === 'You';
@@ -548,7 +504,6 @@
                 : v.foul ? 'foul on the black' : nx.respotBlack ? 'potted the re-spotted black' : 'potted the black';
             return { kind: 'frame', title: you(w) ? 'You win' : n(w) + ' wins', sub: line + ' · ' + how };
         }
-        // SnkRespot: an info toast. SnkCentury: the trophy, in the accent.
         if (v.respotBlack) return { kind: 'notice', title: 'Scores level · re-spotted black', sub: (you(v.nextTurn) ? 'You have' : n(v.nextTurn) + ' has') + ' ball in hand in the D' };
         if (v.foul) {
             const why = v.foul === 'wrongFirst' ? 'Hit the ' + psName(v.foulBall) + ' first'
@@ -574,8 +529,7 @@
             : { id, label: 'Free ball', short: 'Free ball' }));
     }
 
-    // What the chooser decided, for a notice when it was not the viewer (the CPU, say):
-    // CPU plays on / CPU takes the free ball / CPU puts you back in.
+    // The chooser's decision as a notice, when it was not the viewer.
     function psChoiceNotice(pending, choice, names) {
         const who = names[pending.chooser], me = who === 'You', off = names[pending.offender];
         if (choice === 'back') return (me ? 'You put ' : who + ' puts ') + (off === 'You' ? 'you' : off) + ' back in';
@@ -583,8 +537,7 @@
         return (me ? 'You play on' : who + ' plays on');
     }
 
-    // The frame-over dialog's words (SnkWin / SnkLoss): the reason in a sentence, the score
-    // in seat order, and the frame's high break with who made it.
+    // The frame-over dialog's words: reason, score in seat order, the high break and who made it.
     function psResultText(v, names) {
         const n = seat => (names[seat] === 'You' ? 'You' : names[seat]);
         const nx = v.next, sc = nx.scores, h = nx.high;
@@ -596,8 +549,7 @@
     }
 
     // ── The cue ball in hand ─────────────────────────────────────────────
-    // A free spot in the D for the cue ball in hand: the design's break-off spot, else a
-    // walk out over the D.
+    // A free spot in the D: the break-off spot, else a walk out over the D.
     function psCueHome(w) {
         const tries = [[-320, -30], [-330, 0], [-320, 30]];
         for (let r = 10; r <= 80; r += 10) for (let a = 0; a < 12; a++) tries.push([PS_BAULK_X - r * Math.sin(a * Math.PI / 12 + 0.01), r * Math.cos(a * Math.PI / 12 + 0.01)]);

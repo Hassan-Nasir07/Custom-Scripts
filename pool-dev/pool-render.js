@@ -1,8 +1,7 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — RENDERER (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // Canvas2D port of the design's Table.dc.html, painted in the layer order
-    // of the plan's Rendering spec:
+    // Canvas2D, painted in layers:
     //   1  table shadow, apron, felt
     //   2  rail inner face, jaw faces, nose faces
     //   3  cushion tops, rail wood, lip, diamonds, spots
@@ -12,22 +11,15 @@
     //   7  balls, far to near
     //   8  ghost ball, cue, called-pocket rings, ball-in-hand ghost and hand
     // Layers 1–4 depend only on the camera, so they can be cached.
-    //
-    // Everything is a filled or stroked polygon; nothing uses ctx.clip().
-    // The pocket shafts and the ball markings are clipped as polygons
-    // (Sutherland–Hodgman against a convex outline), which is exact, and
-    // keeps the renderer usable on the headless rasterizer in the tests.
-    //
-    // Table materials and ball colours are physical and theme-independent.
-    // Anything drawn in a theme colour (the object-ball path, rings, the
-    // kitchen, ball in hand) comes in through scene.theme.
+    // Pool's pockets and ball markings are clipped as polygons (Sutherland–Hodgman),
+    // not ctx.clip(), so the tests' headless rasterizer can draw them.
+    // Table materials and ball colours are physical; theme colours come in via scene.theme.
 
     const PG_RAIL_Z = 16;              // rail top
     const PG_NOSE_Z = 10;              // cushion nose height
     const PG_POCKET_FLOOR = -64;
-    // Pool's heights, unless the table sets its own (snooker's smaller balls sit under a
-    // lower rail). Sizes drawn around a ball (cue, shadow, rings) scale by pgK: R over
-    // pool's 14, so pool draws exactly as it always has.
+    // Pool's heights unless the table sets its own. Sizes drawn around a ball (cue,
+    // shadow, rings) scale by pgK = R / 14, so pool's are unscaled.
     const pgRailZ = cfg => (cfg.railZ !== undefined ? cfg.railZ : PG_RAIL_Z);
     const pgNoseZ = cfg => (cfg.noseZ !== undefined ? cfg.noseZ : PG_NOSE_Z);
     const pgK = cfg => cfg.ballR / 14;
@@ -39,10 +31,8 @@
         lightgrey: { felt: ['#A3AEB8', '#86929D', '#59636D'], cushion: '#707C87', jaw: '#56606A', nose: '#4C565F' },
     };
     const PG_BALL_COLOURS = { 1: '#E9B825', 2: '#2457C5', 3: '#D2352B', 4: '#6A3FA0', 5: '#EE7A2E', 6: '#1F8A4C', 7: '#8C2A20', 8: '#141516' };
-    // What each game's balls look like, by id: { cue } for the cue ball, else
-    // { colour, stripe, number }. The renderer and the HUD's dots both read it.
-    // Snooker's balls are plain: a colour's id is its value (yellow 2 … black 7), reds are 8
-    // upward (pool-snooker.js). The design's colours.
+    // Each game's ball looks by id: { cue }, else { colour, stripe, number }. The HUD's
+    // dots read it too. Snooker ids: a colour's value (yellow 2 … black 7), reds 8 upward.
     const PG_SNOOKER_COLOURS = { 2: '#E8C21E', 3: '#1F7A3F', 4: '#6B3F22', 5: '#1F4FB5', 6: '#E88FA8', 7: '#121314' };
     const PG_SNOOKER_RED = '#B3202A';
     const PG_LOOKS = {
@@ -58,7 +48,7 @@
     const PG_GUIDE = '#F4F1E8';
     const PG_THEME = { accent: '#f093fb', hot: '#ff5d73', font: 'Inter, system-ui, sans-serif' };
     const PG_HAND = 'M18 11V6a2 2 0 0 0-4 0M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.83L7 15';
-    const PG_STRIPE = 0.46;            // stripe caps start 0.46 R from the centre (the design's 27–73% band)
+    const PG_STRIPE = 0.46;            // stripe caps start 0.46 R from the centre (a 27–73% band)
     const PG_NUMBER = 0.888;           // number disc: cos of its angular radius (0.46 of the diameter across)
 
     // ── Polygon helpers ───────────────────────────────────────────────
@@ -135,11 +125,9 @@
     }
 
     // ── Layers 1–4: the table ─────────────────────────────────────────
-    // The six cushions, from the physics config so they match the colliders. Each is
-    // { top, nose: [a, b], ends: [[p, q], …] }: its top face, the nose edge (its face drops to
-    // the felt), and the end edges whose faces are drawn in the jaw colour. Pool's are quads,
-    // [nose start, nose end, rail end, rail start] with a straight jaw at each end; nose at
-    // z = 10, rail at 16.
+    // The cushions, from the physics config so they match the colliders:
+    // { top, nose: [a, b], ends: [[p, q], …] } (nose face drops to the felt; end faces
+    // are jaw-coloured). Pool's are quads [nose start, nose end, rail end, rail start].
     function pgCushions(cfg) {
         if (cfg.pocketStyle === 'rounded') return pgRoundedCushions(cfg);
         const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth;
@@ -156,16 +144,13 @@
         return q.map(c => ({ top: c, nose: [c[0], c[1]], ends: [[c[0], c[3]], [c[1], c[2]]] }));
     }
 
-    // Snooker's cushions (the design's Table.dc.html): straight along the nose, a rounded nose
-    // of radius noseRound, then a straight jaw back to the rail, as ppBuildRoundedTable's
-    // colliders are. The top rises from the nose to the rail height across the cushion's depth.
+    // Snooker's cushions, matching ppBuildRoundedTable; the top rises from nose to rail height.
     function pgRoundedCushions(cfg) {
         const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth, RHO = cfg.noseRound;
         const c = cfg.cornerNose, s = cfg.sideNose, N = pgNoseZ(cfg), T = pgRailZ(cfg), NA = 8;
         const out = [];
-        // One run from u = a to u = b along a cushion; dirA and dirB point from each end toward
-        // its pocket, jbA / jbB how far each jaw leans that way at the rail; map(u, depth, z) is
-        // the point that fraction (depth) of the way to the rail.
+        // One run from u = a to b; dirA/dirB point toward each end's pocket, jbA/jbB are the
+        // jaw leans; map(u, depth, z) is the point that fraction of the way to the rail.
         const run = (a, b, dirA, dirB, jbA, jbB, map) => {
             const at = (u, dep) => map(u, dep, N + (T - N) * dep);
             const end = (e, dir, jb) => {
@@ -190,8 +175,7 @@
         return out;
     }
 
-    // The felt's markings: the table's own when it has them (snooker's baulk line, D and
-    // spots), else pool's two spots, the foot spot and the head spot.
+    // The table's own markings (snooker), else pool's foot and head spots.
     //   { spots: [{ x, y, r }], lines: [[[x, y], [x, y]]], arcs: [{ x, y, r, a0, a1 }] }
     function pgMarks(table) {
         return table.marks || { spots: [{ x: table.footX, y: 0, r: 3 }, { x: table.headX, y: 0, r: 3 }], lines: [], arcs: [] };
@@ -230,7 +214,7 @@
         }
         const felt = P(pgRect(IX, IY, 0));
         if (felt.length >= 3) {
-            // The design's radial at (50%, 46%), r 62% of the felt's bounding box.
+            // Radial at (50%, 46%), r 62% of the felt's bounding box.
             const b = pgBounds([felt]);
             ctx.save();
             ctx.beginPath(); pgTrace(ctx, felt);
@@ -300,11 +284,9 @@
         const bandRGB = ['#563C29', '#302117', '#150F0B'];
         const lit = [0.55, 0.8, 1.08];
         const NF = 30;
-        // Snooker in 3D (the design's revision 1790749498-5862): a pocket sits mostly behind the
-        // cushion line, so its lip is at rail height only where the rail is cut and drops to the
-        // felt across the cushion gap. The opening is that mixed-height rim (it also covers the
-        // rail face between the cushion ends); the wall's top band shows only over the rail. Then
-        // the cushions are drawn again, in front of the holes.
+        // Snooker in 3D: a pocket sits mostly behind the cushion line, so its lip is at rail
+        // height only over the rail and drops to the felt across the gap; the wall's top band
+        // shows only over the rail. The cushions are then redrawn in front of the holes.
         if (cfg.pocketStyle === 'rounded' && eye) {
             const over = (x, y) => Math.abs(x) > IX || Math.abs(y) > IY;
             table.pockets.forEach(p => {
@@ -319,8 +301,7 @@
                 const ap = P(rim);
                 if (ap.length < 3) return;
                 pgFill(ctx, [ap], '#040303');
-                // The walls and the floor rings are clipped to the opening (it need not be convex); a
-                // canvas without clip() (the tests' software one) shows the opening alone.
+                // The opening need not be convex, so this uses clip(); without it, the opening alone.
                 if (typeof ctx.clip !== 'function') return;
                 ctx.save();
                 ctx.beginPath(); pgTrace(ctx, ap); ctx.clip();
@@ -377,10 +358,9 @@
     }
 
     // ── Balls ─────────────────────────────────────────────────────────
-    // Body frame: x = the number's pole, z = the stripe axis (the digits'
-    // up), y = z × x. Each ball has a fixed "print" orientation so a fresh
-    // rack shows its numbers from above, each turned a little differently,
-    // as in the design; the physics quaternion rolls it from there.
+    // Body frame: x = the number's pole, z = the stripe axis (digits' up), y = z × x.
+    // A fixed per-id "print" shows a fresh rack's numbers from above, each turned a
+    // little; the physics quaternion rolls it from there.
     const pgPrintCache = {};
     function pgPrint(id) {
         if (pgPrintCache[id]) return pgPrintCache[id];
@@ -434,10 +414,8 @@
         return pts.map(scr);
     }
 
-    // A ball's number as a small image, drawn once per id, size and font: text is the
-    // dearest thing on the canvas (the font string is parsed and the glyphs shaped on every
-    // call), and up to fifteen of them change every frame. Rendered at 2× so the
-    // foreshortening transform does not blur it. Null when there is no canvas to draw into.
+    // A ball's number as a cached sprite per id, size and font: fillText is the dearest
+    // call on the canvas. At 2× so foreshortening does not blur it; null without a canvas.
     function pgDigit(sprites, make, id, fs, font) {
         if (!sprites || !make) return null;
         const px = Math.round(fs * 2) / 2, key = id + '|' + px + '|' + font;
@@ -458,8 +436,7 @@
         return s;
     }
 
-    // One ball at screen centre (cx, cy), radius rad. `v` is the view basis
-    // at the ball: right, up and toward the viewer, all world vectors.
+    // `v` is the view basis at the ball: right, up and toward the viewer, in world vectors.
     function pgDrawBall(ctx, b, cx, cy, rad, v, theme, alpha) {
         const dd = rad * 2, id = b.id;
         const local = w => [pcDot(w, v.r), pcDot(w, v.u), pcDot(w, v.t)];
@@ -472,7 +449,7 @@
             g.addColorStop(0, '#F8F4EB'); g.addColorStop(1, '#E6DFCF');
             ctx.fillStyle = g; ctx.fill();
         } else if (!look.stripe && !look.number) {
-            // A plain ball (snooker's): the colour, then the lamp, nothing printed to roll.
+            // Plain (snooker's): nothing printed to roll.
             disc(); ctx.fillStyle = look.colour; ctx.fill();
         } else {
             disc(); ctx.fillStyle = look.colour; ctx.fill();
@@ -485,8 +462,7 @@
             if (look.number) [N, [-N[0], -N[1], -N[2]]].forEach(n => ivory.push(pgCap(n, PG_NUMBER, cx, cy, rad)));
             ctx.beginPath(); ivory.forEach(p => pgTrace(ctx, p));
             ctx.fillStyle = PG_IVORY; ctx.fill();
-            // Digits on the disc that faces us, foreshortened with it; hidden
-            // on small balls and faded as the disc turns away (as designed).
+            // Digits on the facing disc, foreshortened; hidden on small balls, faded as it turns away.
             if (look.number && dd >= 15) {
                 [[N, 1], [[-N[0], -N[1], -N[2]], -1]].forEach(([n, sgn]) => {
                     const facing = n[2];
@@ -510,7 +486,7 @@
                 });
             }
         }
-        // Lamp highlight and rim shade, fixed to the view (the design's two gradients).
+        // Lamp highlight and rim shade, fixed to the view.
         disc();
         const hx = cx - 0.34 * rad, hy = cy - 0.46 * rad, hl = 0.991 * dd;
         const hg = ctx.createRadialGradient(hx, hy, 0, hx, hy, hl);
@@ -532,11 +508,9 @@
     }
 
     // ── Guides ────────────────────────────────────────────────────────
-    // The shot's opening, on the real physics: the cue ball's path to its
-    // first contact (squirt included), the object ball's line off it
-    // (throw included), and where the cue ball goes next, so a draw shot
-    // visibly bends back. Straight up to contact, since nothing curves a
-    // ball before it touches anything without masse.
+    // The shot's opening on the real physics: the cue ball's path to first contact
+    // (squirt included), the object ball's line (throw included), and where the cue
+    // ball goes next, so draw visibly bends back.
     function pgGuide(world, shot) {
         const w = ppCloneWorld(world);
         w.log = [];
@@ -571,9 +545,7 @@
             const sp = Math.hypot(ob.vx, ob.vy);
             if (sp > 1e-6) out.obj = { x: ob.x, y: ob.y, dx: ob.vx / sp, dy: ob.vy / sp };
         }
-        // Follow the cue ball on after contact, alone: the guide shows where
-        // its spin takes it, not the collisions after that (and a rack
-        // scattering would cost ten times as much to simulate).
+        // Follow the cue ball alone: where its spin takes it, not later collisions (and far cheaper).
         W2.balls = [c];
         let len = 0, px = c.x, py = c.y;
         out.after.push([px, py]);
@@ -588,7 +560,6 @@
         return out;
     }
 
-    // Cuts a polyline to a length.
     function pgTrim(pts, maxLen) {
         const out = [pts[0]];
         let len = 0;
@@ -626,9 +597,8 @@
     //   dpr,                                         backing-store scale of ctx
     //   aim: { angle, power, gap } | null,           null hides the cue and the guides
     //   guide: pgGuide(…) | null, guideMode: 'full' | 'short' | 'off', illegal,
-    //   guideLen: the object ball's line in full mode (150 unless ⚙️ Aim Guide shortens it;
-    //             0 draws neither path, only the aim line and the ghost ball),
-    //   bih: { x, y, valid, reason } | null, zone: 'kitchen' | 'D' | null (kitchen: the old name),
+    //   guideLen: the object ball's line in full mode (default 150; 0 draws no paths),
+    //   bih: { x, y, valid, reason } | null, zone: 'kitchen' | 'D' | null (or legacy kitchen),
     //   call: { called } | null, ring: the nominated ball's id (snooker) | null,
     //   drops: [{ ball, pocket, t }],
     // }
@@ -641,10 +611,8 @@
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, view.W, view.H);
 
-        // Layers 1–4, cached per camera pose when the caller supplies a canvas. While the
-        // camera is moving (aiming in 3D turns it every frame) a cached copy would be drawn
-        // once and thrown away, so the table goes straight to the screen, saving a
-        // whole-canvas copy; the first frame the pose holds, it is cached again.
+        // Layers 1–4, cached per camera pose. While the camera moves a cache would be
+        // thrown away each frame, so the table draws straight to screen until the pose holds.
         const key = JSON.stringify([view.pose, scene.felt, dpr, theme.game]);
         const moving = !!scene.cache && scene.cache.lastKey !== undefined && scene.cache.lastKey !== key;
         if (scene.cache) scene.cache.lastKey = key;
@@ -668,13 +636,12 @@
             pgDrawTable(ctx, view, cfg, table, scene.felt);
         }
 
-        // 5. The ball-in-hand zone: pool's kitchen (scene.kitchen is the older name for it).
+        // 5. The ball-in-hand zone.
         const zone = scene.zone || (scene.kitchen ? 'kitchen' : null);
         if (zone === 'kitchen') {
             pgFill(ctx, [pcPoly(view, [[-cfg.halfLength, -cfg.halfWidth, 0.2], [table.headX, -cfg.halfWidth, 0.2], [table.headX, cfg.halfWidth, 0.2], [-cfg.halfLength, cfg.halfWidth, 0.2]])], theme.accent, 0.12);
             pgStrokeLine(ctx, view, [[table.headX, -cfg.halfWidth], [table.headX, cfg.halfWidth]], 0.3, pgRgba(theme.accent, 0.8), 1.5, [6, 5], true);
         } else if (zone === 'D' && table.marks) {
-            // Snooker's D: tinted, and outlined round the arc and back along the baulk line.
             const m = table.marks, arc = [];
             for (let i = 0; i <= 24; i++) { const t = Math.PI / 2 + i / 24 * Math.PI; arc.push([m.baulkX + m.dR * Math.cos(t), m.dR * Math.sin(t)]); }
             pgFill(ctx, [pcPoly(view, arc.map(q => [q[0], q[1], 0.2]))], theme.accent, 0.12);
@@ -697,7 +664,6 @@
         const Z = 0.6;
         if (g && g.contact) {
             const short = scene.guideMode === 'short';
-            // ⚙️ Aim Guide None (guideLen 0): the aim line and the ghost ball, no paths after.
             const L = short ? 60 : typeof scene.guideLen === 'number' ? scene.guideLen : 150;
             const dx = g.contact[0] - g.start[0], dy = g.contact[1] - g.start[1], dl = Math.hypot(dx, dy) || 1;
             const ux = dx / dl, uy = dy / dl;
@@ -752,7 +718,7 @@
             const gap = a.gap !== undefined ? a.gap : 8 + (a.power || 0) * 1.1;
             const L = 600;
             const pt = (u, side) => {
-                // Pool's cue at every ball size, as the design draws snooker's.
+                // Pool's cue at every ball size.
                 const along = R + gap + u, wd = 3.3 + (8 - 3.3) * (u / L), z = R + 1.5 + 60 * (u / L);
                 return [cue.x - d[0] * along - d[1] * wd * side, cue.y - d[1] * along + d[0] * wd * side, z];
             };
@@ -772,8 +738,7 @@
             part(0, 3, '#3E73B8');
         }
         if (scene.ring) {
-            // Snooker's nominated ball: an accent ring round it, r + max(3 px, 0.4 r) (the design),
-            // see-through so the ball and what is near it still read (the user's report, 2026-10-01).
+            // Snooker's nominated ball: a see-through accent ring at r + max(3 px, 0.4 r).
             const b = w.balls.find(o => o.id === scene.ring && o.state !== 'pocketed');
             const s = b && pcProject(view, [b.x, b.y, R]);
             if (s && s[3] > PC_NEAR + R) {
@@ -783,9 +748,8 @@
                 ctx.strokeStyle = pgRgba(theme.accent, 0.6); ctx.lineWidth = 1.5; ctx.stroke();
             }
         }
-        // The pocket rings: the called one lit, the rest dashed. Snooker's are see-through, so its
-        // small pockets and a ball in their jaws still read under them (the user's report,
-        // 2026-10-01); pool's stay as they were.
+        // Pocket rings: the called one lit, the rest dashed. Snooker's are lighter so its small
+        // pockets and a ball in their jaws still read.
         if (scene.call) {
             const lite = theme.game === 'snooker';
             table.pockets.forEach((p, i) => {
@@ -824,8 +788,7 @@
         ctx.restore();
     }
 
-    // Screen positions of the six pockets for hit-testing a call, with
-    // whether each is on screen (the rest are called from the mini-map).
+    // Pocket screen positions for hit-testing a call; off-screen ones are called from the mini-map.
     function pgPocketMarks(view, table, cfg) {
         const Z = cfg ? pgRailZ(cfg) : PG_RAIL_Z, K = table.R / 14;
         return table.pockets.map((p, i) => {

@@ -65,31 +65,32 @@ ok('the whole userscript parses (a duplicated top-level name would be a SyntaxEr
 
 // ── 3. Host wiring ────────────────────────────────────────────────────
 head('Host wiring');
-ok('switchGame enters through initPoolGame()', /case 'pool':\n\s+if \(poolCv\) poolCv\.style\.display = 'block';[\s\S]{0,160}?initPoolGame\(\);\n\s+break;/.test(src));
+ok('switchGame enters through initPoolGame(), on #pool-root, with no controls row', /pool: \{ el: 'pool-root', noControls: true, title: '🎱 8-Ball Pool', start: \(\) => initPoolGame\(\) \}/.test(src));
 ok('switchGame leaves through poolDetach()', /case 'pool':[\s\S]{0,200}?poolDetach\(\);\n\s+break;/.test(src));
-ok('the panel element is #pool-root, shown and hidden with the canvases', src.includes("const poolCv = document.getElementById('pool-root');") && /<div id="pool-root" class="pool-root" style="display:none;"><\/div>/.test(src));
-ok('the header keeps the title and the wins button only', /<div id="pool-scoreboard" class="snake-scoreboard" style="display: none;">\n\s+<button id="pool-lb-btn"/.test(src) && !src.includes('pool-turn-label'));
+ok('the panel element is #pool-root, shown and hidden with the canvases', /<div id="pool-root" class="pool-root" style="display:none;"><\/div>/.test(src));
+ok('the header keeps the title and the wins button only', /<div id="pool-scoreboard" class="snake-scoreboard" style="display: none;">\n\s+\$\{gameScoreBtn\('pool', 'pool-wins'\)\}/.test(src) && !src.includes('pool-turn-label'));
 ok('there is no Play button, and no controls row is shown', /<div id="pool-controls" class="snake-controls" style="display: none;"><\/div>/.test(src) &&
    !/getElementById\('pool-controls'\); if \(c\) c\.style\.display = 'flex'/.test(src));
 ok('Escape no longer resets a pool frame', !/case 'pool': resetPoolGame\(\); break;/.test(src));
 ok('the bridges only the old buttons used are gone', !/window\.(startPoolGameBtn|resetPoolGameBtn|togglePoolModeBtn|togglePoolMaximizeBtn) =/.test(src));
 ok('userPreferences defaults poolCamera, poolLean and poolShotCam',
    /poolCamera: '3d',/.test(src) && /poolLean: 35,/.test(src) && /poolShotCam: 'overhead',/.test(src));
-ok('⚙️ offers the shot camera: Overhead or Stay 3D', /data-pref="poolShotCam"[\s\S]{0,300}?value="overhead"[\s\S]{0,300}?value="3d"/.test(src));
+ok('⚙️ offers the shot camera: Overhead or Stay 3D', /sel\('poolShotCam', [^\n]*?\['overhead', [^\n]*?\['3d', /.test(src));
 {
     const m = /function createSettingsModal\(\) \{[\s\S]*?\n    \}\n/.exec(src), fn = m ? m[0] : '';
-    const opts = pref => { const r = new RegExp('data-pref="' + pref + '">([\\s\\S]*?)</select>').exec(fn); return r ? [...r[1].matchAll(/value="([^"]*)"/g)].map(x => x[1]).join() : null; };
+    // A dropdown's values, from its sel('pref', label, [[value, text], ...]) row.
+    const opts = pref => { const r = new RegExp("sel\\('" + pref + "', '(?:[^'\\\\]|\\\\.)*', \\[(.*)\\]\\]").exec(fn); return r ? [...r[1].matchAll(/\['([^']*)', /g)].map(x => x[1]).join() : null; };
     ok('⚙️ groups its rows behind a tab strip: General, Theme, Cue Games, Ludo',
        [...fn.matchAll(/data-settings-tab="(\w+)"/g)].map(x => x[1]).join() === 'general,theme,cue,ludo' &&
        [...fn.matchAll(/data-settings-group="(\w+)"/g)].map(x => x[1]).join() === 'general,theme,cue,ludo');
     ok('…the cue games\' tab heads its rows: both games, then pool, then snooker',
-       /data-settings-group="cue"[\s\S]*?Both games[\s\S]*?data-pref="poolShotCam"[\s\S]*?🎱 8-Ball Pool[\s\S]*?data-pref="poolClock"[\s\S]*?🔴 Snooker[\s\S]*?data-pref="snookerClock"[\s\S]*?data-settings-group="ludo"/.test(fn));
+       /data-settings-group="cue"[\s\S]*?Both games[\s\S]*?sel\('poolShotCam'[\s\S]*?🎱 8-Ball Pool[\s\S]*?sel\('poolClock'[\s\S]*?🔴 Snooker[\s\S]*?sel\('snookerClock'[\s\S]*?data-settings-group="ludo"/.test(fn));
     ok('the cue game is not a ⚙️ setting any more (the header switches it)', opts('poolVariant') === null);
     ok('⚙️ Aim Guide offers None', opts('poolGuideLen') === 'long,medium,short,none');
     ok('⚙️ Shot Clock: the tournament\'s choices for each game', opts('poolClock') === '30,45,0' && opts('snookerClock') === '30,45,60,0');
-    ok('…read back as numbers, and the panel follows them', /numericPrefs = \[[^\]]*'poolClock', 'snookerClock'\]/.test(fn) && /\['poolClock', 'snookerClock', 'snookerReds', 'snookerDifficulty'\]\.indexOf\(pref\)/.test(fn));
+    ok('…read back as numbers, and the panel follows them', /numericPrefs = \[[^\]]*'poolClock', 'snookerClock'\]/.test(fn) && /\n\s*if \(typeof poolOnPrefChange === 'function'\) poolOnPrefChange\(pref\);/.test(fn));
     ok('userPreferences defaults the clocks and 2 Players\' names', /poolClock: 30,/.test(src) && /snookerClock: 45,/.test(src) && /poolP1Name: '',/.test(src) && /poolP2Name: '',/.test(src));
-    ok('the pool panel\'s title goes through poolRenderTitle', /case 'pool':[\s\S]{0,200}?if \(typeof poolRenderTitle === 'function'\) poolRenderTitle\(titleElement\);/.test(src));
+    ok('the pool panel\'s title goes through poolRenderTitle', /if \(gameKey === 'pool' && typeof poolRenderTitle === 'function'\) poolRenderTitle\(el\);/.test(src));
 }
 ok('applyPreferences tells pool the theme changed', /applyGameMode\(\);\n[^\n]*\n\s+if \(typeof poolOnThemeChange === 'function'\) poolOnThemeChange\(\);\n    \}/.test(src));
 {
@@ -381,6 +382,8 @@ function playFrame(P, maxTicks) {
     ok('a value it does not offer falls back to the game\'s own (snooker 45)', S.clockTotal === 45);
     P.poolSetVariant('pool');
     ok('pool keeps its own pick', S.clockTotal === 45);
+    S.clockLeft = 40; P.poolSetVariant('snooker'); P.host.userPreferences.poolClock = 30; P.poolSetVariant('pool');
+    ok('a parked frame comes back within a clock lowered meanwhile', S.clockTotal === 30 && S.clockLeft === 30);
 }
 {
     // ⚙️ Aim Guide None: the shot the HUD keeps its overlays off ends at the contact.
@@ -891,7 +894,7 @@ const COLOURS = [2, 3, 4, 5, 6, 7].map(id => [id].concat([[-293.5, -81.8], [-293
     const poolBalls = JSON.stringify(S.world.balls.map(b => [b.id, b.x, b.y]));
     P.poolSetVariant('snooker');
     ok('the cue game → snooker: its table (6 reds from ⚙️, so 13 balls), ball in hand in the D, the 45 s clock, its title',
-       S.game === 'snooker' && S.world.balls.length === 13 && S.phase === 'bih' && S.frame.ballInHand === 'D' && S.clockTotal === 45 && P.poolTitle() === '🔴 Snooker' &&
+       S.game === 'snooker' && S.world.balls.length === 13 && S.phase === 'bih' && S.frame.ballInHand === 'D' && S.clockTotal === 45 && P.poolRules().title === 'Snooker' &&
        P.prCanPlace(S.world, S.world.balls[0].x, S.world.balls[0].y, 'D') === null);
     ok('the Game mode sheet lists snooker\'s words, and the CPU is snooker\'s', P.poolRules().diffs[3].desc === 'Position and safety · call the colours' && P.poolRules().cpu.tiers.hard.label === 'Hard');
     P.poolSetVariant('pool');

@@ -1,26 +1,19 @@
     // ═══════════════════════════════════════════════════════════════════
     // SNAKE GAME — RENDER, SKINS, ANIMATION
     // ═══════════════════════════════════════════════════════════════════
-    // Everything here is procedural Canvas 2D; there are no image assets. The
-    // loop keeps v1's shape — fixed logic tick, accumulator, interpolation from
-    // snakePrevSnap, render capped by userPreferences.gameFps — because that
-    // part was already right. What is new is that it also drives the death
-    // animation, the golden-bite timer and the legendary hue flow, all off the
-    // same delta, so none of them need a timer of their own.
+    // Procedural Canvas 2D, no image assets. One loop (fixed logic tick,
+    // accumulator, interpolation from snakePrevSnap, render capped by gameFps)
+    // also drives the death animation, golden-bite timer and hue flow.
 
     const SNAKE_WALL_PX = 7;   // brick frame thickness, in canvas margin — NOT a grid cell
 
     let snakeSkinDelegationInit = false;
 
     // ── Skins ──────────────────────────────────────────────────────────
-    // Each skin is a three-colour preset: [primary, secondary, pattern/shade].
-    // The first two make the body gradient, the third darkens toward the tail
-    // and draws the polka dots or tiger stripes.
-    //
-    // NOTE: unlocks are a client-side honour system and deliberately NOT
-    // enforced anywhere. Anyone willing to edit localStorage can wear any of
-    // these; the blast radius is a colour gradient. This is not a security
-    // boundary — do not build one on top of it.
+    // colors: [primary, secondary, pattern/shade]. The first two make the body
+    // gradient; the third darkens toward the tail and draws the pattern.
+    // Unlocks are a client-side honour system, deliberately NOT enforced. This
+    // is not a security boundary; do not build one on top of it.
     const SNAKE_SKINS = {
         emerald: {
             name: 'Emerald Green', colors: ['#55efc4', '#00b894', '#0a6b52'],
@@ -52,9 +45,8 @@
         catch (_) { return false; }
     }
 
-    // Falls back to emerald when the saved skin is locked, which is what a
-    // cloud restore into a fresh profile looks like: prefs come back before the
-    // achievements that justify them.
+    // Falls back to emerald when the saved skin is locked, e.g. after a cloud
+    // restore where prefs arrive before the achievements that justify them.
     function snakeActiveSkinId() {
         let id = 'emerald';
         try { id = userPreferences.snakeSkin || 'emerald'; } catch (_) {}
@@ -80,10 +72,8 @@
         return 'rgb(' + ch(16) + ',' + ch(8) + ',' + ch(0) + ')';
     }
 
-    // The legendary's hue wave is the canvas equivalent of the widget's
-    // gradientFlow / rgbFlowBacklight keyframes: those scroll background-position
-    // across an over-sized gradient, this offsets hue by time and segment index
-    // so the same band travels head to tail.
+    // Legendary hue wave: hue offset by time and segment index, so a band
+    // travels head to tail like the widget's gradientFlow keyframes.
     function snakeSegmentColors(skin, idx, total) {
         if (skin.legendary) {
             const h = ((snakeSkinTime * 60 - idx * 9) % 360 + 360) % 360;
@@ -110,14 +100,11 @@
     // Body thickness before taper and bulges. Slightly under a cell so the
     // grid still reads underneath.
     const snakeBodyRadius = m => m.cs * 0.42;
-    // Slightly wider than the body so the head reads as a head, not as the
-    // segment that happens to be at the front.
+    // Wider than the body so the head reads as a head.
     const snakeHeadRadius = m => m.cs * 0.52;
 
-    // Only the last few segments taper. A body that thins along its whole
-    // length reads as a worm; a real snake is even until the tail tip. Ramped
-    // rather than stepped — four discrete widths made a visible staircase on a
-    // short body.
+    // Only the last few segments taper (a full-length taper reads as a worm),
+    // ramped rather than stepped to avoid a visible staircase.
     const SNAKE_TAIL_SEGMENTS = 3;
     function snakeTaper(idx, total) {
         if (total <= 2) return 1;
@@ -127,9 +114,8 @@
     }
 
     // ── Board geometry ─────────────────────────────────────────────────
-    // The brick frame lives in canvas MARGIN, not in grid cells, so the
-    // playfield stays 20×20 in every mode and scores set before v2 remain
-    // comparable with scores set after it.
+    // The brick frame lives in canvas MARGIN, not grid cells, so the playfield
+    // stays 20×20 in every mode and scores stay comparable.
     function snakeBoardMetrics() {
         const W = snakeCanvas.width, H = snakeCanvas.height;
         const anySolid = !snakeWrap.left || !snakeWrap.right || !snakeWrap.top || !snakeWrap.bottom;
@@ -236,9 +222,8 @@
         ctx.fill();
     }
 
-    // The depleting ring IS the timer — putting it on the bite means the player
-    // reads the remaining window where they are already looking, instead of
-    // glancing at a HUD counter mid-run.
+    // The depleting ring IS the timer, on the bite where the player is already
+    // looking.
     function snakeDrawBigFood(m, nowMs) {
         if (!snakeBigFood) return;
         const ctx = snakeCtx;
@@ -287,11 +272,9 @@
         return 1 + extra;
     }
 
-    // A wrapped segment must not be lerped across the whole board — that would
-    // drag it visibly back over the playfield in a single frame. Snap it to the
-    // destination rather than holding it at the source: the portal jump then
-    // happens as the segment enters the edge and the rest of the body follows
-    // it through, instead of the segment waiting a whole tick and teleporting.
+    // A wrapped segment is not lerped across the board (it would sweep over
+    // the playfield); it snaps to the destination so the body follows it
+    // through the portal.
     function snakeLerpSeg(prev, seg, t, m) {
         const dx = seg.x - prev.x, dy = seg.y - prev.y;
         if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
@@ -303,10 +286,8 @@
         };
     }
 
-    // Interpolated centre of every segment, plus the runs they form. A run
-    // breaks wherever two consecutive segments aren't grid-adjacent, i.e. across
-    // a portal edge — drawing one continuous stroke through that gap would put a
-    // bar straight across the board.
+    // Interpolated segment centres, split into runs wherever neighbours are not
+    // grid-adjacent (a portal edge), or one stroke would bar across the board.
     function snakeCenters(m, t) {
         const eff = snakeDying ? 1 : t;
         return snakeBody.map((seg, idx) => {
@@ -330,9 +311,8 @@
         return runs;
     }
 
-    // Banding rather than a tile pattern: a per-cell motif looked like a row of
-    // stamped squares once the body became continuous. Real snakes band across
-    // the body, so dots sit on the spine and stripes run perpendicular to it.
+    // Banding across the body rather than a per-cell motif: dots sit on the
+    // spine and stripes run perpendicular to it.
     function snakeDrawBanding(runs, skin, radiusFor, total) {
         if (skin.pattern === 'none') return;
         const ctx = snakeCtx;
@@ -417,8 +397,7 @@
         ctx.shadowBlur = 9 * alpha;
 
         if (gap < 0.5) {
-            // Closed: one rounded head. The large corner radius is what stops
-            // it reading as the stamped square v1 drew.
+            // Closed: one rounded head; the large radius keeps it from reading square.
             ctx.fillStyle = hg;
             ctx.beginPath();
             ctx.roundRect(-r, -r, r * 2, r * 2, r * 0.78);
@@ -455,10 +434,8 @@
         ctx.restore();
     }
 
-    // The body is stroked as a continuous rounded path rather than one rounded
-    // square per cell. v1's per-cell squares left visible gaps on every turn and
-    // made a one-segment snake look like a stray glyph; round joins and caps
-    // give a single unbroken creature at any length.
+    // Stroked as one continuous rounded path, not a square per cell, so turns
+    // have no gaps and the snake reads as one creature at any length.
     function snakeDrawBody(m, t) {
         const ctx = snakeCtx;
         const skin = snakeActiveSkin();
@@ -481,8 +458,7 @@
         const centers = snakeCenters(m, t);
         const runs = snakeRuns(centers);
         const base = snakeBodyRadius(m);
-        // The swallowed lump now swells the body itself, which is the whole
-        // point of tracking bulges — v1 could only nudge a square's inset.
+        // Swallowed lumps swell the body radius itself.
         const radiusFor = idx => base * snakeTaper(idx, total) * snakeBulgeScale(idx, eff);
 
         ctx.save();
@@ -499,15 +475,12 @@
                 const colors = snakeSegmentColors(skin, pt.idx, total);
                 const r = radiusFor(pt.idx);
                 const next = run[k - 1];                  // toward the head
-                // Link and joint share one colour. Using the two gradient stops
-                // made every joint a visibly darker bead, so the body read as a
-                // chain of circles rather than one tube.
+                // Link and joint share one colour, or every joint shows as a
+                // darker bead.
                 ctx.fillStyle = ctx.strokeStyle = colors[0];
                 if (next) {
-                    // Average the two ends' radii. Stroking at one end's width
-                    // stepped the outline wherever the radius changed, which
-                    // turned every swallowed lump and the tail taper into a
-                    // staircase instead of a curve.
+                    // Average the two ends' radii; one end's width steps the
+                    // outline at every lump and along the taper.
                     ctx.lineWidth = r + radiusFor(next.idx);
                     ctx.beginPath();
                     ctx.moveTo(pt.x, pt.y);
@@ -636,9 +609,8 @@
         snakeAnimFrame = requestAnimationFrame(snakeRenderLoop);
 
         if (!snakeLastTickMs) snakeLastTickMs = timestamp;
-        // Clamped: coming back from a background tab hands us a delta of many
-        // seconds, and an unclamped accumulator would then run hundreds of ticks
-        // in one frame — the snake dies instantly through no fault of the player.
+        // Clamped: returning from a background tab would otherwise run hundreds
+        // of ticks in one frame and kill the snake.
         const delta = Math.min(250, timestamp - snakeLastTickMs);
         snakeLastTickMs = timestamp;
 
@@ -690,15 +662,9 @@
         if (el) el.classList.remove('active');
     }
 
-    // "Best:" and "Score:" were two of four chips fighting over one header row.
-    // The pair now lives inside the button that opens this mode's leaderboard —
-    // the number you just scored and the number to beat belong next to the list
-    // of numbers to beat.
-    // The stage readout rides the mode chip rather than the canvas. On the board
-    // it was drawn top-left, which is inside the playfield — the snake spawns
-    // and travels through exactly that corner, so the label sat on top of the
-    // gameplay. The chip has room because the mode name is already on the button
-    // below it, so the chip can spend its width on the stage instead.
+    // Score and best live in the button that opens this mode's leaderboard.
+    // The stage readout rides the mode chip, not the canvas, where it would sit
+    // on the playfield; the mode name is already on the button below.
     function updateSnakeScoreDisplay() {
         const mode = document.getElementById('snake-mode-chip');
         const best = snakeModeBest(snakeMode);
@@ -728,9 +694,8 @@
         }
     }
 
-    // The in-game leaderboard overlay is generic and lives in the host — every
-    // game panel opens the same element. Snake only has to say which mode it is
-    // currently showing, which gameLbMode() reads straight off snakeMode.
+    // The in-game leaderboard overlay is generic and lives in the host;
+    // gameLbMode() reads the mode straight off snakeMode.
 
     function updateSnakePlayButton() {
         const btn = document.getElementById('snake-play-btn');
@@ -748,9 +713,8 @@
     }
 
     // ── Skin tray ──────────────────────────────────────────────────────
-    // Swatches are pure CSS so the tray costs no canvas work: repeating
-    // gradients for the two patterns, and the widget's own gradientFlow
-    // keyframe for the legendary.
+    // Swatches are pure CSS, so the tray costs no canvas work; the legendary
+    // reuses the widget's gradientFlow keyframe.
     function snakeSwatchStyle(id) {
         const skin = SNAKE_SKINS[id];
         if (skin.legendary) {

@@ -56,10 +56,13 @@ function tour() { return v2(['pool-physics.js', 'pool-tour.js']); }
 // and restore paths depend on exactly how they seed poolWinsByMode.
 function hostStorageHelpers() {
     const src = fs.readFileSync(TARGET, 'utf8').replace(/\r\n/g, '\n');
-    const from = src.indexOf('    function loadPoolHighScore() {');
-    const to   = src.indexOf('    // ludoGamesWon / ludoRecord live in the LUDO block');
-    if (from === -1 || to === -1 || to < from) throw new Error('pool storage helpers not found in AttendanceTimeCheckerPlus.js');
-    return src.slice(from, to);
+    const cut = (a, b) => {
+        const from = src.indexOf(a), to = src.indexOf(b, from);
+        if (from === -1 || to === -1) throw new Error('pool storage helpers not found in AttendanceTimeCheckerPlus.js');
+        return src.slice(from, to);
+    };
+    return cut('    // localStorage, read safely', '    function loadPreferences()') +
+        cut('    const [loadPoolHighScore', '    // ludoGamesWon / ludoRecord live in the LUDO block');
 }
 
 // mulberry32, for a reproducible Math.random / Date.now inside one load.

@@ -2,14 +2,8 @@
     // SNAKE GAME — CORE
     // ═══════════════════════════════════════════════════════════════════
     // 20×20 grid on a 368×368 canvas. Three modes share one engine and differ
-    // only in their edge rule and obstacle set, so nothing below branches on
-    // the mode name except snakeApplyRules().
-    //
-    // The render loop (snake-ui.js) is unchanged in shape from v1: a fixed
-    // logic tick with an accumulator, interpolated between ticks from
-    // snakePrevSnap, capped at userPreferences.gameFps. That foundation was
-    // already right; what v1 got wrong was the collision code, which could
-    // not carry a visible wall (see snakeStepCell).
+    // only in edge rule and obstacle set; only snakeApplyRules() branches on
+    // the mode name. The fixed-tick render loop lives in snake-ui.js.
 
     // ── State ──────────────────────────────────────────────────────────
     let snakeCanvas, snakeCtx;
@@ -29,7 +23,7 @@
     let snakeGameRunning = false;
     let snakeGamePaused  = false;
     let snakeMoving      = false;   // set by the first arrow press of a run
-    let snakeRestartTimer = null;   // v1 leaked this one; cleanup clears it now
+    let snakeRestartTimer = null;   // cleared by every reset
 
     let snakePendingGrowth = 0;     // segments still owed — a golden bite owes 3
     let snakeBulges    = [];        // [{ pos, size }] swallowed lumps travelling tailward
@@ -52,16 +46,13 @@
     const snakeGridSize = 20;
 
     // ── Tuning ─────────────────────────────────────────────────────────
-    // The golden bite's lifetime is measured in MOVES, not seconds. Wall-clock
-    // TTL would make it strictly harder as the snake speeds up; a fixed move
-    // count means the window is always the same distance, which is the thing
-    // the player is actually judging.
-    // Four, not one. A single-segment start renders as a dot with a face on it.
+    // Four, not one: a single-segment start renders as a dot with a face on it.
     const SNAKE_START_LEN = 4;
-    // Clear cells the spawn tries to leave straight ahead, so the first forward
-    // press is never the one that kills you.
+    // Clear cells the spawn tries to leave ahead, so the first press is safe.
     const SNAKE_MIN_RUNWAY = 4;
 
+    // Golden-bite lifetime is in MOVES, not seconds, so the window stays the
+    // same distance as the snake speeds up.
     const SNAKE_BIG_FOOD_TICKS  = 45;
     const SNAKE_BIG_FOOD_CHANCE = 0.22;
     const SNAKE_BIG_FOOD_VALUE  = 3;   // points AND segments
@@ -72,9 +63,8 @@
     const SNAKE_RESTART_MS = 1600;     // after the animation finishes
     const SNAKE_BANNER_MS  = 1300;
 
-    // Bumped whenever a scoring rule changes. Stamped into every synced record
-    // so a later reader can tell which ruleset a score was set under — without
-    // it, a rule change silently makes old and new scores incomparable.
+    // Bump whenever a scoring rule changes. Stamped into every synced record so
+    // a reader can tell which ruleset a score was set under.
     const SNAKE_RULESET_VERSION = 2;
 
     let snakeFoodsSinceBig = 0;
@@ -98,12 +88,10 @@
     }
 
     // ── Stages ─────────────────────────────────────────────────────────
-    // Authored as wall RUNS rather than 20×20 ASCII art: twelve literal grids
-    // would be 240 lines of characters nobody can diff or edit in place.
+    // Authored as wall runs rather than ASCII grids:
     //   ['h', y, x0, x1]  horizontal run, inclusive
     //   ['v', x, y0, y1]  vertical run, inclusive
-    // Every stage is flood-filled at load and by snake-verify.js, so an
-    // unwinnable layout is caught at author time rather than by a player.
+    // snake-verify.js flood-fills every stage to catch unwinnable layouts.
     const SNAKE_STAGES = [
         { name: 'Open Road', goal: 5,  wrap: 'all',  walls: [] },
         { name: 'The Gate',  goal: 6,  wrap: 'lr',   walls: [['v', 10, 0, 7], ['v', 10, 12, 19]] },
@@ -125,9 +113,8 @@
                                                              ['h', 15, 2, 6], ['h', 15, 13, 17]] },
         { name: 'Bottleneck', goal: 11, wrap: 'tb',  walls: [['v', 6, 0, 8],  ['v', 6, 11, 19],
                                                              ['v', 13, 0, 8], ['v', 13, 11, 19]] },
-        // The four gaps at x/y 9-10 are load-bearing: a closed box seals its own
-        // interior, and food spawning inside an unreachable pocket makes the
-        // stage silently unwinnable. snake-verify.js flood-fills for exactly this.
+        // The four gaps at x/y 9-10 are load-bearing: a closed box would seal an
+        // unreachable pocket that food could spawn in.
         { name: 'The Vault', goal: 12, wrap: 'none', walls: [['h', 4, 4, 8],  ['h', 4, 11, 15],
                                                              ['h', 15, 4, 8], ['h', 15, 11, 15],
                                                              ['v', 4, 5, 8],  ['v', 4, 11, 14],
@@ -179,10 +166,7 @@
     }
 
     // ── The one place edges and obstacles are resolved ─────────────────
-    // v1 checked `head.x < -1 || head.x > snakeGridSize`, which let the snake
-    // survive a full cell outside the board. That was invisible when the board
-    // had no border; with a drawn wall the snake passes through the bricks and
-    // dies a frame later, which just reads as broken. Bounds are exact here.
+    // Bounds are exact: with a drawn wall, dying a cell late reads as broken.
     function snakeStepCell(from, dir, wrap, walls) {
         let x = from.x + dir.x, y = from.y + dir.y;
         const W = wrap || snakeWrap;
@@ -206,13 +190,8 @@
     }
 
     // Lay the starting body out behind the spawn cell, facing whichever way has
-    // the most room. Starting as ONE segment rendered as a single dot with a
-    // face on it — you couldn't tell it was a snake, or which way it pointed,
-    // until you had already eaten twice.
-    //
-    // The returned facing also seeds snakeDir, so the 180°-into-yourself guard
-    // works on the very first keypress rather than letting the player reverse
-    // straight into their own body.
+    // the most room. The facing also seeds snakeDir, so the 180° guard works
+    // from the very first keypress.
     function snakeSpawnBody() {
         const head = snakeSpawnCell();
         const dirs = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
@@ -233,10 +212,8 @@
                 body.push(cur);
             }
 
-            // Clear cells straight ahead. Without this the snake could spawn
-            // nose-to-wall on a Levels stage, and the very first forward press
-            // would kill it — the player's only other options being the two
-            // turns, which the same wall layout may also block.
+            // Clear cells straight ahead, so a Levels spawn is never
+            // nose-to-wall with the first forward press fatal.
             let runway = 0, ahead = head;
             while (runway < SNAKE_MIN_RUNWAY) {
                 const step = snakeStepCell(ahead, d);
@@ -274,12 +251,10 @@
     }
 
     // ── Storage ────────────────────────────────────────────────────────
-    // Per-mode invalidation, ready before there is any data to invalidate.
-    // REFLEX_RESET_FLAG exists because "raise, never lower" makes one bad score
-    // immortal — it re-infects every clean client from the gist forever — and
-    // that guard had to be retrofitted under fire. Bumping a mode's number here
-    // wipes it locally and makes applyPlayerRecordToLocal refuse to restore it,
-    // which breaks the loop. Cheap now, expensive later.
+    // Per-mode reset flags. "Raise, never lower" makes one bad score immortal
+    // (every client re-imports it from the gist), so bumping a mode's number
+    // here wipes it locally and makes applyPlayerRecordToLocal refuse to
+    // restore it.
     const SNAKE_RESET_FLAGS = { endless: 0, walled: 0, levels: 0 };
 
     function snakeResetFlagKey(mode) { return 'snakeReset_' + mode + '_' + SNAKE_RESET_FLAGS[mode]; }
@@ -302,8 +277,8 @@
         if (raw && typeof raw === 'object') {
             SNAKE_MODES.forEach(m => { out[m] = parseInt(raw[m], 10) || 0; });
         } else {
-            // First run on this build. The pre-v2 game had lethal edges, so the
-            // legacy score belongs to Walled — that is where it was actually set.
+            // First run on this build: the legacy score was set with lethal
+            // edges, so it belongs to Walled.
             out.walled = loadSnakeHighScore();
         }
         SNAKE_MODES.forEach(m => { if (snakeModeInvalidated(m)) out[m] = 0; });
@@ -312,9 +287,8 @@
 
     function snakeSaveHighScores(scores) {
         localStorage.setItem('snakeHighScores', JSON.stringify(scores));
-        // Keep the legacy key as the overall best. collectGameBests(),
-        // revalidateAchievements() and the cloud restore all still read it, so
-        // retiring it would mean touching all three for no gain.
+        // Keep the legacy key as the overall best: collectGameBests(),
+        // revalidateAchievements() and the cloud restore still read it.
         const best = Math.max(scores.endless || 0, scores.walled || 0, scores.levels || 0);
         if (best > loadSnakeHighScore()) saveSnakeHighScore(best);
     }
@@ -361,10 +335,9 @@
     }
 
     // ── Input ──────────────────────────────────────────────────────────
-    // v1 kept a single nextDirection, so a fast ↑ then ← inside one 300ms tick
-    // silently dropped the ←. Two buffered turns is enough for every real input
-    // burst and still can't run the snake into itself: each entry is validated
-    // against the one before it, not against the direction currently drawn.
+    // Up to two buffered turns, so a fast ↑ then ← inside one tick is not
+    // dropped. Each is validated against the one before it, not the drawn
+    // direction, so the snake still cannot reverse into itself.
     function snakeQueueDir(nd) {
         const prev = snakeDirQueue.length ? snakeDirQueue[snakeDirQueue.length - 1] : snakeDir;
         if (prev.x === nd.x && prev.y === nd.y) return;             // no-op
@@ -384,20 +357,16 @@
                  : key === 'ArrowLeft' ? { x: -1, y: 0 }
                  :                       { x: 1,  y: 0 };
 
-        // Starting the run is NOT the same as queueing a turn. Routing both
-        // through snakeQueueDir meant its no-op guard swallowed the forward key,
-        // so a resting snake could only be started by turning — and on a stage
-        // with a wall directly above and below, both turns were fatal.
-        //
-        // A straight reversal is still not a move, so it starts nothing.
+        // Starting the run is NOT queueing a turn: the queue's no-op guard would
+        // swallow the forward key, leaving only turns (maybe fatal) to start.
+        // A straight reversal is not a move, so it starts nothing.
         const reverse = nd.x === -snakeDir.x && nd.y === -snakeDir.y;
         if (!reverse) snakeMoving = true;
         snakeQueueDir(nd);
     }
 
-    // rAF already stalls in a hidden tab, but the widget also runs inside a
-    // Picture-in-Picture document where it does not — so a run left in PiP kept
-    // playing unattended.
+    // rAF stalls in a hidden tab but not in a Picture-in-Picture document, so
+    // pause explicitly.
     function handleSnakeVisibility() {
         if (document.hidden && snakeGameRunning && !snakeGamePaused) {
             snakeGamePaused = true;
@@ -408,9 +377,8 @@
     // ── Speed ──────────────────────────────────────────────────────────
     function snakeGetInterval() {
         if (snakeMode === 'levels') {
-            // Ramp per STAGE, not per food. Ramping per food on top of twelve
-            // stages of accumulated score puts stage 12 past the point of being
-            // playable rather than merely hard.
+            // Ramp per STAGE, not per food: per food on top of twelve stages of
+            // score makes the late stages unplayable.
             return Math.max(80, 260 - snakeStageIdx * 14);
         }
         return Math.max(60, 300 - snakeScore * 8);
@@ -442,15 +410,11 @@
     }
 
     function resetSnakeGame() {
-        // v1 left this timer running, so switching panels within 3s of dying
-        // resurrected the loop on a hidden canvas and burned a core until the
-        // page was reloaded.
+        // A pending restart would resurrect the loop on a hidden canvas.
         if (snakeRestartTimer) { clearTimeout(snakeRestartTimer); snakeRestartTimer = null; }
 
-        // Levels restarts from stage 1, not from wherever you died. The run is
-        // the unit — score, stages cleared and the campaign all reset together,
-        // and "clear all 12 in one run" only means anything if a death costs
-        // the run. snakeLevelsBest keeps the furthest stage you ever reached.
+        // Levels restarts from stage 1: the run is the unit, so "clear all 12"
+        // means one run. snakeLevelsBest keeps the furthest stage reached.
         snakeStageIdx = 0;
         snakeApplyRules();
 
@@ -491,11 +455,8 @@
     }
 
     // ── Food ───────────────────────────────────────────────────────────
-    // v1 rejection-sampled in a `do…while` with no exit, so a full board hung
-    // the tab outright. At 20×20 open that was theoretical; Levels shrinks the
-    // playable area enough to reach it, and this runs inside an HR portal where
-    // a hung tab is a visible incident. Enumerate instead: an empty list is a
-    // won board, not an infinite loop.
+    // Enumerated rather than rejection-sampled: on a full board an empty list
+    // is a won board, not an infinite loop that hangs the tab.
     function snakeFreeCells() {
         const taken = new Set(snakeBody.map(s => snakeKey(s.x, s.y)));
         if (snakeBigFood) taken.add(snakeKey(snakeBigFood.x, snakeBigFood.y));
@@ -510,9 +471,8 @@
         return cells;
     }
 
-    // Returns false when the board was full, i.e. the caller's tick is over:
-    // snakeBoardCleared has either advanced the stage (rebuilding the body) or
-    // ended the run, and any further bookkeeping in that tick is stale.
+    // Returns false when the board was full: snakeBoardCleared has advanced the
+    // stage or ended the run, so the caller's tick is over.
     function spawnFood() {
         const cells = snakeFreeCells();
         if (!cells.length) { snakeBoardCleared(); return false; }
@@ -587,8 +547,7 @@
 
         snakePrevSnap = snakeBody.map(s => ({ ...s }));
 
-        // snakeDir now carries the spawn facing, so it can't double as the
-        // "hasn't started yet" sentinel the way a zero vector did.
+        // snakeDir holds the spawn facing, so snakeMoving marks the start.
         if (snakeDirQueue.length) { snakeDir = snakeDirQueue.shift(); snakeMoving = true; }
         if (!snakeMoving) return;
 
@@ -606,10 +565,8 @@
         const eatsBig  = !!snakeBigFood && head.x === snakeBigFood.x && head.y === snakeBigFood.y;
         const willGrow = eatsFood || eatsBig || snakePendingGrowth > 0;
 
-        // The tail vacates this tick unless something is owed, so the cell it is
-        // leaving is not a collision. v1 tested the whole body before pop(),
-        // which killed a snake following its own tail — rare on an open 20×20,
-        // routine in a Level corridor.
+        // The tail vacates this tick unless growth is owed, so its cell is not a
+        // collision: following your own tail is legal.
         const limit = willGrow ? snakeBody.length : snakeBody.length - 1;
         for (let i = 0; i < limit; i++) {
             if (snakeBody[i].x === head.x && snakeBody[i].y === head.y) {
@@ -634,10 +591,8 @@
             snakeBulges.push({ pos: 0, size: 0 });
             snakeFoodsSinceBig++;
             snakeStageEaten++;
-            // A full board either advances the stage (which rebuilds the body
-            // from one segment) or ends the run. Falling through would then pop
-            // that single segment and leave an empty body for the next tick to
-            // dereference.
+            // A full board advances the stage (rebuilding the body) or ends the
+            // run; falling through would pop the rebuilt body and empty it.
             if (!spawnFood()) return;
             snakeMaybeSpawnBigFood();
         }
@@ -664,13 +619,9 @@
         if (snakeBigFood && snakeBigFoodRemaining(performance.now()) <= 0) snakeBigFood = null;
     }
 
-    // Kept so any stray caller from v1 still resolves.
-    function updateSnakeGame() { snakeTick(); }
-
     // ── Death ──────────────────────────────────────────────────────────
-    // Enters the animation rather than ending the run outright — v1 cleared the
-    // canvas here, which left nowhere for a death animation to exist. Scoring
-    // and XP happen in snakeFinalizeDeath once the animation has played.
+    // Starts the death animation; scoring and XP happen in snakeFinalizeDeath
+    // once it has played.
     function snakeGameOver(cause) {
         if (snakeDying) return;
         snakeDying  = true;
@@ -687,9 +638,8 @@
         if (snakeAnimFrame) { cancelAnimationFrame(snakeAnimFrame); snakeAnimFrame = null; }
         snakeAccumulatorMs = 0;
 
-        // v1 read `snakeScore >= snakeHighScore` AFTER raising the high score,
-        // so it was true on every tie and on the very first game — a permanent
-        // free +15 XP. Capture it first.
+        // Compare BEFORE raising the stored best, and strictly: a tie is not a
+        // new high score.
         const scores  = snakeLoadHighScores();
         const wasHigh = snakeScore > (scores[snakeMode] || 0);
         if (wasHigh) {
@@ -703,10 +653,8 @@
             score: snakeScore,
             isHighScore: wasHigh,
             mode: snakeMode,
-            // Stages CLEARED, not the stage number reached. snakeLevelsBest is
-            // only written on a clear, so reporting the stage you died on would
-            // let checkGameAchievements grant a badge revalidateAchievements
-            // could never rebuild.
+            // Stages CLEARED, not reached: snakeLevelsBest is written only on a
+            // clear, so revalidateAchievements can rebuild every badge granted.
             stagesCleared: snakeStagesCleared,
             bigEaten: snakeBigEaten,
             maxLength: snakeMaxLength,

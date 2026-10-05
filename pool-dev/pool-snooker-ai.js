@@ -1,33 +1,24 @@
     // ═══════════════════════════════════════════════════════════════════
-    // SNOOKER — CPU (Phase S4)
+    // SNOOKER — CPU
     // ═══════════════════════════════════════════════════════════════════
-    // pool-ai.js's pipeline on snooker's rules (POOL_V2_PLAN.md, Snooker, CPU):
-    //   A  candidates from geometry: each ball the shooter may play (with the colour it
-    //      nominates and the pocket it calls) into each pocket that takes it, with the
-    //      tier's make probability against snooker's tight pockets; each played out on a
-    //      copy of the table, the aim corrected for throw first, and judged by psJudge
-    //   B  the survivors with the tier's spins and paces, scored in points expected:
+    // pool-ai.js's pipeline on snooker's rules:
+    //   A  each ball on (with its nomination and called pocket) into each pocket that
+    //      takes it, played out on a copy with the aim corrected, judged by psJudge
+    //   B  survivors with the tier's spins and paces, in points expected:
     //      p·(points + γ·position) − (1−p)·what a miss leaves − fouls·(penalty + 3)
-    //   R  the best lines replayed with the tier's own noise: how often they foul, and
-    //      what a miss leaves the opponent
-    //   S  safeties: the three nearest balls on, full, half-ball and thin either side and
-    //      one-rail kicks, at four paces, scored by the opponent's best shot after them (a
-    //      quarter less with the cue ball on a cushion, a snooker a bonus), then refined
-    //   K  snookered: pool's sweep, the cue turned round for the gaps that meet a ball on (every
-    //      tier: pro a degree at a time, easy every 6°)
-    // The break-off is a script per reds count (snooker-break-tune.js), checked in a trial
-    // or two, with a local search as the fallback. Pure and time-sliced like paPlan: each
-    // tier caps its trials (one shot to rest, 5–8 ms at 22 balls), and that is its time.
+    //   R  the best lines replayed with the tier's noise: fouls, and the leave on a miss
+    //   S  safeties (nearest three balls on, full/half/thin and one-rail kicks), scored
+    //      by the opponent's best shot after them, then refined
+    //   K  snookered: pool's sweep for gaps that meet a ball on (pro 1°, easy 6°)
+    // The break-off is a script per reds count (snooker-break-tune.js) with a local
+    // search fallback. Time-sliced like paPlan; each tier caps its trials (5–8 ms each).
 
-    // aim / power: execution σ (degrees, fraction); top: candidates played out; keep: how
-    // many survivors get the spin × pace search; refine: aim corrections; robust: noisy
-    // replays of the best lines; safeTrials: safeties tried; gamma: what position is worth;
-    // miss: how much the leave on a miss counts; attack: points of bias toward the pot over
-    // the safety; safeBelow: look for a safety when the best pot's p is under it; trials:
-    // the cap on shots played out; maxMs: the thinking time, once a legal shot is in hand (the
-    // worst positions, a sweep and a full safety search, would run on well past it). Picked
-    // (not by Adaptive), hard calls the colours and pro
-    // every ball (lockCall).
+    // aim / power: execution σ (degrees, fraction); top: candidates played out; keep:
+    // survivors given the spin × pace search; refine: aim corrections; robust: noisy
+    // replays; safeTrials: safeties tried; gamma: position's worth; miss: weight of the
+    // leave on a miss; attack: points of bias toward the pot; safeBelow: look for a
+    // safety under this p; trials: cap on shots played out; maxMs: thinking time once a
+    // legal shot is in hand. When picked, hard calls the colours and pro every ball (lockCall).
     const PA_SN_TIERS = {
         easy:   { label: 'Easy',   aim: 0.28, power: 0.10,  top: 5,  keep: 1, refine: 1, spins: ['stun'], speeds: [1],
                   robust: 0, safeTrials: 8,  gamma: 0,   miss: 0.2, attack: 3,   safeBelow: 0.1,  trials: 16,  maxMs: 250,  sweepStep: 6 },
@@ -42,26 +33,23 @@
     const PA_SN_NAMES = ['easy', 'normal', 'hard', 'pro'];
     // What a steady club player's odds are: candidates are ordered, and leaves judged, by it.
     const PA_SN_RANK = 0.12 * PA_DEG;
-    // The break-off (snooker-break-tune.js): the cue ball placed at (x, y·side) in the D, the
-    // back red on that side taken `off` R wide of its centre, at `speed`, with the tip at
-    // (tipX·side, tipY). side is the cue ball's side of the table, so each has its mirror.
+    // Break-offs (tuned by snooker-break-tune.js: no foul on 4 racks × ±0.1° × both sides):
+    // cue ball at (x, y·side) in the D, the back red on that side hit `off` R wide, at
+    // `speed`, tip (tipX·side, tipY); side mirrors it.
     const PA_SN_BREAKS = {
-        // snooker-break-tune.js, 2026-09-30 (the design revision 1790749498-5862 pockets): no foul on 4 racks × ±0.1° × both sides for each.
         15: { x: -305, y: 45, off: 1.6, speed: 1100, tipX: 0, tipY: 0 },
         10: { x: -305, y: 15, off: 1.6, speed: 1100, tipX: 0, tipY: 0 },
         6:  { x: -335, y: 15, off: 1.45, speed: 1250, tipX: 0, tipY: 0 },
     };
 
-    // Where to send a ball into snooker's pocket p: a little in from the hole's centre.
+    // A little in from the hole's centre.
     function paSnAimPoint(p) {
         const k = 0.35 * p.r;
         return p.kind === 'corner' ? { x: p.x - p.sx * k / Math.SQRT2, y: p.y - p.sy * k / Math.SQRT2 } : { x: p.x, y: p.y - p.sy * k };
     }
-    // How far off line a ball arriving along (dx, dy) can be and still drop, as snooker-verify §1
-    // measures the design's revision 1790749498-5862 pockets (rounded noses, straight jaws): a
-    // corner takes about ±6 u down its diagonal (±8 off a jaw) and still takes a ball rolled along
-    // the cushion; a middle pocket takes ±8 square on, closing as the angle opens (5 lines of 9
-    // at 60°).
+    // Drop tolerance as snooker-verify §1 measures it: a corner takes about ±6 u down its
+    // diagonal (±8 off a jaw), even along the cushion; a middle pocket ±8 square on,
+    // closing as the angle opens.
     function paSnPocketTol(p, dx, dy) {
         const L = Math.hypot(dx, dy) || 1;
         if (p.kind === 'corner') {
@@ -71,8 +59,7 @@
         const c = dy * p.sy / L;
         return c < Math.cos(70 * PA_DEG) ? 0 : 8.5 * Math.pow(c, 0.7);
     }
-    // What potting the ball on is worth now, and a little for what it opens (a red leads to
-    // a colour).
+    // What potting the ball on is worth now; paSnFollow adds a little for what it opens.
     function paSnPoints(frame, id) {
         if (frame.freeBall) return frame.phase === 'clearance' ? frame.next : 1;
         if (frame.phase === 'reds') return 1;
@@ -81,9 +68,8 @@
     }
     const paSnFollow = frame => (frame.phase === 'reds' && !frame.freeBall ? 2.5 : frame.phase === 'clearance' ? 0.4 * Math.min(7, frame.next + 1) : 0);
 
-    // Every direct pot from (cx, cy), best first by a steady player's odds: the ball on (or
-    // each colour that may be nominated, with that nomination) into each pocket that faces
-    // it, through clear paths. p is the make probability at `sigma`.
+    // Every direct pot from (cx, cy) (each nominable colour with its nomination), best first
+    // by a steady player's odds; p is the make probability at `sigma`.
     function paSnCandidates(world, frame, cx, cy, sigma) {
         const R = world.cfg.ballR, t = world.table, cfg = world.cfg, gap = 2 * R - 0.05, out = [];
         const st = psStatus(frame, world, frame.turn, -1);
@@ -115,17 +101,12 @@
         return out.sort((a, b) => b.rank * (b.points + 1) - a.rank * (a.points + 1));
     }
 
-    // The best pot `seat` would have from where the cue ball lies (or anywhere in the D with
-    // it in hand), in points expected at a steady player's odds: what a leave is worth to
-    // whoever is at the table next. The cue ball tight on a cushion is harder to cue: 0.75.
-    // two: the best and half the second (a leave with a choice is worth more to a break).
-    function paSnLeave(world, frame, two) {
+    // What a leave is worth to whoever plays next: their best pot in points expected (from
+    // anywhere in the D with ball in hand). Tight on a cushion is harder to cue: 0.75.
+    function paSnLeave(world, frame) {
         if (frame.over) return 0;
         const cue = world.balls.find(b => b.id === 0), R = world.cfg.ballR, t = world.table;
-        const best = (x, y) => {
-            const vals = paSnCandidates(world, frame, x, y, PA_SN_RANK).map(c => c.rank * (c.points + paSnFollow(frame))).sort((a, b) => b - a);
-            return (vals[0] || 0) + (two ? 0.5 * (vals.find((v, i) => i > 0) || 0) : 0);
-        };
+        const best = (x, y) => paSnCandidates(world, frame, x, y, PA_SN_RANK).reduce((m, c) => Math.max(m, c.rank * (c.points + paSnFollow(frame))), 0);
         if (frame.ballInHand === 'D' || !cue || cue.state === 'pocketed') {
             let m = 0;
             [[-300, 0], [-320, 40], [-320, -40], [-340, 60], [-340, -60], [-360, 0]].forEach(([x, y]) => { if (!prCanPlace(world, x, y, 'D')) m = Math.max(m, best(x, y)); });
@@ -135,15 +116,13 @@
         return best(cue.x, cue.y) * (tight ? 0.75 : 1);
     }
 
-    // Is the next player snookered on everything they are on?
     function paSnSnookered(world, frame) {
         if (frame.over || frame.ballInHand === 'D') return false;
         const st = psStatus(frame, world, frame.turn, -1), ids = st.on.needsNomination ? st.nominable : st.on.ids;
         return ids.length > 0 && psSnookered(world.balls, world.cfg.ballR, ids, 'full');
     }
 
-    // How good a break-off (or any safety) left the table: the opponent's leave, the cue ball
-    // back in baulk. Shared with snooker-break-tune.js.
+    // A break-off's (or safety's) leave, with the cue ball back in baulk. Shared with snooker-break-tune.js.
     function paSnBreakScore(r) {
         if (r.v.foul) return -100;
         const cue = r.w.balls.find(b => b.id === 0);
@@ -152,12 +131,10 @@
         return home - deep - 3 * paSnLeave(r.w, r.v.next);
     }
 
-    // opts: { tier, rng, noise (default true), aimDeg / powerFrac (override the tier's
-    // execution noise, for snooker-balance.js's human models), safeRun (safeties in a row:
-    // from 3 the CPU leans to the pot, so frames do not stall), timeCap (default true: stop at
-    // the tier's maxMs once something legal is found; snooker-balance.js turns it off so its
-    // numbers do not depend on the machine) }. job.shot = { angle, speed,
-    // tipX, tipY, nominate, call }; job.plan: 'break' | 'pot' | 'safety' | 'escape' | 'fallback'.
+    // opts: { tier, rng, noise (default true), aimDeg / powerFrac (override the tier's noise),
+    // safeRun (safeties in a row: from 3 it leans to the pot so frames do not stall),
+    // timeCap (default true: stop at maxMs once something legal is found; off makes results
+    // machine-independent) }. job.shot = { angle, speed, tipX, tipY, nominate, call }.
     function paSnPlan(world, frame, opts) {
         const o = opts || {}, cfg = world.cfg, R = cfg.ballR, seat = frame.turn;
         const tier = PA_SN_TIERS[o.tier] ? o.tier : 'normal', T = PA_SN_TIERS[tier];
@@ -217,10 +194,8 @@
         }
 
         const snookered = psSnookered(world.balls, R, onIds, 'full');
-        // Snookers it needs (the user's report, 2026-10-01: it gave frames away without trying).
-        // Needing any, it plays for them: a pot's points count for little (they do not close the
-        // gap that snookers have to), a snooker laid counts for a lot, and safeties are always
-        // looked at.
+        // Needing snookers, it plays for them: pot points count little (they cannot close
+        // the gap), a snooker laid counts a lot, and safeties are always looked at.
         const needSnk = psSnookersRequired(f0, world.balls.filter(b => b.id !== 0 && b.state !== 'pocketed').map(b => b.id), seat);
         const ptsW = needSnk > 0 ? 0.25 : 1, snkBonus = needSnk > 0 ? 5 : 1.5;
         const cands = snookered ? [] : paSnCandidates(world, f0, cue.x, cue.y, Math.max(aimSig, 0.02 * PA_DEG)).slice(0, T.top);
@@ -230,12 +205,11 @@
         const attack = T.attack + ((o.safeRun || 0) >= 3 ? 2 : 0);
         const budgetLeft = reserve => job.tried < T.trials - reserve;
 
-        // A pot's value on the table after it: points, and what the next shot is worth.
         const potEV = (c, r) => {
             const v = r.v;
             if (v.frameOver) return v.winner === seat ? 1000 : -1000;
             if (v.foul || !v.continues) return null;
-            return ptsW * v.points + T.gamma * paSnLeave(r.w, v.next, T.pos2);
+            return ptsW * v.points + T.gamma * paSnLeave(r.w, v.next);
         };
         const safeEV = r => {
             const v = r.v;
@@ -244,8 +218,7 @@
             if (v.continues) return ptsW * v.points + T.gamma * paSnLeave(r.w, v.next);
             return -paSnLeave(r.w, v.next) + (paSnSnookered(r.w, v.next) ? snkBonus : 0);
         };
-        // Safeties: the three nearest balls on, full, half and thin either side, four paces;
-        // then one-rail kicks at them when the direct way is blocked.
+        // Unblocked contacts are tried first; one-rail kicks lead only when the direct way is blocked.
         const makeSafeties = () => {
             const mu = cfg.muRoll * cfg.gravity;
             const tg = world.balls.filter(b => onIds.indexOf(b.id) >= 0 && b.state !== 'pocketed')
@@ -254,8 +227,7 @@
             tg.forEach(b => {
                 const dist = Math.hypot(b.x - cue.x, b.y - cue.y), base = Math.atan2(b.y - cue.y, b.x - cue.x);
                 const clear = paClear(world.balls, cue.x, cue.y, b.x, b.y, [0, b.id], 2 * R - 0.05);
-                // Each contact on its own line: the cue ball's path to where it meets the ball, so a
-                // half-ball or thin contact past a ball in the way still counts.
+                // Each contact checked on its own path, so a thin contact past a blocker still counts.
                 const open = off => {
                     const s = dist * Math.sin(off), t = dist * Math.cos(off) - Math.sqrt(Math.max(0, 4 * R * R - s * s)), a = base + off;
                     return t > 0 && paClear(world.balls, cue.x, cue.y, cue.x + t * Math.cos(a), cue.y + t * Math.sin(a), [0, b.id], 2 * R - 0.05);
@@ -282,8 +254,7 @@
         job.step = budgetMs => {
             if (job.done) return true;
             const t0 = now();
-            // A slice ends when the next trial would take it past its budget (S7: they ran to
-            // 20–30 ms in 12 ms slices, finishing a long trial), after at least one trial.
+            // A slice ends before a trial that would overrun the budget, after at least one.
             const tried0 = job.tried;
             const spent = () => budgetMs !== undefined && job.tried > tried0 && now() - t0 + job.trialMs >= budgetMs;
             try {
@@ -291,7 +262,7 @@
                 // Out of time with something legal in hand: value what is scored, and choose.
                 if (capped(t0) && stage !== 'done') { if (!bestPot && scored.length && (stage === 'A' || stage === 'B' || stage === 'R')) { stage = 'P'; } else if (stage !== 'P') stage = 'done'; }
                 if (stage === 'A') {
-                    // A: does the line pot, fairly, with stun at its base pace?
+                    // A: does the line pot fairly with stun at its base pace?
                     const c = cands.shift();
                     if (!c || !budgetLeft(3 * T.robust + T.safeTrials)) {
                         stage = 'B';
@@ -396,8 +367,7 @@
                 } else {
                     // Snookered with nothing legal found: the sweep before a roll.
                     if (!bestPot && !bestSafe && !swept) { swept = true; stage = 'K'; continue; }
-                    // Needing snookers, a pot cannot win the frame (it shrinks what is left as much as
-                    // it scores), so a fair safety is played whenever there is one.
+                    // Needing snookers, a pot cannot win the frame, so a fair safety is preferred.
                     if (bestPot && (!bestSafe || (needSnk === 0 && bestPot.ev + attack >= bestSafe.ev))) finish(bestPot.shot, 'pot', bestPot.c.kind, bestPot.ev);
                     else if (bestSafe) finish(bestSafe.shot, 'safety', 'safety', bestSafe.ev);
                     else if (bestEscape) finish(bestEscape.shot, 'escape', 'safety', bestEscape.ev);
@@ -416,8 +386,7 @@
         return job;
     }
 
-    // Ball in hand in the D: for the break-off, the script's spot on a side of the D; else
-    // the point on a grid over the D with the best pot from it, else the break-off spot.
+    // Break-off: the script's spot; else the D grid point with the best pot, else psCueHome.
     function paSnPlace(world, frame, rng) {
         const S0 = PA_SN_BREAKS[frame.reds] || PA_SN_BREAKS[15];
         if (frame.isBreak) {
@@ -436,9 +405,8 @@
         return best ? [best.x, best.y] : psCueHome(world);
     }
 
-    // After a foul against it: a free ball when it has one and a pot to play with it; else
-    // play on when there is a pot or a fair hit, and put the offender back in when the
-    // table is worse for whoever is at it (snookered, nothing on).
+    // After a foul against it: a free ball with a pot to play; else play on, or put the
+    // offender back in when the table is bad (snookered, nothing on).
     function paSnChoose(frame, world) {
         const p = frame.pending;
         if (!p) return 'play';
@@ -450,9 +418,7 @@
         return p.options.indexOf('free') >= 0 && stuck ? 'free' : 'play';
     }
 
-    // Does the CPU give the frame away (POOL_V2_PLAN.md, Snooker, implementer's calls)? Easy
-    // never; the others only once it needs more than 3 snookers. Up to 3 it plays for them
-    // (paSnPlan): the user's report, 2026-10-01, was that it gave frames away at 2 without trying.
+    // Concede? Easy never; the others only past 3 snookers needed (up to 3 it plays for them).
     const PA_SN_CONCEDE_PAST = 3;
     function paSnConcede(frame, world, tier) {
         if (tier === 'easy' || frame.over || frame.isBreak) return false;

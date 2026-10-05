@@ -1,62 +1,45 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — GAME (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // The controller: it runs the match and ties the physics, rules, camera,
-    // renderer, HUD and CPU into the panel the host shows. Pool and snooker share it
-    // (POOL_V2_PLAN.md, Snooker): what differs between them is one profile in
+    // The controller: runs the match and ties physics, rules, camera, renderer, HUD and CPU
+    // into the host's panel. Pool and snooker share it; what differs is one profile in
     // POOL_GAMES, and poolRules() is the one being played.
     //
-    // What the rest of the userscript calls:
-    //   initPoolGame()        switchGame opened the panel: build it once, keep a
-    //                         frame in progress, attach input, start the loop
-    //   poolDetach()          switchGame left: stop the loop, drop the window
-    //                         listeners, close Max
+    // Host API:
+    //   initPoolGame()        switchGame opened the panel: build once, keep the frame, attach
+    //   poolDetach()          switchGame left: stop the loop, drop window listeners, close Max
     //   resetPoolGame()       a fresh rack
-    //   togglePoolMode()      Vs CPU ⇄ 2 Players, then a fresh rack (from a tournament
-    //                         match: back to the mode before it)
+    //   togglePoolMode()      Vs CPU ⇄ 2 Players (from a tournament: the mode before it)
     //   togglePoolMaximize()  the Max view, through the shared toggleGameMaxModal
     //   poolOnThemeChange()   applyPreferences ran: re-read the theme tokens
-    //   poolMode, poolGamesWon, poolMaximized, poolRecord, poolCpuTier
-    //   poolWinsByTier()      your CPU wins by the tier each frame was locked to
-    //                         read by the leaderboard, achievements and tests
-    //   poolSetVariant(game)  the cue game: 'pool' or 'snooker'. The frame in progress is
-    //                         parked and the other game's comes back (or a fresh rack)
-    //   poolToggleVariant()   the header's switch: the other game, remembered (poolVariant)
-    //   poolOnPrefChange(p)   a ⚙️ setting the controller follows changed (the game, the
-    //                         CPU difficulty, the shot clock, snooker's reds)
-    //   poolTitle()           "🎱 8-Ball Pool" or "🔴 Snooker"
+    //   poolWinsByTier()      CPU wins by each frame's locked tier (leaderboard, achievements)
+    //   poolSetVariant(game)  'pool' | 'snooker': parks this frame, brings the other's back
+    //   poolToggleVariant()   the header's switch, remembered (poolVariant)
+    //   poolOnPrefChange(p)   a ⚙️ setting changed (CPU difficulty, shot clock, snooker's reds)
     //   poolRenderTitle(el)   the panel header: the game's name behind the 🎱 | 🔴 switch
+    //   poolMode, poolGamesWon, poolMaximized, poolRecord, poolCpuTier
     //
-    // Input (POOL_V2_PLAN.md, Input):
-    //   3D     sideways mouse movement turns the aim (0.3°/px, Shift 0.05°/px),
-    //          and keeps doing so after the mouse leaves the table
+    // Input:
+    //   3D     sideways mouse turns the aim (0.3°/px, Shift finer), even off the table
     //   2D     point at the target
-    //   power  press, then pull back or push forward along the shot line;
-    //          back under 3% and release, or Esc, cancels
-    //   ←/→    ±0.1° while the table has the mouse or Max is open
-    //   ball in hand: drag the cue ball; it stops at the cushions and, on
-    //          the break, at the head string. Move cue ball picks it up again
-    // Tournaments (pool-tour.js, pool-tour-ui.js): poolMode 'tour' while a match is on
-    // the table. The bracket is saved to localStorage (poolTournament) after every frame,
-    // with a snapshot of the table after every shot, and offered back when the panel
-    // next opens. Titles go to the trophy cabinet (poolTrophyCabinet).
-    // Escape never resets the frame here; it cancels a power drag, else the
-    // Max modal's own handler closes Max.
+    //   power  press, then pull back or push along the shot line; under 3% or Esc cancels
+    //   ←/→    fine aim while the table has the mouse or Max is open
+    //   ball in hand: drag the cue ball; it stops at the cushions (and the head string on the break)
+    // Tournaments (pool-tour.js, pool-tour-ui.js): poolMode 'tour' while a match is on the
+    // table; the bracket is saved after every frame, with a table snapshot after every shot.
+    // Escape never resets the frame: it cancels a power drag, else Max's own handler closes Max.
 
-    const POOL_CLOCK_S = 30;                 // shot clock for human turns, as today
+    const POOL_CLOCK_S = 30;                 // shot clock for human turns, in seconds
     const POOL_AIM_REACH = 240;              // px past the table's edge the aim keeps following
     const POOL_DEAD_PX = 4;                  // power drag dead zone
     const POOL_STRIKE_MS = 90;               // the cue's forward stroke before the ball launches
     const POOL_TOAST_MS = 2200;
     const POOL_POT_XP = 5;
-    // A frame's XP (POOL_V2_PLAN.md, Progression): a CPU win by the tier it was played at,
-    // 2 Players as it has always paid Player 1, a tournament match for the YOU seat only.
+    // Frame XP: a CPU win by its tier, 2 Players pays Player 1, a tournament match the YOU seat only.
     const POOL_WIN_XP = { easy: 60, normal: 80, hard: 100, pro: 120 };
     const POOL_LOSS_XP = 15, POOL_PVP_WIN_XP = 80, POOL_TOUR_WIN_XP = 80;
-    // Snooker's (POOL_V2_PLAN.md, Snooker · XP): a CPU win by the tier and the reds (a longer
-    // frame pays more), a loss 20; your best break of the frame against the CPU adds a bonus,
-    // won or lost. At most 180 + 50 = 230 a frame, inside the bot's 250 a game. 2 Players and
-    // tournaments pay as pool; no pot pays.
+    // Snooker: a CPU win by tier and reds, a loss 20, plus a bonus for your best break, won or
+    // lost. At most 180 + 50 = 230 a frame, inside the bot's 250 a game. No pot pays.
     const POOL_SNK_WIN_XP = {
         15: { easy: 90, normal: 120, hard: 150, pro: 180 },
         10: { easy: 75, normal: 100, hard: 125, pro: 150 },
@@ -71,19 +54,17 @@
     const POOL_RESULT_MS = 1100;             // the last pot drops before the match result covers the table
 
     // ── Games ─────────────────────────────────────────────────────────
-    // Everything the controller asks of a game: its table and rack, its rules, its CPU,
-    // where its records live, what it pays and what it is called. Nothing below this
-    // block names a game's rules, CPU or storage directly (pool-verify.js checks it).
+    // Everything the controller asks of a game. Nothing below this block names a game's
+    // rules, CPU or storage directly (pool-verify.js checks it).
     const POOL_GAMES = {
         pool: {
             id: 'pool', title: '8-Ball Pool', icon: '🎱', lb: 'pool', xpType: 'pool', diffPref: 'poolDifficulty', diffs: PH_DIFFS,
             keys: { cpuRec: 'poolCpuRecord', byTier: 'poolWinsByTier', tour: 'poolTournament', cab: 'poolTrophyCabinet' },
             clock: POOL_CLOCK_S,
-            // ⚙️ Pool Shot Clock: the quick frame's clock, from the tournament's choices (0 is off).
+            // ⚙️ Shot Clock choices for a quick frame (0 is off).
             clockPref: 'poolClock', clocks: [30, 45, 0],
             // Aim steps: ←/→ and the Shift fine aim, in degrees.
             aimKey: 0.1, aimFine: 0.05,
-            // Seat records for the cards (p1Wins, p1Losses, p2Wins, p2Losses).
             record: () => poolRecord,
             world: () => ppCreateWorld(),
             rack: (w, rng) => ppRack(w, rng),
@@ -109,20 +90,16 @@
             canPlace: (w, x, y, zone) => prCanPlace(w, x, y, zone),
             clampPlace: (w, x, y, zone) => prClampPlace(w, x, y, zone),
             placeCue: (w, x, y) => prPlaceCue(w, x, y),
-            // The balls a card lists as potted on an open table: the 8 comes back on the break.
+            // Balls a card lists as potted on an open table (the 8 comes back on the break).
             tracksPot: id => id > 0 && id < 16 && id !== 8,
             ballCount: () => 16,
             validFrame: f => !!f && f.v === 1 && (f.turn === 1 || f.turn === 2) && !f.over,
             tourDefaults: { game: 'pool', call: '8', calls: [['8', '8 only'], ['every', 'Every shot']] },
             cpu: { tiers: PA_TIERS, names: PA_TIER_NAMES, plan: paPlan, place: paPlace, tierFor: paTierFor, adaptive: paAdaptiveTier },
-            // XP a pot, for your pots against the CPU (poolAwardPots).
             potXP: POOL_POT_XP,
-            // A quick frame's XP: a CPU win by the tier it was played at, 2 Players as it has
-            // always paid Player 1.
             frameXP: c => (!c.won ? POOL_LOSS_XP : c.vsCPU ? POOL_WIN_XP[c.tier] || POOL_WIN_XP.normal : POOL_PVP_WIN_XP),
-            // What else the award reports (the host's achievement check reads it): nothing more.
             xpPerf: () => ({}),
-            // A quick frame's records, through the host's storage helpers. Seat 1 is you.
+            // Quick-frame records, through the host's storage helpers. Seat 1 is you.
             fileResult: (w, vsCPU, tier) => {
                 if (!poolRecord) poolRecord = loadPoolRecord();
                 // Seed the per-mode split before the all-time count moves; seeded after,
@@ -141,8 +118,7 @@
                     savePoolRecord(poolRecord);
                 }
             },
-            // The wins button: the tier being played, 2 Players, or (in a tournament, which has
-            // no board) the all-time CPU total.
+            // The wins button: the tier being played, 2 Players, or (a tournament has no board) all CPU wins.
             wins: () => {
                 const byMode = loadPoolWinsByMode();
                 if (poolMode === 'pvp') return byMode.pvp;
@@ -150,17 +126,14 @@
                 return byMode.cpu;
             },
         },
-        // Snooker (POOL_V2_PLAN.md, Snooker): the same table component on snooker's table
-        // (pool-snooker.js), 147 rules, a colour nominated when one is on, the choice after a
-        // foul, and a frame that survives a reload. Its CPU is pool-snooker-ai.js (S4); its XP,
-        // records and high break are filed under its own names (S6).
+        // Snooker (pool-snooker.js; CPU pool-snooker-ai.js): 147 rules, a nominated colour, the
+        // choice after a foul, and a quick frame that survives a reload.
         snooker: {
             id: 'snooker', title: 'Snooker', icon: '🔴', lb: 'snooker', xpType: 'snooker', diffPref: 'snookerDifficulty', diffs: PH_SNK_DIFFS,
             keys: { cpuRec: 'snookerCpuRecord', byTier: 'snookerWinsByTier', tour: 'snookerTournament', cab: 'snookerTrophyCabinet', frame: 'snookerFrame' },
-            // Aiming at true scale is slower (implementer's call 4), and so is finer aim.
+            // True scale: aiming is slower, so a longer clock and finer aim steps.
             clock: 45, aimKey: 0.025, aimFine: 0.0125,
             clockPref: 'snookerClock', clocks: [30, 45, 60, 0],
-            // The ⚙️ setting a fresh frame racks from.
             rackPref: 'snookerReds',
             aimClear: true,
             world: () => psCreateWorld(),
@@ -169,16 +142,14 @@
             newFrame: o => psNewFrame({ breaker: o.breaker, reds: POOL_GAMES.snooker.framesReds(), seed: o.seed }),
             status: (f, w, seat) => psStatus(f, w, seat || f.turn, poolS.nom),
             judge: (f, w, pick) => psJudge(f, w, pick.nominate, pick.call),
-            // The call pocket (off / colours / all): a picked tier's (hard the colours, pro every
-            // ball; Adaptive hands no rule change), the tournament's, and none in 2 Players.
+            // Call pocket: a picked tier's (Adaptive changes no rule), the tournament's, none in 2 Players.
             lockCall: (f, tier) => { f.call = poolMode === 'tour' ? poolS.callMode : poolMode === 'cpu' && poolDifficulty() !== 'adaptive' ? (tier.call || 'off') : 'off'; },
             apply: (w, v) => psApplySpots(w, v.spots),
             timeout: (f, w) => psTimeout(f, w, poolS.nom),
             text: (v, names) => psText(v, names),
             // Just before the strike: the balls touching the cue ball at rest (touching ball).
             prime: (f, w) => Object.assign({}, f, { touching: psTouching(w.balls, w.cfg.ballR) }),
-            // What may be hit first: the ball on; before a colour is nominated, any of those
-            // that may be (so aim-at-nearest finds one).
+            // May be hit first: the ball on; before a nomination, any nominable one (for aim-at-nearest).
             legal: (f, w, id) => {
                 const on = psStatus(f, w, f.turn, poolS.nom).on;
                 return on.needsNomination && on.nominated < 0 ? on.nominable.indexOf(id) >= 0 : on.ids.indexOf(id) >= 0;
@@ -190,8 +161,7 @@
             ballCount: f => 7 + psRedsOf(f && f.reds),
             validFrame: f => !!f && f.v === 1 && f.game === 'snooker' && (f.turn === 1 || f.turn === 2) && !f.over && PS_REDS.indexOf(f.reds) >= 0 && (f.call === undefined || PS_CALLS.indexOf(f.call) >= 0),
             tourDefaults: { game: 'snooker', reds: 15, call: 'off', calls: [['off', 'Off'], ['colours', 'Colours'], ['all', 'All balls']] },
-            // A tournament frame's score and each seat's best break, for the bracket (the result
-            // screen lists them).
+            // A tournament frame's score and best breaks, for the bracket's result screen.
             tourFrame: v => ({ points: [v.next.scores[1], v.next.scores[2]], high: [v.next.high[1], v.next.high[2]] }),
             // The reds a frame racks: the tournament's own, else ⚙️'s.
             framesReds: () => psRedsOf(poolMode === 'tour' && poolS.tour.t && poolS.tour.t.settings.reds ? poolS.tour.t.settings.reds : +userPreferences.snookerReds),
@@ -201,14 +171,11 @@
             choiceNotice: (p, id, names) => psChoiceNotice(p, id, names),
             concede: (f, seat) => psConcede(f, seat),
             resultText: (v, names) => psResultText(v, names),
-            // The CPU (pool-snooker-ai.js). A trial is 5–8 ms at 22 balls, so it thinks in
-            // 12 ms slices (the table stands still meanwhile, so a frame costs next to nothing to
-            // draw); it concedes by tier.
+            // A CPU trial is 5–8 ms at 22 balls, so it thinks in 12 ms slices (the still table
+            // costs next to nothing to draw); it concedes by tier.
             cpu: { tiers: PA_SN_TIERS, names: PA_SN_NAMES, plan: paSnPlan, place: paSnPlace, choose: (f, w) => paSnChoose(f, w), concede: paSnConcede, slice: 12,
                 tierFor: (pref, rec) => (PA_SN_TIERS[pref] ? pref : paAdaptiveTier(rec)), adaptive: rec => paAdaptiveTier(rec) },
             potXP: 0,
-            // A quick frame's XP: against the CPU by the tier and the reds, plus the break bonus
-            // for seat 1's best break; 2 Players as pool.
             frameXP: c => {
                 if (!c.vsCPU) return c.won ? POOL_PVP_WIN_XP : POOL_LOSS_XP;
                 const byTier = POOL_SNK_WIN_XP[c.frame && c.frame.reds] || POOL_SNK_WIN_XP[15];
@@ -219,8 +186,8 @@
             xpPerf: f => ({ reds: f ? f.reds : 15, highBreak: f && f.high ? Math.min(POOL_SNK_BREAK_CAP, f.high[1] || 0) : 0 }),
             record: () => poolStoreRead('snookerRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 }),
             fileResult: (w, vsCPU, tier, f) => {
-                // Your best break against the CPU, at every frame end, lost or conceded too (the
-                // High break board). 2 Players' breaks are not kept: either seat is this account.
+                // Your best break vs the CPU at every frame end, lost or conceded too. 2 Players'
+                // breaks are not kept: either seat is this account.
                 if (vsCPU && f && f.high) {
                     const best = poolStoreNum('snookerHighBreak'), mine = Math.min(POOL_SNK_BREAK_CAP, f.high[1] || 0);
                     if (mine > best) poolStoreWrite('snookerHighBreak', mine);
@@ -243,8 +210,7 @@
             },
         },
     };
-    // A small record in localStorage, read with every field a whole number (a corrupt or
-    // missing one reads as the defaults, never as a throw).
+    // A small localStorage record, every field a whole number (corrupt or missing: the defaults).
     function poolStoreRead(key, defaults) {
         const out = Object.assign({}, defaults);
         try {
@@ -253,12 +219,10 @@
         } catch (_) {}
         return out;
     }
-    // A whole number in localStorage (0 when missing or corrupt).
     function poolStoreNum(key) { try { return Math.max(0, parseInt(localStorage.getItem(key) || '0', 10) || 0); } catch (_) { return 0; } }
     function poolStoreWrite(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {} }
     const poolRules = () => POOL_GAMES[poolS.game] || POOL_GAMES.pool;
-    // The panel plays this game from now: its table config, and a fresh camera and cache
-    // for it. The frame on the table is the caller's business.
+    // This game's table config, with a fresh camera and cache; the frame is the caller's business.
     function poolUseGame(game) {
         const S = poolS;
         // Each game has its own tournament (bracket, screens, saved key).
@@ -271,7 +235,6 @@
     }
     const poolTourFresh = () => ({ t: null, screen: null, dialog: null, dlgBack: null, tab: 0, matchId: null, setup: null, cab: null, cabBack: null,
         prevMode: 'cpu', pending: 0, rev: 0, checked: false });
-    function poolTitle() { const R = poolRules(); return R.icon + ' ' + R.title; }
     // A quick frame's shot clock: ⚙️'s pick for this game (0 is off), else the game's own.
     function poolQuickClock() { const R = poolRules(), v = userPreferences[R.clockPref]; return R.clocks.indexOf(v) >= 0 ? v : R.clock; }
 
@@ -279,42 +242,35 @@
     let poolGamesWon = 0;                    // all-time wins, as stored by savePoolHighScore
     let poolRecord = null;                   // { p1Wins, p1Losses, p2Wins, p2Losses }
     let poolMaximized = false;
-    // The CPU's tier for this frame: locked when the frame starts (adaptive or
-    // pinned, userPreferences.poolDifficulty), so it cannot shift mid-frame.
+    // The CPU's tier, locked when the frame starts so it cannot shift mid-frame.
     let poolCpuTier = 'normal';
 
-    // Everything else about the panel and the match lives in one object, so
-    // a reset is a reassignment rather than thirty lines of lets.
+    // The panel and match live in one object, so a reset is a reassignment, not thirty lets.
     const poolS = {
         game: 'pool',                        // the game on the table: a key of POOL_GAMES
         root: null, hudC: null, hudM: null, hud: null, canvas: null, ctx: null, maxFrame: null, maxPanel: null,
         W: 0, H: 0, dpr: 1, cfg: null, director: null, cache: {},
         world: null, frame: null, rackId: 0, awardedRack: -1, breaker: 1, frames: [0, 0], seed: 0, rng: null,
         phase: 'aim', aim: 0, power: 0, tip: { x: 0, y: 0 }, spinOpen: false, called: -1, guide: null, guideKey: '',
-        // Snooker: the colour nominated for this shot (-1: none), the concede question, and
-        // the frame parked by the other game while this one is on the table.
+        // Snooker: the nominated colour (-1: none), the concede question; each game's parked frame.
         nom: -1, confirm: false, parked: {}, tours: {},
         // Snooker: the chips opened again after a colour was nominated (they fold to that one).
         chipsOpen: false,
         // The CPU's safeties in a row this frame (snooker's CPU attacks after three).
         cpuSafeRun: 0,
         drops: [], down: new Set(), drag: null, strikeT: 0, shot: null,
-        // The object balls each seat has potted this frame (the cards show them on an open
-        // table).
+        // The object balls each seat has potted this frame (cards show them on an open table).
         pots: { 1: [], 2: [] },
         toast: null, toastMs: 0, fouled: 0, handoff: 0, result: null, placed: false, clockLeft: POOL_CLOCK_S,
         cpu: null, wins: 0,
         // Your record against the CPU (adaptive difficulty reads it), and the Game mode sheet.
         cpuRec: null, sheet: { open: false, mode: 'cpu' },
-        // Table settings: guide length (full | short | off) and call every shot. Fixed for
-        // quick matches today; tournaments (Phase 7) and the pro tier (Phase 6) set them.
+        // Table settings (guide full | short | off, call rules, clock): tournaments and tiers set them.
         guideMode: 'full', callEvery: false, callMode: 'off', clockTotal: POOL_CLOCK_S,
-        // The tournament: the bracket (t, with t.current the match in progress), the screen
-        // and dialog over the panel, the match on the table, setup's draft, the cabinet.
+        // The tournament: bracket (t.current: the match in progress), screen, dialog, setup, cabinet.
         tour: { t: null, screen: null, dialog: null, dlgBack: null, tab: 0, matchId: null, setup: null, cab: null, cabBack: null,
             prevMode: 'cpu', pending: 0, rev: 0, checked: false },
-        // The phase 'choice' holds the table after a foul in snooker until the incoming
-        // player picks how play continues.
+        // phase 'choice': after a snooker foul the table waits for the incoming player's pick.
         running: false, raf: null, lastMs: 0, acc: 0, sinceDraw: 0, drawKey: '',
         attached: false, armed: false, lastX: null, leanSave: null, nameSave: null, scheme: null,
     };
@@ -346,7 +302,6 @@
         const cpu = poolRules().cpu;
         poolCpuTier = cpu.tierFor(poolDifficulty(), poolCpuRec());
         poolRules().lockCall(S.frame, cpu.tiers[poolCpuTier]);
-        // The wins button shows the board being played for, and that is this frame's tier.
         poolRefreshScoreBtn();
     }
     // Nothing has been hit yet in this frame, so a new difficulty can apply to it.
@@ -381,10 +336,9 @@
         byTier[tier]++;
         try { localStorage.setItem(R.keys.byTier, JSON.stringify(byTier)); } catch (_) { /* quota */ }
     }
-    // The count on the wins button, by the game's own rule.
     const poolWins = () => poolRules().wins();
-    // The header button and the Max trophy show the same count; it only changes when a
-    // frame ends or the mode flips, so it is read here and cached, not every frame.
+    // The header button and Max trophy count only change when a frame ends or the mode flips,
+    // so it is cached here rather than read every frame.
     function poolRefreshScoreBtn() { poolS.wins = poolWins(); updateGameScoreBtn(poolRules().lb, null, poolS.wins); }
     const poolCpuTurn = () => poolMode === 'cpu' && poolS.frame && poolS.frame.turn === 2 && !poolS.frame.over;
     const poolCueBall = () => poolS.world.balls[0];
@@ -435,7 +389,7 @@
         S.awardedRack = S.rackId;
         // A frame that survives a reload is gone once it is decided, before anything is paid.
         poolClearSaved();
-        // Tournament frames go to the bracket, not to the quick-match records or XP (Phase 8).
+        // Tournament frames go to the bracket, not to the quick-match records or XP.
         if (poolMode === 'tour') { poolTourFrameOver(w, v); return; }
         const vsCPU = poolMode === 'cpu', tier = poolCpuTier, f = v.next || S.frame;
         R.fileResult(w, vsCPU, tier, f);
@@ -452,9 +406,8 @@
         poolRefreshScoreBtn();
     }
 
-    // XP per legal pot (pool's +5), for your pots against the CPU only, in a game that pays
-    // pots. 2 Players paid both seats (problem 8): the XP lands on this machine's account
-    // whoever is at the table.
+    // XP per legal pot, for your pots against the CPU only: in 2 Players it would land on this
+    // account whoever potted.
     function poolAwardPots(seat, n) {
         const per = poolRules().potXP;
         if (!n || !per || poolMode !== 'cpu' || seat !== 1 || !xpSystemReady) return;
@@ -502,7 +455,6 @@
         S.fouled = v.foul ? shooter : 0;
         // Hot-seat: when the table changes hands, the next player takes the seat first.
         if (poolMode !== 'cpu' && S.frame.turn !== shooter) S.handoff = S.frame.turn;
-        // Snooker after a foul: the table waits for the incoming player's choice.
         if (S.frame.pending) { S.phase = 'choice'; S.clockLeft = S.clockTotal || POOL_CLOCK_S; }
         else poolStartTurn();
         // A shot boundary: the table is still, so this is the state a reload comes back to.
@@ -522,9 +474,8 @@
         S.clockLeft = S.clockTotal || POOL_CLOCK_S;
     }
 
-    // The incoming player's choice after a snooker foul (psChoose): play, put the offender back
-    // in, or take the free ball. A CPU's choice is named in a notice; in hot-seat, a change of
-    // seat is handed over first.
+    // The incoming player's choice after a snooker foul (psChoose). A CPU's is named in a
+    // notice; in hot-seat, a change of seat is handed over first.
     function poolChoose(id, byCpu) {
         const S = poolS, R = poolRules(), p = S.frame && S.frame.pending;
         if (!p || !R.choose || p.options.indexOf(id) < 0) return;
@@ -578,10 +529,8 @@
         S.guide = pgGuide(S.world, { angle: S.aim, speed: poolSpeedOf(p), tipX: t.x, tipY: t.y });
     }
     // The shot on screen, for the HUD to keep its overlays off (phShy): the aim line to the
-    // first contact, the object ball's path on to the pocket it is heading for (else to the
-    // cushion), and as circles the contact, the object ball and that pocket. The cue ball is
-    // the line's start, not a circle: in 3D it always sits bottom centre, which the overlays
-    // are laid out round.
+    // contact, the object ball's path to its pocket (else the cushion), and those points as
+    // circles. The cue ball is not a circle: in 3D it sits bottom centre, clear of the overlays.
     function poolShotPath(v) {
         const S = poolS, g = S.guide, cfg = S.cfg, R = cfg.ballR, c = poolCueBall();
         if (!g || !g.contact || !c || c.state === 'pocketed') return null;
@@ -623,12 +572,10 @@
         }
         return { segs, dots };
     }
-    // A human may act: not in the hand-off, not while the CPU plays.
     const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && poolS.phase !== 'over' && poolS.phase !== 'choice' && !poolS.confirm && !poolS.sheet.open && !poolTourBlocked();
 
     // ── The CPU's turn ────────────────────────────────────────────────
-    // Wait a beat, place the ball if it has it in hand, think (time-sliced),
-    // turn the cue onto the line, draw it back, then strike.
+    // Wait, place the ball if in hand, think (time-sliced), turn onto the line, draw back, strike.
     function poolCpuTick(dt) {
         const S = poolS, R = poolRules();
         if (!poolCpuTurn() || poolTourBlocked() || S.phase === 'moving' || S.phase === 'strike') return;
@@ -650,7 +597,6 @@
         if (S.phase !== 'aim') return;
         if (c.stage === 'wait') {
             if (c.t < 350) return;
-            // Snooker: a frame it cannot win any more, it gives away (by tier).
             if (R.cpu.concede && R.concede && R.cpu.concede(S.frame, S.world, poolCpuTier)) { S.cpu = null; poolAfterTurn(R.concede(S.frame, S.frame.turn)); return; }
             S.tip = { x: 0, y: 0 }; S.spinOpen = false;
             c.job = R.cpu.plan(S.world, S.frame, { rng: S.rng, tier: poolCpuTier, safeRun: S.cpuSafeRun });
@@ -716,8 +662,7 @@
                 if (ppSettled(S.world)) { ppSimulate(S.world, 0.001); poolSettle(); break; }
             }
         } else if (S.phase === 'aim' && poolCanAct() && !S.drag && S.clockTotal) {
-            // The clock waits for the hand-off and for ball in hand, as today, and a
-            // tournament can turn it off.
+            // The clock waits for the hand-off and ball in hand; a tournament can turn it off.
             S.clockLeft -= dt / 1000;
             if (S.clockLeft <= 0) {
                 const R = poolRules(), v = R.timeout(S.frame, S.world);
@@ -845,8 +790,7 @@
     const poolIsControl = el => !!(el && el.closest && el.closest('button, input, select, label, a, textarea'));
     function poolDisarm() { poolS.armed = false; poolS.lastX = null; }
 
-    // Power, as in the old engine: only movement along the shot line counts,
-    // pulled back or pushed forward; full power fits inside the canvas.
+    // Power: only movement along the shot line counts, back or forward; full power fits the canvas.
     function poolShotAxis() {
         const S = poolS, v = poolView(), c = poolCueBall(), R = S.cfg.ballR;
         const a = pcProject(v, [c.x, c.y, R]), b = pcProject(v, [c.x + Math.cos(S.aim) * 60, c.y + Math.sin(S.aim) * 60, R]);
@@ -861,8 +805,7 @@
         if (uy > 1e-9) t = Math.min(t, (S.H - py) / uy); else if (uy < -1e-9) t = Math.min(t, -py / uy);
         return Math.max(0, t);
     }
-    // The ball follows the pointer but stops at the cushions and, on the
-    // break, at the head string, so it can be dragged along them (as v1 did).
+    // The ball stops at the cushions (and the head string on the break), so it can be dragged along them.
     function poolPlace(sx, sy) {
         const S = poolS, R = poolRules();
         const p = pcView(pcOrtho(S.W, S.H, S.cfg)).unproject(sx, sy);
@@ -943,9 +886,8 @@
             const c = poolCueBall();
             if (!poolRules().canPlace(S.world, c.x, c.y, S.frame.ballInHand)) {
                 S.placed = true; S.phase = 'aim'; poolAimAtNearest();
-                // The foul that gave the ball in hand has no timer: it waits for the ball to be
-                // placed. Left up, it would keep the spin control, the hint and the call card
-                // hidden for the whole shot (against the CPU no hand-off clears it).
+                // The foul toast has no timer; left up, it would hide the spin control, hint and
+                // call card for the whole shot (against the CPU no hand-off clears it).
                 if (S.toast && S.toast.kind === 'foul') S.toast = null;
             }
             return;
@@ -1036,8 +978,7 @@
         reset: () => resetPoolGame(),
         max: () => togglePoolMaximize(),
         call: i => { if (poolCanAct()) poolS.called = i; },
-        // A choice after a foul is still to be made: the toast carries it, and the fouled
-        // card keeps its tag, until it is.
+        // While a choice after a foul is pending, its toast and the fouled card's tag stay.
         ready: () => {
             const S = poolS;
             S.handoff = 0;
@@ -1050,14 +991,12 @@
             if (!poolCanAct() || S.phase !== 'aim' || S.drag) return;
             const st = poolRules().status(S.frame, S.world);
             if (!st.on || st.on.nominable.indexOf(id) < 0) return;
-            // The folded chip (the colour nominated) opens the chips again; the same colour
-            // picked from them folds them back.
+            // The folded chip (the nominated colour) reopens the chips; picking it again folds them.
             if (id === S.nom) { S.chipsOpen = !S.chipsOpen; return; }
             S.nom = id; S.chipsOpen = false; poolAimAtNearest();
         },
-        // The choice after a foul, by the player choosing (a CPU chooses for itself).
         choose: id => { const S = poolS; if (S.phase === 'choice' && !S.handoff && !poolCpuTurn() && !poolTourBlocked()) poolChoose(id, false); },
-        // Concede: asked, then confirmed (SnkConcede), only by the player at the table.
+        // Concede: asked, then confirmed, only by the player at the table.
         concede: () => { const S = poolS; if (poolRules().concede && poolCanAct() && (S.phase === 'aim' || S.phase === 'bih')) { S.confirm = true; S.drag = null; S.power = 0; } },
         concedeNo: () => { poolS.confirm = false; },
         concedeYes: () => {
@@ -1066,8 +1005,7 @@
             S.confirm = false;
             poolAfterTurn(R.concede(S.frame, S.frame.turn));
         },
-        // Pick the cue ball up again. The clock pauses in ball in hand and
-        // carries on from where it was once the ball is down, so this never buys time back.
+        // Pick the cue ball up again. The clock pauses in hand and resumes, so this buys no time.
         replace: () => { const S = poolS; if (S.phase === 'aim' && S.frame.ballInHand && poolCanAct() && !S.drag) { S.phase = 'bih'; S.placed = false; S.power = 0; } },
         primary: () => { if (poolMode === 'tour') poolTourNextFrame(); else poolNewFrame(3 - poolS.breaker); },
         secondary: () => { if (poolMode === 'tour') poolOn.tourBracket(); else poolS.sheet = { open: true, mode: poolMode }; },
@@ -1095,8 +1033,7 @@
         if (!S.cfg) poolUseGame(userPreferences.poolVariant);
         poolS.cpuRec = poolLoadCpuRecord();
         if (!S.hudC || !root.contains(S.hudC.el)) poolBuild(root);
-        // A frame in progress survives switching to another game and back; a snooker frame
-        // survives a reload too.
+        // A frame in progress survives switching games; a snooker frame survives a reload too.
         if (!S.world && !poolRestoreTable(poolLoadSaved())) poolNewFrame(1);
         // Once per page: a tournament saved last time is offered back.
         if (!S.tour.checked) {
@@ -1157,22 +1094,35 @@
     }
 
     // ── The two games ─────────────────────────────────────────────────
-    // POOL_V2_PLAN.md, Snooker: the switch in the panel header chooses what the panel plays.
-    // Each game keeps its own frame: switching parks the one on the table and brings the
-    // other back as it was left (or racks a fresh one).
+    // The header's switch picks the game. Each keeps its own frame: switching parks the one
+    // on the table and brings the other back as it was left (or racks a fresh one).
 
-    // The table at rest, whole: the balls, the rules state, the mode and tier it is played
-    // at, the frame count and the clock. Null mid-shot or once the frame is decided.
+    // The whole table at rest (balls, rules state, mode, tier, frames, clock); null mid-shot or decided.
     function poolSnapshotTable() {
         const S = poolS;
         if (!S.world || !S.frame || S.frame.over || S.phase === 'over' || S.phase === 'moving' || S.phase === 'strike') return null;
+        return Object.assign(poolTableSnap(), { v: 1, game: S.game, mode: poolMode === 'pvp' ? 'pvp' : 'cpu', tier: poolCpuTier, frames: S.frames.slice() });
+    }
+    // What a quick frame and a tournament's match both save, and put back.
+    function poolTableSnap() {
+        const S = poolS;
         return {
-            v: 1, game: S.game, mode: poolMode === 'pvp' ? 'pvp' : 'cpu', tier: poolCpuTier, breaker: S.breaker, frames: S.frames.slice(),
-            frame: JSON.parse(JSON.stringify(S.frame)),
+            breaker: S.breaker, frame: JSON.parse(JSON.stringify(S.frame)),
             balls: S.world.balls.map(b => ({ id: b.id, x: b.x, y: b.y, q: b.q.slice(), state: b.state, pocket: b.pocket })),
             clockLeft: S.clockLeft, fouled: S.fouled, pots: { 1: S.pots[1].slice(), 2: S.pots[2].slice() },
         };
     }
+    function poolApplySnap(snap, world) {
+        const S = poolS, R = poolRules();
+        poolNewFrame(snap.breaker === 2 ? 2 : 1);
+        S.world = world; S.frame = JSON.parse(JSON.stringify(snap.frame));
+        S.fouled = snap.fouled === 1 || snap.fouled === 2 ? snap.fouled : 0;
+        const potsOf = a => (Array.isArray(a) ? a.filter(id => Number.isInteger(id) && R.tracksPot(id)) : []);
+        S.pots = { 1: potsOf(snap.pots && snap.pots[1]), 2: potsOf(snap.pots && snap.pots[2]) };
+    }
+    // The clock it was left on, within today's limit: ⚙️ may have lowered it since.
+    const poolSnapClock = snap => { const full = poolS.clockTotal || POOL_CLOCK_S; return snap.clockLeft > 0 ? Math.min(snap.clockLeft, full) : full; };
+    const poolDownSet = () => new Set(poolS.world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
     // A world rebuilt from a snapshot's balls, or null if any of them is not a ball.
     function poolWorldFrom(snap) {
         const R = poolRules();
@@ -1190,25 +1140,20 @@
             return world;
         } catch (_) { return null; }
     }
-    // Puts a parked or saved quick frame back on the table, as it was left. False if it is
-    // not this game's, or not a frame at all.
+    // Puts a parked or saved quick frame back as it was left; false if not this game's or not a frame.
     function poolRestoreTable(snap) {
         const S = poolS, R = poolRules();
         if (!snap || snap.v !== 1 || snap.game !== S.game || !R.validFrame(snap.frame)) return false;
         const world = poolWorldFrom(snap);
         if (!world) return false;
         if (poolMode !== 'tour') poolMode = snap.mode === 'pvp' ? 'pvp' : 'cpu';
-        poolNewFrame(snap.breaker === 2 ? 2 : 1);
-        S.world = world; S.frame = JSON.parse(JSON.stringify(snap.frame));
+        poolApplySnap(snap, world);
         if (Array.isArray(snap.frames) && snap.frames.length === 2 && snap.frames.every(n => Number.isInteger(n) && n >= 0)) S.frames = snap.frames.slice();
         // The tier stays the one the frame was locked to.
         if (poolMode === 'cpu' && R.cpu.tiers[snap.tier]) { poolCpuTier = snap.tier; poolRefreshScoreBtn(); }
-        S.fouled = snap.fouled === 1 || snap.fouled === 2 ? snap.fouled : 0;
-        const potsOf = a => (Array.isArray(a) ? a.filter(id => Number.isInteger(id) && R.tracksPot(id)) : []);
-        S.pots = { 1: potsOf(snap.pots && snap.pots[1]), 2: potsOf(snap.pots && snap.pots[2]) };
-        S.down = new Set(S.world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+        S.down = poolDownSet();
         if (S.frame.pending) S.phase = 'choice'; else poolStartTurn();
-        S.clockLeft = Number.isFinite(snap.clockLeft) && snap.clockLeft > 0 ? snap.clockLeft : S.clockTotal || POOL_CLOCK_S;
+        S.clockLeft = poolSnapClock(snap);
         // In hot-seat, whoever is to act takes the seat.
         S.handoff = poolMode === 'pvp' ? S.frame.turn : 0;
         S.drawKey = '';
@@ -1252,7 +1197,7 @@
             '</button><span class="pool-cue-name">' + poolRules().title + '</span>';
         el.firstChild.addEventListener('click', poolToggleVariant);
     }
-    // The header's switch: the other game, remembered as the one the panel opens on.
+    // The header's switch: the other game, remembered for next time.
     function poolToggleVariant() {
         userPreferences.poolVariant = poolS.game === 'snooker' ? 'pool' : 'snooker';
         savePreferences();
@@ -1292,13 +1237,10 @@
         }
         poolSyncChrome();
     }
-    // A ⚙️ setting the controller follows: the game; the CPU difficulty (in force now if
-    // nothing has been hit, else from the next frame); the shot clock (now); snooker's reds
-    // (a fresh rack, if nothing has been hit).
+    // ⚙️ settings: the CPU difficulty (now if nothing has been hit, else next frame), the shot
+    // clock (now), snooker's reds (a fresh rack, if nothing has been hit). Others are ignored.
     function poolOnPrefChange(pref) {
-        const S = poolS;
-        if (pref === 'poolVariant') { poolSetVariant(userPreferences.poolVariant); return; }
-        const R = poolRules();
+        const S = poolS, R = poolRules();
         if (!S.frame) return;
         if (pref === R.diffPref) { if (poolMode === 'cpu' && poolFrameFresh()) poolLockTier(); return; }
         // ⚙️ Shot Clock, now: the turn under way keeps what it has left, within the new limit
@@ -1314,9 +1256,8 @@
     }
 
     // ── Tournament ────────────────────────────────────────────────────
-    // The bracket lives in poolS.tour.t; poolMode is 'tour' only while one of its
-    // matches is on the table (tour.matchId). Screens and dialogs cover the panel
-    // and stop the clock and every input under them.
+    // The bracket lives in poolS.tour.t; poolMode is 'tour' only while one of its matches is
+    // on the table (tour.matchId). Screens and dialogs stop the clock and all input under them.
     const poolTourMatch = () => { const T = poolS.tour; return poolMode === 'tour' && T.t && T.matchId ? ptById(T.t, T.matchId) || null : null; };
     const poolTourBlocked = () => !!(poolS.tour.screen || poolS.tour.dialog || poolS.tour.pending);
     function poolTourBump() { poolS.tour.rev++; }
@@ -1337,8 +1278,7 @@
             else localStorage.removeItem(key);
         } catch (_) {}
     }
-    // The saved tournament, or null. A corrupt one, or one from another version, is
-    // dropped behind a toast; it is never half-loaded.
+    // The saved tournament, or null. A corrupt or outdated one is dropped behind a toast, never half-loaded.
     function poolTourLoad() {
         let raw = null;
         const key = poolRules().keys.tour;
@@ -1370,11 +1310,7 @@
     function poolTourSnapshot() {
         const S = poolS, T = S.tour, m = poolTourMatch();
         if (!m || !T.t.current || !S.world || S.phase === 'moving' || S.phase === 'strike' || S.phase === 'over' || S.frame.over) return;
-        T.t.snapshot = {
-            match: m.id, frames: m.frames.length, breaker: S.breaker, frame: JSON.parse(JSON.stringify(S.frame)),
-            balls: S.world.balls.map(b => ({ id: b.id, x: b.x, y: b.y, q: b.q.slice(), state: b.state, pocket: b.pocket })),
-            clockLeft: S.clockLeft, fouled: S.fouled, pots: { 1: S.pots[1].slice(), 2: S.pots[2].slice() },
-        };
+        T.t.snapshot = Object.assign(poolTableSnap(), { match: m.id, frames: m.frames.length });
         poolTourSave();
     }
     function poolTourRestore(snap, m) {
@@ -1382,14 +1318,10 @@
         if (!snap || snap.match !== m.id || snap.frames !== m.frames.length || !Array.isArray(snap.balls) || !R.validFrame(snap.frame)) return false;
         const world = poolWorldFrom(snap);
         if (!world) return false;
-        poolNewFrame(snap.breaker === 2 ? 2 : 1);
-        S.world = world; S.frame = JSON.parse(JSON.stringify(snap.frame));
-        S.clockLeft = Number.isFinite(snap.clockLeft) && snap.clockLeft > 0 ? snap.clockLeft : S.clockTotal || POOL_CLOCK_S;
-        S.fouled = snap.fouled === 1 || snap.fouled === 2 ? snap.fouled : 0;
-        const potsOf = a => (Array.isArray(a) ? a.filter(id => Number.isInteger(id) && R.tracksPot(id)) : []);
-        S.pots = { 1: potsOf(snap.pots && snap.pots[1]), 2: potsOf(snap.pots && snap.pots[2]) };
+        poolApplySnap(snap, world);
+        S.clockLeft = poolSnapClock(snap);
         if (poolCueBall().state === 'pocketed') { const home = R.cueHome(S.world); R.placeCue(S.world, home[0], home[1]); }
-        S.down = new Set(S.world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
+        S.down = poolDownSet();
         if (S.frame.pending) S.phase = 'choice';
         else if (S.frame.ballInHand) { S.phase = 'bih'; S.placed = false; } else { S.phase = 'aim'; poolAimAtNearest(); }
         S.drawKey = '';
@@ -1415,8 +1347,7 @@
         if (!(fromSnapshot && poolTourRestore(T.t.snapshot, m))) poolNewFrame(poolTourBreakerSeat(m));
         poolTourSave();
     }
-    // Back to quick matches (the mode before the tournament, or the one asked for).
-    // The tournament stays saved and can be resumed from the Game mode sheet.
+    // Back to quick matches (the mode before, or the one asked for). The tournament stays saved.
     function poolLeaveTour(mode) {
         const S = poolS, T = S.tour;
         poolTourSnapshot();
@@ -1431,8 +1362,7 @@
         if (poolMode === 'tour') poolLeaveTour(mode);
         else if (poolMode !== mode) togglePoolMode();
     }
-    // Resume: the match in progress goes back on the table (the whole-table state from
-    // the last shot) and whoever is on the shot takes the seat; with none, the bracket.
+    // Resume: the match in progress as of its last shot, the shooter seated; with none, the bracket.
     function poolTourResume() {
         const S = poolS, T = S.tour, t = T.t;
         T.dialog = null; T.screen = null; poolTourBump();
@@ -1443,8 +1373,7 @@
         S.handoff = S.frame.turn;
     }
 
-    // Called by poolEndFrame: the frame goes into the bracket (with snooker's points and
-    // breaks), and it is saved.
+    // From poolEndFrame: the frame (with snooker's points and breaks) goes into the bracket.
     function poolTourFrameOver(seat, v) {
         const S = poolS, T = S.tour, m = poolTourMatch(), R = poolRules();
         if (!m || (seat !== 1 && seat !== 2)) return;
@@ -1453,8 +1382,8 @@
         S.frames = ptScore(ptById(T.t, m.id));
         if (r.matchOver) {
             T.t.current = null;
-            // Match XP for the YOU seat only, once per match: 80 won, 15 lost. Matches between
-            // other names pay nothing, byes and titles pay nothing (the bracket is farmable).
+            // Match XP for the YOU seat only, once per match. Other names' matches, byes and
+            // titles pay nothing (the bracket is farmable).
             const mm = ptById(T.t, m.id), mine = [mm.a, mm.b].find(s => T.t.slots[s] && T.t.slots[s].you);
             if (mine !== undefined) {
                 const won = mm.winner === mine;
@@ -1468,8 +1397,7 @@
         poolTourSave();
         poolTourBump();
     }
-    // The frame-over dialog for a frame that leaves the match going; a won match goes
-    // to its result screen instead, once the last ball has dropped.
+    // The frame-over dialog mid-match; a won match goes to its result screen once the last ball drops.
     function poolTourResult(text) {
         const S = poolS, m = poolTourMatch();
         S.phase = 'over'; S.toast = null;
@@ -1545,8 +1473,8 @@
         resumeTour: () => poolTourResume(),
         bracket: () => { const T = poolS.tour; if (!T.t) return; T.screen = 'bracket'; T.tab = poolTourTab(); poolTourBump(); },
         champion: () => { const T = poolS.tour; if (T.t && ptChampion(T.t) !== null) { T.screen = 'champion'; poolTourBump(); } },
-        // Leaving a screen. From the champion the tournament is finished and let go; with
-        // no match in progress, a tournament table goes back to quick matches.
+        // Leaving a screen: from the champion the tournament is let go; with no match in
+        // progress, a tournament table goes back to quick matches.
         close: () => {
             const T = poolS.tour;
             if (T.screen === 'champion' || (T.t && ptChampion(T.t) !== null)) T.t = null;
@@ -1573,7 +1501,7 @@
         },
     };
 
-    // The HUD's tournament header: "CITY OPEN" over "Semi-final · race to 2" (snooker: "best of 3"), FRAME n.
+    // The HUD's tournament header: "CITY OPEN" over "Semi-final · race to 2", FRAME n.
     function poolTourHead() {
         const S = poolS, m = poolTourMatch();
         if (!m) return null;
@@ -1609,15 +1537,15 @@
         else if (screen === 'cabinet') html = puCabinetHTML({ cab: poolCabinet(), game: S.game });
         puSync(hud, poolTourOn, { screen: html, dialog: dialog ? puDialogHTML(dialog, { t: T.t, liveId }) : '', key });
         hud.el.classList.toggle('is-pu', !!screen);
-        // The mini tree is laid out for its box's real width (the body's scrollbar takes
-        // some): measured after the render, and drawn again once if it was off.
+        // The mini tree needs its box's real width (minus the scrollbar): measured after the
+        // render, and drawn again once if it was off.
         const box = screen && pu.screen.querySelector('.pu-mini:not(.is-big)');
         if (box && box.clientWidth && Math.abs(box.clientWidth - miniW) > 0.5) { hud.miniW = { w: hud.el.clientWidth, v: box.clientWidth }; pu.key.screen = null; }
     }
 
     // ── Theme ─────────────────────────────────────────────────────────
-    // The Max view is body-level: give it the widget's theme classes and
-    // tokens, as the host does for its PiP clone, so Cyberpunk resolves there.
+    // The Max view is body-level: give it the widget's theme classes and tokens (as the host
+    // does for its PiP clone) so Cyberpunk resolves there.
     function poolSyncMaxTheme() {
         const f = poolS.maxFrame;
         if (!f) return;
@@ -1637,8 +1565,7 @@
     }
 
     // ── Max ───────────────────────────────────────────────────────────
-    // The design's full view (1280 × 800), scaled down to fit the window.
-    // Layout stays in design pixels; poolLocal() maps the pointer through the scale.
+    // 1280 × 800 design pixels, scaled to fit the window; poolLocal() maps the pointer back.
     function poolFitMax() {
         const S = poolS;
         if (!S.maxFrame || !S.maxPanel) return;

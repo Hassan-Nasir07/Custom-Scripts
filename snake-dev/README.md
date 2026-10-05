@@ -81,3 +81,8 @@ from an uncommitted edit.
   in every mode, so scores set before v2 remain comparable with scores set after it.
 - **Skin unlocks are an honour system.** They are not enforced anywhere and are not a
   security boundary — the cost of forging one is a colour gradient.
+- **Other v1 bugs the comments used to narrate**, each with a test: self-collision ran
+  before the tail moved (killed a snake following its own tail); the restart timer survived
+  a reset (resurrected the loop on a hidden canvas); the high-score check ran after raising
+  the best (every tie paid +15 XP); and the forward key went through the turn queue, whose
+  no-op guard swallowed it, so a resting snake could only start by turning.

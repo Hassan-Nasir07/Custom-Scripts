@@ -1,25 +1,17 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — TOURNAMENT MODEL (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // A single-elimination bracket for 3–16 people on one computer, humans
-    // only (POOL_V2_PLAN.md, Tournament). Pure: plain objects in, plain
-    // objects out, so it is tested in Node and saved as JSON.
-    //
-    //   size   S = the next power of two ≥ N (min 4); byes = S − N go to the
-    //          top seeds, so no first-round match is bye against bye
-    //   seeds  the standard order: seed s meets 2n+1−s, every other pair
-    //          flipped (1v8, 4v5, 3v6, 2v7), as the design's brackets draw it
-    //   play   a round is finished before the next starts, left to right;
-    //          winners feed forward by index (match j → j >> 1, side j & 1)
-    //   breaks the lower seed (the higher number) breaks first, then they
-    //          alternate
+    // A single-elimination bracket for 3–16 humans on one computer. Pure plain
+    // objects, so it is tested in Node and saved as JSON.
+    //   size   S = next power of two ≥ N (min 4); the S − N byes go to the top seeds
+    //   seeds  seed s meets 2n+1−s, every other pair flipped (1v8, 4v5, 3v6, 2v7)
+    //   play   round by round, left to right; match j feeds j >> 1, side j & 1
+    //   breaks the lower seed (higher number) first, then alternating
     // A tournament: { v, id, game, seed, name, created, settings, slots, size,
     // rounds, matches: [{ id, round, index, a, b, raceTo, frames, points, high,
-    // winner, status }], snapshot }. Slots are indices into `slots`; a is the upper
-    // line of a match, b the lower. game is 'pool' or 'snooker' (a save made before
-    // snooker has none, and is pool's); snooker's matches also keep each frame's
-    // points ([a, b]) and the match's high break ({ slot, frame, value }). raceTo is
-    // stored for both games; snooker says it as best of 2N − 1 (ptRaceText).
+    // winner, status }], snapshot }. a/b index `slots` (a the upper line). A save
+    // with no game is pool's. Snooker matches also keep per-frame points ([a, b])
+    // and the high break ({ slot, frame, value }); its raceTo reads as best of 2N − 1.
 
     const PT_VERSION = 1;
     const PT_MIN = 3, PT_MAX = 16;
@@ -29,11 +21,9 @@
 
     const ptSizeFor = n => (n <= 4 ? 4 : n <= 8 ? 8 : 16);
     const ptGameOf = x => (x && x.game === 'snooker' ? 'snooker' : 'pool');
-    // "Race to 2" in pool, "Best of 3" in snooker: the same match.
     const ptRaceText = (t, n) => (ptGameOf(t) === 'snooker' ? 'Best of ' + (2 * n - 1) : 'Race to ' + n);
-    // A tournament's settings, normalised for its game: a race of 1–5 per round, a clock of
-    // 0 / 30 / 45 (/ 60 in snooker), the guideline; pool's call (the 8 only or every shot),
-    // snooker's reds (15 / 10 / 6) and call pocket (off / the colours / every ball).
+    // Settings normalised for the game: race 1–5 per round, clock 0/30/45 (/60 snooker),
+    // guideline, pool's call (8 or every), snooker's reds and call pocket.
     function ptSettings(game, s0, rounds, size) {
         const s = s0 || {}, snk = game === 'snooker';
         const race = (Array.isArray(s.race) && s.race.length === rounds ? s.race : PT_RACE_DEFAULT[size]).map(x => Math.max(1, Math.min(5, x | 0 || 1)));
@@ -47,7 +37,6 @@
     }
     const ptRoundsFor = size => Math.round(Math.log2(size));
 
-    // "Final", "Semi-final", "Quarter-final", "Round of 16", from the end.
     function ptRoundName(rounds, r) {
         const fromEnd = rounds - 1 - r;
         return fromEnd === 0 ? 'Final' : fromEnd === 1 ? 'Semi-final' : fromEnd === 2 ? 'Quarter-final' : 'Round of ' + Math.pow(2, fromEnd + 1);
@@ -79,9 +68,8 @@
         return a;
     }
 
-    // opts: { game: 'pool'|'snooker', names: [...], you: 0 (the slot that is the account
-    //         owner, or -1), settings: { race: [per round], clock: 30|45|0 (|60), guide:
-    //         'full'|'short'|'off', call, reds (snooker), shuffle }, name, seed, created (ms) }
+    // opts: { game, names: [...], you: the account owner's slot (or -1), settings (see
+    //         ptSettings, plus shuffle), name, seed, created (ms) }
     function ptCreate(opts) {
         const o = opts || {};
         const names = (o.names || []).map(n => String(n || '').trim().slice(0, 16)).slice(0, PT_MAX);
@@ -118,37 +106,31 @@
     const ptMatch = (t, round, index) => t.matches.find(m => m.round === round && m.index === index);
     const ptById = (t, id) => t.matches.find(m => m.id === id);
 
-    // The winner goes up a round: match j feeds j >> 1, upper line if j is even.
     function ptAdvance(t, m) {
         if (m.round === t.rounds - 1) return;
         const next = ptMatch(t, m.round + 1, m.index >> 1);
         if (m.index % 2 === 0) next.a = m.winner; else next.b = m.winner;
     }
 
-    // Matches in the order they are played: round by round, left to right, byes left out.
+    // Matches in play order, byes left out.
     const ptPlayable = t => t.matches.filter(m => m.status !== 'bye').sort((x, y) => x.round - y.round || x.index - y.index);
-    // The next match to play: both players known, not finished. null once there is a champion.
     function ptNext(t) {
         return ptPlayable(t).find(m => m.status !== 'done' && m.a !== null && m.b !== null) || null;
     }
-    // "Match 3 of 5".
     function ptMatchNumber(t, m) {
         const list = ptPlayable(t);
         return { n: list.indexOf(m) + 1, of: list.length };
     }
-    // Frames won in a match, per line.
     function ptScore(m) {
         return [m.frames.filter(w => w === m.a).length, m.frames.filter(w => w === m.b).length];
     }
-    // Who breaks frame k (0-based) of a match: the lower seed first, then alternating.
     function ptBreaker(t, m, k) {
         const aSeed = t.slots[m.a].seed, bSeed = t.slots[m.b].seed;
         const lower = aSeed > bSeed ? m.a : m.b, upper = lower === m.a ? m.b : m.a;
         return k % 2 === 0 ? lower : upper;
     }
 
-    // A frame is over: returns { t, matchOver, winner }. Pure: t is copied. extra (snooker):
-    // { points: [a, b], high: [a, b] }, the frame's score and each line's best break in it.
+    // Pure (t is copied). extra (snooker): { points: [a, b], high: [a, b] } for the frame.
     function ptRecordFrame(t0, matchId, winnerSlot, extra) {
         const t = JSON.parse(JSON.stringify(t0));
         const m = ptById(t, matchId);
@@ -175,12 +157,11 @@
         return { t, matchOver, winner: matchOver ? m.winner : null };
     }
 
-    // The champion's slot, or null.
     function ptChampion(t) {
         const f = ptMatch(t, t.rounds - 1, 0);
         return f && f.status === 'done' ? f.winner : null;
     }
-    // Where a player went out, or null if they are still in (or won).
+    // The round a player went out in, or null.
     function ptOut(t, slot) {
         const lost = t.matches.find(m => m.status === 'done' && (m.a === slot || m.b === slot) && m.winner !== slot);
         return lost ? lost.round : null;
@@ -201,17 +182,14 @@
         }
         return out;
     }
-    // Frames won and lost across the whole tournament.
     function ptFrames(t, slot) {
         let won = 0, lost = 0;
         t.matches.forEach(m => { if (m.a === slot || m.b === slot) m.frames.forEach(w => { if (w === slot) won++; else lost++; }); });
         return { won, lost };
     }
 
-    // A saved tournament, or null when it is not one this version can resume.
-    // Checked field by field, because a half-loaded bracket is worse than none.
-    // game: the game asking (a save for the other game is not resumed); the settings come back
-    // normalised for it.
+    // A resumable save for `game`, or null. Checked field by field: a half-loaded
+    // bracket is worse than none.
     function ptValidate(x, game) {
         try {
             if (!x || typeof x !== 'object' || x.v !== PT_VERSION) return null;
@@ -251,7 +229,6 @@
         cab.recent = cab.recent.slice(0, PT_RECENT);
         return cab;
     }
-    // Title table rows, most titles first.
     function ptCabinetRows(cab) {
         return Object.keys((cab && cab.titles) || {}).map(k => {
             const r = cab.titles[k];

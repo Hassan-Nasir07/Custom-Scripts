@@ -39,16 +39,13 @@ ok('render scales off canvas.width so the Max modal stays crisp',
 head('Game switcher plumbing');
 ok('cleanupCurrentGame has a ludo case',
    /case 'ludo':[\s\S]{0,400}?cleanupLudoGame\(\)/.test(src));
-ok('initCurrentGame has a ludo case',
-   /case 'ludo':[\s\S]{0,300}?initLudoGame\(\)/.test(src));
-ok('ludo-canvas hidden alongside the others',
-   has('[snakeCv, flappyCv, tetrisCv, breakoutCv, poolCv, ludoCv]'));
-ok('updateGameSwitcher ids include ludo', has("'pool', 'ludo', 'prayer'"));
-ok('ctrlIds include ludo-controls',   has("'pool-controls', 'ludo-controls'"));
-ok('statIds include ludo-scoreboard', has("'pool-scoreboard', 'ludo-scoreboard'"));
-ok('updateGameControls reveals both ludo panels',
-   /case 'ludo':[\s\S]{0,320}?ludo-controls[\s\S]{0,220}?ludo-scoreboard/.test(src));
-ok('updateGameTitle has a ludo case', /case 'ludo':[\s\S]{0,140}?Ludo';/.test(src));
+// One GAME_PANELS entry drives the canvas, the switcher button, the controls row, the
+// scoreboard and the title (initCurrentGame, updateGameSwitcher, updateGameControls, updateGameTitle).
+ok('GAME_PANELS has a ludo entry: its canvas, its title, initLudoGame, and its scoreboard refresh',
+   /ludo: \{ el: 'ludo-canvas', title: '🎲 Ludo', start: \(\) => initLudoGame\(\), shown: \(\) => \{ updateLudoScoreboard\(\); refreshGameScoreBtn\('ludo'\); \} \}/.test(src));
+ok('the four switcher functions read GAME_PANELS',
+   ['function initCurrentGame', 'function updateGameSwitcher', 'function updateGameControls', 'function updateGameTitle']
+       .every(f => new RegExp(f + '\\([^)]*\\) \\{[\\s\\S]{0,200}?GAME_PANELS').test(src)));
 
 head('Panel HTML');
 ok('switcher button', has('id="game-switch-ludo"') && has("window.switchGame('ludo')"));
@@ -103,9 +100,10 @@ ok('storage helpers live in the engine block',
 
 head('Board rotation');
 ok('ludoRotation default in userPreferences', has('ludoRotation: 0'));
-ok('rotation select in the settings modal', has('data-pref="ludoRotation"'));
-ok('all four orientations offered',
-   (src.match(/<option value="[0-3]"[^>]*>Blue /g) || []).length === 4);
+// A ⚙️ dropdown's values, from its sel('pref', label, [[value, text], ...]) row.
+const selOpts = pref => { const m = new RegExp("sel\\('" + pref + "', '(?:[^'\\\\]|\\\\.)*', \\[(.*)\\]\\]").exec(src); return m ? [...m[1].matchAll(/\['([^']*)', /g)].map(x => x[1]).join() : null; };
+ok('rotation select in the settings modal', has("sel('ludoRotation'"));
+ok('all four orientations offered', selOpts('ludoRotation') === '0,1,2,3');
 ok('the select is stored as a number, not a string',
    /numericPrefs = \['gameFps', 'ludoRotation'[^\]]*\]/.test(src));
 ok('coordinates rotate, not the model',
@@ -128,14 +126,10 @@ ok('ludoRender sets an unrotated scale transform',
 
 head('Difficulty control and dice audit');
 ok('ludoDifficulty default in userPreferences', has("ludoDifficulty: 'adaptive'"));
-ok('difficulty select in the settings modal', has('data-pref="ludoDifficulty"'));
-// Counted inside Ludo's own select: Pool's CPU select offers the same values.
-const ludoDiffSelect = (/<select class="settings-select" data-pref="ludoDifficulty">[\s\S]*?<\/select>/.exec(src) || [''])[0];
-ok('all four choices offered',
-   (ludoDiffSelect.match(/<option value="(adaptive|easy|normal|hard)"/g) || []).length === 4);
-const poolDiffSelect = (/<select class="settings-select" data-pref="poolDifficulty">[\s\S]*?<\/select>/.exec(src) || [''])[0];
+ok('difficulty select in the settings modal', has("sel('ludoDifficulty'"));
+ok('all four choices offered', selOpts('ludoDifficulty') === 'adaptive,easy,normal,hard');
 ok('Pool CPU: adaptive and the four tiers, and it is a string pref too',
-   (poolDiffSelect.match(/<option value="(adaptive|easy|normal|hard|pro)"/g) || []).length === 5 &&
+   selOpts('poolDifficulty') === 'adaptive,easy,normal,hard,pro' &&
    src.match(/numericPrefs = \[[^\]]*\]/)[0].indexOf('poolDifficulty') === -1);
 // It is a string pref, so it must NOT be in the list that parseInts selects —
 // 'hard' through parseInt is NaN, which would silently fall back to adaptive.
@@ -157,8 +151,8 @@ ok('award clamped to AC_MAX_XP_PER_GAME',
 ok('three achievements defined', all(['ludoChamp:', 'ludoFlawless:', 'ludoHunter:']));
 ok('achievement XP values set', has('ludoChamp: 150, ludoFlawless: 120, ludoHunter: 80'));
 ok('checkGameAchievements gates all three on vsCPU',
-   /case 'ludo':[\s\S]{0,240}?if \(!p\.vsCPU\) break;/.test(src));
-ok('revalidateAchievements can restore ludoChamp', has("!has('ludoChamp')    && ludoWon >= 100"));
+   /ludo: p\.vsCPU && \{ ludoChamp:/.test(src));
+ok('revalidateAchievements can restore ludoChamp', has("ludoChamp: lsInt('ludoGamesWon') >= 100"));
 
 head('Leaderboard and cloud sync');
 // Snake v2 moved per-game scores out of the main table and behind a game+mode
@@ -191,12 +185,11 @@ ok('hot-seat is not offered as a ludo board',
 ok('the pre-split total keeps a board of its own',
    /ludo:\s*\{[\s\S]{0,320}?modes:\s*\{[^}]*cpu:/.test(src));
 ok('collectGameBests still reports ludo',
-   /ludo:\s+parseInt\(localStorage\.getItem\('ludoGamesWon'/.test(src));
+   /ludo:\s+lsInt\('ludoGamesWon'\)/.test(src));
 ok('collectGameModeBests reports ludo:cpu',
    /put\('ludo:cpu', localStorage\.getItem\('ludoGamesWon'\)\)/.test(src));
 ok('collectGameModeBests reports every tier',
-   ['easy', 'normal', 'hard'].every(t =>
-       new RegExp("put\\('ludo:" + t + "',\\s+ludoTiers\\." + t).test(src)));
+   /putAll\('ludo:', 'ludoWinsByTier', \['easy', 'normal', 'hard'\]\)/.test(src));
 // A tier count is meaningless without the tier being recorded at match end, and
 // it has to be the tier locked at match start — not whatever the setting says by
 // the time the match finishes.
@@ -211,14 +204,13 @@ ok('an unrecognised tier opens no bucket',
 ok('legacy wins are not backfilled into a tier',
    !/ludoWinsByTier[\s\S]{0,200}?ludoGamesWon/.test(src));
 ok('restore merges the tiers upward only',
-   /ludoWinsByTier[\s\S]{0,400}?if \(v > \(parseInt\(ludoTiers\[t\], 10\) \|\| 0\)\)/.test(src));
+   /raise\('ludoWinsByTier', 'ludo:', \['easy', 'normal', 'hard'\]\)/.test(src) && /function lsRaise[\s\S]{0,400}?Math\.max\(cur, v\)/.test(src));
 ok('snapshot carries ludoRecord',
-   /ludoRecord: JSON\.parse\(localStorage\.getItem\('ludoRecord'/.test(src));
+   /ludoRecord: lsJSON\('ludoRecord'/.test(src));
 ok('restore raises ludoGamesWon', has("raise('ludoGamesWon',       gb.ludo)"));
 ok('restore merges ludoRecord upward only',
-   /rec\.ludoRecord[\s\S]{0,320}?Math\.max\(localLudo\.wins/.test(src));
-const literals = (src.match(/ludo: parseInt\(localStorage\.getItem\('ludoGamesWon'/g) || []).length;
-ok('both inline gameBests literals updated', literals === 2, 'found ' + literals);
+   /\['ludoRecord', \['wins', 'losses'\]\]\][\s\S]{0,200}?lsRaise\(/.test(src));
+ok('the board row reuses collectGameBests (no pasted copy to forget)', /const lbOwnEntry = [\s\S]{0,400}?gameBests: collectGameBests\(\)/.test(src));
 
 head('Engine parity with ludo-dev/');
 const want = ['ludo-core.js', 'ludo-ui.js']

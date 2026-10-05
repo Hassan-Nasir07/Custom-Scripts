@@ -66,6 +66,9 @@ function makeEl(id, tag) {
             toggle(c, on) { on ? this._s.add(c) : this._s.delete(c); },
             contains(c) { return this._s.has(c); },
         },
+        _attrs: {},
+        setAttribute(k, v) { this._attrs[k] = String(v); },
+        getAttribute(k) { return k in this._attrs ? this._attrs[k] : null; },
         getContext: () => canvasStub(344, 416).ctx,
         getBoundingClientRect: () => ({ left: 0, top: 0, width: 344, height: 416 }),
         addEventListener(t, f) { (this._l[t] = this._l[t] || []).push(f); },
@@ -167,7 +170,7 @@ const EXPORTS = `
         ludoBlockRings, ludoLegalMoves, ludoStepToRing, ludoSeat, ludoResetTokens,
         toggleGameMaxModal, awardGameXP, checkGameAchievements,
         revalidateAchievements, collectGameBests, buildPlayerSnapshot,
-        applyPlayerRecordToLocal, ACHIEVEMENTS, ACHIEVEMENT_XP,
+        applyPlayerRecordToLocal, ACHIEVEMENTS, ACHIEVEMENT_XP, achTier, achMedal, achRarestFirst,
         collectGameModeBests, applySnakeModeBests, LB_BOARDS,
         AC_MAX_XP_PER_GAME, LUDO_CANVAS_W, LUDO_CANVAS_H, LUDO_SAFE_RING,
         get userXP() { return userXP; },
@@ -211,9 +214,9 @@ ok('shared Max modal helper is callable', typeof H.toggleGameMaxModal === 'funct
 head('Achievements registered in the host');
 ok('all three Ludo achievements in ACHIEVEMENTS',
    ['ludoChamp', 'ludoFlawless', 'ludoHunter'].every(k => H.ACHIEVEMENTS[k]));
-ok('each has an icon and a name',
+ok('each has a glyph and a name',
    ['ludoChamp', 'ludoFlawless', 'ludoHunter']
-       .every(k => H.ACHIEVEMENTS[k].icon && H.ACHIEVEMENTS[k].name));
+       .every(k => H.ACHIEVEMENTS[k].d && H.ACHIEVEMENTS[k].name));
 ok('each has an XP value',
    ['ludoChamp', 'ludoFlawless', 'ludoHunter'].every(k => H.ACHIEVEMENT_XP[k] > 0));
 // 30 before Snake v2, which added six (snakeEndless, snakeWalled,
@@ -221,6 +224,31 @@ ok('each has an XP value',
 // snooker (S6) Century and Maximum.
 const total = Object.keys(H.ACHIEVEMENTS).length;
 ok('achievement grid total is 39', total === 39, 'got ' + total);
+
+head('Achievement icons (POOL_V2_PLAN.md, Achievement icons)');
+{
+    const keys = Object.keys(H.ACHIEVEMENTS), A = H.ACHIEVEMENTS;
+    ok('every achievement is a stroke glyph, no emoji: a d of path commands and numbers only, no icon',
+       keys.every(k => /^[MLHVCSQTAZmlhvcsqtaz0-9.,\s-]+$/.test(A[k].d) && !('icon' in A[k])),
+       keys.filter(k => !A[k].d || 'icon' in A[k]).join());
+    ok('no two share a glyph', new Set(keys.map(k => A[k].d)).size === keys.length);
+    const by = {};
+    keys.forEach(k => { const t = H.achTier(k); by[t] = (by[t] || 0) + 1; });
+    ok('tiers follow ACHIEVEMENT_XP: 12 common, 18 rare, 7 epic, 2 legendary',
+       by.common === 12 && by.rare === 18 && by.epic === 7 && by.legendary === 2, JSON.stringify(by));
+    ok('Centurion and Legend are the legendary pair, Maximum is epic',
+       H.achTier('centurion') === 'legendary' && H.achTier('level100') === 'legendary' && H.achTier('snookerMaximum') === 'epic');
+    const leg = H.achMedal('level100', 40), lock = H.achMedal('level100', 40, true), small = H.achMedal('firstDay', 20);
+    ok('a 40 px Legendary medallion: its tier class, a 2 px ring, a 22 px glyph, no padlock',
+       /class="ach-md ach-t-legendary"/.test(leg) && /border-width:2px/.test(leg) && /width="22"/.test(leg) && !/ach-md-lock/.test(leg));
+    ok('locked: no tier class (so no tier colour), a 1 px ring, and the padlock badge (15 px, 6% outside)',
+       /class="ach-md ach-t-locked"/.test(lock) && /border-width:1px/.test(lock) && /ach-md-lock" style="width:15px;height:15px;right:-3px;bottom:-3px"/.test(lock));
+    ok('a 20 px Common medallion: a 1 px ring round a 14 px glyph', /border-width:1px/.test(small) && /width="14"/.test(small));
+    ok('only the toast\'s medallion draws its stroke (pathLength 1)', /pathLength="1"/.test(H.achMedal('firstDay', 40, false, true)) && !/pathLength/.test(leg));
+    const order = H.achRarestFirst(['firstDay', 'retiredKey', 'week1', 'centurion', 'workdays20', 'level100']);
+    ok('rarest first, ACHIEVEMENTS\' order within a tier, retired keys dropped',
+       order.join() === 'centurion,level100,workdays20,week1,firstDay', order.join());
+}
 
 head('Boot and play through the host');
 H.initLudoGame();
@@ -323,7 +351,7 @@ ok('hot-seat unlocks nothing', H.userXP.achievements.length === 0,
    H.userXP.achievements.join());
 
 // Pool v2 (Phase 8): Called It, for a win against the Pro CPU, live and from the tier record.
-ok('Called It is registered with an icon, a name and 120 XP', !!(H.ACHIEVEMENTS.calledIt && H.ACHIEVEMENTS.calledIt.icon && H.ACHIEVEMENTS.calledIt.name) && H.ACHIEVEMENT_XP.calledIt === 120);
+ok('Called It is registered with a glyph, a name and 120 XP', !!(H.ACHIEVEMENTS.calledIt && H.ACHIEVEMENTS.calledIt.d && H.ACHIEVEMENTS.calledIt.name) && H.ACHIEVEMENT_XP.calledIt === 120);
 H.userXP.achievements = [];
 H.checkGameAchievements('pool', { vsCPU: true, won: true, tier: 'hard' });
 H.checkGameAchievements('pool', { vsCPU: false, won: true, tier: 'pro' });
@@ -375,7 +403,7 @@ ok('revalidate restores Called It from poolWinsByTier', H.userXP.achievements.in
 // Snooker (S6): its own XP type, Century and Maximum, the High break board and sync keys.
 head('Snooker progression');
 ok('Century (150 XP) and Maximum (300 XP) are registered with icons and names',
-   ['snookerCentury', 'snookerMaximum'].every(k => H.ACHIEVEMENTS[k] && H.ACHIEVEMENTS[k].icon && H.ACHIEVEMENTS[k].name) &&
+   ['snookerCentury', 'snookerMaximum'].every(k => H.ACHIEVEMENTS[k] && H.ACHIEVEMENTS[k].d && H.ACHIEVEMENTS[k].name) &&
    H.ACHIEVEMENT_XP.snookerCentury === 150 && H.ACHIEVEMENT_XP.snookerMaximum === 300);
 delete store.poolWinsByTier;
 H.userXP.achievements = [];

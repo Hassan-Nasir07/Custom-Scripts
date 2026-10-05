@@ -62,12 +62,12 @@ function stubEnvironment(store) {
     global.savePreferences = noop;
     global.userXP = { achievements: [] };
     global.ACHIEVEMENTS = {
-        snakeEndless:   { icon: '♾️', name: 'Round Trip',    desc: 'Score 40+ in Endless mode' },
-        snakeWalled:    { icon: '🧱', name: 'Wallflower',    desc: 'Score 40+ in Walled mode' },
-        snakeGourmand:  { icon: '🍯', name: 'Gourmand',      desc: 'Eat 10 golden bites in one run' },
-        snakeCampaign:  { icon: '🗺️', name: 'Pathfinder',    desc: 'Clear stage 6 in Levels mode' },
-        snakeConqueror: { icon: '👑', name: 'Grand Serpent', desc: 'Clear all 12 stages in one run' },
-        snakeLong:      { icon: '📏', name: 'Long Boy',      desc: 'Reach a length of 60 segments' }
+        snakeEndless:   { name: 'Round Trip',    desc: 'Score 40+ in Endless mode' },
+        snakeWalled:    { name: 'Wallflower',    desc: 'Score 40+ in Walled mode' },
+        snakeGourmand:  { name: 'Gourmand',      desc: 'Eat 10 golden bites in one run' },
+        snakeCampaign:  { name: 'Pathfinder',    desc: 'Clear stage 6 in Levels mode' },
+        snakeConqueror: { name: 'Grand Serpent', desc: 'Clear all 12 stages in one run' },
+        snakeLong:      { name: 'Long Boy',      desc: 'Reach a length of 60 segments' }
     };
     global.escapeHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     global.getFrameInterval = () => 16.67;

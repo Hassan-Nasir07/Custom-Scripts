@@ -1239,14 +1239,16 @@ if (m) {
     ok(/if \(enteringRetro\) cyberSweepEmoji\(container\);/.test(host),
        'entering Cyberpunk runs one full correcting sweep of the widget',
        'content rendered while Glassmorphic was active (an achievement earned before the user ever tried Cyberpunk) has fired no mutation since, so the observer alone would leave it unwrapped forever');
+    // Achievements left the sweep's care (POOL_V2_PLAN.md, Achievement icons): every one is a
+    // stroke glyph (ACHIEVEMENTS[k].d) in a medallion, and their surfaces hold no emoji to wrap.
+    const achBlock = (host.match(/const ACHIEVEMENTS = \{[\s\S]*?\n    \};/) || [''])[0];
+    ok(achBlock && !/\bicon:/.test(achBlock) && !/\p{Extended_Pictographic}/u.test(achBlock),
+       'ACHIEVEMENTS carries glyphs, not emoji');
     const achFn = (host.match(/function openAchievementsModal\(\)[\s\S]*?\n    \}/) || [''])[0];
-    ok(/cyberSweepEmoji\(modal\)/.test(achFn),
-       'openAchievementsModal() sweeps after building its cards',
-       'each card icon is ACHIEVEMENTS[key].icon, interpolated at render time');
     const popFn = (host.match(/function showLbAchPopover\(badge\)[\s\S]*?\n    \}/) || [''])[0];
-    ok(/cyberSweepEmoji\(pop\)/.test(popFn),
-       'showLbAchPopover() sweeps after setting its content',
-       'content is rebuilt fresh on every hover, from the same a.icon pattern');
+    const toastFn = (host.match(/function showAchievementToast\([\s\S]*?\n    \}/) || [''])[0];
+    ok([achFn, popFn, toastFn].every(f => f && /achMedal\(/.test(f) && !/cyberSweepEmoji/.test(f) && !/\p{Extended_Pictographic}/u.test(f)),
+       'the modal, the leaderboard popover and the unlock toast draw medallions, with no emoji and so no sweep');
     const notifFn = (host.match(/function showXPNotification\([\s\S]*?\n    \}/) || [''])[0];
     ok(/cyberSweepEmoji\(notification\)/.test(notifFn),
        'showXPNotification() sweeps its toast before it is shown');

@@ -748,7 +748,7 @@
                 const ach = skin.unlock && typeof ACHIEVEMENTS === 'object' ? ACHIEVEMENTS[skin.unlock] : null;
                 const hint = unlocked
                     ? (skin.legendary ? 'Legendary' : 'Unlocked')
-                    : (ach ? ach.icon + ' ' + ach.name : 'Locked');
+                    : (ach ? ach.name : 'Locked');
                 return '<button class="snake-skin-card' +
                     (unlocked ? '' : ' locked') + (id === activeId ? ' active' : '') +
                     '" data-snake-skin="' + id + '"' + (unlocked ? '' : ' disabled') +

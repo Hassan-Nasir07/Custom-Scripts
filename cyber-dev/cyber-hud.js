@@ -370,8 +370,8 @@
 
     // ------------------------------------------------------------------
     // EMOJI SWEEP: wraps emoji in the RENDERED DOM and keeps watching, so
-    // icons injected from data at render time (badge.innerHTML =
-    // achievement.icon) are covered as well as literals in templates.
+    // icons injected from data at render time (chip.textContent =
+    // meta.icon + …) are covered as well as literals in templates.
     // ------------------------------------------------------------------
 
     // Emoji_Presentation: colour emoji by default. Extended_Pictographic +
@@ -461,7 +461,7 @@
     const cyberEmojiObservedRoots = typeof WeakSet === 'function' ? new WeakSet() : null;
 
     // Persistent observer that sweeps whatever changes under `root`, which is
-    // what keeps data-driven writes such as achievement badges tinted.
+    // what keeps data-driven writes such as game-mode chips tinted.
     // Idempotent. Does NOT sweep existing content: callers needing an
     // immediate pass call cyberSweepEmoji() (see applyPreferences()'s
     // enteringRetro branch), so a colour drag does not walk the widget per tick.

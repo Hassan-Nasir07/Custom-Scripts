@@ -2729,6 +2729,88 @@ It is still 1,256 under where C0 started. `verify-all` passes 2574; `host-run` 1
 
 ---
 
+## Achievement icons (Phases A0–A5)
+
+**What the design gives** (canvas revision `1791193248-0b3b`, from Appendix D; artboards
+`AchIconSet`, `AchMedalSpec`, `AchDistinct`, `AchEarned`, `AchEarnedNarrow`, `AchModal`,
+`AchToast`, `AchPopover`):
+- **39 glyphs**, one `d` each on the 24 grid: stroke 1.8, round caps and joins, `currentColor`.
+  The eight cue-unlock glyphs are the `PH_CUE_ICON` paths, unchanged.
+  - **Centurion is a trophy with a Roman "C" on the cup** (C is 100, for 100 shifts). It is the
+    set's only trophy. The first revision's helmet and crest read as a lamp at 16–20 px and
+    didn't look Legendary.
+  - **No UI icon borrows an achievement's shape.** The modal header and the leaderboard badge
+    use a sparkle, not a trophy.
+- **A medallion per tier**, with the tier taken from `ACHIEVEMENT_XP` (the design's 39 tiers
+  match it exactly):
+  - Common (under 100 XP): a hairline ring.
+  - Rare (100–199 XP): a solid coloured ring.
+  - Epic (200–499 XP): a 135° two-stop gradient ring.
+  - Legendary (500 XP): a four-stop conic ring with one 6 s sheen.
+  - Locked: keeps the glyph at low contrast with a padlock badge.
+  - Ring width, glyph size and badge size all scale with the disc: 20, 32, 36, 40 and 64 px.
+  - Hexes are given for Glassmorphic dark, Glassmorphic light and Cyberpunk.
+- **The surfaces:**
+  - The XP panel's earned row: 36 px medallions in 44 px buttons, rarest first, then a
+    *View all* pill.
+  - The modal: All / Earned / Locked tabs and two-column cards.
+  - The unlock toast, with a 560 ms reveal: the toast drops in, the medallion scales
+    0.6 → 1.06 → 1, the glyph draws and the +XP chip slides in. It holds 4 s and fades out
+    in 180 ms. Under reduced motion it is a fade only.
+  - The leaderboard popover: 20 px medallions, rarest first, nine at most, then +N.
+
+**Where the build departs from it:**
+- **Fonts.** It uses the widget's fonts instead of the canvas's Sora and Chakra Petch, which
+  the widget doesn't load: Inter in Glassmorphic, Orbitron and Share Tech Mono in Cyberpunk.
+- **The glyph draw.** It uses `pathLength="1"` instead of a dasharray of 120, because a
+  glyph longer than 120 units would end the draw with a gap.
+- **Modal descriptions** wrap to two lines instead of one ellipsised line, since the host's
+  descriptions are longer than the artboard's.
+- **Body-level surfaces.** The modal, toast and popover sit on `body`, outside
+  `.retro-theme`, so they take Cyberpunk from `body:has(.attendance-summary.retro-theme)`.
+  That is the settings modal's convention, and it follows a live theme switch.
+
+**Phases:**
+- **A0, the data.**
+  - `ACHIEVEMENTS[k].d` replaces the emoji `icon`.
+  - `achTier(k)` and `achMedal(k, size, locked)` build the medallion, styled by `.ach-t-*`
+    tokens per theme.
+  - The snake skin tray names the achievement without its emoji.
+- **A1, the earned row** in the XP panel.
+- **A2, the modal.**
+- **A3, the unlock toast.** Restored achievements use the same toast without the chip. The
+  toasts now stack by their real heights.
+- **A4, the leaderboard.**
+  - The popover gets the new medallions.
+  - The badge's 🏆 becomes the sparkle, the modal header's icon.
+  - The emoji sweeps leave the modal and the popover, which no longer hold any emoji, and
+    `cyber-verify` says so.
+- **A5, real Chrome.** Every surface in all three themes, checked against the artboards.
+
+**Where A0–A5 stand** (2026-10-05):
+- **All six phases are built.** The host went from 26,796 to 27,092 lines (+296, of which 225
+  are the CSS for the three themes and the four surfaces).
+- **`verify-all` passes 2,585.** `host-smoke` gains 9 checks: glyphs with no emoji and no two
+  alike, the tier counts, medallion geometry and lock badge, and the rarest-first order.
+  `cyber-verify` now checks that the achievement surfaces hold no emoji, where it used to
+  check that they were swept.
+- **`host-run` passes 160.**
+- **The real-Chrome run passes 39 checks per theme** (Glassmorphic dark, light, Cyberpunk):
+  - Earned row: 36 px in 44 px buttons, rarest first, the tier colours.
+  - Modal: 39 cards, 12 locked with the padlock, the tabs, focus moving to the close button,
+    Escape.
+  - Toasts: stacked 10 px apart; the chip only when XP is paid; gone at 4.18 s.
+  - Popover: nine medallions then +N, the player's name escaped, the row fitting 290 px.
+  - Reduced motion: the toast only fades.
+  - No page errors.
+- **Found by the browser and fixed:**
+  - A toast measured the one above while it slid in, so they stacked 2 px apart.
+  - The popover's row overflowed by 3 px with +18. Its gap is now 5 px, not the design's 6.
+  - The modal's close button couldn't take focus during the opening frame. Visibility now
+    switches at once on open.
+
+---
+
 ## Open questions ❓
 
 
@@ -2748,6 +2830,8 @@ It is still 1,256 under where C0 started. `verify-all` passes 2574; `host-run` 1
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-05 | **Centurion's glyph is a trophy with a Roman "C"** (revision `1791193248-0b3b`), and no UI icon uses a trophy | The user's call: a Roman helmet as a Legendary icon made no sense. The designer drew four trophies (star, band, plain base, "C") and compared them at 20 and 16 px against all 39. The star blurred at 16 px; the "C" was the clearest and the most distinct |
+| 2026-10-05 | **Achievement icons are designed by the user in Claude Design from the prompt in Appendix D**: stroke glyphs in the cue icons' family, with a medallion per XP tier | The user asked for sleek, unique icons like the cue ones. All 39 are still emoji, and three pairs clash: 🎯 Day One and Sharpshooter, 🧱 Wallflower and Block Master, 👑 Veteran and Grand Serpent, plus the Maximum cue's crown |
 | 2026-10-05 | **Snooker: a CPU free ball now explains itself** (reported: "after a foul the CPU played the black, not the blue, and no foul was given") | The rules were right: 569 simulated fouls with blue, pink and black left gave 27 CPU shots off the order, every one a legal free ball (the black nominated, scored as the blue, re-spotted, the blue still on). But the "CPU takes the free ball" notice timed out before the CPU struck, and the pot itself said nothing. The notice now says "Any colour may stand in for the blue" and stays until the strike; a potted free ball says "Free ball · the black counts as the blue · 5 points · the black is re-spotted, the blue is still on" |
 | 2026-10-05 | **Cues C1–C3 built.** Tournament frames don't level a cue (humans only, as 2 Players). The picker is dark glass over the panel; compact's pill sits in the host's scoreboard, Max's button beside the title. Fingerprints re-recorded once | The plan said tournament frames count, but its own reason (you cannot beat yourself for a level) covers them. Max's action row had no room: a labelled button wrapped "Vs CPU" |
 | 2026-10-05 | **Cues: achievements unlock, wins level, mastering 5 unlocks Collector; four stat bars where Standard 4/4/4/4 is today** | The user asked for 8 Ball Pool-style stats and unlocks by achievement, play, time, wins and collecting. Standard equal to today keeps the CPU, the fingerprint and the balance tests unchanged |
@@ -3050,4 +3134,126 @@ Rules:
 - Text contrast is at least 4.5:1.
 - The cue never covers the cue ball or the aim line; the table stays the hero.
 - Title the artboards "C1 Cue picker" and so on, under the row titles "Cues · picker", "Cues · on the table", "Cues · full view" and "Cues · spec".
+```
+
+## Appendix D: design prompt for achievement icons
+
+Written 2026-10-05 for the same Claude Design canvas, after the user asked for sleek, unique
+achievement icons like the cue ones. All 39 achievements (`ACHIEVEMENTS` in the userscript) are
+still emoji. They render in five places: the XP panel's earned row (`.achievement-badge`,
+1.8rem), the achievements modal (`.ach-card-icon`, a 40 px slot showing 🔒 when locked), the
+leaderboard hover popover (`showLbAchPopover`), the unlock toast (`unlockAchievement`) and the
+cue picker. The eight cue-unlock achievements already have the designer's glyphs in
+`PH_CUE_ICON`, which are 24×24 single paths with a 1.8 stroke, round caps and `currentColor`. The
+prompt keeps those eight and asks for the other 31 to match. Tiers come from `ACHIEVEMENT_XP`.
+Artboard 5 asks for raw `d` strings, so the build can paste them into an icon map shaped like
+`PH_CUE_ICON` and replace `a.icon` in each of the five places.
+
+```text
+Add an ACHIEVEMENT ICON SET to this canvas, as new rows below the Cues rows. The widget has 39 achievements, and today each one shows as an emoji. Replace every one with a stroke icon in the same family as the icons you drew for the cue collection.
+
+THE STYLE IS ALREADY SET. The eight cue-unlock achievements already have icons on this canvas. Keep them exactly as drawn and use them as the reference for the rest:
+- Team Player: two people
+- Office Gamer: a gamepad
+- On Fire: a flame
+- Level 25: a shield with two chevrons
+- Pool Shark: a fin over waves
+- Called It: target rings
+- Century: a medal on a ribbon
+- Maximum: a crown
+Every new icon follows the same rules:
+- 24×24 grid with a 2 px safe margin.
+- Stroke only, 1.8 wide, round caps and joins, colour = currentColor.
+- No fills, gradients, glows or drop shadows.
+- Ideally one path, two at most.
+- The glyph alone must read at 16 px, and it should still look crafted at 40 px.
+
+UNIQUE MEANS UNIQUE. No two icons share a silhouette. Test it in a grid of all 39 at 20 px with the names hidden: each one must be told apart by shape alone.
+- Only Maximum gets a crown. Veteran and Grand Serpent need other ideas.
+- Day One and Sharpshooter must not both be a target, and neither may look like Called It's rings.
+- Wallflower and Block Master must not both be bricks.
+- Prefer a specific, witty idea over a generic symbol. For example, Badge of Balance could be a level or a balanced scale rather than a clock, and Round Trip a snake looping into an infinity sign.
+
+THE ACHIEVEMENTS (name: how it is earned). The widget is a work-attendance tracker with XP, levels and mini-games: Snake, Flappy, Tetris, an aim trainer, a reaction test called RefleX, Breakout, 8-ball pool, snooker and Ludo.
+
+Work:
+- Day One: complete your first full shift
+- Full Week: 5 full shifts
+- Month Done: 20 full shifts
+- Centurion: 100 full shifts
+- Badge of Balance: clock exactly your shift, no overtime
+- Marathon: 10+ hours in a day
+- Overtime Hero: shift + 2 hours in a day
+
+Streaks:
+- On Fire*: 7-day streak
+- Unstoppable: 30-day streak
+- Comeback Kid: rebuild a 3-day streak after missing days
+
+Levels:
+- Level 10
+- Level 25*
+- Veteran: level 50
+- Legend: level 100
+
+Games:
+- Office Gamer*: 50 game sessions
+- Game Addict: 100 game sessions
+- Snake Charmer: score 40+ in Snake
+- Round Trip: 40+ in Endless mode
+- Wallflower: 40+ in Walled mode
+- Gourmand: eat 10 golden bites in one run
+- Pathfinder: clear stage 6 of the campaign
+- Grand Serpent: clear all 12 stages
+- Long Boy: reach length 60
+- Sky Captain: 50 pipes in Flappy
+- Block Master: 50 lines in Tetris
+- Sharpshooter: 95% accuracy in Aim
+- Lightning Reflexes: under 220 ms average in RefleX
+- Brick Buster: level 30 in Breakout
+- Pool Shark*: 100 pool wins
+- Called It*: beat the Pro CPU calling every shot
+- Century*: a 100 break in snooker
+- Maximum*: a 147
+- Ludo Champion: 100 Ludo wins
+- Flawless: win Ludo without losing a token
+- Token Hunter: capture 5 tokens in one match
+
+Personal:
+- Curator: add a custom quote
+- Picture Perfect: set a custom widget image
+- Devoted: 1000 on the prayer counter
+- Team Player*: join the leaderboard
+
+(* already drawn; keep as is)
+
+TIERS. Each achievement has a fixed XP reward, which sets its tier. Show the tier with the medallion around the icon, never by changing the glyph:
+- Common (40–90 XP): Day One, Badge of Balance, Comeback Kid, Level 10, Snake Charmer, Round Trip, Wallflower, Long Boy, Token Hunter, Curator, Picture Perfect, Team Player
+- Rare (100–150 XP): Full Week, Marathon, Overtime Hero, On Fire, Level 25, Office Gamer, Gourmand, Pathfinder, Sky Captain, Block Master, Sharpshooter, Lightning Reflexes, Brick Buster, Pool Shark, Called It, Century, Ludo Champion, Flawless
+- Epic (200–300 XP): Month Done, Unstoppable, Veteran, Game Addict, Grand Serpent, Devoted, Maximum
+- Legendary (500 XP): Centurion, Legend
+The medallion is a round disc holding the icon (like the 32 px disc behind the cue-picker icons), with a ring whose treatment rises by tier. Keep it subtle and buildable in CSS: borders, a conic or linear gradient ring, at most one slow sheen on Legendary only. Give every colour as a hex.
+
+STATES:
+- Earned: medallion in its tier treatment, glyph in the tier's colour.
+- Locked: the real glyph stays visible at low contrast, with a small padlock badge in the bottom-right of the medallion and no tier colour. A locked achievement is a goal, so never hide it behind a generic lock.
+- Just unlocked: a one-time reveal for the toast ("Achievement Unlocked · <name> · +XP"), restrained, under 600 ms.
+
+THEMES: Glassmorphic dark, Glassmorphic light and Cyberpunk. The glyphs are currentColor, so specify the tier and state colours for each theme.
+
+ROW A1, in context (compact 400 px panel and the narrow 316 px column):
+1. The XP panel's earned row: a wrap of 36 px medallions plus a "View all" pill.
+2. The achievements modal: a two-column grid of cards (40 px medallion, name, one-line description, earned ✓ or locked), with a mix of tiers and states.
+3. The unlock toast.
+4. The leaderboard hover popover: a row of 20 px medallions for one player.
+
+ROW A2, the spec:
+5. All 39 icons on the 24 px grid, drawn large, in four tier groups. Under each icon: its name and its exact SVG path data (the d attribute) for a viewBox of 0 0 24 24, ready to paste into code.
+6. The same 39 at 16 px and 20 px, names hidden, to prove they are distinct.
+7. The four medallion tiers × three themes, plus the locked and just-unlocked states, with every size, ring width, hex, gradient stop and the Legendary sheen's colours and cycle length.
+
+Rules:
+- No emoji anywhere.
+- Text contrast is at least 4.5:1, and touch targets are at least 44 px.
+- Title the artboards "A1 Earned row" and so on, under the row titles "Achievements · in context" and "Achievements · spec".
 ```

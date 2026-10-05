@@ -205,58 +205,59 @@
     };
 
     // Achievements — every one requires real user action; weekends never count.
+    // d: its stroke glyph on the 24 grid (POOL_V2_PLAN.md, Achievement icons); achMedal draws it.
     const ACHIEVEMENTS = {
         // Shift completion
-        firstDay:     { icon: '🎯', name: 'Day One',          desc: 'Complete a full shift for the first time' },
-        week1:        { icon: '📅', name: 'Full Week',         desc: 'Complete 5 full shifts' },
-        workdays20:   { icon: '🗓️', name: 'Month Done',        desc: 'Complete 20 full shifts' },
-        centurion:    { icon: '🌟', name: 'Centurion',         desc: 'Complete 100 full shifts' },
-        onTime:       { icon: '🕐', name: 'Badge of Balance',  desc: 'Clock exactly your shift (within 5 min, no overtime)' },
-        marathon:     { icon: '🏃', name: 'Marathon',          desc: 'Work 10+ hours in a single day' },
-        overtimeHero: { icon: '💪', name: 'Overtime Hero',     desc: 'Work shift + 2 hours in a single day' },
+        firstDay:     { name: 'Day One',          desc: 'Complete a full shift for the first time', d: 'M2.5 18h19M7 18a5 5 0 0 1 10 0M12 7v3M5.3 10.3l2.1 2.1M18.7 10.3l-2.1 2.1M8 21.2h8' },
+        week1:        { name: 'Full Week',         desc: 'Complete 5 full shifts', d: 'M5.5 4.5v15M9.5 4.5v15M13.5 4.5v15M17.5 4.5v15M3 16.5l18-9' },
+        workdays20:   { name: 'Month Done',        desc: 'Complete 20 full shifts', d: 'M5.5 5h13A1.5 1.5 0 0 1 20 6.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-12A1.5 1.5 0 0 1 5.5 5zM8.5 3v4M15.5 3v4M4 9.5h16M8.8 14.6l2.3 2.3 4.2-4.4' },
+        centurion:    { name: 'Centurion',         desc: 'Complete 100 full shifts', d: 'M7 3h10v5.5a5 5 0 0 1-10 0zM7 5H4.5v1a3.5 3.5 0 0 0 3.2 3.5M17 5h2.5v1a3.5 3.5 0 0 1-3.2 3.5M12 13.5v3M7 21h10M8.5 21v-4.5h7V21M13.8 6.3a2.3 2.3 0 1 0 0 3.4' },
+        onTime:       { name: 'Badge of Balance',  desc: 'Clock exactly your shift (within 5 min, no overtime)', d: 'M12 4v16M8 20.5h8M5 7h14M10.5 4.5h3M5 7l-2.2 5.5a2.2 2.2 0 0 0 4.4 0zM19 7l-2.2 5.5a2.2 2.2 0 0 0 4.4 0z' },
+        marathon:     { name: 'Marathon',          desc: 'Work 10+ hours in a single day', d: 'M3 18.5h18V17c0-1.7-1.2-2.8-2.9-3.1L14 13l-2.3-5.5H8.4L7.6 9.4 4.4 10A1.7 1.7 0 0 0 3 11.7zM3 15.5h18M10 10.2l2 .9M11 12.6l2 .8' },
+        overtimeHero: { name: 'Overtime Hero',     desc: 'Work shift + 2 hours in a single day', d: 'M11 20.5a7 7 0 1 0 0-14a7 7 0 0 0 0 14zM11 10v3.5l2.5 1.5M19 2.8v5M16.5 5.3h5' },
 
         // Streaks
-        streak7:      { icon: '🔥', name: 'On Fire',           desc: 'Maintain a 7-day work streak' },
-        streak30:     { icon: '🏔️', name: 'Unstoppable',       desc: 'Maintain a 30-day work streak' },
-        comeback:     { icon: '🔄', name: 'Comeback Kid',      desc: 'Rebuild a 3-day streak after missing days' },
+        streak7:      { name: 'On Fire',           desc: 'Maintain a 7-day work streak', d: 'M12 3c.8 3.2 5 5.2 5 10a5 5 0 0 1-10 0c0-2 .8-3.4 2-4.5.2 1.6 1 2.6 2.2 3C10.6 8.6 11.4 5.6 12 3z' },
+        streak30:     { name: 'Unstoppable',       desc: 'Maintain a 30-day work streak', d: 'M12 2.8c2.8 2 4.2 5.2 4.2 9V16H7.8v-4.2c0-3.8 1.4-7 4.2-9zM7.8 12.2L5 15v3.5h2.8M16.2 12.2L19 15v3.5h-2.8M10.5 18.5v2.7M13.5 18.5v2.7M12 10.4a1.4 1.4 0 1 0 0-2.8a1.4 1.4 0 0 0 0 2.8z' },
+        comeback:     { name: 'Comeback Kid',      desc: 'Rebuild a 3-day streak after missing days', d: 'M3 4c1.3 8 3.8 13.5 7.6 13.5 3.3 0 5.6-4.4 7.4-11M14.5 8l3.6-2 1.7 3.8' },
 
         // Leveling
-        level10:      { icon: '⭐', name: 'Level 10',          desc: 'Reach level 10' },
-        level25:      { icon: '💎', name: 'Level 25',          desc: 'Reach level 25' },
-        level50:      { icon: '👑', name: 'Veteran',           desc: 'Reach level 50' },
-        level100:     { icon: '🏆', name: 'Legend',            desc: 'Reach level 100' },
+        level10:      { name: 'Level 10',          desc: 'Reach level 10', d: 'M3 20.5h5v-5h4.5v-5H17V5.5h4M3 20.5h18' },
+        level25:      { name: 'Level 25',          desc: 'Reach level 25', d: 'M12 3l7 3v5c0 4.4-3 8.2-7 10-4-1.8-7-5.6-7-10V6l7-3zM8.5 12.5L12 9l3.5 3.5M8.5 16L12 12.5l3.5 3.5' },
+        level50:      { name: 'Veteran',           desc: 'Reach level 50', d: 'M9.5 21C5.4 19.4 3 16 3.4 10.5M14.5 21c4.1-1.6 6.5-5 6.1-10.5M3.6 14.2c2 0 3.3 1 3.8 2.8M3.6 10.2c1.8-.4 3.1.4 3.6 2M20.4 14.2c-2 0-3.3 1-3.8 2.8M20.4 10.2c-1.8-.4-3.1.4-3.6 2M12 3.5l1.3 2.6 2.8.4-2 2 .5 2.8-2.6-1.4-2.6 1.4.5-2.8-2-2 2.8-.4z' },
+        level100:     { name: 'Legend',            desc: 'Reach level 100', d: 'M2.8 20.5l6.4-10.5 3.3 5 2.2-3.2 6.5 8.7zM9.2 10V3.2l5 2-5 2' },
 
         // Gaming
-        gamer:        { icon: '🎮', name: 'Office Gamer',      desc: 'Earn XP in 50 game sessions' },
-        gamer50:      { icon: '🕹️', name: 'Game Addict',       desc: 'Earn XP in 100 game sessions' },
-        snakeCharmer: { icon: '🐍', name: 'Snake Charmer',     desc: 'Score 40+ in Snake' },
+        gamer:        { name: 'Office Gamer',      desc: 'Earn XP in 50 game sessions', d: 'M7 8h10a4 4 0 0 1 4 4v2.5a2.5 2.5 0 0 1-4.6 1.4L15 14H9l-1.4 1.9A2.5 2.5 0 0 1 3 14.5V12a4 4 0 0 1 4-4zM8 10.5v3M6.5 12h3M15.5 11.5h.01M17.5 13h.01' },
+        gamer50:      { name: 'Game Addict',       desc: 'Earn XP in 100 game sessions', d: 'M12 9.5a3 3 0 1 0 0-6a3 3 0 0 0 0 6zM12 9.5V15M4.5 15h15l1.5 5.5H3zM15.5 12.5h3' },
+        snakeCharmer: { name: 'Snake Charmer',     desc: 'Score 40+ in Snake', d: 'M6 21h12M9 21c0-3.5 7-3.5 7-7.2S8.5 9.8 8.5 6.6C8.5 4.6 10 3 12 3s3.5 1.4 3.5 3.3M15.5 6.3l2.8-.9M15.5 6.3l2.2 1.8' },
         // Snake v2. First two also unlock skins: renaming a key orphans its skin
         // (snake-verify.js asserts every SNAKE_SKINS.unlock still resolves).
-        snakeEndless:   { icon: '♾️', name: 'Round Trip',    desc: 'Score 40+ in Endless mode' },
-        snakeWalled:    { icon: '🧱', name: 'Wallflower',    desc: 'Score 40+ in Walled mode' },
-        snakeGourmand:  { icon: '🍯', name: 'Gourmand',      desc: 'Eat 10 golden bites in one run' },
-        snakeCampaign:  { icon: '🗺️', name: 'Pathfinder',    desc: 'Clear stage 6 in Levels mode' },
-        snakeConqueror: { icon: '👑', name: 'Grand Serpent', desc: 'Clear all 12 stages in one run' },
-        snakeLong:      { icon: '📏', name: 'Long Boy',      desc: 'Reach a length of 60 segments' },
-        flapMaster:   { icon: '🐦', name: 'Sky Captain',       desc: 'Clear 50+ pipes in Flappy' },
-        tetrisMaster: { icon: '🧱', name: 'Block Master',      desc: 'Clear 50+ lines in one Tetris run' },
-        sharpshooter: { icon: '🎯', name: 'Sharpshooter',      desc: 'Hit 95%+ accuracy with 600+ score in Aim' },
-        lightning:    { icon: '⚡', name: 'Lightning Reflexes', desc: 'Average under 220ms in RefleX' },
-        brickBuster:  { icon: '🧨', name: 'Brick Buster',      desc: 'Reach level 30 in Breakout' },
-        poolShark:    { icon: '🎱', name: 'Pool Shark',        desc: 'Win 100 pool games against the CPU' },
-        calledIt:     { icon: '📣', name: 'Called It',         desc: 'Beat the Pro pool CPU, every shot called' },
+        snakeEndless:   { name: 'Round Trip',    desc: 'Score 40+ in Endless mode', d: 'M12 12c-1.8-2.4-3.4-4-5.5-4a4 4 0 0 0 0 8c2.1 0 3.7-1.6 5.5-4s3.4-4 5.5-4a4 4 0 0 1 0 8c-1.5 0-2.7-.8-3.8-2M14.6 15.1l-1.9.4M14.6 15.1l-.3 1.9' },
+        snakeWalled:    { name: 'Wallflower',    desc: 'Score 40+ in Walled mode', d: 'M19 3v18M19 8.5h2M19 15.5h2M9 21v-8.5M9 12.5c-3 0-4.2-2.6-4.2-6.2l2.2 1.4L9 4.5l2 3.2 2.2-1.4c0 3.6-1.2 6.2-4.2 6.2zM9 17.5c1.4-1.9 3-2.6 4.8-2.6' },
+        snakeGourmand:  { name: 'Gourmand',      desc: 'Eat 10 golden bites in one run', d: 'M12 7.8C10.5 6.6 8.4 6.4 6.8 7.2 4.4 8.5 3.8 11.6 4.8 14.6c.9 2.8 2.9 5.4 4.9 5.4.9 0 1.5-.5 2.3-.5s1.4.5 2.3.5c2 0 3.8-2.4 4.7-5-1.6-.2-2.8-1.6-2.8-3.2 0-1.2.6-2.2 1.6-2.8-.5-.6-1.1-1-1.8-1.3-1.5-.6-3.2-.4-4.8.6zM12 7.8c0-2 1-3.6 2.8-4.6' },
+        snakeCampaign:  { name: 'Pathfinder',    desc: 'Clear stage 6 in Levels mode', d: 'M12 21V3M12 5h6l2.5 2.5L18 10h-6M12 12.5H6L3.5 15 6 17.5h6M9 21h6' },
+        snakeConqueror: { name: 'Grand Serpent', desc: 'Clear all 12 stages in one run', d: 'M4 18.6c0 1.3 3.6 2.4 8 2.4s8-1.1 8-2.4-3.6-2.4-8-2.4M6.6 15.6c.8-1 2.9-1.6 5.4-1.6s4.6.6 5.4 1.6M9.4 12.9c.7-.6 1.6-.9 2.6-.9 1.6 0 2.8.6 3 1.4M15 13.4c1.1-2.4 1-5.1-.6-7.3M14.4 6.1C13.2 4.4 10.8 4 9.3 5.2c-.8.6-.5 1.8.5 1.9l4.6-1' },
+        snakeLong:      { name: 'Long Boy',      desc: 'Reach a length of 60 segments', d: 'M3.5 5.5h15a2 2 0 0 1 0 4h-13a2 2 0 0 0 0 4h13a2 2 0 0 1 0 4H9.5M7.5 17.5h.01' },
+        flapMaster:   { name: 'Sky Captain',       desc: 'Clear 50+ pipes in Flappy', d: 'M12 15a2.5 2.5 0 1 0 0-5a2.5 2.5 0 0 0 0 5zM9.5 12.5c-3 0-5.5-1.4-7-3.5 2.4 0 4.4.4 6 1M14.5 12.5c3 0 5.5-1.4 7-3.5-2.4 0-4.4.4-6 1M9.8 13.8c-1.8.6-3.4.6-5 .2M14.2 13.8c1.8.6 3.4.6 5 .2' },
+        tetrisMaster: { name: 'Block Master',      desc: 'Clear 50+ lines in one Tetris run', d: 'M3 8h18v6h-6v6H9v-6H3zM9 8v6M15 8v6M9 14h6' },
+        sharpshooter: { name: 'Sharpshooter',      desc: 'Hit 95%+ accuracy with 600+ score in Aim', d: 'M12 19a7 7 0 1 0 0-14a7 7 0 0 0 0 14zM12 2.5v6M12 15.5v6M2.5 12h6M15.5 12h6' },
+        lightning:    { name: 'Lightning Reflexes', desc: 'Average under 220ms in RefleX', d: 'M13.5 2.5L5 13.5h6.2L10 21.5l8.5-11h-6.2z' },
+        brickBuster:  { name: 'Brick Buster',      desc: 'Reach level 30 in Breakout', d: 'M3 3.5h5.5V8H3zM15.5 3.5H21V8h-5.5zM7 20.5h10M10.8 18.5l2.5-5M14.5 11.5a2 2 0 1 0 0-4a2 2 0 0 0 0 4z' },
+        poolShark:    { name: 'Pool Shark',        desc: 'Win 100 pool games against the CPU', d: 'M3 17c2 0 2-1.5 4.5-1.5S10 17 12 17s2-1.5 4.5-1.5S19 17 21 17M7 15.5C9 11 11.5 6.5 16 5c-1.2 3.3-1.5 7-.8 10.5' },
+        calledIt:     { name: 'Called It',         desc: 'Beat the Pro pool CPU, every shot called', d: 'M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18zM12 16.5a4.5 4.5 0 1 0 0-9a4.5 4.5 0 0 0 0 9zM12 12.8a.8.8 0 1 0 0-1.6a.8.8 0 0 0 0 1.6z' },
         // Snooker (POOL_V2_PLAN.md, S6): breaks against the CPU; a 147 needs 15 reds.
-        snookerCentury: { icon: '💯', name: 'Century',         desc: 'Make a century break against the snooker CPU' },
-        snookerMaximum: { icon: '🏅', name: 'Maximum',         desc: 'Make a 147 against the snooker CPU' },
-        ludoChamp:    { icon: '🎲', name: 'Ludo Champion',     desc: 'Win 100 Ludo games against the CPU' },
-        ludoFlawless: { icon: '🛡️', name: 'Flawless',          desc: 'Win a Ludo game without losing a single token' },
-        ludoHunter:   { icon: '🐺', name: 'Token Hunter',      desc: 'Capture 5 opponent tokens in one Ludo match' },
+        snookerCentury: { name: 'Century',         desc: 'Make a century break against the snooker CPU', d: 'M8 3l2.5 5M16 3l-2.5 5M12 21a6 6 0 1 0 0-12a6 6 0 0 0 0 12zM10.5 13.5L12 12.5v5' },
+        snookerMaximum: { name: 'Maximum',         desc: 'Make a 147 against the snooker CPU', d: 'M4 18h16M5 18L3.5 8l5 4L12 6l3.5 6 5-4L19 18' },
+        ludoChamp:    { name: 'Ludo Champion',     desc: 'Win 100 Ludo games against the CPU', d: 'M12 2.8l8 4.6v9.2l-8 4.6-8-4.6V7.4zM4 7.4l8 4.6 8-4.6M12 12v9.2M12 7.4h.01M7.2 12.6h.01M8.8 16.4h.01M15.2 13.6h.01M16.8 16.4h.01' },
+        ludoFlawless: { name: 'Flawless',          desc: 'Win a Ludo game without losing a single token', d: 'M6.5 4h11L21 9l-9 11.5L3 9zM3 9h18M9.5 4L8 9l4 11.5L16 9l-1.5-5' },
+        ludoHunter:   { name: 'Token Hunter',      desc: 'Capture 5 opponent tokens in one Ludo match', d: 'M6 21h9l-1.4-5.5H7.4zM8.4 15.5L9 12M12.6 15.5L12 12M10.5 12a3 3 0 1 0 0-6a3 3 0 0 0 0 6zM16.5 4.5l1.5-2M19 8l2.5-.8M18 11.8l2.6.8' },
 
         // Engagement / Customization
-        curator:      { icon: '💬', name: 'Curator',           desc: 'Add a custom motivational quote' },
-        picturePerfect:{ icon: '🖼️', name: 'Picture Perfect',  desc: 'Set a custom widget image' },
-        meditative:   { icon: '🤲', name: 'Devoted',           desc: 'Reach 1000 on the prayer counter' },
-        teamPlayer:   { icon: '🤝', name: 'Team Player',       desc: 'Join the leaderboard' }
+        curator:      { name: 'Curator',           desc: 'Add a custom motivational quote', d: 'M4.5 18c2.4-.6 4-2.6 4-5.2V7H4v5.5h4.5M14.5 18c2.4-.6 4-2.6 4-5.2V7H14v5.5h4.5' },
+        picturePerfect:{ name: 'Picture Perfect',  desc: 'Set a custom widget image', d: 'M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5zM3 15.5l5-5 4 4 2.5-2.5 6.5 6.5M15.5 10a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3z' },
+        meditative:   { name: 'Devoted',           desc: 'Reach 1000 on the prayer counter', d: 'M12 4.2a1.3 1.3 0 1 0 0-2.6a1.3 1.3 0 0 0 0 2.6zM16.8 6.2a1.3 1.3 0 1 0 0-2.6a1.3 1.3 0 0 0 0 2.6zM18.6 10.9a1.3 1.3 0 1 0 0-2.6a1.3 1.3 0 0 0 0 2.6zM5.4 10.9a1.3 1.3 0 1 0 0-2.6a1.3 1.3 0 0 0 0 2.6zM7.2 6.2a1.3 1.3 0 1 0 0-2.6a1.3 1.3 0 0 0 0 2.6zM16.6 15.4a1.3 1.3 0 1 0 0-2.6a1.3 1.3 0 0 0 0 2.6zM7.4 15.4a1.3 1.3 0 1 0 0-2.6a1.3 1.3 0 0 0 0 2.6zM12 14.5v2.5M10 21.5l2-4.5 2 4.5' },
+        teamPlayer:   { name: 'Team Player',       desc: 'Join the leaderboard', d: 'M9 11a3.5 3.5 0 1 0 0-7a3.5 3.5 0 0 0 0 7zM2.5 20c.6-3.4 3.2-5.5 6.5-5.5s5.9 2.1 6.5 5.5M16 4.5a3.2 3.2 0 0 1 0 6.2M18 14.8c2 .6 3.2 2.4 3.5 5.2' }
     };
 
     // What localStorage holds for the Image Box: a link, or IMAGE_BOX_IDB_REF for an uploaded
@@ -1324,11 +1325,11 @@
             // Achievement count uses keys still present in ACHIEVEMENTS, so a retired or renamed key
             // synced from an older build cannot inflate the total.
             const achKeys = (Array.isArray(p.achievements) ? p.achievements : []).filter(k => ACHIEVEMENTS[k]);
-            const achBadge = `<span class="lb-ach-badge" tabindex="0" data-ach-keys="${achKeys.join(',')}">🏆${achKeys.length}/${achTotal}</span>`;
             const nameHtml = escapeHtml(p.displayName);
-            // escapeHtml encodes text-content characters only; the title attribute below also needs
+            // escapeHtml encodes text-content characters only; the attributes below also need
             // quotes encoded, or a name containing one breaks out of the attribute.
             const nameAttr = nameHtml.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            const achBadge = `<span class="lb-ach-badge" tabindex="0" aria-label="${achKeys.length} of ${achTotal} achievements" data-ach-name="${nameAttr}" data-ach-keys="${achKeys.join(',')}">${achSvg(ACH_SPARKLE_D, 10, 2)}${achKeys.length}/${achTotal}</span>`;
             rows += `<tr class="${isMe ? 'lb-row-me' : ''}">
                 <td class="lb-rank">${medal}</td>
                 <td class="lb-name" title="${nameAttr}">${nameHtml}${isMe ? ' <span class="lb-you">You</span>' : ''}</td>
@@ -1617,7 +1618,7 @@
         if (!pop) {
             pop = document.createElement('div');
             pop.id = 'lb-ach-popover';
-            pop.className = 'lb-ach-popover';
+            pop.className = 'lb-ach-popover ach-ui';
             document.body.appendChild(pop);
         }
         return pop;
@@ -1625,16 +1626,14 @@
 
     function showLbAchPopover(badge) {
         const pop = ensureLbAchPopover();
-        const keys = (badge.dataset.achKeys || '').split(',').filter(Boolean);
-        pop.innerHTML = keys.length
-            ? keys.map(k => {
-                const a = ACHIEVEMENTS[k];
-                return a ? `<span class="lb-ach-emoji" title="${escapeHtml(a.name)}">${a.icon}</span>` : '';
-            }).join('')
-            : '<span class="lb-ach-empty">No achievements yet</span>';
-        // a.icon comes from data and is set fresh on every hover, so the sweep belongs here, not in
-        // ensureLbAchPopover()'s one-time element creation.
-        cyberSweepEmoji(pop);
+        const keys = achRarestFirst((badge.dataset.achKeys || '').split(','));
+        pop.innerHTML = '<div class="lb-ach-pop-head"><span class="lb-ach-pop-name">' + escapeHtml(badge.dataset.achName || '') + '</span>' +
+            '<span class="lb-ach-pop-count">' + keys.length + ' of ' + Object.keys(ACHIEVEMENTS).length + ' achievements</span></div>' +
+            (keys.length ? '<div class="lb-ach-pop-row" role="list">' +
+                keys.slice(0, 9).map(k => '<span role="listitem" aria-label="' + ACHIEVEMENTS[k].name + ', ' + ACH_TIER_NAME[achTier(k)] + '">' + achMedal(k, 20) + '</span>').join('') +
+                (keys.length > 9 ? '<span class="lb-ach-pop-more">+' + (keys.length - 9) + '</span>' : '') +
+                '</div><span class="lb-ach-pop-foot">Rarest first · Legendary, Epic, Rare, Common</span>'
+                : '<span class="lb-ach-pop-foot">No achievements yet</span>');
         pop.style.display = 'flex';
 
         const rect = badge.getBoundingClientRect();
@@ -11369,7 +11368,7 @@
                 const ach = skin.unlock && typeof ACHIEVEMENTS === 'object' ? ACHIEVEMENTS[skin.unlock] : null;
                 const hint = unlocked
                     ? (skin.legendary ? 'Legendary' : 'Unlocked')
-                    : (ach ? ach.icon + ' ' + ach.name : 'Locked');
+                    : (ach ? ach.name : 'Locked');
                 return '<button class="snake-skin-card' +
                     (unlocked ? '' : ' locked') + (id === activeId ? ' active' : '') +
                     '" data-snake-skin="' + id + '"' + (unlocked ? '' : ' disabled') +
@@ -15486,10 +15485,39 @@
         curator: 40, picturePerfect: 40, meditative: 200, teamPlayer: 60
     };
 
+    // The medallion (POOL_V2_PLAN.md, Achievement icons). The tier is the ring, set by the XP the
+    // achievement pays, never the glyph; its colours are the .ach-t-* tokens of each theme.
+    const ACH_TIERS = ['legendary', 'epic', 'rare', 'common'];
+    const ACH_TIER_NAME = { legendary: 'Legendary', epic: 'Epic', rare: 'Rare', common: 'Common' };
+    const achTier = k => { const x = ACHIEVEMENT_XP[k] || 50; return x >= 500 ? 'legendary' : x >= 200 ? 'epic' : x >= 100 ? 'rare' : 'common'; };
+    // Keys still in ACHIEVEMENTS, rarest first, each tier in ACHIEVEMENTS' order.
+    const achRarestFirst = keys => Object.keys(ACHIEVEMENTS).filter(k => keys.indexOf(k) >= 0).sort((a, b) => ACH_TIERS.indexOf(achTier(a)) - ACH_TIERS.indexOf(achTier(b)));
+    const ACH_LOCK_D = 'M7.5 11V8a4.5 4.5 0 0 1 9 0v3M6.5 11h11a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.5v-7A1.5 1.5 0 0 1 6.5 11z';
+    const ACH_CHECK_D = 'M5 12.5l4.5 4.5L19 7.5';
+    // The UI's own mark (modal header, leaderboard badge): a sparkle, so no UI icon reads as an achievement.
+    const ACH_SPARKLE_D = 'M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z';
+    let achModalFilter = 'all', achModalOpener = null;
+    // draw: the toast's reveal traces the stroke; pathLength 1 makes that one length for every glyph.
+    const achSvg = (d, n, w, draw) => '<svg width="' + n + '" height="' + n + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (w || 1.8) +
+        '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"' + (draw ? ' pathLength="1" class="ach-draw"' : '') + '></path></svg>';
+    // Ring, glyph and lock badge scale with the disc as AchMedalSpec gives them (20 to 64 px).
+    function achMedal(k, size, locked, draw) {
+        const tier = achTier(k);
+        const w = locked ? 1 : { common: [1, 1, 1.5], rare: [1, 1.5, 2], epic: [1.5, 2, 3], legendary: [1.5, 2, 3] }[tier][size <= 24 ? 0 : size >= 56 ? 2 : 1];
+        const glyph = size <= 20 ? 14 : size <= 24 ? 16 : Math.round(size * 0.55);
+        let lock = '';
+        if (locked) {
+            const b = Math.max(10, Math.round(size * 0.38)), off = -Math.round(size * 0.06) - w;
+            lock = '<span class="ach-md-lock" style="width:' + b + 'px;height:' + b + 'px;right:' + off + 'px;bottom:' + off + 'px">' +
+                achSvg(ACH_LOCK_D, Math.max(7, Math.round(b * 0.62)), 2.4) + '</span>';
+        }
+        return '<span class="ach-md ach-t-' + (locked ? 'locked' : tier) + '" style="width:' + size + 'px;height:' + size + 'px;border-width:' + w + 'px">' +
+            achSvg(ACHIEVEMENTS[k].d, glyph, 0, draw) + lock + '</span>';
+    }
+
     function unlockAchievement(achievementKey, silent) {
         if (userXP.achievements.includes(achievementKey)) return; // already unlocked
         userXP.achievements.push(achievementKey);
-        const achievement = ACHIEVEMENTS[achievementKey];
 
         // Award XP for the achievement (skip if silent — e.g. during revalidation of old data)
         const xpReward = ACHIEVEMENT_XP[achievementKey] || 50;
@@ -15497,13 +15525,13 @@
             userXP.currentXP += xpReward;
             userXP.totalXP += xpReward;
             checkLevelUp();
-            showXPNotification(`${achievement.icon} Achievement Unlocked: ${achievement.name}! +${xpReward} XP`, 'achievement');
+            showAchievementToast(achievementKey, xpReward);
             // The cue it earns (pool-cues.js), noticed here and on the table.
             const cue = typeof poolCueUnlocked === 'function' ? poolCueUnlocked(achievementKey) : null;
             if (cue) showXPNotification(`🎱 New cue · ${cue.name}`, 'achievement');
         } else {
             // Silent mode: still show notification but no XP (already-earned achievements restored)
-            showXPNotification(`${achievement.icon} Achievement Restored: ${achievement.name}`, 'achievement');
+            showAchievementToast(achievementKey, 0);
         }
 
         saveUserXP(userXP);
@@ -15523,45 +15551,46 @@
         if (!modal) {
             modal = document.createElement('div');
             modal.id = 'achievements-modal';
-            modal.className = 'achievements-modal';
+            modal.className = 'achievements-modal ach-ui';
+            modal.setAttribute('role', 'dialog');
+            modal.setAttribute('aria-modal', 'true');
+            modal.setAttribute('aria-label', 'Achievements');
+            modal.onkeydown = e => { if (e.key === 'Escape') closeAchievementsModal(); };
             document.body.appendChild(modal);
         }
 
-        const total = Object.keys(ACHIEVEMENTS).length;
-        const earned = Object.keys(ACHIEVEMENTS).filter(k => userXP.achievements.includes(k)).length;
+        // AchModal: every achievement, locked ones too, as a goal with its glyph and padlock.
+        const keys = Object.keys(ACHIEVEMENTS), has = k => userXP.achievements.includes(k);
+        const earned = keys.filter(has).length;
+        const draw = () => {
+            const f = achModalFilter;
+            const tab = (id, label, n) => '<button type="button" class="ach-tab" data-ach-filter="' + id + '" aria-pressed="' + (f === id) + '">' + label + '<span>' + n + '</span></button>';
+            const cards = keys.filter(k => f === 'all' || (f === 'earned') === has(k)).map(k => {
+                const a = ACHIEVEMENTS[k], on = has(k), tier = achTier(k);
+                return '<div class="ach-card' + (on ? '' : ' locked') + '" role="listitem" aria-label="' + a.name + (on ? ', ' + ACH_TIER_NAME[tier] + ', earned. ' : ', locked. ') + a.desc + '">' +
+                    achMedal(k, 40, !on) + '<span class="ach-card-body"><span class="ach-card-name">' + a.name + '</span><span class="ach-card-desc">' + a.desc + '</span>' +
+                    '<span class="ach-card-tier ach-t-' + tier + '">' + ACH_TIER_NAME[tier] + '</span></span>' +
+                    (on ? '<span class="ach-card-status">' + achSvg(ACH_CHECK_D, 16, 2.4) + '</span>' : '') + '</div>';
+            }).join('');
+            modal.innerHTML =
+                '<div class="achievements-modal-header"><div class="achievements-modal-heading">' + achSvg(ACH_SPARKLE_D, 22) +
+                '<div><div class="achievements-modal-title">Achievements</div><div class="achievements-modal-subtitle">' + earned + ' of ' + keys.length + ' unlocked</div></div></div>' +
+                '<button type="button" class="achievements-modal-close" aria-label="Close achievements">' + achSvg('M6 6l12 12M18 6L6 18', 16, 2) + '</button></div>' +
+                '<div class="ach-tabs" role="group" aria-label="Filter">' + tab('all', 'All', keys.length) + tab('earned', 'Earned', earned) + tab('locked', 'Locked', keys.length - earned) + '</div>' +
+                '<div class="achievements-modal-grid" role="list" aria-label="Achievements, ' + f + '">' +
+                (cards || '<span class="achievements-modal-subtitle">' + (f === 'earned' ? 'None earned yet.' : 'Every achievement is earned.') + '</span>') + '</div>';
+            modal.querySelector('.achievements-modal-close').onclick = closeAchievementsModal;
+            modal.querySelectorAll('.ach-tab').forEach(b => {
+                b.onclick = () => { achModalFilter = b.dataset.achFilter; draw(); modal.querySelector('[data-ach-filter="' + achModalFilter + '"]').focus(); };
+            });
+        };
+        draw();
 
-        const cards = Object.entries(ACHIEVEMENTS).map(([key, a]) => {
-            const isEarned = userXP.achievements.includes(key);
-            return `
-                <div class="ach-card ${isEarned ? 'earned' : 'locked'}">
-                    <div class="ach-card-icon">${isEarned ? a.icon : '🔒'}</div>
-                    <div class="ach-card-body">
-                        <div class="ach-card-name">${a.name}</div>
-                        <div class="ach-card-desc">${a.desc}</div>
-                    </div>
-                    <div class="ach-card-status">${isEarned ? '✓' : ''}</div>
-                </div>
-            `;
-        }).join('');
-
-        modal.innerHTML = `
-            <div class="achievements-modal-header">
-                <div>
-                    <div class="achievements-modal-title">🏆 Achievements</div>
-                    <div class="achievements-modal-subtitle">${earned} of ${total} unlocked</div>
-                </div>
-                <button type="button" class="achievements-modal-close" aria-label="Close">×</button>
-            </div>
-            <div class="achievements-modal-grid">${cards}</div>
-        `;
-        modal.querySelector('.achievements-modal-close').onclick = closeAchievementsModal;
-        // Card icons come from ACHIEVEMENTS[key].icon, interpolated at render time — only a sweep of
-        // what landed in the DOM finds them, never a regex over this source.
-        cyberSweepEmoji(modal);
-
+        if (!modal.classList.contains('active')) achModalOpener = document.activeElement;
         requestAnimationFrame(() => {
             overlay.classList.add('active');
             modal.classList.add('active');
+            modal.querySelector('.achievements-modal-close').focus();
         });
     }
 
@@ -15570,6 +15599,8 @@
         const modal = document.getElementById('achievements-modal');
         if (overlay) overlay.classList.remove('active');
         if (modal) modal.classList.remove('active');
+        if (achModalOpener && achModalOpener.isConnected) achModalOpener.focus();
+        achModalOpener = null;
     }
 
     window.openAchievementsModal = openAchievementsModal;
@@ -15616,34 +15647,19 @@
         if (streakElement) streakElement.textContent = userXP.consecutiveDays;
         if (longestStreakElement) longestStreakElement.textContent = userXP.longestStreak;
 
-        // Update achievements display - show only EARNED in row, plus a "View All" button
+        // The earned row (AchEarned): 36 px medallions, rarest first, then View all. Any of them opens the modal.
         if (achievementsContainer) {
-            achievementsContainer.innerHTML = '';
-            const earnedKeys = Object.keys(ACHIEVEMENTS).filter(k => userXP.achievements.includes(k));
-            const totalCount = Object.keys(ACHIEVEMENTS).length;
-
-            if (earnedKeys.length === 0) {
-                const empty = document.createElement('span');
-                empty.className = 'xp-achievements-empty';
-                empty.textContent = 'No achievements yet — keep grinding! 💪';
-                achievementsContainer.appendChild(empty);
-            } else {
-                earnedKeys.forEach(key => {
-                    const achievement = ACHIEVEMENTS[key];
-                    const badge = document.createElement('span');
-                    badge.className = 'achievement-badge earned';
-                    badge.innerHTML = achievement.icon;
-                    badge.title = `${achievement.name}: ${achievement.desc} ✓`;
-                    achievementsContainer.appendChild(badge);
-                });
-            }
-
-            const viewAll = document.createElement('button');
-            viewAll.type = 'button';
-            viewAll.className = 'xp-achievements-view-all';
-            viewAll.textContent = `View All (${earnedKeys.length}/${totalCount})`;
-            viewAll.onclick = () => window.openAchievementsModal && window.openAchievementsModal();
-            achievementsContainer.appendChild(viewAll);
+            const earned = achRarestFirst(userXP.achievements);
+            const total = Object.keys(ACHIEVEMENTS).length;
+            achievementsContainer.innerHTML =
+                '<div class="xp-ach-head"><span>Achievements</span><span class="xp-ach-count">' + earned.length + ' of ' + total + ' earned</span></div>' +
+                '<div class="xp-ach-row" aria-label="Earned achievements">' +
+                (earned.length ? earned.map(k => {
+                    const a = ACHIEVEMENTS[k], tier = ACH_TIER_NAME[achTier(k)];
+                    return '<button type="button" class="xp-ach-btn" title="' + a.name + ' · ' + tier + '" aria-label="' + a.name + ', ' + tier + ', earned">' + achMedal(k, 36) + '</button>';
+                }).join('') : '<span class="xp-achievements-empty">No achievements yet. Finish a full shift for Day One.</span>') +
+                '<button type="button" class="xp-achievements-view-all">View all<span>' + earned.length + '/' + total + '</span></button></div>';
+            achievementsContainer.querySelectorAll('button').forEach(b => { b.onclick = () => openAchievementsModal(); });
         }
 
         if (nextMilestoneElement) {
@@ -15660,14 +15676,16 @@
         }
     }
 
+    // Toasts stack top right, each 10 px below the lowest one still showing: from the top each was
+    // given, since one still sliding in has a transform its box would carry.
+    const xpToastTop = () => Array.prototype.reduce.call(document.querySelectorAll('.xp-milestone-notification, .ach-toast'),
+        (top, n) => Math.max(top, (parseFloat(n.style.top) || 20) + n.offsetHeight + 10), 20);
+
     function showXPNotification(message, type = 'hourly') {
         const notification = document.createElement('div');
         notification.className = `xp-milestone-notification xp-notif-${type}`;
         notification.textContent = message;
-
-        const existingNotifications = document.querySelectorAll('.xp-milestone-notification');
-        const offset = existingNotifications.length * 70;
-        notification.style.top = `${20 + offset}px`;
+        notification.style.top = `${xpToastTop()}px`;
 
         // Fresh element per call — a one-shot sweep, not cyberWatchEmoji: the node is gone in 3s and
         // an observer with nothing left to watch would leak.
@@ -15677,6 +15695,26 @@
         setTimeout(() => {
             notification.remove();
         }, 3000);
+    }
+
+    // AchToast: the medallion's one-time reveal (560 ms), held 4 s, then a 180 ms fade.
+    // xp 0 is a restore: the achievement was already earned, so it pays nothing and shows no chip.
+    function showAchievementToast(k, xp) {
+        const a = ACHIEVEMENTS[k];
+        if (!a) return;
+        const t = document.createElement('div'), tier = achTier(k), label = xp ? 'Achievement Unlocked' : 'Achievement Restored';
+        t.className = 'ach-toast ach-ui';
+        t.setAttribute('role', 'status');
+        t.setAttribute('aria-live', 'polite');
+        t.setAttribute('aria-label', label + ' · ' + a.name + (xp ? ' · +' + xp + ' XP' : ''));
+        t.innerHTML = achMedal(k, 40, false, true) +
+            '<span class="ach-toast-text"><span class="ach-toast-label ach-t-' + tier + '">' + label + '</span>' +
+            '<span class="ach-toast-name">' + a.name + '</span><span class="ach-toast-desc">' + a.desc + '</span></span>' +
+            (xp ? '<span class="ach-toast-chip">+' + xp + ' XP</span>' : '');
+        t.style.top = xpToastTop() + 'px';
+        document.body.appendChild(t);
+        setTimeout(() => t.classList.add('is-out'), 4000);
+        setTimeout(() => t.remove(), 4180);
     }
 
     // The XP of the first step a score reaches (each [threshold, xp], best first), else floor.
@@ -22335,71 +22373,203 @@
                 50% { transform: scale(1.1); opacity: 0.9; }
             }
 
-            .xp-achievements {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 8px;
-                margin-top: 12px;
-                padding: 12px;
-                background: rgba(0, 0, 0, 0.2);
-                border-radius: 8px;
-                min-height: 50px;
+            /* ACHIEVEMENTS (POOL_V2_PLAN.md, Achievement icons). Tokens: Glassmorphic dark here,
+               light under prefers-color-scheme, Cyberpunk under .retro-theme inside the widget
+               or, for the modal, toast and popover on <body>, while the widget is in it. A locked medallion
+               carries .ach-t-locked instead of its tier, so no tier colour reaches it. */
+            .ach-ui, .xp-achievements {
+                --ach-surface: #24202F;
+                --ach-border: rgba(255, 255, 255, 0.09);
+                --ach-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+                --ach-text: #EEEAF6;
+                --ach-muted: #A8A2B8;
+                --ach-accent: #8B78F0;
+                --ach-on-accent: #14111F;
+                --ach-ink: #B3A6FF;
+                --ach-inner: rgba(255, 255, 255, 0.045);
+                --ach-inner-border: rgba(255, 255, 255, 0.07);
+                --ach-track: #2E2A3B;
+                --ach-ok: #5FD3A1;
+                --ach-focus: #B3A6FF;
+                --ach-font: 'Inter', system-ui, sans-serif;
+                --ach-display: 'Inter', system-ui, sans-serif;
+            }
+            .ach-t-common    { --md-g: #B9C3CF; --md-disc: #262833; --md-ring: #4A5160; }
+            .ach-t-rare      { --md-g: #7CB8FF; --md-disc: #1B2638; --md-ring: #3D6FB0; }
+            .ach-t-epic      { --md-g: #C9A2FF; --md-disc: #261C38; --md-grad: linear-gradient(135deg, #B57BFF, #5E3BB3); }
+            .ach-t-legendary { --md-g: #FFC857; --md-disc: #2E2412; --md-grad: conic-gradient(from 210deg, #FFD978, #E39A2D, #FFF1C2, #C77A1A, #FFD978); --md-sheen: rgba(255, 241, 194, 0.45); }
+            .ach-t-locked    { --md-g: #625D72; --md-disc: #1D1B25; --md-ring: #34313F; --md-badge: #2A2735; --md-lock: #C4BFD2; }
+
+            @media (prefers-color-scheme: light) {
+                .ach-ui, .xp-achievements {
+                    --ach-surface: #F6F4FC;
+                    --ach-border: rgba(255, 255, 255, 0.85);
+                    --ach-shadow: 0 12px 32px rgba(60, 40, 120, 0.14);
+                    --ach-text: #1E1B2E;
+                    --ach-muted: #5B5670;
+                    --ach-accent: #6D5BD0;
+                    --ach-on-accent: #FFFFFF;
+                    --ach-ink: #5A47BF;
+                    --ach-inner: rgba(255, 255, 255, 0.6);
+                    --ach-inner-border: rgba(109, 91, 208, 0.14);
+                    --ach-track: #D9D5E8;
+                    --ach-ok: #1E8A5A;
+                    --ach-focus: #5A47BF;
+                }
+                .ach-t-common    { --md-g: #4F5B6B; --md-disc: #F1F2F6; --md-ring: #B9C0CC; }
+                .ach-t-rare      { --md-g: #1F5FBF; --md-disc: #E6F0FF; --md-ring: #6C9EE6; }
+                .ach-t-epic      { --md-g: #6B2FCB; --md-disc: #F1E8FF; --md-grad: linear-gradient(135deg, #9B5CF6, #5B2BB5); }
+                .ach-t-legendary { --md-g: #8A5300; --md-disc: #FFF4DC; --md-grad: conic-gradient(from 210deg, #F5B83D, #C77A1A, #FFE7A8, #B86A0F, #F5B83D); --md-sheen: rgba(255, 255, 255, 0.75); }
+                .ach-t-locked    { --md-g: #A19DB3; --md-disc: #EEEDF3; --md-ring: #D6D4DE; --md-badge: #FFFFFF; --md-lock: #5B5670; }
+            }
+
+            .retro-theme .xp-achievements, body:has(.attendance-summary.retro-theme) .ach-ui {
+                --ach-surface: #0F0D18;
+                --ach-border: #2A2540;
+                --ach-shadow: 0 0 0 1px rgba(0, 240, 255, 0.06);
+                --ach-text: #F2F0FF;
+                --ach-muted: #9E9AB8;
+                --ach-accent: #00F0FF;
+                --ach-on-accent: #04121A;
+                --ach-ink: #00F0FF;
+                --ach-inner: #151225;
+                --ach-inner-border: #231F38;
+                --ach-track: #1C1930;
+                --ach-ok: #00F0A8;
+                --ach-focus: #00F0FF;
+                --ach-font: 'Share Tech Mono', monospace;
+                --ach-display: 'Orbitron', sans-serif;
+            }
+            .retro-theme .ach-t-common,    body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-common    { --md-g: #A9B4C8; --md-disc: #14131F; --md-ring: #3A3F55; }
+            .retro-theme .ach-t-rare,      body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-rare      { --md-g: #00E5FF; --md-disc: #071A22; --md-ring: #00B8D4; }
+            .retro-theme .ach-t-epic,      body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-epic      { --md-g: #FF4FD8; --md-disc: #1F0A1E; --md-grad: linear-gradient(135deg, #FF2BD6, #7A2BFF); }
+            .retro-theme .ach-t-legendary, body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-legendary { --md-g: #F8E71C; --md-disc: #1C1A05; --md-grad: conic-gradient(from 210deg, #F8E71C, #FF2BD6, #00F0FF, #F8E71C, #F8E71C); --md-sheen: rgba(248, 231, 28, 0.35); }
+            .retro-theme .ach-t-locked,    body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-locked    { --md-g: #4C4868; --md-disc: #0D0C15; --md-ring: #262439; --md-badge: #1A1828; --md-lock: #B7B3D0; }
+
+            /* The medallion: size, ring width and badge placement come inline from achMedal. */
+            .ach-md {
+                position: relative;
+                flex-shrink: 0;
+                box-sizing: border-box;
+                display: inline-flex;
                 align-items: center;
                 justify-content: center;
+                border-radius: 50%;
+                border-style: solid;
+                border-color: var(--md-ring);
+                background: var(--md-disc);
+                color: var(--md-g);
+            }
+            .ach-md svg { display: block; flex-shrink: 0; }
+            .ach-md.ach-t-epic,
+            .ach-md.ach-t-legendary {
+                border-color: transparent;
+                background: linear-gradient(var(--md-disc), var(--md-disc)) padding-box, var(--md-grad) border-box;
+            }
+            .ach-md-lock {
+                position: absolute;
+                box-sizing: border-box;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 50%;
+                border: 1.5px solid var(--ach-surface, #24202F);
+                background: var(--md-badge);
+                color: var(--md-lock);
+            }
+            /* Legendary's one sheen: a 4.2 s rest, then a 1.8 s sweep across the disc. */
+            .ach-md.ach-t-legendary::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                border-radius: 50%;
+                pointer-events: none;
+                background: linear-gradient(115deg, rgba(0, 0, 0, 0) 35%, var(--md-sheen) 50%, rgba(0, 0, 0, 0) 65%) no-repeat;
+                background-size: 250% 100%;
+                animation: achSheen 6s ease-in-out infinite;
+            }
+            @keyframes achSheen {
+                0%, 70% { background-position: 150% 0; }
+                100% { background-position: -50% 0; }
             }
 
-            .xp-achievements:empty::before {
-                content: 'Loading achievements... 🏆';
-                color: rgba(255, 255, 255, 0.4);
-                font-size: 0.75rem;
-                font-style: italic;
+            /* A1: the XP panel's earned row, rarest first, then View all. */
+            .xp-achievements {
+                margin-top: 12px;
+                padding: 10px 8px 6px;
+                border-radius: 14px;
+                background: var(--ach-inner);
+                border: 1px solid var(--ach-inner-border);
             }
-
-            .achievement-badge {
-                font-size: 1.8rem;
-                cursor: pointer;
-                transition: transform 0.3s ease, filter 0.3s ease, opacity 0.3s ease;
-                filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
-            }
-
-            .achievement-badge.earned {
-                filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
-                opacity: 1;
-            }
-
-            .achievement-badge:hover {
-                transform: scale(1.2);
-            }
-
-            /* Earned-only row layout + View All button */
-            .xp-achievements-empty {
-                font-size: 0.78rem;
-                font-style: italic;
-                opacity: 0.6;
-                padding: 4px 6px;
-            }
-
-            .xp-achievements-view-all {
-                margin-left: auto;
-                padding: 6px 12px;
-                font-size: 0.75rem;
+            .xp-ach-head {
+                height: 20px;
+                padding: 0 4px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+                font-size: 13px;
                 font-weight: 600;
-                color: rgba(255, 255, 255, 0.9);
-                background: linear-gradient(135deg, rgba(102, 126, 234, 0.35), rgba(118, 75, 162, 0.35));
-                border: 1px solid rgba(255, 255, 255, 0.18);
-                border-radius: 999px;
+            }
+            .xp-ach-count {
+                font-size: 11px;
+                font-weight: 400;
+                opacity: 0.7;
+                font-variant-numeric: tabular-nums;
+            }
+            .xp-ach-row {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                margin-top: 4px;
+            }
+            .xp-ach-btn {
+                width: 44px;
+                height: 44px;
+                padding: 0;
+                border: 0;
+                border-radius: 50%;
+                background: transparent;
+                display: flex;
+                align-items: center;
+                justify-content: center;
                 cursor: pointer;
-                transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+                transition: transform 0.12s ease;
+            }
+            .xp-ach-btn:hover { transform: translateY(-1px); }
+            .xp-achievements-empty {
+                flex: 1;
+                padding: 8px 4px;
+                font-size: 12px;
+                opacity: 0.7;
+            }
+            .xp-achievements-view-all {
+                height: 36px;
+                margin: 4px 0 4px 6px;
+                padding: 0 14px;
+                border: 0;
+                border-radius: 18px;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                background: var(--ach-accent);
+                color: var(--ach-on-accent);
+                font: inherit;
+                font-size: 12px;
+                font-weight: 600;
                 white-space: nowrap;
+                cursor: pointer;
+                transition: transform 0.12s ease;
+            }
+            .xp-achievements-view-all span { font-variant-numeric: tabular-nums; }
+            .xp-achievements-view-all:hover { transform: translateY(-1px); }
+            .xp-ach-btn:focus-visible,
+            .xp-achievements-view-all:focus-visible {
+                outline: 2px solid var(--ach-focus);
+                outline-offset: 2px;
             }
 
-            .xp-achievements-view-all:hover {
-                transform: translateY(-1px);
-                background: linear-gradient(135deg, rgba(102, 126, 234, 0.55), rgba(118, 75, 162, 0.55));
-                box-shadow: 0 4px 14px rgba(102, 126, 234, 0.35);
-            }
-
-            /* Achievements Modal */
+            /* A2: the modal. All / Earned / Locked, then two columns of cards. */
             .achievements-modal-overlay {
                 position: fixed;
                 inset: 0;
@@ -22409,184 +22579,283 @@
                 z-index: 9998;
                 opacity: 0;
                 visibility: hidden;
-                transition: opacity 0.25s ease, visibility 0.25s ease;
+                transition: opacity 0.2s ease, visibility 0.2s ease;
             }
-
             .achievements-modal-overlay.active {
                 opacity: 1;
                 visibility: visible;
             }
-
             .achievements-modal {
                 position: fixed;
                 top: 50%;
                 left: 50%;
-                transform: translate(-50%, -50%) scale(0.92);
-                width: min(560px, 92vw);
-                max-height: 80vh;
-                background: linear-gradient(135deg, rgba(30, 30, 45, 0.92), rgba(20, 18, 35, 0.92));
-                backdrop-filter: blur(30px);
-                -webkit-backdrop-filter: blur(30px);
-                border: 1px solid rgba(255, 255, 255, 0.15);
+                transform: translate(-50%, -50%) scale(0.96);
+                width: min(560px, calc(100vw - 32px));
+                height: min(640px, calc(100vh - 48px));
+                box-sizing: border-box;
+                padding: 14px;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
                 border-radius: 20px;
-                padding: 22px 22px 18px;
-                box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+                background: var(--ach-surface);
+                border: 1px solid var(--ach-border);
+                box-shadow: var(--ach-shadow);
+                color: var(--ach-text);
+                font-family: var(--ach-font);
                 z-index: 9999;
                 opacity: 0;
                 visibility: hidden;
-                color: rgba(255, 255, 255, 0.92);
-                display: flex;
-                flex-direction: column;
-                transition: opacity 0.25s ease, visibility 0.25s ease, transform 0.3s cubic-bezier(0.68, -0.4, 0.27, 1.4);
+                /* Hidden only once faded out, visible at once on opening, so the close button can take focus. */
+                transition: opacity 0.2s ease, visibility 0s linear 0.2s, transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
             }
-
             .achievements-modal.active {
+                transition-delay: 0s;
                 opacity: 1;
                 visibility: visible;
                 transform: translate(-50%, -50%) scale(1);
             }
-
             .achievements-modal-header {
+                height: 44px;
+                flex-shrink: 0;
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                gap: 12px;
-                margin-bottom: 14px;
+                gap: 8px;
             }
-
+            .achievements-modal-heading {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                min-width: 0;
+            }
+            .achievements-modal-heading > svg { flex-shrink: 0; color: var(--ach-ink); }
             .achievements-modal-title {
-                font-size: 1.15rem;
-                font-weight: 700;
-                background: linear-gradient(135deg, #ffd86b, #ff8a3c);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
+                font-family: var(--ach-display);
+                font-size: 18px;
+                font-weight: 600;
+                line-height: 1.1;
             }
-
             .achievements-modal-subtitle {
-                font-size: 0.78rem;
-                opacity: 0.65;
                 margin-top: 2px;
+                font-size: 11px;
+                color: var(--ach-muted);
             }
-
             .achievements-modal-close {
-                width: 32px;
-                height: 32px;
-                border-radius: 50%;
-                border: 1px solid rgba(255, 255, 255, 0.18);
-                background: rgba(255, 255, 255, 0.08);
-                color: rgba(255, 255, 255, 0.9);
-                font-size: 1.2rem;
-                line-height: 1;
+                width: 44px;
+                height: 44px;
+                flex-shrink: 0;
+                padding: 0;
+                border-radius: 12px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: var(--ach-inner);
+                border: 1px solid var(--ach-inner-border);
+                color: var(--ach-text);
                 cursor: pointer;
-                transition: background 0.2s ease, transform 0.2s ease;
             }
-
-            .achievements-modal-close:hover {
-                background: rgba(255, 255, 255, 0.18);
-                transform: rotate(90deg);
+            .ach-tabs {
+                flex-shrink: 0;
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 6px;
             }
-
+            .ach-tab {
+                position: relative;
+                height: 36px;
+                padding: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+                border-radius: 10px;
+                background: var(--ach-inner);
+                border: 1px solid var(--ach-inner-border);
+                color: var(--ach-text);
+                font: inherit;
+                font-size: 12px;
+                font-weight: 600;
+                cursor: pointer;
+            }
+            /* 36 px drawn, 44 px to touch. */
+            .ach-tab::after {
+                content: '';
+                position: absolute;
+                left: -2px;
+                right: -2px;
+                top: -4px;
+                bottom: -4px;
+            }
+            .ach-tab span { font-variant-numeric: tabular-nums; }
+            .ach-tab[aria-pressed="true"] {
+                background: var(--ach-accent);
+                border-color: var(--ach-accent);
+                color: var(--ach-on-accent);
+            }
+            .ach-tab:focus-visible,
+            .achievements-modal-close:focus-visible {
+                outline: 2px solid var(--ach-focus);
+                outline-offset: 2px;
+            }
             .achievements-modal-grid {
+                flex: 1;
+                min-height: 0;
+                overflow-y: auto;
                 display: grid;
                 grid-template-columns: 1fr;
                 gap: 8px;
-                overflow-y: auto;
-                padding-right: 4px;
+                align-content: start;
+                padding-right: 2px;
+                scrollbar-width: thin;
+                scrollbar-color: var(--ach-track) transparent;
             }
-
             @media (min-width: 480px) {
-                .achievements-modal-grid {
-                    grid-template-columns: 1fr 1fr;
-                }
+                .achievements-modal-grid { grid-template-columns: 1fr 1fr; }
             }
-
             .ach-card {
+                box-sizing: border-box;
+                padding: 10px;
+                border-radius: 14px;
                 display: flex;
-                align-items: center;
-                gap: 12px;
-                padding: 12px 14px;
-                border-radius: 12px;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                background: rgba(255, 255, 255, 0.04);
-                transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+                align-items: flex-start;
+                gap: 10px;
+                background: var(--ach-inner);
+                border: 1px solid var(--ach-inner-border);
             }
-
-            .ach-card.earned {
-                border-color: rgba(255, 216, 107, 0.45);
-                background: linear-gradient(135deg, rgba(255, 216, 107, 0.12), rgba(255, 138, 60, 0.08));
-                box-shadow: 0 2px 12px rgba(255, 138, 60, 0.15);
-            }
-
-            .ach-card.earned:hover {
-                transform: translateY(-1px);
-                border-color: rgba(255, 216, 107, 0.7);
-            }
-
-            .ach-card.locked {
-                opacity: 0.55;
-            }
-
-            .ach-card-icon {
-                font-size: 1.8rem;
-                width: 40px;
-                text-align: center;
-                flex-shrink: 0;
-            }
-
-            .ach-card.locked .ach-card-icon {
-                filter: grayscale(1);
-            }
-
             .ach-card-body {
                 flex: 1;
                 min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 3px;
             }
-
             .ach-card-name {
-                font-size: 0.88rem;
+                font-size: 13px;
                 font-weight: 600;
-                color: rgba(255, 255, 255, 0.95);
+                line-height: 1.2;
             }
-
             .ach-card-desc {
-                font-size: 0.72rem;
-                opacity: 0.7;
-                margin-top: 2px;
+                font-size: 11px;
+                line-height: 1.3;
+                color: var(--ach-muted);
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
             }
-
+            .ach-card-tier {
+                font-size: 10px;
+                font-weight: 600;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: var(--md-g);
+            }
+            .ach-card.locked .ach-card-name,
+            .ach-card.locked .ach-card-tier { color: var(--ach-muted); }
             .ach-card-status {
-                font-size: 1.1rem;
-                color: #6ee7b7;
-                font-weight: 700;
                 flex-shrink: 0;
+                display: flex;
+                padding-top: 2px;
+                color: var(--ach-ok);
             }
 
-            /* Light-mode tuning for the modal */
-            @media (prefers-color-scheme: light) {
-                .achievements-modal {
-                    background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(245, 243, 255, 0.94));
-                    border: 1px solid rgba(0, 0, 0, 0.08);
-                    color: rgba(0, 0, 0, 0.85);
-                }
-                .achievements-modal-close {
-                    background: rgba(0, 0, 0, 0.06);
-                    border-color: rgba(0, 0, 0, 0.1);
-                    color: rgba(0, 0, 0, 0.75);
-                }
-                .achievements-modal-close:hover {
-                    background: rgba(0, 0, 0, 0.12);
-                }
-                .ach-card {
-                    background: rgba(0, 0, 0, 0.03);
-                    border-color: rgba(0, 0, 0, 0.08);
-                }
-                .ach-card-name {
-                    color: rgba(0, 0, 0, 0.9);
-                }
-                .ach-card-status {
-                    color: #10b981;
-                }
+            /* A3: the unlock toast. The 560 ms reveal plays once; it holds 4 s, then fades. */
+            .ach-toast {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 10000;
+                width: min(368px, calc(100vw - 32px));
+                box-sizing: border-box;
+                padding: 12px 14px 12px 12px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                border-radius: 16px;
+                background: var(--ach-surface);
+                border: 1px solid var(--ach-border);
+                box-shadow: 0 16px 36px rgba(0, 0, 0, 0.28);
+                color: var(--ach-text);
+                font-family: var(--ach-font);
+                line-height: 1.3;
+                pointer-events: none;
+                animation: achToastIn 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+            }
+            .ach-toast.is-out { animation: achToastOut 180ms ease forwards; }
+            .ach-toast .ach-md { animation: achMedalIn 360ms cubic-bezier(0.2, 0.8, 0.2, 1) 80ms both; }
+            .ach-toast .ach-draw {
+                stroke-dasharray: 1;
+                animation: achDraw 400ms ease-out 160ms both;
+            }
+            .ach-toast-text {
+                flex: 1;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .ach-toast-label {
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: var(--md-g);
+            }
+            .ach-toast-name,
+            .ach-toast-desc {
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .ach-toast-name {
+                font-family: var(--ach-display);
+                font-size: 15px;
+                font-weight: 600;
+            }
+            .ach-toast-desc {
+                font-size: 11px;
+                color: var(--ach-muted);
+            }
+            .ach-toast-chip {
+                height: 26px;
+                padding: 0 10px;
+                flex-shrink: 0;
+                border-radius: 13px;
+                display: flex;
+                align-items: center;
+                background: var(--ach-accent);
+                color: var(--ach-on-accent);
+                font-size: 12px;
+                font-weight: 700;
+                font-variant-numeric: tabular-nums;
+                animation: achChipIn 240ms ease-out 300ms both;
+            }
+            @keyframes achToastIn {
+                from { opacity: 0; transform: translateY(-8px); }
+                to { opacity: 1; transform: none; }
+            }
+            @keyframes achToastOut { to { opacity: 0; } }
+            @keyframes achMedalIn {
+                0% { opacity: 0; transform: scale(0.6); }
+                60% { opacity: 1; transform: scale(1.06); }
+                100% { opacity: 1; transform: scale(1); }
+            }
+            @keyframes achDraw {
+                from { stroke-dashoffset: 1; }
+                to { stroke-dashoffset: 0; }
+            }
+            @keyframes achChipIn {
+                from { opacity: 0; transform: translateX(-4px); }
+                to { opacity: 1; transform: none; }
+            }
+            @keyframes achFade { from { opacity: 0; } }
+            @media (prefers-reduced-motion: reduce) {
+                .ach-toast { animation: achFade 150ms ease-out both; }
+                .ach-toast .ach-md,
+                .ach-toast .ach-draw,
+                .ach-toast-chip { animation: none; }
+                .ach-md.ach-t-legendary::after { animation: none; opacity: 0; }
             }
 
             .xp-next-milestone {
@@ -23446,12 +23715,6 @@
                     border-color: rgba(255, 107, 53, 0.18);
                     color: rgba(0, 0, 0, 0.78);
                 }
-                .attendance-summary:not(.retro-theme) .xp-achievements {
-                    background: rgba(0, 0, 0, 0.03);
-                }
-                .attendance-summary:not(.retro-theme) .xp-achievements:empty::before {
-                    color: rgba(0, 0, 0, 0.35);
-                }
                 .attendance-summary:not(.retro-theme) .xp-next-milestone {
                     background: rgba(255, 193, 7, 0.10);
                     border-color: rgba(255, 193, 7, 0.22);
@@ -23643,11 +23906,6 @@
                 /* The three timers: the same hues, deep enough to read on their tinted cards. */
                 .attendance-summary:not(.retro-theme) .worked-time { color: #00806a; }
                 .attendance-summary:not(.retro-theme) .remaining-time { color: #c0482b; }
-                .attendance-summary:not(.retro-theme) .xp-achievements-view-all {
-                    color: #fff;
-                    background: linear-gradient(135deg, rgba(102, 126, 234, 0.92), rgba(118, 75, 162, 0.92));
-                    border-color: rgba(0, 0, 0, 0.06);
-                }
 
                 /* The settings modal and Ludo's Max panel live on <body>, outside
                    .attendance-summary, so the light rules written for them above never
@@ -23921,7 +24179,9 @@
             }
             .lb-xp { white-space: nowrap; min-width: 58px; font-variant-numeric: tabular-nums; }
             .lb-ach-badge {
-                display: inline-block;
+                display: inline-flex;
+                align-items: center;
+                gap: 3px;
                 margin-left: 6px;
                 padding: 1px 6px;
                 border-radius: 8px;
@@ -23983,28 +24243,64 @@
             }
             /* Fixed to the viewport (not the scrolling table) so it's never clipped
                by .leaderboard-panel/.lb-table-wrap's overflow:auto. */
+            /* AchPopover: the player's medallions, rarest first, nine and then +N. */
             .lb-ach-popover {
                 display: none;
                 position: fixed;
                 z-index: 99999;
-                flex-wrap: wrap;
-                gap: 3px;
-                max-width: 220px;
-                padding: 6px 8px;
-                border-radius: 10px;
-                background: rgba(20,20,30,0.95);
-                border: 1px solid rgba(255,255,255,0.15);
-                box-shadow: 0 6px 20px rgba(0,0,0,0.35);
-                font-size: 0.8rem;
-                line-height: 1.4;
+                flex-direction: column;
+                gap: 10px;
+                width: 290px;
+                max-width: calc(100vw - 8px);
+                box-sizing: border-box;
+                padding: 12px;
+                border-radius: 14px;
+                background: var(--ach-surface);
+                border: 1px solid var(--ach-border);
+                box-shadow: 0 14px 32px rgba(0, 0, 0, 0.22);
+                color: var(--ach-text);
+                font-family: var(--ach-font);
+                line-height: 1.3;
                 pointer-events: none;
             }
-            .lb-ach-popover .lb-ach-emoji { cursor: default; }
-            .lb-ach-popover .lb-ach-empty {
-                font-size: 0.65rem;
-                opacity: 0.6;
-                color: #fff;
+            .lb-ach-pop-head {
+                display: flex;
+                align-items: baseline;
+                justify-content: space-between;
+                gap: 8px;
+            }
+            .lb-ach-pop-name {
+                min-width: 0;
+                font-size: 13px;
+                font-weight: 600;
                 white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .lb-ach-pop-count,
+            .lb-ach-pop-foot {
+                font-size: 11px;
+                color: var(--ach-muted);
+                font-variant-numeric: tabular-nums;
+                white-space: nowrap;
+            }
+            .lb-ach-pop-row {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+            }
+            .lb-ach-pop-row > span { display: flex; }
+            .lb-ach-pop-more {
+                height: 20px;
+                padding: 0 7px;
+                border-radius: 10px;
+                display: flex;
+                align-items: center;
+                background: var(--ach-track);
+                color: var(--ach-text);
+                font-size: 10px;
+                font-weight: 700;
+                font-variant-numeric: tabular-nums;
             }
             /* Light mode: the boards' own surfaces (their text already follows the widget's).
                The sticky rank and name cells stay opaque, so scrolled scores never show through. */
@@ -24934,8 +25230,8 @@
 
     // ------------------------------------------------------------------
     // EMOJI SWEEP: wraps emoji in the RENDERED DOM and keeps watching, so
-    // icons injected from data at render time (badge.innerHTML =
-    // achievement.icon) are covered as well as literals in templates.
+    // icons injected from data at render time (chip.textContent =
+    // meta.icon + …) are covered as well as literals in templates.
     // ------------------------------------------------------------------
 
     // Emoji_Presentation: colour emoji by default. Extended_Pictographic +
@@ -25025,7 +25321,7 @@
     const cyberEmojiObservedRoots = typeof WeakSet === 'function' ? new WeakSet() : null;
 
     // Persistent observer that sweeps whatever changes under `root`, which is
-    // what keeps data-driven writes such as achievement badges tinted.
+    // what keeps data-driven writes such as game-mode chips tinted.
     // Idempotent. Does NOT sweep existing content: callers needing an
     // immediate pass call cyberSweepEmoji() (see applyPreferences()'s
     // enteringRetro branch), so a colour drag does not walk the widget per tick.

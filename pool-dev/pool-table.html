@@ -54,7 +54,7 @@
             <div class="snake-game-container">
                 <div class="snake-game-header">
                     <span id="game-title" class="snake-game-title">🎱 8-Ball Pool</span>
-                    <div class="snake-scoreboard">
+                    <div id="pool-scoreboard" class="snake-scoreboard">
                         <button id="pool-lb-btn" class="game-score-btn" type="button"><span class="gsb-best" id="pool-wins">0</span><span class="gsb-trophy">🏆</span></button>
                     </div>
                 </div>
@@ -124,6 +124,9 @@ var userPreferences = Object.assign({
 }, (() => { try { return JSON.parse(localStorage.getItem('poolProtoPrefs') || '{}'); } catch (_) { return {}; } })());
 var isPipActive = false, pipWindow = null;
 var currentGame = 'pool', lbDisplayName = 'Ayesha', xpSystemReady = false;
+// The account's achievements, which unlock the cues: all eight here (poolProtoAch overrides).
+var userXP = { achievements: (() => { try { return JSON.parse(localStorage.getItem('poolProtoAch')) || null; } catch (_) { return null; } })() ||
+    ['teamPlayer', 'gamer', 'streak7', 'level25', 'poolShark', 'calledIt', 'snookerCentury', 'snookerMaximum'] };
 function savePreferences() { try { localStorage.setItem('poolProtoPrefs', JSON.stringify(userPreferences)); } catch (_) {} }
 function hexToRgbStr(hex) {
     const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
@@ -186,6 +189,7 @@ function toggleGameMaxModal(cfg) {
 <script src="pool-snooker.js"></script>
 <script src="pool-tour.js"></script>
 <script src="pool-camera.js"></script>
+<script src="pool-cues.js"></script>
 <script src="pool-render.js"></script>
 <script src="pool-hud.js"></script>
 <script src="pool-tour-ui.js"></script>

@@ -36,7 +36,7 @@ BLOCKS.forEach(b => {
     ok(b.name + ': sentinels appear exactly once each', host.split(b.open).length === 2 && host.split(b.close).length === 2);
     ok(b.name + ': the userscript copy is byte-identical to pool-dev/', trim(hostBlock(host, b)) === trim(devBlock(b, '\n')));
 });
-ok('the engine is spliced in dependency order', FILES.join() === 'pool-physics.js,pool-rules.js,pool-snooker.js,pool-tour.js,pool-camera.js,pool-render.js,pool-hud.js,pool-tour-ui.js,pool-ai.js,pool-snooker-ai.js,pool-game.js');
+ok('the engine is spliced in dependency order', FILES.join() === 'pool-physics.js,pool-rules.js,pool-snooker.js,pool-tour.js,pool-camera.js,pool-cues.js,pool-render.js,pool-hud.js,pool-tour-ui.js,pool-ai.js,pool-snooker-ai.js,pool-game.js');
 ok('userscript has one line ending throughout', eolOf(host) === '\n' ? host.indexOf('\r') === -1 : host.split('\r\n').length === host.split('\n').length);
 ok('the theme CSS is safe inside the template literal', templateProblem(devBlock(BLOCKS[1], '\n')) === null);
 ok('the pool theme follows the Cyberpunk theme, as pool-table.html loads them',
@@ -629,6 +629,14 @@ head('Tournament (pool-game.js)');
     ok('the seats are the match\'s players, with their seeds', P.poolNames()[1] === A.name && P.poolNames()[2] === B.name && P.poolRecordText(1) === 'Seed ' + A.seed && P.poolRecordText(2) === 'Seed ' + B.seed);
     ok('the lower seed breaks the first frame', (S.breaker === 1 ? A : B).seed === Math.max(A.seed, B.seed));
     ok('nobody is at the CPU seat', !P.poolCpuTurn());
+    // A seat that is not you picks its cue on its turn; the slot keeps it, in the saved bracket.
+    P.host.userXP.achievements.push('streak7');
+    const turn0 = S.frame.turn, guest = T.t.slots[m1.a].you ? 2 : 1, slotOf = s => T.t.slots[s === 1 ? m1.a : m1.b];
+    S.frame.turn = guest;
+    P.poolCueEquip('ember');
+    ok('a tournament seat picks its own cue: kept on its slot and saved, your setting untouched', slotOf(guest).cue === 'ember' && P.poolSeatCueId(guest) === 'ember' &&
+       JSON.parse(P.store.poolTournament).slots[guest === 1 ? m1.a : m1.b].cue === 'ember' && P.host.userPreferences.poolCue !== 'ember');
+    S.frame.turn = turn0;
     const rack = S.rackId; P.resetPoolGame();
     ok('Reset is refused mid-match (it would undo a lost frame)', S.rackId === rack);
 
@@ -1148,6 +1156,108 @@ const COLOURS = [2, 3, 4, 5, 6, 7].map(id => [id].concat([[-293.5, -81.8], [-293
     S.handoff = 0; S.clockLeft = 0.01;
     P.poolTick(16);
     ok('out of time: a foul (4), the choice to the other player', S.phase === 'choice' && S.frame.pending && S.frame.scores[2] >= 4 && S.toast && /Out of time/.test(S.toast.sub));
+}
+
+head('Cues (pool-cues.js, pool-game.js)');
+{
+    const near = (a, b) => Math.abs(a - b) < 1e-9;
+    const P = L.game({ seed: 61 }), S = P.poolS;
+    P.poolNewFrame(1);
+    const std = P.pqStats('standard', 999);
+    ok('Standard plays the game as it was: every multiplier 1, at any level', std.level === 5 && std.power === 1 && std.aim === 1 && std.spin === 1 && std.time === 1);
+    const top = P.PQ_SET.filter(q => q.id !== 'standard').map(q => P.pqStats(q.id, 0, 5));
+    ok('no cue is best at everything: each has a bar of 6 or less at level 5, none totals over 32', top.every(s => Math.min(...s.bars) <= 6 && s.bars.reduce((a, b) => a + b) <= 32) && top.some(s => s.bars[0] === 10 && s.bars[2] <= 2));
+    const steps = id => P.pqSteps(P.pqById(id)).join(), rank = q => P.PQ_TIERS.indexOf(q.need[1]) + (q.need[0] === 'snooker' ? 4 : 0);
+    ok('the cheapest cue climbs on 5, +7, +10, +15 Easy pool wins; the dearest on 5, +10, +15, +20 Pro snooker wins',
+       steps('standard') === '0,5,12,22,37' && P.pqById('standard').need.slice(0, 2).join() === 'pool,easy' && steps('collector') === '0,5,15,30,50' && P.pqById('collector').need.slice(0, 2).join() === 'snooker,pro');
+    ok('up the collection the climb never gets easier or shorter', P.PQ_SET.every((q, i, a) => !i || (rank(q) >= rank(a[i - 1]) && P.pqSteps(q)[4] >= P.pqSteps(a[i - 1])[4])));
+    ok('levels follow the cue\'s own ladder: Standard at 4, 5, 12, 22, 37 wins is level 1–5', [4, 5, 12, 22, 37].map(n => P.pqLevel(n, P.pqById('standard'))).join() === '1,2,3,4,5');
+    ok('a pool cue takes wins at its tier or above, snooker\'s too; a snooker cue only snooker\'s', P.pqCounts(P.pqById('ember'), 'snooker', 'normal') && P.pqCounts(P.pqById('ember'), 'pool', 'pro') &&
+       !P.pqCounts(P.pqById('ember'), 'pool', 'easy') && !P.pqCounts(P.pqById('crown'), 'pool', 'pro') && !P.pqCounts(P.pqById('crown'), 'snooker', 'hard') && P.pqCounts(P.pqById('crown'), 'snooker', 'pro'));
+    ok('levels 2–4 fall between: Ember at level 3 is 9/5/2/5', P.pqStats('ember', 15).bars.join('/') === '9/5/2/5');
+    ok('every cue draws from the design\'s materials', P.PQ_SET.every(q => q.sections.concat(q.rings || []).every(x => P.PQ_MATS[x[2]]) && (q.points || []).every(p => P.PQ_MATS[p.core])));
+    // Unlocks.
+    P.host.userPreferences.poolCue = 'ember';
+    ok('a locked cue does not play: an unearned Ember is Standard', P.poolCueId() === 'standard');
+    P.host.userXP.achievements.push('streak7');
+    ok('its achievement unlocks it', P.poolCueId() === 'ember');
+    // Power and spin, on the shot and in the strike.
+    S.phase = 'aim'; S.tip = { x: 0.6, y: 0 };
+    const shot = P.poolHumanShot(100), cfg = S.cfg;
+    ok('Power: Ember (7) hits 7.5 % harder at full power, and its cap allows it', near(shot.speed, cfg.maxSpeed * 1.075) && shot.cap === shot.speed);
+    ok('Spin: Ember (2) reaches 10 % less far from the centre', near(shot.tipX, 0.54) && near(shot.tipMax, cfg.maxTip * 0.9));
+    const w = P.ppCloneWorld(S.world); w.log = [];
+    P.ppStrike(w, Object.assign({}, shot, { speed: 1e6, tipX: 2 }));
+    ok('ppStrike holds the cue\'s cap and reach in place of the table\'s', near(w.log[0].speed, cfg.maxSpeed * 1.075) && near(w.log[0].tipX, cfg.maxTip * 0.9));
+    // Aim and time.
+    P.host.userXP.achievements.push('level25');
+    P.poolCueEquip('rosewood6');
+    ok('Aim: Rosewood Six (7) runs the guide 37.5 % longer', P.poolGuideLen() === 206);
+    P.host.userPreferences.poolGuideLen = 'none';
+    ok('…and None stays none', P.poolGuideLen() === 0);
+    P.host.userPreferences.poolGuideLen = 'long';
+    ok('Time: its 6 gives the turn 10 % more clock; the table\'s own setting stays 30', P.poolTurnClock() === 33 && S.clockTotal === 30);
+    // The CPU.
+    P.poolCpuTier = 'pro'; S.frame.turn = 2;
+    ok('the CPU plays its tier\'s cue: Pro is Black Crown at level 5', P.poolCueStats().id === 'crown' && P.poolCueStats().level === 5);
+    S.frame.turn = 1;
+    ok('…Easy Standard, Normal Tulipwood, Hard Malachite (Century Ash at snooker)', P.pqCpuStats('easy', 'pool').id === 'standard' && P.pqCpuStats('normal', 'pool').id === 'tulipwood' &&
+       P.pqCpuStats('hard', 'pool').id === 'malachite' && P.pqCpuStats('hard', 'snooker').id === 'centuryash');
+    // Wins against the CPU, at the cue's tier or above, and only those, level the cue.
+    const recOf = G => JSON.parse(G.store.poolCueRecord || '{}');
+    P.host.userPreferences.poolDifficulty = 'normal';
+    P.poolNewFrame(1); P.poolEndFrame({ winner: 1 });
+    ok('a win under the cue\'s tier does not count, and the frame card says what does', !recOf(P).rosewood6 && S.cueLine === 'Rosewood Six levels on Hard+ wins, not normal pool');
+    P.host.userPreferences.poolDifficulty = 'hard';
+    P.poolNewFrame(1); P.poolEndFrame({ winner: 1 });
+    ok('a Hard win counts for it, and the frame card says how far', recOf(P).rosewood6 === 1 && S.cueLine === 'Rosewood Six: 1 of 5 Hard+ wins to level 2');
+    P.poolNewFrame(1); P.poolEndFrame({ winner: 2 });
+    ok('a loss does not', recOf(P).rosewood6 === 1 && S.cueLine === '');
+    P.poolSetMode('pvp'); P.poolNewFrame(1); P.poolEndFrame({ winner: 1 });
+    ok('nor a 2 Players frame (you cannot beat yourself for a level)', recOf(P).rosewood6 === 1);
+    // Collector.
+    const Q = L.game({ seed: 62, prefs: { poolDifficulty: 'hard' }, store: { poolCueRecord: JSON.stringify({ standard: 37, tulipwood: 39, birdseye: 40, ember: 42, rosewood6: 41 }) } });
+    Q.host.userXP.achievements.push('teamPlayer', 'gamer', 'streak7', 'level25');
+    Q.host.userPreferences.poolCue = 'rosewood6';
+    Q.poolNewFrame(1);
+    ok('Collector stays locked with 4 mastered, and says how far', !Q.poolCueOpen(Q.pqById('collector')) && Q.poolCueModel().list.find(c => c.id === 'collector').cond === 'Master 5 cues · 4 of 5');
+    Q.poolEndFrame({ winner: 1 });
+    ok('the fifth mastered cue unlocks it, with the "New cue" notice', Q.poolCueOpen(Q.pqById('collector')) && Q.poolS.cueNew === 'collector' && Q.poolS.cueLine === 'Rosewood Six mastered');
+    ok('unlockAchievement\'s id finds its cue, and others find none', Q.poolCueUnlocked('snookerMaximum').id === 'crown' && Q.poolCueUnlocked('flapMaster') === null);
+    ok('equipping a locked cue does nothing', (Q.poolCueEquip('malachite'), Q.poolCueId() === 'rosewood6'));
+    // The win goes to the cue that played most of your shots: one changed late doesn't take it.
+    const C = L.game({ seed: 64, prefs: { poolDifficulty: 'hard', poolCue: 'rosewood6' } }), CS = C.poolS;
+    C.host.userXP.achievements.push('streak7', 'level25');
+    C.poolNewFrame(1);
+    CS.phase = 'strike'; CS.strikeT = 1e6; CS.power = 40;
+    C.poolTick(1);
+    ok('your shots against the CPU are counted by cue', CS.cueShots.rosewood6 === 1);
+    CS.cueShots = { rosewood6: 5, ember: 1 }; C.host.userPreferences.poolCue = 'ember';
+    C.poolEndFrame({ winner: 1 });
+    ok('…and the frame\'s win goes to the one that played most, not the one held at the end', recOf(C).rosewood6 === 1 && !recOf(C).ember);
+
+    // Each human seat its own cue, changed mid-match (8 Ball Pool's way); the CPU its tier's.
+    const G = L.game({ seed: 63 }), T = G.poolS;
+    G.host.userXP.achievements.push('streak7', 'level25', 'teamPlayer');
+    G.host.userPreferences.poolCue = 'ember';
+    G.poolSetMode('pvp'); G.poolNewFrame(1); T.handoff = 0;
+    ok('2 Players: both seats start on your cue', G.poolSeatCueId(1) === 'ember' && G.poolSeatCueId(2) === 'ember');
+    T.frame.turn = 2;
+    G.poolCueEquip('rosewood6');
+    ok('Player 2 picks on their turn: their seat changes, your setting does not', G.poolSeatCueId(2) === 'rosewood6' && G.poolSeatCueId(1) === 'ember' && G.host.userPreferences.poolCue === 'ember');
+    ok('…and it plays: their aim line, their clock', G.poolGuideLen() === 206 && G.poolTurnClock() === 33 && G.poolCueStats().id === 'rosewood6');
+    ok('…the collection says whose cue it sets', G.poolCueView().who === G.poolNames()[2] && G.poolCueView().eq === 'rosewood6');
+    T.frame.turn = 1;
+    G.poolCueEquip('tulipwood');
+    ok('Player 1 is you: their pick is your setting', G.host.userPreferences.poolCue === 'tulipwood' && G.poolSeatCueId(2) === 'rosewood6' && G.poolCueView().who === null);
+    G.poolSetMode('cpu');
+    ok('a new mode drops the guest seat\'s pick', G.poolS.p2Cue === null);
+    G.poolNewFrame(1); T.frame.turn = 2; G.poolCpuTier = 'hard';
+    ok('vs CPU, on its turn the CPU plays its tier\'s cue while the collection serves you', G.poolCueStats().id === 'malachite' && G.poolPickSeat() === 1 && G.poolSeatCueId(1) === 'tulipwood');
+    T.frame.turn = 1; T.phase = 'aim'; T.clockLeft = 10; T.cues = true;
+    G.poolTick(1000);
+    ok('the clock keeps running while the collection is open', Math.abs(T.clockLeft - 9) < 1e-9);
+    T.cues = false;
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

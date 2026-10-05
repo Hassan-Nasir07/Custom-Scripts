@@ -288,6 +288,13 @@ store.ludoRecord = JSON.stringify({ wins: 99, losses: 1 });
 H.applyPlayerRecordToLocal(snap);
 ok('restore never lowers ludoGamesWon', store.ludoGamesWon === '99', store.ludoGamesWon);
 ok('restore never lowers ludoRecord', JSON.parse(store.ludoRecord).wins === 99);
+// The wins per cue (their levels): each cue's own highest count, from either side.
+store.poolCueRecord = JSON.stringify({ ember: 12, crown: 3 });
+const cueSnap = H.buildPlayerSnapshot();
+store.poolCueRecord = JSON.stringify({ ember: 4, malachite: 9 });
+H.applyPlayerRecordToLocal(cueSnap);
+const cues = JSON.parse(store.poolCueRecord);
+ok('restore keeps each cue\'s highest win count', cueSnap.poolCueRecord.ember === 12 && cues.ember === 12 && cues.crown === 3 && cues.malachite === 9, store.poolCueRecord);
 
 // A corrupt value reads as its default: the snapshot and the restore carry on.
 Object.assign(store, { poolRecord: '{bad', snookerRecord: 'nope', reflexHighScores: '{', prayerCount: 'x', userXP: '{' });

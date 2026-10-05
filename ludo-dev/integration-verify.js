@@ -205,11 +205,14 @@ ok('legacy wins are not backfilled into a tier',
    !/ludoWinsByTier[\s\S]{0,200}?ludoGamesWon/.test(src));
 ok('restore merges the tiers upward only',
    /raise\('ludoWinsByTier', 'ludo:', \['easy', 'normal', 'hard'\]\)/.test(src) && /function lsRaise[\s\S]{0,400}?Math\.max\(cur, v\)/.test(src));
+ok('snapshot carries the wins per cue, and restore raises each cue (lsRaise)',
+   /poolCueRecord: lsJSON\('poolCueRecord'/.test(src) && /\['poolCueRecord', PQ_SET\.map\(q => q\.id\)\]\][\s\S]{0,200}?lsRaise\(/.test(src));
+ok('an achievement that earns a cue says so', /unlockAchievement[\s\S]{0,1200}?poolCueUnlocked\(achievementKey\)/.test(src));
 ok('snapshot carries ludoRecord',
    /ludoRecord: lsJSON\('ludoRecord'/.test(src));
 ok('restore raises ludoGamesWon', has("raise('ludoGamesWon',       gb.ludo)"));
 ok('restore merges ludoRecord upward only',
-   /\['ludoRecord', \['wins', 'losses'\]\]\][\s\S]{0,200}?lsRaise\(/.test(src));
+   /\['ludoRecord', \['wins', 'losses'\]\][\s\S]{0,200}?lsRaise\(/.test(src));
 ok('the board row reuses collectGameBests (no pasted copy to forget)', /const lbOwnEntry = [\s\S]{0,400}?gameBests: collectGameBests\(\)/.test(src));
 
 head('Engine parity with ludo-dev/');

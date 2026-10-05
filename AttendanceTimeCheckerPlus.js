@@ -11,7 +11,7 @@
     //             (pool-dev/sync-verify.js fails until the two match)
     const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
     // Seed UNCHANGED on purpose: rotating it without BUILD_TOKEN_CURRENT breaks every sync.
-    const BUILD_LABEL = 'v10';
+    const BUILD_LABEL = 'v11';
 
     // Ordinal of a 'v<N>' label; null if malformed (callers then assume behind).
     function _buildOrdinal(label) {
@@ -795,6 +795,8 @@
             // Pool extended record (W/L/win-rate)
             poolRecord: lsJSON('poolRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 }),
             snookerRecord: lsJSON('snookerRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 }),
+            // Frames won with each cue (pool-cues.js): their levels.
+            poolCueRecord: lsJSON('poolCueRecord', {}),
             // Ludo W/L vs CPU; also drives the adaptive difficulty tier, so a fresh browser restores it.
             ludoRecord: lsJSON('ludoRecord', { wins: 0, losses: 0 }),
             // Reflex full blob (screen + target modes)
@@ -1056,9 +1058,9 @@
             if (rec.prayerCount > cur) localStorage.setItem('prayerCount', String(rec.prayerCount));
         }
 
-        // The W/L records, each field only raised.
+        // The W/L records and the wins per cue, each field only raised.
         const seats = ['p1Wins', 'p1Losses', 'p2Wins', 'p2Losses'];
-        [['poolRecord', seats], ['snookerRecord', seats], ['ludoRecord', ['wins', 'losses']]].forEach(([key, fields]) => {
+        [['poolRecord', seats], ['snookerRecord', seats], ['ludoRecord', ['wins', 'losses']], ['poolCueRecord', PQ_SET.map(q => q.id)]].forEach(([key, fields]) => {
             const r = rec[key];
             if (r && typeof r === 'object') lsRaise(key, fields, f => r[f], true);
         });
@@ -2933,9 +2935,10 @@
         const cfg = w.cfg, R = cfg.ballR;
         const cue = w.balls.find(b => b.id === 0);
         let a = shot.tipX || 0, bt = shot.tipY || 0;
-        const m = Math.hypot(a, bt);
-        if (m > cfg.maxTip) { a *= cfg.maxTip / m; bt *= cfg.maxTip / m; }
-        const v0 = Math.max(0, Math.min(cfg.maxSpeed, shot.speed));
+        // A cue's own reach (shot.cap, shot.tipMax) stands in for the table's.
+        const m = Math.hypot(a, bt), tm = shot.tipMax || cfg.maxTip;
+        if (m > tm) { a *= tm / m; bt *= tm / m; }
+        const v0 = Math.max(0, Math.min(shot.cap || cfg.maxSpeed, shot.speed));
         const th = shot.angle + cfg.squirt * a;                 // squirt: away from the English
         const dx = Math.cos(shot.angle), dy = Math.sin(shot.angle);
         const k = 5 * v0 / (2 * R);
@@ -4463,6 +4466,340 @@
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // 8-BALL POOL — CUES
+    // ═══════════════════════════════════════════════════════════════════
+    // The cue collection (POOL_V2_PLAN.md, Cues): the design's materials and cues as data,
+    // their stats and mastery levels, and pqDraw, the one renderer for the table and the picker.
+
+    // Materials: [base, shadow edge, highlight line], then the average colour and the rod width
+    // (px) under which the texture is drawn as that average, then the texture (sizes in mm).
+    const PQ_MATS = {
+        tipBlue: ['#3E73B8', '#22447A', '#7FA5DA'], tipBrown: ['#7A5233', '#42291A', '#A67E5A'], ferrule: ['#F1ECE0', '#BDB4A1', '#FFFFFF'],
+        brassFerr: ['#C9A55A', '#7D6128', '#F3DE9E'], lacquer: ['#1A1B1D', '#060607', '#5A5D62'], rubber: ['#1C1D1F', '#0B0B0C', '#3A3C40'],
+        brass: ['#C8A050', '#7A5C22', '#F5E2A6'], silver: ['#C9CDD2', '#7C838C', '#FFFFFF'], gold: ['#D4AF37', '#8A6A12', '#FFF0B0'],
+        turquoise: ['#3FB5A9', '#1E6E66', '#8BE0D5'],
+        maple: ['#E8D3A6', '#B08C5C', '#FAF0D8', '#E2CB9C', 28, { t: 'grain', c: '#CDAE78', w: 0.25, s: 1.6, wave: 0.6 }],
+        birdseye: ['#E4C998', '#A9824F', '#F7E8C8', '#DCC08D', 36, { t: 'grain', c: '#C9A56E', w: 0.25, s: 1.8, wave: 0.5, eye: '#8E6A3A', eyeS: 3.4, eyeR: 0.55 }],
+        flame: ['#E2B979', '#9E7440', '#F6DDB0', '#D8AE6E', 32, { t: 'grain', c: '#C89A5A', w: 0.3, s: 1.8, wave: 0.6, fig: '#B07E40', figS: 2.8 }],
+        cocobolo: ['#9C4A22', '#5A2610', '#C9774A', '#8A4020', 24, { t: 'stripe', c: '#4A1E0C', w: 0.6, s: 2.4, wave: 1.4 }],
+        ebony: ['#1E1A18', '#0A0908', '#4A423D', '#201C1A', 44, { t: 'grain', c: '#332C27', w: 0.3, s: 2.2, wave: 0.3 }],
+        rosewood: ['#5E2A1C', '#30120A', '#8E4C36', '#52241A', 22, { t: 'stripe', c: '#2A0F08', w: 0.8, s: 3.0, wave: 1.8 }],
+        zebrano: ['#D9BF8C', '#8F7448', '#F1E0BC', '#B39A6C', 16, { t: 'stripe', c: '#4B3520', w: 1.4, s: 4.2, wave: 1.0 }],
+        tulipwood: ['#D98A6A', '#9A5034', '#F2B79C', '#D07F60', 22, { t: 'stripe', c: '#B9654A', w: 0.7, s: 2.8, wave: 1.2 }],
+        ash: ['#E7D7B4', '#AE9568', '#F8EFD9', '#DFCDA6', 30, { t: 'ash', c: '#C3A675', w: 0.35, s: 3.0, ang: 26 }],
+        walnut: ['#3B2318', '#1C0F09', '#6A4634', '#36201A', 36, { t: 'grain', c: '#2A170E', w: 0.4, s: 2.0, wave: 0.6 }],
+        linenBlack: ['#1F2023', '#0B0B0C', '#44464B', '#26282B', 40, { t: 'linen', c: '#3A3C41', p: 0.9 }],
+        linenNavy: ['#2F4060', '#152035', '#6A7FA3', '#56647E', 40, { t: 'linen', c: '#C8CED8', p: 0.9 }],
+        pebble: ['#6B4529', '#33200F', '#9C7150', '#603D24', 40, { t: 'pebble', c: '#4E301A', size: 0.9 }],
+        lizardRed: ['#6A1E18', '#320C08', '#A2483C', '#5C1A15', 40, { t: 'lizard', c: '#3E0F0B', size: 1.8 }],
+        lizardBlk: ['#2A2C2F', '#0D0E0F', '#5C6066', '#232528', 40, { t: 'lizard', c: '#121315', size: 1.8 }],
+        stitchBlk: ['#1D1C1B', '#0A0A09', '#4A4744', '#2A2826', 28, { t: 'stitched', c: '#E9DFC8', s: 3.2 }],
+        stitchGold: ['#1D1C1B', '#0A0A09', '#4A4744', '#2C2822', 28, { t: 'stitched', c: '#D9B45A', s: 3.2 }],
+        stack: ['#7A4A2A', '#3A200E', '#AE7A52', '#6A3F23', 16, { t: 'stack', c: '#4F2C16', ring: 2.0 }],
+        carbon: ['#1E2023', '#08090A', '#5E646B', '#1F2125', 40, { t: 'carbon', c: '#2B2E33', c2: '#131416', cell: 1.2 }],
+        flake: ['#2A2E34', '#0E1012', '#7A828C', '#3A3F46', 40, { t: 'flake', c: '#B8C0CA', size: 0.35 }],
+        pearl: ['#EDE7DE', '#B7AFA4', '#FFFFFF', '#ECE9E2', 0, { t: 'pearl', c: '#E4EEF0', c2: '#F2E4EC', c3: '#E7ECD6' }],
+        abalone: ['#4F8A86', '#234240', '#BFE3D6', '#5A8580', 0, { t: 'pearl', c: '#3E8E8A', c2: '#7A5BA8', c3: '#6FA65A' }],
+        malachite: ['#1F7A52', '#0C3E28', '#58B88A', '#1A6A47', 20, { t: 'bands', c: '#0F4F33', s: 1.2 }],
+        jasper: ['#2F5A3E', '#16301F', '#6E9A78', '#3F543B', 20, { t: 'spots', c: '#A82A22', size: 0.9 }],
+    };
+    // Sections: [from %, to %, material, sheen], measured from the tip.
+    const pqStd = (sh, joint, fore, wrap, butt) => [[0, 0.9, 'tipBlue'], [0.9, 2.5, 'ferrule'], [2.5, 50, sh], [50, 51.5, joint, 1],
+        [51.5, 72, fore], [72, 90, wrap], [90, 99, butt], [99, 100, 'rubber']];
+    // Points and splices point at the tip, edged by veneers (outside in, [colour, mm]).
+    const pqPts = (n, apex, core, veneers, o) => Object.assign({ n, apex, base: 71.5, rot: 0, w: n > 4 ? 0.82 : 0.85, core, veneers }, o);
+    // bars: [power, aim, spin, time] at level 1 and at level 5. No cue is best at everything:
+    // each has a bar of 6 or less, and none totals more than 32 of 40 (the user, 2026-10-05).
+    // need: [game, tier, wins for levels 2, 3, 4 and 5]: the better the cue, the harder its wins
+    // and the longer its climb (the user, 2026-10-05). See pqCounts.
+    const PQ_SET = [
+        { id: 'standard', name: 'Standard', cond: 'Always yours · the house cue', blurb: 'Maple shaft · black linen wrap', bars: [[4, 4, 4, 4], [4, 4, 4, 4]], need: ['pool', 'easy', [5, 7, 10, 15]],
+            sections: pqStd('maple', 'brass', 'lacquer', 'linenBlack', 'walnut') },
+        { id: 'tulipwood', name: 'Tulipwood', cond: 'Team Player · join the leaderboard', ach: 'teamPlayer', blurb: 'Tulipwood forearm · navy linen', bars: [[5, 5, 4, 4], [6, 6, 5, 5]], need: ['pool', 'easy', [5, 7, 11, 16]],
+            sections: pqStd('maple', 'silver', 'tulipwood', 'linenNavy', 'tulipwood'), rings: [[72, 0.8, 'silver'], [90, 0.8, 'silver']] },
+        { id: 'birdseye', name: 'Birdseye', cond: 'Office Gamer · earn XP in 50 game sessions', ach: 'gamer', blurb: 'Birdseye maple · pebble leather', bars: [[4, 5, 5, 5], [4, 7, 6, 6]], need: ['pool', 'normal', [5, 8, 11, 16]],
+            sections: pqStd('maple', 'ebony', 'birdseye', 'pebble', 'birdseye'), rings: [[51.5, 0.8, 'brass'], [72, 0.8, 'brass'], [90, 0.8, 'brass']] },
+        { id: 'ember', name: 'Ember', cond: 'On Fire · keep a 7-day work streak', ach: 'streak7', blurb: 'Flame maple · 4 points · lizard', bars: [[7, 4, 2, 4], [10, 6, 2, 6]], need: ['pool', 'normal', [5, 8, 12, 17]],
+            sections: pqStd('maple', 'brass', 'flame', 'lizardRed', 'cocobolo'), rings: [[72, 1, 'brass'], [90, 1, 'brass']],
+            points: [pqPts(4, 54, 'cocobolo', [['#121212', 0.5], ['#F2EEE4', 0.5], ['#A3262A', 0.6]])] },
+        { id: 'rosewood6', name: 'Rosewood Six', cond: 'Level 25 · reach level 25', ach: 'level25', blurb: 'Maple · 6 rosewood points', bars: [[3, 7, 4, 6], [3, 9, 5, 8]], need: ['pool', 'hard', [5, 8, 12, 17]],
+            sections: pqStd('maple', 'silver', 'maple', 'stitchBlk', 'rosewood'), rings: [[72, 0.8, 'silver'], [90, 0.8, 'silver']],
+            points: [pqPts(6, 53, 'rosewood', [['#121212', 0.5], ['#2C6E49', 0.5], ['#F2EEE4', 0.5]])] },
+        { id: 'carbonfin', name: 'Carbon Fin', cond: 'Pool Shark · win 100 pool games against the CPU', ach: 'poolShark', blurb: 'Carbon shaft · stacked leather', bars: [[6, 4, 7, 3], [8, 5, 10, 3]], need: ['pool', 'hard', [5, 9, 13, 18]],
+            sections: pqStd('carbon', 'silver', 'ebony', 'stack', 'flake'), rings: [[72, 0.8, 'silver'], [90, 0.8, 'silver']],
+            points: [pqPts(4, 55, 'zebrano', [['#F2EEE4', 0.6], ['#121212', 0.5]])] },
+        { id: 'malachite', name: 'Malachite', cond: 'Called It · beat the Pro pool CPU', ach: 'calledIt', blurb: 'Malachite points · black lizard', bars: [[4, 7, 7, 4], [4, 9, 9, 5]], need: ['pool', 'pro', [5, 9, 13, 18]],
+            sections: pqStd('maple', 'silver', 'ebony', 'lizardBlk', 'ebony'), rings: [[72, 0.8, 'silver'], [89.05, 0.8, 'silver'], [89.45, 3, 'malachite'], [89.85, 0.8, 'silver']],
+            points: [pqPts(4, 53, 'malachite', [['#C9CDD2', 0.5], ['#121212', 0.5], ['#F2EEE4', 0.5]], { inlay: { shape: 'window', mat: 'turquoise', size: 7, at: 0.45 } })],
+            inlays: [{ at: 94.5, n: 4, shape: 'diamond', size: 7, mat: 'malachite', rot: 45 }] },
+        { id: 'centuryash', name: 'Century Ash', cond: 'Century · make a century break against the snooker CPU', ach: 'snookerCentury', blurb: 'Ash shaft · 4 ebony splices', bars: [[5, 8, 4, 7], [5, 10, 5, 8]], need: ['snooker', 'hard', [5, 9, 14, 19]],
+            sections: [[0, 0.9, 'tipBrown'], [0.9, 2.5, 'brassFerr'], [2.5, 70, 'ash'], [70, 99, 'ebony'], [99, 100, 'rubber']],
+            rings: [[70, 2, 'pearl'], [76, 1, 'brass'], [98.5, 1, 'brass']],
+            points: [pqPts(4, 40, 'ebony', [['#EFE3C6', 0.6], ['#121212', 0.4]], { base: 70, w: 0.92 }), pqPts(4, 62, 'ebony', [['#EFE3C6', 0.6]], { base: 70, rot: 45, w: 0.6 })],
+            inlays: [{ at: 95, n: 4, shape: 'dot', size: 4, mat: 'abalone', rot: 0 }] },
+        { id: 'crown', name: 'Black Crown', cond: 'Maximum · make a 147 against the snooker CPU', ach: 'snookerMaximum', blurb: 'Ebony · 6 abalone points', bars: [[7, 7, 5, 6], [9, 9, 6, 6]], need: ['snooker', 'pro', [5, 10, 14, 19]], sheen: 1,
+            sections: pqStd('maple', 'gold', 'ebony', 'stitchGold', 'ebony'), rings: [[51.5, 1, 'pearl'], [72, 1, 'gold'], [90, 1, 'gold'], [98.5, 1, 'gold']],
+            points: [pqPts(6, 53, 'abalone', [['#D4AF37', 0.5], ['#121212', 0.5], ['#F2EEE4', 0.5]], { inlay: { shape: 'window', mat: 'jasper', size: 6, at: 0.42 } })],
+            inlays: [{ at: 94.5, n: 6, shape: 'diamond', size: 6, mat: 'pearl', rot: 0 }] },
+        // Not in the design: the design's own vocabulary, for mastering five cues.
+        { id: 'collector', name: 'Collector', cond: 'Master 5 cues', blurb: 'Ebony · pearl and abalone points · lizard', bars: [[8, 7, 7, 5], [9, 9, 8, 6]], need: ['snooker', 'pro', [5, 10, 15, 20]], sheen: 1,
+            sections: pqStd('maple', 'gold', 'ebony', 'lizardRed', 'ebony'), rings: [[51.5, 1, 'abalone'], [71.4, 0.8, 'gold'], [72.4, 1.2, 'pearl'], [89.6, 1.2, 'pearl'], [90.6, 0.8, 'gold'], [98.5, 1, 'gold']],
+            points: [pqPts(4, 52, 'pearl', [['#D4AF37', 0.5], ['#121212', 0.5], ['#3FB5A9', 0.4]], { inlay: { shape: 'diamond', mat: 'gold', size: 5, at: 0.4 } }),
+                pqPts(4, 63, 'abalone', [['#D4AF37', 0.4], ['#121212', 0.4]], { rot: 45, w: 0.55 })],
+            inlays: [{ at: 94.5, n: 4, shape: 'dot', size: 4, mat: 'pearl', rot: 0 }, { at: 94.5, n: 4, shape: 'diamond', size: 5, mat: 'abalone', rot: 45 }] },
+    ];
+    const pqById = id => PQ_SET.find(q => q.id === id) || PQ_SET[0];
+    // [length, tip, butt] in ball diameters, and the ball in mm.
+    const PQ_GAME = { pool: [25.7, 0.23, 0.52, 57], snooker: [27.6, 0.19, 0.55, 52.5] };
+    // Diameter (D) at s = 0..1 from the tip: level through tip and ferrule, a 1.25-power taper,
+    // and the bumper at 92 % of the butt.
+    function pqDia(G, s) {
+        if (s <= 0.025) return G[1];
+        if (s >= 0.99) return G[2] * 0.92;
+        return G[1] + (G[2] - G[1]) * Math.pow((s - 0.025) / 0.965, 1.25);
+    }
+
+    // ── Stats and mastery ─────────────────────────────────────────────
+    // Wins against the CPU with a cue raise it a level, but only wins at its tier or above, and
+    // for a snooker cue only snooker's (pool cues take snooker wins too: the harder game).
+    const PQ_TIERS = ['easy', 'normal', 'hard', 'pro'];
+    const pqSteps = q => q.need[2].reduce((out, n) => out.concat(out[out.length - 1] + n), [0]);
+    const pqLevel = (wins, q) => pqSteps(q).filter(n => (wins || 0) >= n).length;
+    const pqCounts = (q, game, tier) => PQ_TIERS.indexOf(tier) >= PQ_TIERS.indexOf(q.need[1]) && (q.need[0] === 'pool' || game === 'snooker');
+    // "Hard+ wins", "Pro snooker wins", or "CPU wins" when any counts.
+    function pqNeedText(q) {
+        const t = q.need[1], T = t.charAt(0).toUpperCase() + t.slice(1) + (t === 'pro' ? '' : '+');
+        return q.need[0] === 'snooker' ? T + ' snooker wins' : t === 'easy' ? 'CPU wins' : T + ' wins';
+    }
+    // Each bar above or below 4 moves its stat a step: Standard (4/4/4/4) is the game as it was.
+    const PQ_STEP = [0.025, 0.125, 0.05, 0.05];
+    function pqStats(id, wins, level) {
+        const q = pqById(id), lv = level || pqLevel(wins, q);
+        const bars = q.bars[0].map((v, i) => Math.round(v + (q.bars[1][i] - v) * (lv - 1) / 4));
+        const m = bars.map((b, i) => 1 + PQ_STEP[i] * (b - 4));
+        return { id: q.id, level: lv, bars, power: m[0], aim: m[1], spin: m[2], time: m[3] };
+    }
+    // The CPU's cue for its tier (the user, 2026-10-05): only power and spin change its play.
+    const PQ_CPU = { easy: ['standard', 1], normal: ['tulipwood', 3], hard: ['malachite', 3], pro: ['crown', 5] };
+    const pqCpuStats = (tier, game) => {
+        const c = tier === 'hard' && game === 'snooker' ? ['centuryash', 3] : PQ_CPU[tier] || PQ_CPU.easy;
+        return pqStats(c[0], 0, c[1]);
+    };
+    const pqMastered = rec => PQ_SET.filter(q => q.id !== 'collector' && pqLevel(rec && rec[q.id], q) >= 5).length;
+    // Achievements unlock the designed cues; mastering five unlocks Collector.
+    const pqUnlocked = (q, achievements, rec) => (q.ach ? (achievements || []).indexOf(q.ach) >= 0 : q.id !== 'collector' || pqMastered(rec) >= 5);
+
+    // ── The renderer ──────────────────────────────────────────────────
+    // A 10-sided rod lit from above: five facets face the viewer. Their edges across the rod's
+    // width, and their normals from the viewer toward +w.
+    const PQ_EDGES = [0, 0.095, 0.345, 0.655, 0.905, 1];
+    const PQ_FACETS = [72, 36, 0, -36, -72].map(d => d * Math.PI / 180);
+    const PQ_TILES = new Map();
+    const pqMix = (a, b, t) => {
+        const p = parseInt(a.slice(1), 16), q = parseInt(b.slice(1), 16);
+        return '#' + [16, 8, 0].map(s => { const x = (p >> s) & 255; return Math.round(x + (((q >> s) & 255) - x) * t).toString(16).padStart(2, '0'); }).join('');
+    };
+
+    // A texture's repeating tile, once per material and scale: x along the rod, y across it.
+    function pqTile(key, m, q, mk) {
+        const id = key + '@' + q;
+        if (PQ_TILES.has(id)) return PQ_TILES.get(id);
+        const T = m[5], rows = Math.max(1, Math.ceil(6 / (T.s || 6)));
+        const size = {
+            grain: [T.fig ? T.figS * 8 : 24, T.s * rows], ash: [T.s, 8], linen: [T.p, T.p], pebble: [T.size, T.size], lizard: [T.size * 1.2, T.size],
+            stitched: [T.s, 11], stack: [T.ring, 1], carbon: [T.cell * 2.83, T.cell * 2.83], flake: [T.size * 9, T.size * 7], bands: [T.s * 8, T.s * 4],
+            spots: [T.size * 3, T.size * 2.4], pearl: [12, 1],
+        }[T.t === 'stripe' ? 'grain' : T.t];
+        const W = Math.max(2, Math.round(size[0] * q)), H = Math.max(2, Math.round(size[1] * q));
+        const cv = mk(W, H), c = cv.getContext('2d'), tw = size[0], th = size[1];
+        c.scale(W / tw, H / th);
+        c.fillStyle = m[0]; c.fillRect(0, 0, tw, th);
+        const rgba = (a, hex) => pgRgba(hex || T.c, a);
+        const dot = (x, y, r, style) => { c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fillStyle = style; c.fill(); };
+        // Bands where (x ∓ y) mod L lies in [L/2, L), for twills and weaves.
+        const diag = (L, flip, style) => {
+            c.fillStyle = style; c.beginPath();
+            for (let k = -2; k <= 2; k++) {
+                const d1 = k * L + L / 2, d2 = d1 + L / 2, Y = y => (flip ? th - y : y);
+                c.moveTo(d1 - L * 3, Y(-L * 3)); c.lineTo(d1 + L * 3, Y(L * 3)); c.lineTo(d2 + L * 3, Y(L * 3)); c.lineTo(d2 - L * 3, Y(-L * 3)); c.closePath();
+            }
+            c.fill();
+        };
+        const wave = (y, amp, ph, lw, style) => {
+            c.beginPath();
+            for (let x = 0; x <= tw + 0.01; x += tw / 24) { const yy = y + amp * Math.sin(2 * Math.PI * x / tw + ph); x ? c.lineTo(x, yy) : c.moveTo(x, yy); }
+            c.lineWidth = lw; c.strokeStyle = style; c.stroke();
+        };
+        const t = T.t;
+        if (t === 'grain' || t === 'stripe') {
+            const a = t === 'stripe' ? 0.8 : 0.5;
+            if (T.fig) for (let x = 0; x < tw; x += T.figS) { c.fillStyle = rgba(0.4, T.fig); c.fillRect(x + T.figS * 0.15, 0, T.figS * 0.4, th); }
+            for (let i = 0; i < rows; i++) {
+                [-th, 0, th].forEach(o => {
+                    wave(o + (i + 0.3) * T.s, T.wave * 0.35, i * 1.7, T.w, rgba(a));
+                    wave(o + (i + 0.8) * T.s, T.wave * 0.25, i * 2.3 + 1, T.w * 0.7, rgba(a * 0.6));
+                });
+            }
+            if (T.eye) for (let i = 0; i < 4; i++) dot((i * 0.27 + (i % 2) * 0.5) % 1 * tw, (i + 0.5) / 4 * th, T.eyeR, rgba(0.85, T.eye));
+        } else if (t === 'ash') {
+            const d = th / 2 * Math.tan(T.ang * Math.PI / 180);
+            [-tw, 0, tw].forEach(o => { c.beginPath(); c.moveTo(o, 0); c.lineTo(o + d, th / 2); c.lineTo(o, th); c.lineWidth = T.w; c.strokeStyle = rgba(0.55); c.stroke(); });
+        } else if (t === 'linen') {
+            diag(tw, false, rgba(0.5)); diag(tw, true, rgba(0.35));
+        } else if (t === 'pebble') {
+            dot(tw / 2, th / 2, tw * 0.3, rgba(0.65)); dot(tw * 0.35, th * 0.35, tw * 0.18, 'rgba(255, 255, 255, 0.16)');
+        } else if (t === 'lizard') {
+            [[tw / 2, 0], [0, th / 2], [tw, th / 2], [tw / 2, th]].forEach(([x, y]) => {
+                c.beginPath(); c.ellipse(x, y, tw * 0.42, th * 0.4, 0, 0, Math.PI); c.lineWidth = th * 0.12; c.strokeStyle = rgba(0.75); c.stroke();
+            });
+        } else if (t === 'stitched') {
+            c.fillStyle = rgba(0.9); c.fillRect(tw * 0.45, 3, tw * 0.55, 0.5); c.fillRect(tw * 0.45, 8, tw * 0.55, 0.5);
+        } else if (t === 'stack') {
+            c.fillStyle = rgba(0.85); c.fillRect(tw - 0.3, 0, 0.3, th);
+        } else if (t === 'carbon') {
+            c.fillStyle = T.c; c.fillRect(0, 0, tw, th); diag(tw, false, T.c2); diag(tw, true, 'rgba(0, 0, 0, 0.28)');
+        } else if (t === 'flake') {
+            dot(tw * 0.2, th * 0.25, T.size, rgba(0.9)); dot(tw * 0.65, th * 0.7, T.size * 0.8, rgba(0.6)); dot(tw * 0.85, th * 0.15, T.size * 0.6, rgba(0.5));
+        } else if (t === 'bands') {
+            for (let i = 0; i < 4; i++) [-th, 0, th].forEach(o => wave(o + (i + 0.5) * T.s, T.s * 0.4, i, T.s * 0.5, rgba(0.7)));
+        } else if (t === 'spots') {
+            dot(tw / 2, th / 2, T.size / 2, rgba(0.85));
+        } else if (t === 'pearl') {
+            const g = c.createLinearGradient(0, 0, tw, 0);
+            [[0, T.c], [0.35, T.c2], [0.65, T.c3], [1, T.c]].forEach(s => g.addColorStop(s[0], s[1]));
+            c.fillStyle = g; c.fillRect(0, 0, tw, th);
+        }
+        const tile = { cv, sx: tw / W, sy: th / H };
+        PQ_TILES.set(id, tile);
+        return tile;
+    }
+
+    // Draws a cue. V maps it to the screen:
+    //   pt(s, w)    the rod's point at s (0 tip … 1 butt), w ball diameters to the side
+    //   scr(p)      that point on screen as [x, y], or null; poly(pts) a polygon to screen points
+    //   light       [toward the viewer, toward +w]: where the light sits in the cross-section
+    //   t           ms, for the sheen (null: none); mk(w, h) a canvas, for textures (else flat)
+    function pqDraw(ctx, cue, game, V) {
+        const G = PQ_GAME[game] || PQ_GAME.pool, Lmm = G[0] * G[3];
+        const r = s => pqDia(G, s) / 2;
+        const lam = Math.atan2(V.light[1], V.light[0]);
+        const M = k => PQ_MATS[k] || [k, k, k];
+        const trace = pts => {
+            const p = V.poly(pts);
+            if (p.length < 3) return false;
+            ctx.beginPath(); pgTrace(ctx, p);
+            return true;
+        };
+        // The rod's frame at s on screen: the side (+w) edge, the far edge, and px per mm.
+        const frame = s => {
+            const a = V.scr(V.pt(s, r(s))), b = V.scr(V.pt(s, -r(s)));
+            return a && b ? { a, b, px: Math.hypot(b[0] - a[0], b[1] - a[1]) } : null;
+        };
+        const pattern = (key, m, f, s) => {
+            if (!f || !m[5] || f.px < m[4] || !V.mk || !ctx.createPattern) return null;
+            const k = f.px / (2 * r(s) * G[3]), q = Math.min(16, Math.max(2, Math.pow(2, Math.ceil(Math.log2(k)))));
+            const tile = pqTile(key, m, q, V.mk), pat = ctx.createPattern(tile.cv, 'repeat');
+            const o = V.scr(V.pt(s, 0)), o2 = V.scr(V.pt(Math.min(1, s + 0.01), 0));
+            if (!pat || !o || !o2 || typeof DOMMatrix !== 'function') return pat;
+            const ax = o2[0] - o[0], ay = o2[1] - o[1], al = Math.hypot(ax, ay) || 1;
+            const ex = [ax / al, ay / al], ey = [(f.b[0] - f.a[0]) / f.px, (f.b[1] - f.a[1]) / f.px];
+            pat.setTransform(new DOMMatrix([ex[0] * k * tile.sx, ex[1] * k * tile.sx, ey[0] * k * tile.sy, ey[1] * k * tile.sy, f.a[0], f.a[1]]));
+            return pat;
+        };
+        // Material at s, turned c (cos) toward the viewer: its texture, else its flat colour.
+        const paint = (key, f, s, c) => {
+            const m = M(key);
+            return pattern(key, m, f, s) || pqMix(m[3] || m[0], m[1], Math.max(0, 1 - c) * 0.55);
+        };
+        const shade = (m, f, textured) => {
+            const g = ctx.createLinearGradient(f.a[0], f.a[1], f.b[0], f.b[1]);
+            PQ_FACETS.forEach((n, i) => {
+                const c = Math.cos(n - lam), hi = c >= 0.6, a = Math.min(1, hi ? (c - 0.6) / 0.4 : (0.6 - c) / 1.1) * (textured ? 0.6 : 1);
+                const col = pgRgba(hi ? m[2] : m[1], Math.round(a * 1000) / 1000);
+                g.addColorStop(PQ_EDGES[i] + (i ? 0.01 : 0), col);
+                g.addColorStop(PQ_EDGES[i + 1] - (i < 4 ? 0.01 : 0), col);
+            });
+            return g;
+        };
+        // One slow band along the inlays and rings: 7 s a cycle, moving for 72 % of it.
+        let band = null;
+        if (cue.sheen && V.t != null) {
+            const p = (V.t % 7000) / 7000;
+            if (p < 0.72) { const e = p / 0.72, x = -0.08 + 1.08 * e * e * (3 - 2 * e); band = [x, x + 0.06]; }
+        }
+        const sheen = (a, b) => {
+            if (!band || b < band[0] || a > band[1]) return;
+            const p = V.scr(V.pt(band[0], 0)), q = V.scr(V.pt(band[1], 0));
+            if (!p || !q) return;
+            const g = ctx.createLinearGradient(p[0], p[1], q[0], q[1]);
+            [[0, 'rgba(233, 196, 106, 0)'], [0.3, 'rgba(233, 196, 106, 0.35)'], [0.5, 'rgba(255, 246, 222, 0.92)'], [0.7, 'rgba(233, 196, 106, 0.35)'], [1, 'rgba(233, 196, 106, 0)']]
+                .forEach(st => g.addColorStop(st[0], st[1]));
+            ctx.fillStyle = g; ctx.fill();
+        };
+        // A stretch of rod, a dome on the tip and a bumper on the butt, its taper in short steps.
+        const part = (a, b, key, glint) => {
+            a = Math.max(0, a); b = Math.min(1, b);
+            if (b <= a) return;
+            const top = [], bot = [], n = Math.ceil((b - a) / 0.15);
+            for (let i = 0; i <= n; i++) { const s = a + (b - a) * i / n; top.push(V.pt(s, r(s))); bot.unshift(V.pt(s, -r(s))); }
+            const cap = (s, len, dir) => { const out = []; for (let i = 1; i < 6; i++) { const th = Math.PI * i / 6; out.push(V.pt(s + dir * len * Math.sin(th), r(s) * Math.cos(th))); } return out; };
+            const pts = top.concat(b >= 1 ? cap(1, 0.45 * r(1) / G[0], 1) : [], bot, a <= 0 ? cap(0, 0.03 / G[0], -1).reverse() : []);
+            if (!trace(pts)) return;
+            const m = M(key), s = (a + b) / 2, f = frame(s), pat = pattern(key, m, f, s);
+            ctx.fillStyle = pat || m[3] || m[0]; ctx.fill();
+            if (f) { ctx.fillStyle = shade(m, f, !!pat); ctx.fill(); }
+            if (glint) sheen(a, b);
+        };
+        // A small shape on the rod's surface: centre (s, w), half sizes along (mm) and across (D).
+        const inlay = (shape, s, w, hl, hw, key, c) => {
+            const d = hl / Lmm, k = shape === 'diamond' ? [[-1, 0], [0, 1], [1, 0], [0, -1]]
+                : shape === 'dot' ? [0, 1, 2, 3, 4, 5, 6, 7].map(i => [Math.cos(i * Math.PI / 4), Math.sin(i * Math.PI / 4)]) : [[-1, -1], [-1, 1], [1, 1], [1, -1]];
+            if (!trace(k.map(p => V.pt(s + p[0] * d, w + p[1] * hw)))) return;
+            ctx.fillStyle = paint(key, frame(s), s, c); ctx.fill();
+            sheen(s - d, s + d);
+        };
+        (cue.sections || []).forEach(x => part(x[0] / 100, x[1] / 100, x[2], cue.sheen && x[3]));
+        (cue.rings || []).forEach(x => { const h = x[1] / 2 / Lmm; part(x[0] / 100 - h, x[0] / 100 + h, x[2], cue.sheen); });
+        (cue.points || []).forEach(P => {
+            const aS = P.apex / 100, bS = P.base / 100, rB = r(bS);
+            let e = P.veneers.reduce((t, v) => t + v[1], 0);
+            const layers = P.veneers.map(v => { const l = { col: v[0], e }; e -= v[1]; return l; }).concat([{ col: P.core, e: 0 }]);
+            for (let i = 0; i < P.n; i++) {
+                const th = (P.rot + i * 360 / P.n) * Math.PI / 180, c = Math.cos(th), sn = Math.sin(th);
+                if (c < 0.08) continue;
+                layers.forEach(ly => {
+                    const hw = ((Math.PI * rB * G[3] / P.n) * P.w + ly.e) / G[3] * c, ap = aS - ly.e * 4 / Lmm, wc = sn * rB;
+                    if (!trace([V.pt(ap, sn * r(ap)), V.pt(bS, Math.min(rB, wc + hw)), V.pt(bS, Math.max(-rB, wc - hw))])) return;
+                    ctx.fillStyle = ly.col.charAt(0) === '#' ? ly.col : paint(ly.col, frame((ap + bS) / 2), (ap + bS) / 2, c); ctx.fill();
+                });
+                if (P.inlay) {
+                    const N = P.inlay, s = bS - (bS - aS) * N.at;
+                    inlay(N.shape, s, sn * r(s), N.size / 2, N.size * (N.shape === 'window' ? 0.2 : 0.3) * c / G[3], N.mat, c);
+                }
+            }
+        });
+        (cue.inlays || []).forEach(N => {
+            const s = N.at / 100;
+            for (let i = 0; i < N.n; i++) {
+                const th = (N.rot + i * 360 / N.n) * Math.PI / 180, c = Math.cos(th);
+                if (c >= 0.1) inlay(N.shape, s, Math.sin(th) * r(s), N.size / 2, N.size * (N.shape === 'diamond' ? 0.35 : 0.5) * c / G[3], N.mat, c);
+            }
+        });
+    }
+
+    // A cue drawn flat and side on, as the picker shows it: x0..x0 + len px across, centred on cy,
+    // or only the stretch from..to (0..1) blown up to fill len.
+    function pqDrawFlat(ctx, cue, game, x0, cy, len, from, to, t, mk) {
+        const G = PQ_GAME[game] || PQ_GAME.pool, f = from || 0, span = (to == null ? 1 : to) - f, k = len / span, D = k / G[0];
+        ctx.save();
+        ctx.beginPath(); ctx.rect(x0 - 2, cy - D, len + 4, 2 * D); ctx.clip();
+        pqDraw(ctx, cue, game, {
+            pt: (s, w) => [x0 + (s - f) * k, cy - w * D], scr: p => p, poly: p => p, light: [0.62, 0.78], t, mk,
+        });
+        ctx.restore();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — RENDERER (v2)
     // ═══════════════════════════════════════════════════════════════════
     // Canvas2D, painted in layers:
@@ -5060,6 +5397,7 @@
     //   makeCanvas(w, h),                            offscreen canvas for the table layer
     //   dpr,                                         backing-store scale of ctx
     //   aim: { angle, power, gap } | null,           null hides the cue and the guides
+    //   cue: a PQ_SET cue (Standard if absent), cueT: ms for its sheen,
     //   guide: pgGuide(…) | null, guideMode: 'full' | 'short' | 'off', illegal,
     //   guideLen: the object ball's line in full mode (default 150; 0 draws no paths),
     //   bih: { x, y, valid, reason } | null, zone: 'kitchen' | 'D' | null (or legacy kitchen),
@@ -5178,28 +5516,22 @@
         }
         const cue = w.balls.find(b => b.id === 0);
         if (scene.aim && cue && cue.state !== 'pocketed' && !scene.bih) {
-            const a = scene.aim, d = [Math.cos(a.angle), Math.sin(a.angle)];
-            const gap = a.gap !== undefined ? a.gap : 8 + (a.power || 0) * 1.1;
-            const L = 600;
-            const pt = (u, side) => {
-                // Pool's cue at every ball size.
-                const along = R + gap + u, wd = 3.3 + (8 - 3.3) * (u / L), z = R + 1.5 + 60 * (u / L);
-                return [cue.x - d[0] * along - d[1] * wd * side, cue.y - d[1] * along + d[0] * wd * side, z];
-            };
-            const stick = (u0, u1) => pcPoly(view, [pt(u0, 1), pt(u1, 1), pt(u1, -1), pt(u0, -1)]);
-            const part = (u0, u1, fill, edge) => {
-                const poly = stick(u0, u1);
-                if (poly.length < 3) return;
-                ctx.beginPath(); pgTrace(ctx, poly);
-                ctx.fillStyle = fill; ctx.fill();
-                if (edge) { ctx.strokeStyle = 'rgba(0, 0, 0, ' + edge + ')'; ctx.lineWidth = 0.6; ctx.stroke(); }
-            };
-            part(470, L, '#3B1F14', 0.35);
-            part(338, 470, '#1B1C1D', 0.35);
-            part(330, 338, '#C9A15A');
-            part(16, 330, '#DDB77F', 0.3);
-            part(3, 16, '#F2ECDF');
-            part(0, 3, '#3E73B8');
+            // The shooter's cue (scene.cue, else Standard) at the game's scale: the tip off the
+            // ball by the pull-back, the butt rising a tenth of the length.
+            const a = scene.aim, d = [Math.cos(a.angle), Math.sin(a.angle)], D = 2 * R, len = (PQ_GAME[theme.game] || PQ_GAME.pool)[0] * D;
+            const gap = (a.gap !== undefined ? a.gap : 8 + (a.power || 0) * 1.1) * K;
+            const ax = pcNorm([-d[0], -d[1], 0.1]);
+            const axis = s => [cue.x - d[0] * (R + gap + s * len), cue.y - d[1] * (R + gap + s * len), R + 1.5 * K + 0.1 * s * len];
+            const toEye = p => (view.ortho ? [0, 0, 1] : pcNorm(pcSub(view.eye, p)));
+            // The silhouette's sides, square to the rod and the line of sight.
+            const side = p => pcNorm(pcCross(ax, toEye(p)));
+            const mid = axis(0.5), v = toEye(mid), lit = pcNorm([v[0] * 0.8, v[1] * 0.8, 1 + v[2] * 0.8]), av = pcDot(ax, v);
+            const e1 = pcNorm([v[0] - ax[0] * av, v[1] - ax[1] * av, v[2] - ax[2] * av]);
+            pqDraw(ctx, scene.cue || PQ_SET[0], theme.game, {
+                pt: (s, wd) => { const p = axis(s), e = side(p); return [p[0] + e[0] * wd * D, p[1] + e[1] * wd * D, p[2] + e[2] * wd * D]; },
+                scr: p => { const q = pcProject(view, p); return q && [q[0], q[1]]; },
+                poly: pts => pcPoly(view, pts), light: [pcDot(lit, e1), pcDot(lit, side(mid))], t: scene.cueT, mk: scene.makeCanvas,
+            });
         }
         if (scene.ring) {
             // Snooker's nominated ball: a see-through accent ring at r + max(3 px, 0.4 r).
@@ -5366,6 +5698,8 @@
     //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
     //   secondaryLabel,              overrides the frame-over dialog's second button
     //   result: { win, title, reason, recordLabel, record, delta, note, stats? } | null,
+    //   cueName, the equipped cue; cues: poolCueModel() | null, the collection open;
+    //   cueNew: a just-unlocked cue's id | null,
     //   snooker: nom (nominated colour or -1), confirm (concede question open),
     //            choice: { chooser, cpu, options: [{ id, label, short }] } | null
     // }
@@ -5516,6 +5850,8 @@
                 tour: g.tourSheet && g.tourSheet.saved ? { saved: true, cta: 'RESUME ' + String(g.tourSheet.name || 'TOURNAMENT').toUpperCase(), sub: g.tourSheet.where || '' }
                     : { saved: false, cta: 'SET UP TOURNAMENT', sub: '' },
             } : { show: false },
+            cueName: g.cueName || 'Standard', cues: g.cues || null,
+            cueNew: g.cueNew && !sheetOpen && !toast ? g.cueNew : null,
             // Snooker's parts; hidden for pool.
             track: { show: false }, chips: { show: false }, concede: { show: false },
         };
@@ -5623,7 +5959,70 @@
         close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
         cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
         flag: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"></path><path d="M5 4h12l-2.5 4L17 12H5"></path></svg>',
+        cue: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20L16.5 7.5M15 6l3 3M17.6 4.4a1.4 1.4 0 0 1 2 2"></path></svg>',
     };
+
+    // ── The cue collection ────────────────────────────────────────────
+    // Each cue's stroke icon: its achievement's (the design's), Standard's check, Collector's star.
+    const PH_CUE_ICON = {
+        standard: 'M5 12.5l4.5 4.5L19 7.5',
+        tulipwood: 'M9 11a3.5 3.5 0 1 0 0-7a3.5 3.5 0 0 0 0 7zM2.5 20c.6-3.4 3.2-5.5 6.5-5.5s5.9 2.1 6.5 5.5M16 4.5a3.2 3.2 0 0 1 0 6.2M18 14.8c2 .6 3.2 2.4 3.5 5.2',
+        birdseye: 'M7 8h10a4 4 0 0 1 4 4v2.5a2.5 2.5 0 0 1-4.6 1.4L15 14H9l-1.4 1.9A2.5 2.5 0 0 1 3 14.5V12a4 4 0 0 1 4-4zM8 10.5v3M6.5 12h3M15.5 11.5h.01M17.5 13h.01',
+        ember: 'M12 3c.8 3.2 5 5.2 5 10a5 5 0 0 1-10 0c0-2 .8-3.4 2-4.5.2 1.6 1 2.6 2.2 3C10.6 8.6 11.4 5.6 12 3z',
+        rosewood6: 'M12 3l7 3v5c0 4.4-3 8.2-7 10-4-1.8-7-5.6-7-10V6l7-3zM8.5 12.5L12 9l3.5 3.5M8.5 16L12 12.5l3.5 3.5',
+        carbonfin: 'M3 17c2 0 2-1.5 4.5-1.5S10 17 12 17s2-1.5 4.5-1.5S19 17 21 17M7 15.5C9 11 11.5 6.5 16 5c-1.2 3.3-1.5 7-.8 10.5',
+        malachite: 'M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18zM12 16.5a4.5 4.5 0 1 0 0-9a4.5 4.5 0 0 0 0 9zM12 12.8a.8.8 0 1 0 0-1.6a.8.8 0 0 0 0 1.6z',
+        centuryash: 'M8 3l2.5 5M16 3l-2.5 5M12 21a6 6 0 1 0 0-12a6 6 0 0 0 0 12zM10.5 13.5L12 12.5v5',
+        crown: 'M4 18h16M5 18L3.5 8l5 4L12 6l3.5 6 5-4L19 18',
+        collector: 'M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6l-5.4 2.9 1.2-6-4.5-4.2 6.1-.7L12 3z',
+        lock: 'M7.5 11V8a4.5 4.5 0 0 1 9 0v3M6.5 11h11a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.5v-7A1.5 1.5 0 0 1 6.5 11z',
+    };
+    const phSvg = (d, n, w) => '<svg width="' + n + '" height="' + n + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (w || 1.8) + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"></path></svg>';
+    const PH_BARS = ['Power', 'Aim', 'Spin', 'Time'];
+    // m: poolCueModel(). The equipped cue up top (a close-up of its forearm, then all of it), then
+    // every cue: its look, how it is earned, its four bars (filled to its level, outlined to 5).
+    function phCuesHTML(m) {
+        const eq = m.list.find(c => c.eq) || m.list[0];
+        const tick = phSvg(PH_CUE_ICON.standard, 13, 2.4);
+        const bars = c => '<div class="ph-cue-bars">' + PH_BARS.map((b, i) => '<span class="ph-cue-bar" role="img" aria-label="' + b + ' ' + c.bars[i] + ' of 10' +
+            (c.top[i] !== c.bars[i] ? ', ' + c.top[i] + ' at level 5' : '') + '"><span class="ph-label">' + b + '</span><span class="ph-cue-segs">' +
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(k => '<i' + (k < c.bars[i] ? ' class="on"' : k < c.top[i] ? ' class="up"' : '') + '></i>').join('') +
+            '</span><span class="ph-num">' + c.bars[i] + '</span></span>').join('') + '</div>';
+        const level = c => '<span class="ph-cue-lv">' + (c.level >= 5 ? 'Level 5 · mastered · ' + c.wins + ' wins' : 'Level ' + c.level + ' · ' + c.have + ' of ' + c.need + ' ' + c.counts + ' to level ' + (c.level + 1)) + '</span>';
+        const card = c => '<div class="ph-cue-card' + (c.eq ? ' is-eq' : '') + (c.open ? '' : ' is-locked') + '" role="listitem" aria-label="' + c.name + ', ' +
+            (c.eq ? 'equipped' : c.open ? 'unlocked' : 'locked. ' + c.cond) + '">' +
+            '<canvas class="ph-cue-cv" data-cue="' + c.id + '" aria-hidden="true"></canvas>' +
+            '<div class="ph-cue-row"><span class="ph-cue-icon">' + phSvg(PH_CUE_ICON[c.id], 17) + '</span>' +
+            '<span class="ph-cue-t"><span class="ph-cue-n">' + c.name + (c.isNew ? '<span class="ph-cue-new ph-label">NEW</span>' : '') + '</span>' +
+            '<span class="ph-cue-d">' + (c.open ? c.blurb : c.cond) + '</span></span>' +
+            (c.eq ? '<span class="ph-cue-tag ph-label">' + tick + 'EQUIPPED</span>'
+                : c.open ? '<button type="button" class="ph-btn ph-cue-eq" data-ph-equip="' + c.id + '" aria-label="Equip ' + c.name + '">Equip</button>'
+                    : '<span class="ph-cue-tag is-lock ph-label">' + phSvg(PH_CUE_ICON.lock, 14, 2) + 'LOCKED</span>') + '</div>' +
+            bars(c) + (c.open && c.id !== eq.id ? level(c) : '') + '</div>';
+        return '<div class="ph-cues-head"><span class="ph-cues-t"><span class="ph-cues-title">Cue collection</span>' +
+            '<span class="ph-cues-sub">' + (m.who ? m.who + '’s cue for this match · from your ' + m.open + ' unlocked' : m.open + ' of ' + m.list.length + ' unlocked · every shot you play, pool and snooker') + '</span></span>' +
+            '<button type="button" class="ph-btn" data-ph-cuesx aria-label="Close the cue collection">' + PH_ICON.close + '</button></div>' +
+            '<div class="ph-cues-list" role="list" aria-label="All cues">' +
+            '<div class="ph-cue-card is-hero' + (m.just === eq.id ? ' is-just' : '') + '"><div class="ph-cue-row is-head"><span class="ph-cue-t"><span class="ph-cue-n">' + eq.name + '</span>' +
+            '<span class="ph-cue-d">' + eq.blurb + '</span></span><span class="ph-cue-tag ph-label">' + tick + 'EQUIPPED</span></div>' +
+            '<div class="ph-cue-show"><canvas class="ph-cue-cv is-detail" data-cue="' + eq.id + '" data-span="0.48,0.77" aria-hidden="true"></canvas>' +
+            '<canvas class="ph-cue-cv is-full" data-cue="' + eq.id + '" aria-hidden="true"></canvas></div>' + bars(eq) + level(eq) +
+            (m.just === eq.id ? '<span class="ph-cue-just" role="status">' + tick + eq.name + ' equipped · ' + (m.who ? m.who + '’s' : 'your') + ' next shot uses it</span>' : '') + '</div>' +
+            m.list.map(card).join('') +
+            '<div class="ph-cues-foot">The CPU plays a cue for its level: Easy Standard, Normal Tulipwood, Hard Malachite (Century Ash at snooker), Pro Black Crown.</div></div>';
+    }
+    // Draws every cue in the open collection at its canvas's size.
+    function phCuesDraw(root, game) {
+        const dpr = window.devicePixelRatio || 1, mk = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+        root.querySelectorAll('canvas[data-cue]').forEach(cv => {
+            const w = cv.clientWidth, h = cv.clientHeight, span = (cv.getAttribute('data-span') || '0,1').split(',').map(Number);
+            if (!w || !h) return;
+            cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+            const c = cv.getContext('2d');
+            c.setTransform(dpr, 0, 0, dpr, 0, 0);
+            pqDrawFlat(c, pqById(cv.getAttribute('data-cue')), game, 10, h / 2, w - 20, span[0], span[1], null, mk);
+        });
+    }
 
     function phCardHTML(seat, max) {
         const top = '<div class="ph-card-top"><span class="ph-name" data-ph="name"></span>' +
@@ -5646,6 +6045,7 @@
             '<span class="ph-sr" data-ph="trlive" aria-live="polite" aria-atomic="true"></span></div>';
     }
 
+    const PH_CUES_ROOT = '<div class="ph-cues" role="dialog" aria-label="Cue collection" data-ph="cues" hidden></div>';
     function phViewHTML(max) {
         // The six pocket targets on a 52 × 26 table: the call card's, and the folded chips'.
         const pad = attr => [[0, 0], [26, 0], [52, 0], [0, 26], [26, 26], [52, 26]]
@@ -5676,6 +6076,9 @@
             '<div class="ph-spinpop-chips">' + PH_SPINS.map((p, i) => '<button type="button" class="ph-btn" data-ph-tip="' + i + '" aria-pressed="false">' + p.label + '</button>').join('') + '</div></div>' +
             '</div>' +
             '<div class="ph-hint ph-glass" data-ph="hint"><span data-ph="hintt"></span></div>' +
+            '<div class="ph-cuenew ph-glass" role="status" data-ph="cuenew" hidden><span class="ph-cuenew-i">' + PH_ICON.cue + '</span>' +
+            '<span class="ph-cuenew-t"><span class="ph-label">NEW CUE</span><span data-ph="cuenewn"></span></span>' +
+            '<button type="button" class="ph-btn" data-ph="cuenewgo">Equip</button><button type="button" class="ph-btn is-icon" data-ph="cuenewx" aria-label="Dismiss">' + PH_ICON.close + '</button></div>' +
             '<div class="ph-bihnote ph-label" data-ph="bihnote" hidden></div>' +
             '<button type="button" class="ph-replace ph-glass" data-ph="replace" hidden>' + PH_ICON.hand + '<span>Move cue ball</span></button>' +
             '<div class="ph-mini ph-glass" data-ph="mini" hidden><span class="ph-mini-cap" data-ph="minicap"></span>' +
@@ -5750,14 +6153,16 @@
         const cards = phCardHTML(1, max) + '<div class="ph-frames"><span class="ph-frames-n" data-ph="frames">0–0</span><span class="ph-frames-l ph-label">FRAMES</span></div>' + phCardHTML(2, max);
         let html;
         if (max) {
-            html = '<div class="ph-top"><div class="ph-title" data-ph="title">' + (o.title || '8-Ball Pool') + '</div>' + phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' +
+            // The cue button rides beside the title (or a tournament's head), where there is room.
+            html = '<div class="ph-top"><div class="ph-lead"><div class="ph-title" data-ph="title">' + (o.title || '8-Ball Pool') + '</div>' + phTourHeadHTML() +
+                '<button type="button" class="ph-btn is-icon" data-ph="cue" aria-haspopup="dialog">' + PH_ICON.cue + '</button></div><div class="ph-cards">' + cards + '</div>' +
                 '<div class="ph-actions"><span class="ph-trophy" data-ph="trophy">' + PH_ICON.cup + '<span class="ph-num" data-ph="trophies">0</span></span>' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="reset" aria-label="Reset rack" title="Reset rack">' + PH_ICON.reset + '</button>' +
                 '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="pause" aria-label="Pause" title="Pause" hidden>' + PH_ICON.pause + '</button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="max" aria-label="Exit full view" title="Exit full view">' + PH_ICON.exit + '</button></div></div>' +
-                phTrackHTML() + phViewHTML(true) + phHandoffHTML() + phSheetHTML();
+                phTrackHTML() + phViewHTML(true) + phHandoffHTML() + phSheetHTML() + PH_CUES_ROOT;
         } else {
             html = phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' + phTrackHTML() + phViewHTML(false) +
                 '<div class="ph-foot" data-ph="foot">' +
@@ -5766,7 +6171,7 @@
                 '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="pause" hidden>' + PH_ICON.pause + '<span>Pause</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="max">' + PH_ICON.max + '<span>Max</span></button></div>' +
-                phHandoffHTML() + phSheetHTML();
+                phHandoffHTML() + phSheetHTML() + PH_CUES_ROOT;
         }
         const el = document.createElement('div');
         el.className = 'pool-hud';
@@ -5784,7 +6189,8 @@
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
             'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart', 'sheetp1', 'sheetp2',
             'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy',
-            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn'].forEach(n => { hud[n] = ref(n); });
+            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn',
+            'cue', 'cues', 'cuenew', 'cuenewn', 'cuenewgo', 'cuenewx'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
@@ -5892,6 +6298,16 @@
         hud.bracket.addEventListener('click', () => fire('tourBracket'));
         hud.pause.addEventListener('click', () => fire('tourPause'));
         hud.sheet.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('sheetClose'); hud.mode.focus(); e.preventDefault(); e.stopPropagation(); } });
+        // The cue collection and the "New cue" notice.
+        if (hud.cue) hud.cue.addEventListener('click', () => fire('cues'));
+        hud.cues.addEventListener('click', e => {
+            const t = e.target.closest && e.target.closest('[data-ph-equip], [data-ph-cuesx]');
+            if (!t) return;
+            if (t.hasAttribute('data-ph-cuesx')) fire('cuesClose'); else fire('cueEquip', t.getAttribute('data-ph-equip'));
+        });
+        hud.cues.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('cuesClose'); e.preventDefault(); e.stopPropagation(); } });
+        hud.cuenewgo.addEventListener('click', () => fire('cueEquip', hud.cueNewId));
+        hud.cuenewx.addEventListener('click', () => fire('cueNewX'));
         return hud;
     }
 
@@ -5922,6 +6338,18 @@
     function phRender(hud, vm) {
         const s = (k, v, f) => phSet(hud, k, v, f);
         s('game', vm.game, v => hud.el.setAttribute('data-game', v));
+        if (hud.cue) s('cuel', vm.cueName, v => { hud.cue.title = 'Cue: ' + v; hud.cue.setAttribute('aria-label', 'Cue: ' + v + '. Open the cue collection'); });
+        s('cuenew', vm.cueNew, v => { phShow(hud.cuenew, !!v); hud.cuenewn.textContent = v ? pqById(v).name : ''; hud.cueNewId = v; });
+        // The collection is rebuilt when its model changes (poolCueModel is cached until then).
+        s('cues', vm.cues, m => {
+            const was = !hud.cues.hidden;
+            phShow(hud.cues, !!m);
+            if (!m) { hud.cues.innerHTML = ''; return; }
+            const top = hud.cues.querySelector('.ph-cues-list'), y = top ? top.scrollTop : 0;
+            hud.cues.innerHTML = phCuesHTML(m);
+            phCuesDraw(hud.cues, m.game);
+            if (was) hud.cues.querySelector('.ph-cues-list').scrollTop = y; else hud.cues.querySelector('[data-ph-cuesx]').focus();
+        });
         vm.cards.forEach((c, i) => {
             const r = hud.cards[i], k = 'c' + i + '.';
             s(k + 'name', c.name, v => { r.name.textContent = v; });
@@ -7622,6 +8050,7 @@
     //   poolToggleVariant()   the header's switch, remembered (poolVariant)
     //   poolOnPrefChange(p)   a ⚙️ setting changed (CPU difficulty, shot clock, snooker's reds)
     //   poolRenderTitle(el)   the panel header: the game's name behind the 🎱 | 🔴 switch
+    //   poolCueUnlocked(id)   unlockAchievement ran: the cue it earns (or null), noticed on the table
     //   poolMode, poolGamesWon, poolMaximized, poolRecord, poolCpuTier
     //
     // Input:
@@ -7868,6 +8297,9 @@
         pots: { 1: [], 2: [] },
         toast: null, toastMs: 0, fouled: 0, handoff: 0, result: null, placed: false, clockLeft: POOL_CLOCK_S,
         cpu: null, wins: 0,
+        // Cues: the picker open, the wins per cue (cached), a cue just unlocked or equipped, the frame card's line.
+        // p2Cue: 2 Players' second seat's pick; pill: the header pill's last label.
+        cues: false, cueRec: null, cueNew: null, cueJust: null, cueView: null, cueLine: '', p2Cue: null, pill: '', cueShots: {},
         // Your record against the CPU (adaptive difficulty reads it), and the Game mode sheet.
         cpuRec: null, sheet: { open: false, mode: 'cpu' },
         // Table settings (guide full | short | off, call rules, clock): tournaments and tiers set them.
@@ -7947,8 +8379,108 @@
     function poolRefreshScoreBtn() { poolS.wins = poolWins(); updateGameScoreBtn(poolRules().lb, null, poolS.wins); }
     const poolCpuTurn = () => poolMode === 'cpu' && poolS.frame && poolS.frame.turn === 2 && !poolS.frame.over;
     const poolCueBall = () => poolS.world.balls[0];
-    const poolSpeedOf = p => poolS.cfg.maxSpeed * p / 100;
     const poolTip = () => poolS.tip;
+
+    // ── Cues (pool-cues.js) ───────────────────────────────────────────
+    // Each human seat plays its own cue, and may change it during the match, as 8 Ball Pool
+    // allows. Your seat's is ⚙️'s poolCue; another human seat (2 Players' second, a tournament's
+    // other names) picks from your collection, starting from yours. The CPU plays its tier's.
+    // Frames won against the CPU level the cue that won them (poolCueRecord, synced).
+    const POOL_CUE_KEY = 'poolCueRecord';
+    const poolCueRec = () => poolS.cueRec || (poolS.cueRec = poolStoreRead(POOL_CUE_KEY, Object.fromEntries(PQ_SET.map(q => [q.id, 0]))));
+    const poolCueOpen = q => pqUnlocked(q, userXP && userXP.achievements, poolCueRec());
+    const poolCueId = () => { const q = pqById(userPreferences.poolCue); return poolCueOpen(q) ? q.id : 'standard'; };
+    // The human at the table (you, while the CPU plays): whose cue the picker sets.
+    const poolPickSeat = () => (!poolS.frame || poolCpuTurn() ? 1 : poolS.frame.turn);
+    // A tournament seat's slot (it keeps its cue in the saved bracket), else null.
+    const poolSeatSlot = seat => { const m = poolTourMatch(); return m ? poolS.tour.t.slots[seat === 1 ? m.a : m.b] : null; };
+    const poolSeatMine = seat => { const sl = poolSeatSlot(seat); return sl ? !!sl.you : !(poolMode === 'pvp' && seat === 2); };
+    function poolSeatCueId(seat) {
+        const sl = poolSeatSlot(seat), own = poolSeatMine(seat) ? null : sl ? sl.cue : poolS.p2Cue;
+        const q = pqById(own || userPreferences.poolCue);
+        return poolCueOpen(q) ? q.id : 'standard';
+    }
+    const poolHumanStats = () => { const id = poolSeatCueId(poolPickSeat()); return pqStats(id, poolCueRec()[id]); };
+    // The shooter's cue: the CPU's on its turn, else the human's at the table.
+    const poolCueStats = () => (poolCpuTurn() ? pqCpuStats(poolCpuTier, poolS.game) : poolHumanStats());
+    // A shot with that cue: its power cap and spin reach.
+    const poolCueShot = (shot, st) => Object.assign({}, shot, { cap: poolS.cfg.maxSpeed * st.power, tipMax: poolS.cfg.maxTip * st.spin });
+    // Your shot at p % power: the spin pad's edge reaches as far as the cue spins.
+    function poolHumanShot(p) {
+        const st = poolCueStats(), t = poolTip();
+        return poolCueShot({ angle: poolS.aim, speed: poolS.cfg.maxSpeed * st.power * p / 100, tipX: t.x * st.spin, tipY: t.y * st.spin }, st);
+    }
+    // The turn's clock: the table's (0 is off), stretched by the shooter's cue.
+    const poolTurnClock = () => (poolS.clockTotal ? Math.round(poolS.clockTotal * poolHumanStats().time) : 0);
+    // A win against the CPU at the cue's tier or above levels it; a fifth mastered cue unlocks
+    // Collector. The cue is the one that played most of your shots this frame (a cue changed on
+    // the last shot doesn't take the win). Returns the frame card's line about it.
+    function poolCueWin(tier) {
+        const S = poolS, rec = Object.assign({}, poolCueRec()), shots = S.cueShots;
+        const id = Object.keys(shots).reduce((a, k) => (shots[k] > (shots[a] || 0) ? k : a), poolCueId()), q = pqById(id), was = pqLevel(rec[id], q);
+        if (was >= 5) return '';
+        if (!pqCounts(q, S.game, tier)) return q.name + ' levels on ' + pqNeedText(q) + ', not ' + tier + ' ' + (S.game === 'snooker' ? 'snooker' : 'pool');
+        const had = pqMastered(rec);
+        rec[id] = (rec[id] || 0) + 1;
+        poolStoreWrite(POOL_CUE_KEY, rec);
+        S.cueRec = rec;
+        if (had < 5 && pqMastered(rec) >= 5) poolCueUnlocked('collector');
+        const lv = pqLevel(rec[id], q), steps = pqSteps(q);
+        if (lv > was) return lv >= 5 ? q.name + ' mastered' : q.name + ' reached level ' + lv;
+        return q.name + ': ' + (rec[id] - steps[lv - 1]) + ' of ' + q.need[2][lv - 1] + ' ' + pqNeedText(q) + ' to level ' + (lv + 1);
+    }
+    // From the host's unlockAchievement (an achievement id), or a fifth mastery: the table
+    // shows "New cue" until it is equipped or dismissed.
+    function poolCueUnlocked(key) {
+        const q = PQ_SET.find(c => c.id === key || c.ach === key);
+        if (!q) return null;
+        poolS.cueNew = q.id;
+        poolS.cueView = null;
+        return q;
+    }
+    function poolCueEquip(id) {
+        const S = poolS, q = pqById(id), seat = poolPickSeat();
+        if (!poolCueOpen(q)) return;
+        if (poolSeatMine(seat)) { userPreferences.poolCue = q.id; savePreferences(); }
+        else { const sl = poolSeatSlot(seat); if (sl) { sl.cue = q.id; poolTourSave(); } else S.p2Cue = q.id; }
+        S.cueJust = q.id; S.cueNew = null; S.cueView = null;
+        poolCueClock();
+        poolSyncChrome();
+    }
+    // A new cue's clock, now: the turn under way keeps what it has left, within the new limit.
+    function poolCueClock() {
+        const S = poolS;
+        if (S.clockTotal) S.clockLeft = Math.min(S.clockLeft, poolTurnClock());
+    }
+    // The header pill: the cue of the human at the table, refreshed as the turn passes.
+    function poolCuePill() {
+        const S = poolS, b = typeof document !== 'undefined' && document.getElementById('pool-cue-pill');
+        if (!b) return;
+        const seat = poolPickSeat(), n = pqById(poolSeatCueId(seat)).name, who = poolSeatMine(seat) ? 'Your cue' : poolNames()[seat] + "'s cue";
+        if (S.pill === who + n) return;
+        S.pill = who + n;
+        b.innerHTML = PH_ICON.cue + '<span>' + n + '</span>';
+        b.title = who + ': ' + n;
+        b.setAttribute('aria-label', who + ': ' + n + '. Open the cue collection');
+    }
+    // The open collection's model, for the seat it serves (it changes hands with the turn).
+    function poolCueView() {
+        const S = poolS, k = poolPickSeat() + poolMode;
+        if (!S.cueView || S.cueViewKey !== k) { S.cueView = poolCueModel(); S.cueViewKey = k; }
+        return S.cueView;
+    }
+    // The picker's model: rebuilt when a cue, a level or an unlock changes.
+    function poolCueModel() {
+        const S = poolS, rec = poolCueRec(), seat = poolPickSeat(), eq = poolSeatCueId(seat), who = poolSeatMine(seat) ? null : poolNames()[seat];
+        const list = PQ_SET.map(q => {
+            const wins = rec[q.id] || 0, st = pqStats(q.id, wins), open = poolCueOpen(q), steps = pqSteps(q);
+            const cond = q.id === 'collector' ? q.cond + ' · ' + Math.min(5, pqMastered(rec)) + ' of 5' : q.cond;
+            // Progress within the level: "4 of 7 Hard+ wins to level 3".
+            return { id: q.id, name: q.name, blurb: q.blurb, cond, open, eq: q.id === eq, isNew: q.id === S.cueNew, level: st.level, wins,
+                have: wins - steps[st.level - 1], need: q.need[2][st.level - 1], counts: pqNeedText(q), bars: st.bars, top: pqStats(q.id, 0, 5).bars };
+        });
+        return { eq, who, just: S.cueJust, game: S.game, open: list.filter(c => c.open).length, list };
+    }
 
     // ── Frames ────────────────────────────────────────────────────────
     function poolNewFrame(breaker) {
@@ -7963,12 +8495,12 @@
         S.rackId++;
         const home = R.cueHome(S.world);
         S.world.balls[0].x = home[0]; S.world.balls[0].y = home[1];
-        S.down = new Set(); S.drops = []; S.called = -1; S.guide = null; S.guideKey = ''; S.pots = { 1: [], 2: [] }; S.cpuSafeRun = 0;
+        S.down = new Set(); S.drops = []; S.called = -1; S.guide = null; S.guideKey = ''; S.pots = { 1: [], 2: [] }; S.cpuSafeRun = 0; S.cueShots = {};
         S.aim = 0; S.power = 0; S.tip = { x: 0, y: 0 }; S.spinOpen = false; S.phase = 'bih'; S.placed = false; S.drag = null; S.shot = null;
         S.toast = null; S.toastMs = 0; S.fouled = 0; S.result = null; S.cpu = null; S.nom = -1; S.confirm = false;
         // A tournament's later frames start with the breaker taking the seat.
         const tm = poolTourMatch();
-        S.handoff = tm && tm.frames.length > 0 ? S.breaker : 0; S.clockLeft = S.clockTotal || POOL_CLOCK_S;
+        S.handoff = tm && tm.frames.length > 0 ? S.breaker : 0; S.clockLeft = poolTurnClock() || POOL_CLOCK_S;
         S.drawKey = '';
     }
 
@@ -7982,7 +8514,7 @@
     function togglePoolMode() {
         if (poolMode === 'tour') { poolLeaveTour(); return; }
         poolMode = poolMode === 'cpu' ? 'pvp' : 'cpu';
-        poolS.frames = [0, 0];
+        poolS.frames = [0, 0]; poolS.p2Cue = null;
         poolNewFrame(1);
         poolRefreshScoreBtn();
     }
@@ -7998,6 +8530,7 @@
         if (poolMode === 'tour') { poolTourFrameOver(w, v); return; }
         const vsCPU = poolMode === 'cpu', tier = poolCpuTier, f = v.next || S.frame;
         R.fileResult(w, vsCPU, tier, f);
+        S.cueLine = vsCPU && w === 1 ? poolCueWin(tier) : '';
         if (w === 1 || w === 2) {
             const won = w === 1;
             awardGameXP(R.xpType, Object.assign({ won, vsCPU, tier: vsCPU ? tier : null, xp: R.frameXP({ won, vsCPU, tier, frame: f }) }, R.xpPerf(f)));
@@ -8051,7 +8584,7 @@
                 recordLabel: (poolMode === 'cpu' ? poolNames()[1] : poolNames()[w]).toUpperCase() + ' · RECORD',
                 record: poolRecordText(poolMode === 'cpu' ? 1 : w),
                 delta: poolMode === 'cpu' ? (you ? '+1 WIN' : '+1 LOSS') : '+1 WIN',
-                note: poolAdaptiveNote(),
+                note: [S.cueLine, poolAdaptiveNote()].filter(Boolean).join('. '),
             };
             if (more) S.result.stats = [{ label: 'SCORE', value: more.score }, { label: 'HIGH BREAK', value: more.high }];
             S.phase = 'over'; S.toast = null;
@@ -8060,7 +8593,7 @@
         S.fouled = v.foul ? shooter : 0;
         // Hot-seat: when the table changes hands, the next player takes the seat first.
         if (poolMode !== 'cpu' && S.frame.turn !== shooter) S.handoff = S.frame.turn;
-        if (S.frame.pending) { S.phase = 'choice'; S.clockLeft = S.clockTotal || POOL_CLOCK_S; }
+        if (S.frame.pending) { S.phase = 'choice'; S.clockLeft = poolTurnClock() || POOL_CLOCK_S; }
         else poolStartTurn();
         // A shot boundary: the table is still, so this is the state a reload comes back to.
         poolTourSnapshot();
@@ -8076,7 +8609,7 @@
             if (c.state === 'pocketed' || (S.frame.ballInHand === 'D' && R.canPlace(S.world, c.x, c.y, 'D'))) { const home = R.cueHome(S.world); R.placeCue(S.world, home[0], home[1]); }
             S.phase = 'bih'; S.placed = false;
         } else { S.phase = 'aim'; poolAimAtNearest(); }
-        S.clockLeft = S.clockTotal || POOL_CLOCK_S;
+        S.clockLeft = poolTurnClock() || POOL_CLOCK_S;
     }
 
     // The incoming player's choice after a snooker foul (psChoose). A CPU's is named in a
@@ -8128,10 +8661,10 @@
         const S = poolS;
         if (S.phase !== 'aim' && S.phase !== 'strike') { S.guide = null; return; }
         const p = S.drag ? Math.max(S.power, 5) : 50, t = poolTip();
-        const key = [S.aim.toFixed(5), Math.round(p), t.x, t.y, S.world.t].join();
+        const key = [S.aim.toFixed(5), Math.round(p), t.x, t.y, S.world.t, poolSeatCueId(poolPickSeat())].join();
         if (key === S.guideKey) return;
         S.guideKey = key;
-        S.guide = pgGuide(S.world, { angle: S.aim, speed: poolSpeedOf(p), tipX: t.x, tipY: t.y });
+        S.guide = pgGuide(S.world, poolHumanShot(p));
     }
     // The shot on screen, for the HUD to keep its overlays off (phShy): the aim line to the
     // contact, the object ball's path to its pocket (else the cushion), and those points as
@@ -8204,7 +8737,10 @@
             if (c.t < 350) return;
             if (R.cpu.concede && R.concede && R.cpu.concede(S.frame, S.world, poolCpuTier)) { S.cpu = null; poolAfterTurn(R.concede(S.frame, S.frame.turn)); return; }
             S.tip = { x: 0, y: 0 }; S.spinOpen = false;
-            c.job = R.cpu.plan(S.world, S.frame, { rng: S.rng, tier: poolCpuTier, safeRun: S.cpuSafeRun });
+            // It plans with its cue's reach.
+            const st = poolCueStats(), cfg = S.world.cfg;
+            const w = Object.assign({}, S.world, { cfg: Object.assign({}, cfg, { maxSpeed: cfg.maxSpeed * st.power, maxTip: cfg.maxTip * st.spin }) });
+            c.job = R.cpu.plan(w, S.frame, { rng: S.rng, tier: poolCpuTier, safeRun: S.cpuSafeRun });
             c.stage = 'think'; c.t = 0;
         } else if (c.stage === 'think') {
             if (!c.job.step(R.cpu.slice || 3)) return;
@@ -8220,7 +8756,7 @@
             S.aim = c.from + d * pcEase(k);
             if (k >= 1 && c.t > 900) { c.stage = 'draw'; c.t = 0; }
         } else if (c.stage === 'draw') {
-            const target = Math.min(100, c.shot.speed / S.cfg.maxSpeed * 100);
+            const target = Math.min(100, c.shot.speed / (S.cfg.maxSpeed * poolCueStats().power) * 100);
             S.power = target * Math.min(1, c.t / 380);
             if (c.t >= 560) { S.shot = c.shot; S.phase = 'strike'; S.strikeT = 0; }
         }
@@ -8246,8 +8782,9 @@
                 const R = poolRules();
                 if (R.prime) S.frame = R.prime(S.frame, S.world);
                 S.world.log = [];
-                const t = poolTip();
-                ppStrike(S.world, S.shot || { angle: S.aim, speed: poolSpeedOf(S.power), tipX: t.x, tipY: t.y });
+                ppStrike(S.world, S.shot ? poolCueShot(S.shot, poolCueStats()) : poolHumanShot(S.power));
+                // Your shots against the CPU, by cue: the frame's win goes to the one that played most.
+                if (poolMode === 'cpu' && !poolCpuTurn()) { const id = poolSeatCueId(1); S.cueShots[id] = (S.cueShots[id] || 0) + 1; }
                 S.shot = null;
                 S.phase = 'moving'; S.acc = 0; S.toast = null; S.fouled = 0; S.placed = false;
             }
@@ -8300,7 +8837,8 @@
     // ⚙️ Aim Guide: how far the object ball's line runs, in table units. None (0) draws no
     // object-ball or cue-ball path: the aim line to the contact and the ghost ball there.
     const POOL_GUIDE_LEN = { none: 0, short: 60, medium: 100, long: 150 };
-    const poolGuideLen = () => (POOL_GUIDE_LEN.hasOwnProperty(userPreferences.poolGuideLen) ? POOL_GUIDE_LEN[userPreferences.poolGuideLen] : POOL_GUIDE_LEN.long);
+    // Your cue's aim stretches it.
+    const poolGuideLen = () => Math.round((POOL_GUIDE_LEN.hasOwnProperty(userPreferences.poolGuideLen) ? POOL_GUIDE_LEN[userPreferences.poolGuideLen] : POOL_GUIDE_LEN.long) * poolHumanStats().aim);
     function poolDraw(dt) {
         const S = poolS, R = poolRules();
         if (!poolFit()) return;
@@ -8315,14 +8853,19 @@
         const bihBad = S.phase === 'bih' ? R.canPlace(S.world, c.x, c.y, S.frame.ballInHand) : null;
         const felt = userPreferences.poolTableColor || 'green';
         const theme = phThemeTokens(S.hud);
+        // The shooter's cue; Black Crown's and Collector's sheen moves unless motion is reduced.
+        const cue = pqById(poolCueStats().id);
+        poolCuePill();
+        if (S.still === undefined) S.still = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+        const cueT = cue.sheen && aiming && !S.still ? Math.floor(Date.now() / 40) * 40 : null;
         // Nothing on the table moved and the camera is still: keep last frame's pixels.
-        const key = JSON.stringify([pose, S.world.t, c.x, c.y, S.aim, S.power, gap, S.phase, S.called, S.handoff, felt, theme, S.drops.length, S.guideKey, S.guideMode, S.W, S.H, S.nom, userPreferences.poolGuideLen]);
+        const key = JSON.stringify([pose, S.world.t, c.x, c.y, S.aim, S.power, gap, S.phase, S.called, S.handoff, felt, theme, S.drops.length, S.guideKey, S.guideMode, S.W, S.H, S.nom, userPreferences.poolGuideLen, cue.id, cueT]);
         if (key !== S.drawKey || S.drops.length) {
             S.drawKey = key;
             pgRender(S.ctx, {
                 view: v, world: S.world, felt, dpr: S.dpr, cache: S.cache, theme,
                 makeCanvas: (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h }),
-                aim: aiming ? { angle: S.aim, power: S.power, gap } : null,
+                aim: aiming ? { angle: S.aim, power: S.power, gap } : null, cue, cueT,
                 guide: aiming ? S.guide : null, guideMode: S.guideMode, guideLen: poolGuideLen(),
                 illegal: !!(S.guide && S.guide.hit > 0 && !poolLegalTarget(S.guide.hit)),
                 bih: S.phase === 'bih' ? { x: c.x, y: c.y, valid: !bihBad } : null,
@@ -8339,7 +8882,7 @@
             frames: S.frames, trophies: S.wins,
             frame: S.frame, world: S.world, phase: S.phase, camera: userPreferences.poolCamera === '2d' ? '2d' : '3d',
             lean: poolLean(), power: S.power, dragging: !!(S.drag && S.drag.kind === 'power'), tip: S.tip, spinOpen: S.spinOpen, called: S.called,
-            clock: !cpuTurn && S.clockTotal ? { left: Math.max(0, S.clockLeft), total: S.clockTotal } : null,
+            clock: !cpuTurn && S.clockTotal ? { left: Math.max(0, S.clockLeft), total: poolTurnClock() } : null,
             toast: S.toast, fouled: S.fouled, handoff: S.handoff,
             bih: S.phase === 'bih' ? { valid: !bihBad, reason: bihBad, placed: S.placed, sx: gs && gs[0], sy: gs && gs[1], sr: gs ? S.cfg.ballR * gs[2] : 0 } : null,
             result: S.result,
@@ -8350,6 +8893,10 @@
             difficulty: poolDifficulty(), adaptiveTier: R.cpu.adaptive(poolCpuRec()),
             tour: poolTourHead(), tourSheet: poolTourSheet(),
             pots: S.pots,
+            // The cue collection (open, else null), its pill's name, and a "New cue" notice.
+            cueName: pqById(poolSeatCueId(poolPickSeat())).name,
+            cues: S.cues ? poolCueView() : null,
+            cueNew: S.cueNew && !S.cues ? S.cueNew : null,
             nom: S.nom, confirm: S.confirm, chipsOpen: S.chipsOpen,
             shot: aiming ? poolShotPath(v) : null,
             // ⚙️ Max View: the table between bars, or the full table (the default).
@@ -8422,6 +8969,8 @@
     function poolOnDown(e) {
         const S = poolS;
         S.spinOpen = false;
+        // The clock runs while the collection is open; a press on the table (Max) closes it.
+        if (S.cues) { S.cues = false; return; }
         if (!poolCanAct() || !S.W) return;
         const [sx, sy] = poolLocal(e);
         try { S.canvas.setPointerCapture(e.pointerId); } catch (_) {}
@@ -8514,6 +9063,7 @@
         if (e.target && e.target.closest && e.target.closest('.ph-spinpop')) return;
         // Esc closes the Game mode sheet first, and nothing else sees it.
         if (e.key === 'Escape' && S.sheet.open) { S.sheet.open = false; e.preventDefault(); e.stopImmediatePropagation(); return; }
+        if (S.cues) { if (e.key === 'Escape') { S.cues = false; e.preventDefault(); e.stopImmediatePropagation(); } return; }
         // Esc resumes from Pause, and backs out of the abandon question.
         if (e.key === 'Escape' && (S.tour.dialog === 'pause' || S.tour.dialog === 'abandon')) {
             poolTourOn[S.tour.dialog === 'pause' ? 'unpause' : 'keep'](); e.preventDefault(); e.stopImmediatePropagation(); return;
@@ -8546,6 +9096,11 @@
         tipStep: d => { if (poolCanAct()) poolS.tip = phClampTip(poolS.tip.x + d.x, poolS.tip.y + d.y); },
         spinToggle: () => { poolS.spinOpen = !poolS.spinOpen && poolCanAct(); },
         spinClose: () => { poolS.spinOpen = false; },
+        // The cue collection, from the header's cue pill (Max: its own button) or a "New cue" notice.
+        cues: () => { const S = poolS; S.cues = !S.cues; S.cueRec = null; S.cueView = null; S.cueJust = null; S.sheet.open = false; S.spinOpen = false; },
+        cuesClose: () => { poolS.cues = false; },
+        cueEquip: id => poolCueEquip(id),
+        cueNewX: () => { poolS.cueNew = null; poolS.cueView = null; },
         // The footer's mode button and the frame-over dialog's second button open the Game mode sheet.
         mode: () => { const S = poolS; S.sheet = { open: !S.sheet.open, mode: poolMode }; S.spinOpen = false; },
         sheetTab: m => { poolS.sheet.mode = m === 'pvp' || m === 'tour' ? m : 'cpu'; },
@@ -8588,7 +9143,7 @@
             const S = poolS;
             S.handoff = 0;
             if (!(S.frame && S.frame.pending)) { S.toast = null; S.fouled = 0; }
-            S.clockLeft = S.clockTotal || POOL_CLOCK_S;
+            S.clockLeft = poolTurnClock() || POOL_CLOCK_S;
         },
         // Snooker: a colour chip, before the stroke.
         nominate: id => {
@@ -8726,7 +9281,7 @@
         S.pots = { 1: potsOf(snap.pots && snap.pots[1]), 2: potsOf(snap.pots && snap.pots[2]) };
     }
     // The clock it was left on, within today's limit: ⚙️ may have lowered it since.
-    const poolSnapClock = snap => { const full = poolS.clockTotal || POOL_CLOCK_S; return snap.clockLeft > 0 ? Math.min(snap.clockLeft, full) : full; };
+    const poolSnapClock = snap => { const full = poolTurnClock() || POOL_CLOCK_S; return snap.clockLeft > 0 ? Math.min(snap.clockLeft, full) : full; };
     const poolDownSet = () => new Set(poolS.world.balls.filter(b => b.state === 'pocketed').map(b => b.id));
     // A world rebuilt from a snapshot's balls, or null if any of them is not a ball.
     function poolWorldFrom(snap) {
@@ -8790,6 +9345,19 @@
         }
         const sw = document.getElementById('game-switch-pool');
         if (sw) sw.title = R.title;
+        // The cue pill, before the wins buttons: the equipped cue; it opens the collection.
+        const sb = document.getElementById('pool-scoreboard');
+        if (sb) {
+            let b = document.getElementById('pool-cue-pill');
+            if (!b) {
+                b = Object.assign(document.createElement('button'), { type: 'button', id: 'pool-cue-pill', className: 'snake-score pool-cue-pill' });
+                b.setAttribute('aria-haspopup', 'dialog');
+                b.addEventListener('click', () => poolOn.cues());
+                sb.insertBefore(b, sb.firstChild);
+            }
+            poolS.pill = '';
+            poolCuePill();
+        }
         Object.keys(POOL_GAMES).forEach(g => { const b = document.getElementById(POOL_GAMES[g].lb + '-lb-btn'); if (b) b.style.display = g === poolS.game ? '' : 'none'; });
         poolRefreshScoreBtn();
     }
@@ -8847,6 +9415,7 @@
     function poolOnPrefChange(pref) {
         const S = poolS, R = poolRules();
         if (!S.frame) return;
+        if (pref === 'poolCue') { S.cueView = null; poolCueClock(); poolSyncChrome(); return; }
         if (pref === R.diffPref) { if (poolMode === 'cpu' && poolFrameFresh()) poolLockTier(); return; }
         // ⚙️ Shot Clock, now: the turn under way keeps what it has left, within the new limit
         // (from Off, it starts full). A tournament keeps its own.
@@ -8854,7 +9423,7 @@
             if (poolMode === 'tour') return;
             const was = S.clockTotal;
             S.clockTotal = poolQuickClock();
-            S.clockLeft = was && S.clockTotal ? Math.min(S.clockLeft, S.clockTotal) : S.clockTotal || POOL_CLOCK_S;
+            S.clockLeft = was && S.clockTotal ? Math.min(S.clockLeft, poolTurnClock()) : poolTurnClock() || POOL_CLOCK_S;
             return;
         }
         if (R.rackPref && pref === R.rackPref && poolMode !== 'tour' && poolFrameFresh()) poolNewFrame(S.breaker);
@@ -8939,8 +9508,9 @@
         S.guideMode = set.guide === 'short' || set.guide === 'off' ? set.guide : 'full';
         S.callEvery = set.call === 'every';
         S.callMode = set.call === 'colours' || set.call === 'all' ? set.call : 'off';
-        S.clockTotal = set.clock === 45 || set.clock === 60 ? set.clock : set.clock === 0 ? 0 : POOL_CLOCK_S;
+        S.clockTotal = poolTourClock();
     }
+    const poolTourClock = () => { const c = poolS.tour.t.settings.clock; return c === 45 || c === 60 ? c : c === 0 ? 0 : POOL_CLOCK_S; };
     // Puts a match on the table: from the start, or from its snapshot.
     function poolTourSeat(m, fromSnapshot) {
         const S = poolS, T = S.tour;
@@ -14916,6 +15486,9 @@
             userXP.totalXP += xpReward;
             checkLevelUp();
             showXPNotification(`${achievement.icon} Achievement Unlocked: ${achievement.name}! +${xpReward} XP`, 'achievement');
+            // The cue it earns (pool-cues.js), noticed here and on the table.
+            const cue = typeof poolCueUnlocked === 'function' ? poolCueUnlocked(achievementKey) : null;
+            if (cue) showXPNotification(`🎱 New cue · ${cue.name}`, 'achievement');
         } else {
             // Silent mode: still show notification but no XP (already-earned achievements restored)
             showXPNotification(`${achievement.icon} Achievement Restored: ${achievement.name}`, 'achievement');
@@ -20034,6 +20607,9 @@
             .pool-hud[data-layout="max"] .ph-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
             .pool-hud[data-layout="max"] .ph-actions .ph-btn { height: 44px; min-width: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; font-size: 12px; }
             .pool-hud[data-layout="max"] .ph-actions .ph-btn.is-icon { padding: 0; width: 44px; }
+            .pool-hud[data-layout="max"] .ph-lead { display: flex; align-items: center; gap: 12px; min-width: 0; }
+            .pool-hud[data-layout="max"] .ph-lead > .ph-tourhead { flex: 1; min-width: 0; }
+            .pool-hud[data-layout="max"] .ph-lead .ph-btn { width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 0; }
             .pool-hud[data-layout="max"] .ph-trophy {
                 display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 18px;
                 background: var(--pool-card); border: 1px solid rgba(var(--pool-accent-rgb), 0.28); color: var(--pool-accent-ink); font-size: 16px; font-weight: 700;
@@ -20788,6 +21364,72 @@
             @media (prefers-color-scheme: light) {
                 .attendance-summary:not(.retro-theme) .pool-cue-switch { border-color: rgba(0, 0, 0, 0.14); background: rgba(0, 0, 0, 0.04); }
                 .attendance-summary:not(.retro-theme) .pool-cue-opt.is-on { background: rgba(108, 92, 231, 0.2); box-shadow: inset 0 0 0 1px rgba(108, 92, 231, 0.55); }
+            }
+            /* ── The cue collection ─────────────────────────────────────── */
+            /* Dark glass over the panel, as the Game mode sheet; Max centres it as a column. */
+            .pool-hud .ph-cues { position: absolute; inset: 0; z-index: 9; box-sizing: border-box; padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; border-radius: var(--pool-radius); background: var(--pool-overlay-strong); border: 1px solid var(--pool-overlay-line); color: var(--pool-overlay-text); backdrop-filter: var(--pool-overlay-blur); -webkit-backdrop-filter: var(--pool-overlay-blur); }
+            .pool-hud[data-layout="max"] .ph-cues { inset: 72px auto 16px 50%; width: min(520px, calc(100% - 32px)); transform: translateX(-50%); box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55); }
+            .pool-hud .ph-cues-head { flex-shrink: 0; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+            .pool-hud .ph-cues-t, .pool-hud .ph-cue-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex-grow: 1; }
+            .pool-hud .ph-cues-t { padding-left: 4px; }
+            .pool-hud .ph-cues-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 18px; }
+            .pool-hud .ph-cues-sub, .pool-hud .ph-cue-d, .pool-hud .ph-cue-lv, .pool-hud .ph-cues-foot { font-size: 11px; color: var(--pool-overlay-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-cues-foot { flex-shrink: 0; white-space: normal; padding: 2px 4px; }
+            /* A locked cue's goal is the point of its card: it wraps rather than cut off. */
+            .pool-hud .is-locked .ph-cue-d { white-space: normal; }
+            .pool-hud .ph-cues-head .ph-btn { width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 0; color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
+            .pool-hud .ph-cues-list { flex-grow: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; scrollbar-width: thin; scrollbar-color: var(--pool-overlay-line) transparent; }
+            .pool-hud .ph-cue-card { flex-shrink: 0; padding: 8px; display: flex; flex-direction: column; gap: 6px; border-radius: var(--pool-radius); border: 1px solid var(--pool-overlay-line); background: rgba(255, 255, 255, 0.04); }
+            .pool-hud .ph-cue-card.is-eq, .pool-hud .ph-cue-card.is-hero { border-color: rgba(var(--pool-accent-rgb), 0.45); }
+            .pool-hud .ph-cue-card.is-just { border-color: rgba(var(--pool-accent-rgb), 0.8); }
+            /* The cues are materials: the same in every theme, on a dark strip. */
+            .pool-hud .ph-cue-cv { display: block; width: 100%; height: 24px; border-radius: 10px; background: rgba(0, 0, 0, 0.28); }
+            .pool-hud .ph-cue-show { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; border-radius: 10px; background: rgba(0, 0, 0, 0.28); }
+            .pool-hud .ph-cue-show .ph-cue-cv { background: none; }
+            .pool-hud .ph-cue-cv.is-detail { height: 30px; }
+            .pool-hud .ph-cue-cv.is-full { height: 18px; }
+            .pool-hud .ph-cue-card.is-locked .ph-cue-cv { opacity: 0.5; }
+            .pool-hud .ph-cue-row { min-height: 44px; display: flex; align-items: center; gap: 10px; }
+            .pool-hud .ph-cue-row.is-head { min-height: 32px; }
+            .pool-hud .ph-cue-icon { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.14); color: var(--pool-accent-lite); }
+            .pool-hud .is-locked .ph-cue-icon { background: rgba(255, 255, 255, 0.06); color: var(--pool-overlay-muted); }
+            .pool-hud .ph-cue-n { display: flex; align-items: center; gap: 6px; font-family: var(--pool-display); font-size: 15px; font-weight: 600; white-space: nowrap; }
+            .pool-hud .ph-cue-tag { flex-shrink: 0; height: 32px; padding: 0 10px; display: flex; align-items: center; gap: 5px; border-radius: var(--pool-radius-sm); font-size: 10px; letter-spacing: 0.12em; color: var(--pool-accent-lite); background: rgba(var(--pool-accent-rgb), 0.12); }
+            .pool-hud .ph-cue-tag.is-lock { padding: 0 4px; background: transparent; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-cue-new { height: 16px; padding: 0 6px; display: inline-flex; align-items: center; border-radius: 8px; font-size: 8px; letter-spacing: 0.12em; border: 1px solid rgba(var(--pool-accent-rgb), 0.55); color: var(--pool-accent-lite); }
+            .pool-hud .ph-cue-eq { flex-shrink: 0; height: 44px; min-width: 76px; padding: 0 14px; font-size: 13px; color: var(--pool-overlay-text); background: rgba(255, 255, 255, 0.06); border-color: var(--pool-overlay-line); }
+            /* Four 10-step bars: filled to the cue's level, outlined to level 5. */
+            .pool-hud .ph-cue-bars { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 14px; }
+            .pool-hud .ph-cue-bar { display: flex; align-items: center; gap: 6px; }
+            .pool-hud .ph-cue-bar .ph-label { width: 38px; flex-shrink: 0; font-size: 9px; letter-spacing: 0.1em; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-cue-segs { flex-grow: 1; display: flex; gap: 2px; }
+            .pool-hud .ph-cue-segs i { flex: 1; height: 6px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); }
+            .pool-hud .ph-cue-segs i.up { background: transparent; box-shadow: inset 0 0 0 1px rgba(var(--pool-accent-rgb), 0.6); }
+            .pool-hud .ph-cue-segs i.on { background: var(--pool-accent); }
+            .pool-hud .ph-cue-bar .ph-num { width: 16px; text-align: right; font-size: 11px; font-weight: 600; }
+            .pool-hud .ph-cue-just { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--pool-accent-lite); }
+            /* Cyberpunk's panel colour is see-through: the collection sits on its screen instead. */
+            .retro-theme .pool-hud .ph-cues { background: var(--pool-screen); }
+            .retro-theme .pool-hud .ph-cues, .retro-theme .pool-hud .ph-cue-card, .retro-theme .pool-hud .ph-cue-cv, .retro-theme .pool-hud .ph-cue-show,
+            .retro-theme .pool-hud .ph-cue-tag, .retro-theme .pool-hud .ph-cue-segs i { border-radius: 0; }
+            /* "New cue": over the table, below the camera toggle, until equipped or dismissed. */
+            .pool-hud .ph-cuenew { left: 10px; right: 10px; top: 50px; box-sizing: border-box; padding: 6px 6px 6px 12px; display: flex; align-items: center; gap: 10px; border-radius: var(--pool-radius); background: var(--pool-overlay-strong); border-color: rgba(var(--pool-accent-rgb), 0.6); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45); pointer-events: auto; z-index: 3; }
+            .pool-hud[data-layout="max"] .ph-cuenew { left: 16px; right: auto; top: 16px; width: 420px; }
+            .pool-hud .ph-cuenew-i { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.16); color: var(--pool-accent); }
+            .pool-hud .ph-cuenew-t { flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-cuenew-t .ph-label { font-size: 9px; letter-spacing: 0.14em; color: var(--pool-accent-lite); }
+            .pool-hud .ph-cuenew .ph-btn { flex-shrink: 0; height: 44px; padding: 0 14px; font-size: 12px; color: var(--pool-overlay-text); background: rgba(255, 255, 255, 0.06); border-color: var(--pool-overlay-line); }
+            .pool-hud .ph-cuenew .ph-btn.is-icon { width: 44px; padding: 0; display: flex; align-items: center; justify-content: center; }
+            /* The header's cue pill, in the host's scoreboard (Max has its own button). */
+            .pool-cue-pill { display: inline-flex; align-items: center; gap: 5px; height: 26px; max-width: 128px; padding: 0 10px; box-sizing: border-box; border-radius: 13px; border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.06); color: inherit; font: inherit; font-size: 0.75rem; font-weight: 600; white-space: nowrap; cursor: pointer; }
+            .pool-cue-pill span { overflow: hidden; text-overflow: ellipsis; }
+            .pool-cue-pill svg { flex-shrink: 0; }
+            .pool-cue-pill:hover { background: rgba(255, 255, 255, 0.12); }
+            .pool-cue-pill:focus-visible { outline: 2px solid rgba(162, 155, 254, 0.9); outline-offset: 2px; }
+            .attendance-summary.retro-theme .pool-cue-pill { border-radius: 0; border-color: var(--rt-border); background: var(--rt-panel-strong); }
+            @media (prefers-color-scheme: light) {
+                .attendance-summary:not(.retro-theme) .pool-cue-pill { border-color: rgba(0, 0, 0, 0.14); background: rgba(0, 0, 0, 0.04); }
+                .attendance-summary:not(.retro-theme) .pool-cue-pill:hover { background: rgba(0, 0, 0, 0.08); }
             }
             /* ═══ END POOL THEME ═══ */
 

@@ -102,6 +102,8 @@
     //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
     //   secondaryLabel,              overrides the frame-over dialog's second button
     //   result: { win, title, reason, recordLabel, record, delta, note, stats? } | null,
+    //   cueName, the equipped cue; cues: poolCueModel() | null, the collection open;
+    //   cueNew: a just-unlocked cue's id | null,
     //   snooker: nom (nominated colour or -1), confirm (concede question open),
     //            choice: { chooser, cpu, options: [{ id, label, short }] } | null
     // }
@@ -252,6 +254,8 @@
                 tour: g.tourSheet && g.tourSheet.saved ? { saved: true, cta: 'RESUME ' + String(g.tourSheet.name || 'TOURNAMENT').toUpperCase(), sub: g.tourSheet.where || '' }
                     : { saved: false, cta: 'SET UP TOURNAMENT', sub: '' },
             } : { show: false },
+            cueName: g.cueName || 'Standard', cues: g.cues || null,
+            cueNew: g.cueNew && !sheetOpen && !toast ? g.cueNew : null,
             // Snooker's parts; hidden for pool.
             track: { show: false }, chips: { show: false }, concede: { show: false },
         };
@@ -359,7 +363,70 @@
         close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
         cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
         flag: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"></path><path d="M5 4h12l-2.5 4L17 12H5"></path></svg>',
+        cue: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20L16.5 7.5M15 6l3 3M17.6 4.4a1.4 1.4 0 0 1 2 2"></path></svg>',
     };
+
+    // ── The cue collection ────────────────────────────────────────────
+    // Each cue's stroke icon: its achievement's (the design's), Standard's check, Collector's star.
+    const PH_CUE_ICON = {
+        standard: 'M5 12.5l4.5 4.5L19 7.5',
+        tulipwood: 'M9 11a3.5 3.5 0 1 0 0-7a3.5 3.5 0 0 0 0 7zM2.5 20c.6-3.4 3.2-5.5 6.5-5.5s5.9 2.1 6.5 5.5M16 4.5a3.2 3.2 0 0 1 0 6.2M18 14.8c2 .6 3.2 2.4 3.5 5.2',
+        birdseye: 'M7 8h10a4 4 0 0 1 4 4v2.5a2.5 2.5 0 0 1-4.6 1.4L15 14H9l-1.4 1.9A2.5 2.5 0 0 1 3 14.5V12a4 4 0 0 1 4-4zM8 10.5v3M6.5 12h3M15.5 11.5h.01M17.5 13h.01',
+        ember: 'M12 3c.8 3.2 5 5.2 5 10a5 5 0 0 1-10 0c0-2 .8-3.4 2-4.5.2 1.6 1 2.6 2.2 3C10.6 8.6 11.4 5.6 12 3z',
+        rosewood6: 'M12 3l7 3v5c0 4.4-3 8.2-7 10-4-1.8-7-5.6-7-10V6l7-3zM8.5 12.5L12 9l3.5 3.5M8.5 16L12 12.5l3.5 3.5',
+        carbonfin: 'M3 17c2 0 2-1.5 4.5-1.5S10 17 12 17s2-1.5 4.5-1.5S19 17 21 17M7 15.5C9 11 11.5 6.5 16 5c-1.2 3.3-1.5 7-.8 10.5',
+        malachite: 'M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18zM12 16.5a4.5 4.5 0 1 0 0-9a4.5 4.5 0 0 0 0 9zM12 12.8a.8.8 0 1 0 0-1.6a.8.8 0 0 0 0 1.6z',
+        centuryash: 'M8 3l2.5 5M16 3l-2.5 5M12 21a6 6 0 1 0 0-12a6 6 0 0 0 0 12zM10.5 13.5L12 12.5v5',
+        crown: 'M4 18h16M5 18L3.5 8l5 4L12 6l3.5 6 5-4L19 18',
+        collector: 'M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6l-5.4 2.9 1.2-6-4.5-4.2 6.1-.7L12 3z',
+        lock: 'M7.5 11V8a4.5 4.5 0 0 1 9 0v3M6.5 11h11a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.5v-7A1.5 1.5 0 0 1 6.5 11z',
+    };
+    const phSvg = (d, n, w) => '<svg width="' + n + '" height="' + n + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (w || 1.8) + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"></path></svg>';
+    const PH_BARS = ['Power', 'Aim', 'Spin', 'Time'];
+    // m: poolCueModel(). The equipped cue up top (a close-up of its forearm, then all of it), then
+    // every cue: its look, how it is earned, its four bars (filled to its level, outlined to 5).
+    function phCuesHTML(m) {
+        const eq = m.list.find(c => c.eq) || m.list[0];
+        const tick = phSvg(PH_CUE_ICON.standard, 13, 2.4);
+        const bars = c => '<div class="ph-cue-bars">' + PH_BARS.map((b, i) => '<span class="ph-cue-bar" role="img" aria-label="' + b + ' ' + c.bars[i] + ' of 10' +
+            (c.top[i] !== c.bars[i] ? ', ' + c.top[i] + ' at level 5' : '') + '"><span class="ph-label">' + b + '</span><span class="ph-cue-segs">' +
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(k => '<i' + (k < c.bars[i] ? ' class="on"' : k < c.top[i] ? ' class="up"' : '') + '></i>').join('') +
+            '</span><span class="ph-num">' + c.bars[i] + '</span></span>').join('') + '</div>';
+        const level = c => '<span class="ph-cue-lv">' + (c.level >= 5 ? 'Level 5 · mastered · ' + c.wins + ' wins' : 'Level ' + c.level + ' · ' + c.have + ' of ' + c.need + ' ' + c.counts + ' to level ' + (c.level + 1)) + '</span>';
+        const card = c => '<div class="ph-cue-card' + (c.eq ? ' is-eq' : '') + (c.open ? '' : ' is-locked') + '" role="listitem" aria-label="' + c.name + ', ' +
+            (c.eq ? 'equipped' : c.open ? 'unlocked' : 'locked. ' + c.cond) + '">' +
+            '<canvas class="ph-cue-cv" data-cue="' + c.id + '" aria-hidden="true"></canvas>' +
+            '<div class="ph-cue-row"><span class="ph-cue-icon">' + phSvg(PH_CUE_ICON[c.id], 17) + '</span>' +
+            '<span class="ph-cue-t"><span class="ph-cue-n">' + c.name + (c.isNew ? '<span class="ph-cue-new ph-label">NEW</span>' : '') + '</span>' +
+            '<span class="ph-cue-d">' + (c.open ? c.blurb : c.cond) + '</span></span>' +
+            (c.eq ? '<span class="ph-cue-tag ph-label">' + tick + 'EQUIPPED</span>'
+                : c.open ? '<button type="button" class="ph-btn ph-cue-eq" data-ph-equip="' + c.id + '" aria-label="Equip ' + c.name + '">Equip</button>'
+                    : '<span class="ph-cue-tag is-lock ph-label">' + phSvg(PH_CUE_ICON.lock, 14, 2) + 'LOCKED</span>') + '</div>' +
+            bars(c) + (c.open && c.id !== eq.id ? level(c) : '') + '</div>';
+        return '<div class="ph-cues-head"><span class="ph-cues-t"><span class="ph-cues-title">Cue collection</span>' +
+            '<span class="ph-cues-sub">' + (m.who ? m.who + '’s cue for this match · from your ' + m.open + ' unlocked' : m.open + ' of ' + m.list.length + ' unlocked · every shot you play, pool and snooker') + '</span></span>' +
+            '<button type="button" class="ph-btn" data-ph-cuesx aria-label="Close the cue collection">' + PH_ICON.close + '</button></div>' +
+            '<div class="ph-cues-list" role="list" aria-label="All cues">' +
+            '<div class="ph-cue-card is-hero' + (m.just === eq.id ? ' is-just' : '') + '"><div class="ph-cue-row is-head"><span class="ph-cue-t"><span class="ph-cue-n">' + eq.name + '</span>' +
+            '<span class="ph-cue-d">' + eq.blurb + '</span></span><span class="ph-cue-tag ph-label">' + tick + 'EQUIPPED</span></div>' +
+            '<div class="ph-cue-show"><canvas class="ph-cue-cv is-detail" data-cue="' + eq.id + '" data-span="0.48,0.77" aria-hidden="true"></canvas>' +
+            '<canvas class="ph-cue-cv is-full" data-cue="' + eq.id + '" aria-hidden="true"></canvas></div>' + bars(eq) + level(eq) +
+            (m.just === eq.id ? '<span class="ph-cue-just" role="status">' + tick + eq.name + ' equipped · ' + (m.who ? m.who + '’s' : 'your') + ' next shot uses it</span>' : '') + '</div>' +
+            m.list.map(card).join('') +
+            '<div class="ph-cues-foot">The CPU plays a cue for its level: Easy Standard, Normal Tulipwood, Hard Malachite (Century Ash at snooker), Pro Black Crown.</div></div>';
+    }
+    // Draws every cue in the open collection at its canvas's size.
+    function phCuesDraw(root, game) {
+        const dpr = window.devicePixelRatio || 1, mk = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+        root.querySelectorAll('canvas[data-cue]').forEach(cv => {
+            const w = cv.clientWidth, h = cv.clientHeight, span = (cv.getAttribute('data-span') || '0,1').split(',').map(Number);
+            if (!w || !h) return;
+            cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+            const c = cv.getContext('2d');
+            c.setTransform(dpr, 0, 0, dpr, 0, 0);
+            pqDrawFlat(c, pqById(cv.getAttribute('data-cue')), game, 10, h / 2, w - 20, span[0], span[1], null, mk);
+        });
+    }
 
     function phCardHTML(seat, max) {
         const top = '<div class="ph-card-top"><span class="ph-name" data-ph="name"></span>' +
@@ -382,6 +449,7 @@
             '<span class="ph-sr" data-ph="trlive" aria-live="polite" aria-atomic="true"></span></div>';
     }
 
+    const PH_CUES_ROOT = '<div class="ph-cues" role="dialog" aria-label="Cue collection" data-ph="cues" hidden></div>';
     function phViewHTML(max) {
         // The six pocket targets on a 52 × 26 table: the call card's, and the folded chips'.
         const pad = attr => [[0, 0], [26, 0], [52, 0], [0, 26], [26, 26], [52, 26]]
@@ -412,6 +480,9 @@
             '<div class="ph-spinpop-chips">' + PH_SPINS.map((p, i) => '<button type="button" class="ph-btn" data-ph-tip="' + i + '" aria-pressed="false">' + p.label + '</button>').join('') + '</div></div>' +
             '</div>' +
             '<div class="ph-hint ph-glass" data-ph="hint"><span data-ph="hintt"></span></div>' +
+            '<div class="ph-cuenew ph-glass" role="status" data-ph="cuenew" hidden><span class="ph-cuenew-i">' + PH_ICON.cue + '</span>' +
+            '<span class="ph-cuenew-t"><span class="ph-label">NEW CUE</span><span data-ph="cuenewn"></span></span>' +
+            '<button type="button" class="ph-btn" data-ph="cuenewgo">Equip</button><button type="button" class="ph-btn is-icon" data-ph="cuenewx" aria-label="Dismiss">' + PH_ICON.close + '</button></div>' +
             '<div class="ph-bihnote ph-label" data-ph="bihnote" hidden></div>' +
             '<button type="button" class="ph-replace ph-glass" data-ph="replace" hidden>' + PH_ICON.hand + '<span>Move cue ball</span></button>' +
             '<div class="ph-mini ph-glass" data-ph="mini" hidden><span class="ph-mini-cap" data-ph="minicap"></span>' +
@@ -486,14 +557,16 @@
         const cards = phCardHTML(1, max) + '<div class="ph-frames"><span class="ph-frames-n" data-ph="frames">0–0</span><span class="ph-frames-l ph-label">FRAMES</span></div>' + phCardHTML(2, max);
         let html;
         if (max) {
-            html = '<div class="ph-top"><div class="ph-title" data-ph="title">' + (o.title || '8-Ball Pool') + '</div>' + phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' +
+            // The cue button rides beside the title (or a tournament's head), where there is room.
+            html = '<div class="ph-top"><div class="ph-lead"><div class="ph-title" data-ph="title">' + (o.title || '8-Ball Pool') + '</div>' + phTourHeadHTML() +
+                '<button type="button" class="ph-btn is-icon" data-ph="cue" aria-haspopup="dialog">' + PH_ICON.cue + '</button></div><div class="ph-cards">' + cards + '</div>' +
                 '<div class="ph-actions"><span class="ph-trophy" data-ph="trophy">' + PH_ICON.cup + '<span class="ph-num" data-ph="trophies">0</span></span>' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="reset" aria-label="Reset rack" title="Reset rack">' + PH_ICON.reset + '</button>' +
                 '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="pause" aria-label="Pause" title="Pause" hidden>' + PH_ICON.pause + '</button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="max" aria-label="Exit full view" title="Exit full view">' + PH_ICON.exit + '</button></div></div>' +
-                phTrackHTML() + phViewHTML(true) + phHandoffHTML() + phSheetHTML();
+                phTrackHTML() + phViewHTML(true) + phHandoffHTML() + phSheetHTML() + PH_CUES_ROOT;
         } else {
             html = phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' + phTrackHTML() + phViewHTML(false) +
                 '<div class="ph-foot" data-ph="foot">' +
@@ -502,7 +575,7 @@
                 '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="pause" hidden>' + PH_ICON.pause + '<span>Pause</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="max">' + PH_ICON.max + '<span>Max</span></button></div>' +
-                phHandoffHTML() + phSheetHTML();
+                phHandoffHTML() + phSheetHTML() + PH_CUES_ROOT;
         }
         const el = document.createElement('div');
         el.className = 'pool-hud';
@@ -520,7 +593,8 @@
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
             'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart', 'sheetp1', 'sheetp2',
             'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy',
-            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn'].forEach(n => { hud[n] = ref(n); });
+            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn',
+            'cue', 'cues', 'cuenew', 'cuenewn', 'cuenewgo', 'cuenewx'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
@@ -628,6 +702,16 @@
         hud.bracket.addEventListener('click', () => fire('tourBracket'));
         hud.pause.addEventListener('click', () => fire('tourPause'));
         hud.sheet.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('sheetClose'); hud.mode.focus(); e.preventDefault(); e.stopPropagation(); } });
+        // The cue collection and the "New cue" notice.
+        if (hud.cue) hud.cue.addEventListener('click', () => fire('cues'));
+        hud.cues.addEventListener('click', e => {
+            const t = e.target.closest && e.target.closest('[data-ph-equip], [data-ph-cuesx]');
+            if (!t) return;
+            if (t.hasAttribute('data-ph-cuesx')) fire('cuesClose'); else fire('cueEquip', t.getAttribute('data-ph-equip'));
+        });
+        hud.cues.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('cuesClose'); e.preventDefault(); e.stopPropagation(); } });
+        hud.cuenewgo.addEventListener('click', () => fire('cueEquip', hud.cueNewId));
+        hud.cuenewx.addEventListener('click', () => fire('cueNewX'));
         return hud;
     }
 
@@ -658,6 +742,18 @@
     function phRender(hud, vm) {
         const s = (k, v, f) => phSet(hud, k, v, f);
         s('game', vm.game, v => hud.el.setAttribute('data-game', v));
+        if (hud.cue) s('cuel', vm.cueName, v => { hud.cue.title = 'Cue: ' + v; hud.cue.setAttribute('aria-label', 'Cue: ' + v + '. Open the cue collection'); });
+        s('cuenew', vm.cueNew, v => { phShow(hud.cuenew, !!v); hud.cuenewn.textContent = v ? pqById(v).name : ''; hud.cueNewId = v; });
+        // The collection is rebuilt when its model changes (poolCueModel is cached until then).
+        s('cues', vm.cues, m => {
+            const was = !hud.cues.hidden;
+            phShow(hud.cues, !!m);
+            if (!m) { hud.cues.innerHTML = ''; return; }
+            const top = hud.cues.querySelector('.ph-cues-list'), y = top ? top.scrollTop : 0;
+            hud.cues.innerHTML = phCuesHTML(m);
+            phCuesDraw(hud.cues, m.game);
+            if (was) hud.cues.querySelector('.ph-cues-list').scrollTop = y; else hud.cues.querySelector('[data-ph-cuesx]').focus();
+        });
         vm.cards.forEach((c, i) => {
             const r = hud.cards[i], k = 'c' + i + '.';
             s(k + 'name', c.name, v => { r.name.textContent = v; });

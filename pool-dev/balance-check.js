@@ -7,8 +7,12 @@
 // and power error on top, so the profiles differ only in execution. Seat 1 (the
 // human) always breaks. The bar from v1's baseline: hard must beat 61.4% of
 // frames against "skilled" and 72.3% against "casual", and pro must beat hard.
+// POOL_CUES=1: the CPU plays its tier's cue (pool-cues.js PQ_CPU), the human model Standard.
 const L = require('./load');
 const P = L.ai();
+const CUES = process.env.POOL_CUES === '1' ? L.render() : null;
+// The table as the tier's cue reaches it: its power cap and spin reach.
+const cueCfg = (cfg, tier, game) => { if (!CUES) return cfg; const s = CUES.pqCpuStats(tier, game); return Object.assign({}, cfg, { maxSpeed: cfg.maxSpeed * s.power, maxTip: cfg.maxTip * s.spin }); };
 
 // Tuning without editing pool-ai.js: POOL_TIER_TUNE='{"hard":{"aim":0.2,"power":0.02}}'
 if (process.env.POOL_TIER_TUNE) {
@@ -40,12 +44,13 @@ function wilson(k, n) {
 }
 
 function playFrame(tier, prof, rng, st) {
-    const w = P.ppRack(P.ppCreateWorld(), rng);
+    const w = P.ppRack(P.ppCreateWorld(), rng), base = w.cfg, mine = cueCfg(base, tier, 'pool');
     let frame = P.prNewFrame({ breaker: 1, callEvery: !!P.PA_TIERS[tier].callEvery });
     let shots = 0;
     while (!frame.over && shots < SHOT_CAP) {
         const seat = frame.turn;
         const cpu = seat === 2;
+        w.cfg = cpu ? mine : base;
         if (frame.ballInHand) {
             const p = P.paPlace(w, frame, rng, cpu ? tier : 'hard');
             P.prPlaceCue(w, p[0], p[1]);
@@ -82,7 +87,7 @@ function playFrame(tier, prof, rng, st) {
 }
 
 const pct = (a, b) => (b ? (100 * a / b).toFixed(1) : '0.0');
-console.log('\nv2 CPU tiers vs scripted humans: ' + FRAMES + ' frames per cell, seed ' + SEED + '\n');
+console.log('\nv2 CPU tiers vs scripted humans: ' + FRAMES + ' frames per cell, seed ' + SEED + (CUES ? ', the CPU with its cue' : '') + '\n');
 console.log('tier     profile   aim σ   power σ   CPU wins             v1 CPU   human   stale   CPU pot/visit   foul    safety   ms/shot');
 const out = [];
 for (const tier of TIERS) {

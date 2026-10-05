@@ -498,6 +498,9 @@
             .pool-hud[data-layout="max"] .ph-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
             .pool-hud[data-layout="max"] .ph-actions .ph-btn { height: 44px; min-width: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; font-size: 12px; }
             .pool-hud[data-layout="max"] .ph-actions .ph-btn.is-icon { padding: 0; width: 44px; }
+            .pool-hud[data-layout="max"] .ph-lead { display: flex; align-items: center; gap: 12px; min-width: 0; }
+            .pool-hud[data-layout="max"] .ph-lead > .ph-tourhead { flex: 1; min-width: 0; }
+            .pool-hud[data-layout="max"] .ph-lead .ph-btn { width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 0; }
             .pool-hud[data-layout="max"] .ph-trophy {
                 display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 18px;
                 background: var(--pool-card); border: 1px solid rgba(var(--pool-accent-rgb), 0.28); color: var(--pool-accent-ink); font-size: 16px; font-weight: 700;
@@ -1252,4 +1255,70 @@
             @media (prefers-color-scheme: light) {
                 .attendance-summary:not(.retro-theme) .pool-cue-switch { border-color: rgba(0, 0, 0, 0.14); background: rgba(0, 0, 0, 0.04); }
                 .attendance-summary:not(.retro-theme) .pool-cue-opt.is-on { background: rgba(108, 92, 231, 0.2); box-shadow: inset 0 0 0 1px rgba(108, 92, 231, 0.55); }
+            }
+            /* ── The cue collection ─────────────────────────────────────── */
+            /* Dark glass over the panel, as the Game mode sheet; Max centres it as a column. */
+            .pool-hud .ph-cues { position: absolute; inset: 0; z-index: 9; box-sizing: border-box; padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; border-radius: var(--pool-radius); background: var(--pool-overlay-strong); border: 1px solid var(--pool-overlay-line); color: var(--pool-overlay-text); backdrop-filter: var(--pool-overlay-blur); -webkit-backdrop-filter: var(--pool-overlay-blur); }
+            .pool-hud[data-layout="max"] .ph-cues { inset: 72px auto 16px 50%; width: min(520px, calc(100% - 32px)); transform: translateX(-50%); box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55); }
+            .pool-hud .ph-cues-head { flex-shrink: 0; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+            .pool-hud .ph-cues-t, .pool-hud .ph-cue-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex-grow: 1; }
+            .pool-hud .ph-cues-t { padding-left: 4px; }
+            .pool-hud .ph-cues-title { font-family: var(--pool-display); font-weight: var(--pool-display-weight); font-size: 18px; }
+            .pool-hud .ph-cues-sub, .pool-hud .ph-cue-d, .pool-hud .ph-cue-lv, .pool-hud .ph-cues-foot { font-size: 11px; color: var(--pool-overlay-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-cues-foot { flex-shrink: 0; white-space: normal; padding: 2px 4px; }
+            /* A locked cue's goal is the point of its card: it wraps rather than cut off. */
+            .pool-hud .is-locked .ph-cue-d { white-space: normal; }
+            .pool-hud .ph-cues-head .ph-btn { width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 0; color: var(--pool-overlay-text); background: transparent; border-color: var(--pool-overlay-line); }
+            .pool-hud .ph-cues-list { flex-grow: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; scrollbar-width: thin; scrollbar-color: var(--pool-overlay-line) transparent; }
+            .pool-hud .ph-cue-card { flex-shrink: 0; padding: 8px; display: flex; flex-direction: column; gap: 6px; border-radius: var(--pool-radius); border: 1px solid var(--pool-overlay-line); background: rgba(255, 255, 255, 0.04); }
+            .pool-hud .ph-cue-card.is-eq, .pool-hud .ph-cue-card.is-hero { border-color: rgba(var(--pool-accent-rgb), 0.45); }
+            .pool-hud .ph-cue-card.is-just { border-color: rgba(var(--pool-accent-rgb), 0.8); }
+            /* The cues are materials: the same in every theme, on a dark strip. */
+            .pool-hud .ph-cue-cv { display: block; width: 100%; height: 24px; border-radius: 10px; background: rgba(0, 0, 0, 0.28); }
+            .pool-hud .ph-cue-show { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; border-radius: 10px; background: rgba(0, 0, 0, 0.28); }
+            .pool-hud .ph-cue-show .ph-cue-cv { background: none; }
+            .pool-hud .ph-cue-cv.is-detail { height: 30px; }
+            .pool-hud .ph-cue-cv.is-full { height: 18px; }
+            .pool-hud .ph-cue-card.is-locked .ph-cue-cv { opacity: 0.5; }
+            .pool-hud .ph-cue-row { min-height: 44px; display: flex; align-items: center; gap: 10px; }
+            .pool-hud .ph-cue-row.is-head { min-height: 32px; }
+            .pool-hud .ph-cue-icon { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.14); color: var(--pool-accent-lite); }
+            .pool-hud .is-locked .ph-cue-icon { background: rgba(255, 255, 255, 0.06); color: var(--pool-overlay-muted); }
+            .pool-hud .ph-cue-n { display: flex; align-items: center; gap: 6px; font-family: var(--pool-display); font-size: 15px; font-weight: 600; white-space: nowrap; }
+            .pool-hud .ph-cue-tag { flex-shrink: 0; height: 32px; padding: 0 10px; display: flex; align-items: center; gap: 5px; border-radius: var(--pool-radius-sm); font-size: 10px; letter-spacing: 0.12em; color: var(--pool-accent-lite); background: rgba(var(--pool-accent-rgb), 0.12); }
+            .pool-hud .ph-cue-tag.is-lock { padding: 0 4px; background: transparent; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-cue-new { height: 16px; padding: 0 6px; display: inline-flex; align-items: center; border-radius: 8px; font-size: 8px; letter-spacing: 0.12em; border: 1px solid rgba(var(--pool-accent-rgb), 0.55); color: var(--pool-accent-lite); }
+            .pool-hud .ph-cue-eq { flex-shrink: 0; height: 44px; min-width: 76px; padding: 0 14px; font-size: 13px; color: var(--pool-overlay-text); background: rgba(255, 255, 255, 0.06); border-color: var(--pool-overlay-line); }
+            /* Four 10-step bars: filled to the cue's level, outlined to level 5. */
+            .pool-hud .ph-cue-bars { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 14px; }
+            .pool-hud .ph-cue-bar { display: flex; align-items: center; gap: 6px; }
+            .pool-hud .ph-cue-bar .ph-label { width: 38px; flex-shrink: 0; font-size: 9px; letter-spacing: 0.1em; color: var(--pool-overlay-muted); }
+            .pool-hud .ph-cue-segs { flex-grow: 1; display: flex; gap: 2px; }
+            .pool-hud .ph-cue-segs i { flex: 1; height: 6px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); }
+            .pool-hud .ph-cue-segs i.up { background: transparent; box-shadow: inset 0 0 0 1px rgba(var(--pool-accent-rgb), 0.6); }
+            .pool-hud .ph-cue-segs i.on { background: var(--pool-accent); }
+            .pool-hud .ph-cue-bar .ph-num { width: 16px; text-align: right; font-size: 11px; font-weight: 600; }
+            .pool-hud .ph-cue-just { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--pool-accent-lite); }
+            /* Cyberpunk's panel colour is see-through: the collection sits on its screen instead. */
+            .retro-theme .pool-hud .ph-cues { background: var(--pool-screen); }
+            .retro-theme .pool-hud .ph-cues, .retro-theme .pool-hud .ph-cue-card, .retro-theme .pool-hud .ph-cue-cv, .retro-theme .pool-hud .ph-cue-show,
+            .retro-theme .pool-hud .ph-cue-tag, .retro-theme .pool-hud .ph-cue-segs i { border-radius: 0; }
+            /* "New cue": over the table, below the camera toggle, until equipped or dismissed. */
+            .pool-hud .ph-cuenew { left: 10px; right: 10px; top: 50px; box-sizing: border-box; padding: 6px 6px 6px 12px; display: flex; align-items: center; gap: 10px; border-radius: var(--pool-radius); background: var(--pool-overlay-strong); border-color: rgba(var(--pool-accent-rgb), 0.6); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45); pointer-events: auto; z-index: 3; }
+            .pool-hud[data-layout="max"] .ph-cuenew { left: 16px; right: auto; top: 16px; width: 420px; }
+            .pool-hud .ph-cuenew-i { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(var(--pool-accent-rgb), 0.16); color: var(--pool-accent); }
+            .pool-hud .ph-cuenew-t { flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-cuenew-t .ph-label { font-size: 9px; letter-spacing: 0.14em; color: var(--pool-accent-lite); }
+            .pool-hud .ph-cuenew .ph-btn { flex-shrink: 0; height: 44px; padding: 0 14px; font-size: 12px; color: var(--pool-overlay-text); background: rgba(255, 255, 255, 0.06); border-color: var(--pool-overlay-line); }
+            .pool-hud .ph-cuenew .ph-btn.is-icon { width: 44px; padding: 0; display: flex; align-items: center; justify-content: center; }
+            /* The header's cue pill, in the host's scoreboard (Max has its own button). */
+            .pool-cue-pill { display: inline-flex; align-items: center; gap: 5px; height: 26px; max-width: 128px; padding: 0 10px; box-sizing: border-box; border-radius: 13px; border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.06); color: inherit; font: inherit; font-size: 0.75rem; font-weight: 600; white-space: nowrap; cursor: pointer; }
+            .pool-cue-pill span { overflow: hidden; text-overflow: ellipsis; }
+            .pool-cue-pill svg { flex-shrink: 0; }
+            .pool-cue-pill:hover { background: rgba(255, 255, 255, 0.12); }
+            .pool-cue-pill:focus-visible { outline: 2px solid rgba(162, 155, 254, 0.9); outline-offset: 2px; }
+            .attendance-summary.retro-theme .pool-cue-pill { border-radius: 0; border-color: var(--rt-border); background: var(--rt-panel-strong); }
+            @media (prefers-color-scheme: light) {
+                .attendance-summary:not(.retro-theme) .pool-cue-pill { border-color: rgba(0, 0, 0, 0.14); background: rgba(0, 0, 0, 0.04); }
+                .attendance-summary:not(.retro-theme) .pool-cue-pill:hover { background: rgba(0, 0, 0, 0.08); }
             }

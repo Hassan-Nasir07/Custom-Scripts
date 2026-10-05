@@ -548,9 +548,10 @@
         const cfg = w.cfg, R = cfg.ballR;
         const cue = w.balls.find(b => b.id === 0);
         let a = shot.tipX || 0, bt = shot.tipY || 0;
-        const m = Math.hypot(a, bt);
-        if (m > cfg.maxTip) { a *= cfg.maxTip / m; bt *= cfg.maxTip / m; }
-        const v0 = Math.max(0, Math.min(cfg.maxSpeed, shot.speed));
+        // A cue's own reach (shot.cap, shot.tipMax) stands in for the table's.
+        const m = Math.hypot(a, bt), tm = shot.tipMax || cfg.maxTip;
+        if (m > tm) { a *= tm / m; bt *= tm / m; }
+        const v0 = Math.max(0, Math.min(shot.cap || cfg.maxSpeed, shot.speed));
         const th = shot.angle + cfg.squirt * a;                 // squirt: away from the English
         const dx = Math.cos(shot.angle), dy = Math.sin(shot.angle);
         const k = 5 * v0 / (2 * R);

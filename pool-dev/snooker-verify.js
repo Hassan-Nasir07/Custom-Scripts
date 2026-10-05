@@ -27,14 +27,18 @@ const head = t => console.log('\n── ' + t + ' ' + '─'.repeat(Math.max(0, 5
 // Taken on main (6c6af10, the v2 merge) with Node 22, before any snooker code. A digest
 // that moves means pool now plays, judges, plans or draws differently: find out why before
 // updating it, and record any deliberate change in the Decision log.
+// Re-recorded once for the cues (POOL_V2_PLAN.md, C1/C3): render draws the round cue; match
+// has the CPU playing its tier's cue. With a Standard CPU the match is HEAD's but for the frame
+// card's cue line and poolCueRecord in storage (checked 2026-10-05). Match again for the ladders:
+// the frame card's line now names the wins that count ("1 of 5 CPU wins"); play is untouched.
 const POOL_ON_MAIN = {
     table: '1d1012657f807af2',
     breaks: 'ad93085bd4e0dc53',
     fuzz: 'c5cb3113d060a822',
     judge: 'b7dd7e7f76a57efe',
     cpu: '0cdfe55ec4e4a8a7',
-    render: '5eb79e0b5248dfaa',
-    match: 'e289d26219154ce4',
+    render: '0f1de5d155b56bfa',
+    match: '4170aabcf64b132d',
 };
 const WHAT = {
     table: 'the table geometry (segments, points, pockets)',

@@ -596,6 +596,7 @@
     //   makeCanvas(w, h),                            offscreen canvas for the table layer
     //   dpr,                                         backing-store scale of ctx
     //   aim: { angle, power, gap } | null,           null hides the cue and the guides
+    //   cue: a PQ_SET cue (Standard if absent), cueT: ms for its sheen,
     //   guide: pgGuide(…) | null, guideMode: 'full' | 'short' | 'off', illegal,
     //   guideLen: the object ball's line in full mode (default 150; 0 draws no paths),
     //   bih: { x, y, valid, reason } | null, zone: 'kitchen' | 'D' | null (or legacy kitchen),
@@ -714,28 +715,22 @@
         }
         const cue = w.balls.find(b => b.id === 0);
         if (scene.aim && cue && cue.state !== 'pocketed' && !scene.bih) {
-            const a = scene.aim, d = [Math.cos(a.angle), Math.sin(a.angle)];
-            const gap = a.gap !== undefined ? a.gap : 8 + (a.power || 0) * 1.1;
-            const L = 600;
-            const pt = (u, side) => {
-                // Pool's cue at every ball size.
-                const along = R + gap + u, wd = 3.3 + (8 - 3.3) * (u / L), z = R + 1.5 + 60 * (u / L);
-                return [cue.x - d[0] * along - d[1] * wd * side, cue.y - d[1] * along + d[0] * wd * side, z];
-            };
-            const stick = (u0, u1) => pcPoly(view, [pt(u0, 1), pt(u1, 1), pt(u1, -1), pt(u0, -1)]);
-            const part = (u0, u1, fill, edge) => {
-                const poly = stick(u0, u1);
-                if (poly.length < 3) return;
-                ctx.beginPath(); pgTrace(ctx, poly);
-                ctx.fillStyle = fill; ctx.fill();
-                if (edge) { ctx.strokeStyle = 'rgba(0, 0, 0, ' + edge + ')'; ctx.lineWidth = 0.6; ctx.stroke(); }
-            };
-            part(470, L, '#3B1F14', 0.35);
-            part(338, 470, '#1B1C1D', 0.35);
-            part(330, 338, '#C9A15A');
-            part(16, 330, '#DDB77F', 0.3);
-            part(3, 16, '#F2ECDF');
-            part(0, 3, '#3E73B8');
+            // The shooter's cue (scene.cue, else Standard) at the game's scale: the tip off the
+            // ball by the pull-back, the butt rising a tenth of the length.
+            const a = scene.aim, d = [Math.cos(a.angle), Math.sin(a.angle)], D = 2 * R, len = (PQ_GAME[theme.game] || PQ_GAME.pool)[0] * D;
+            const gap = (a.gap !== undefined ? a.gap : 8 + (a.power || 0) * 1.1) * K;
+            const ax = pcNorm([-d[0], -d[1], 0.1]);
+            const axis = s => [cue.x - d[0] * (R + gap + s * len), cue.y - d[1] * (R + gap + s * len), R + 1.5 * K + 0.1 * s * len];
+            const toEye = p => (view.ortho ? [0, 0, 1] : pcNorm(pcSub(view.eye, p)));
+            // The silhouette's sides, square to the rod and the line of sight.
+            const side = p => pcNorm(pcCross(ax, toEye(p)));
+            const mid = axis(0.5), v = toEye(mid), lit = pcNorm([v[0] * 0.8, v[1] * 0.8, 1 + v[2] * 0.8]), av = pcDot(ax, v);
+            const e1 = pcNorm([v[0] - ax[0] * av, v[1] - ax[1] * av, v[2] - ax[2] * av]);
+            pqDraw(ctx, scene.cue || PQ_SET[0], theme.game, {
+                pt: (s, wd) => { const p = axis(s), e = side(p); return [p[0] + e[0] * wd * D, p[1] + e[1] * wd * D, p[2] + e[2] * wd * D]; },
+                scr: p => { const q = pcProject(view, p); return q && [q[0], q[1]]; },
+                poly: pts => pcPoly(view, pts), light: [pcDot(lit, e1), pcDot(lit, side(mid))], t: scene.cueT, mk: scene.makeCanvas,
+            });
         }
         if (scene.ring) {
             // Snooker's nominated ball: a see-through accent ring at r + max(3 px, 0.4 r).

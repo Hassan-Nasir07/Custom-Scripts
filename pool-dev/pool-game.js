@@ -170,6 +170,7 @@
             choose: (f, id) => psChoose(f, id),
             choices: (p, names) => psChoiceText(p, names),
             choiceNotice: (p, id, names) => psChoiceNotice(p, id, names),
+            choiceSub: (f, id) => (id === 'free' ? psFreeNote(f) : ''),
             concede: (f, seat) => psConcede(f, seat),
             resultText: (v, names) => psResultText(v, names),
             // A CPU trial is 5–8 ms at 22 balls, so it thinks in 12 ms slices (the still table
@@ -587,7 +588,9 @@
         const before = S.frame.turn;
         S.frame = R.choose(S.frame, id);
         S.fouled = 0; S.nom = -1;
-        poolShowToast(byCpu ? { kind: 'notice', title: R.choiceNotice(p, id, poolNames()), sub: '' } : null);
+        poolShowToast(byCpu ? { kind: 'notice', title: R.choiceNotice(p, id, poolNames()), sub: R.choiceSub ? R.choiceSub(S.frame, id) : '' } : null);
+        // The CPU's free ball stays up until it strikes: its colour is off the order on purpose.
+        if (byCpu && id === 'free') S.toastMs = 0;
         if (poolMode !== 'cpu' && S.frame.turn !== before) S.handoff = S.frame.turn;
         poolStartTurn();
         poolTourSnapshot();

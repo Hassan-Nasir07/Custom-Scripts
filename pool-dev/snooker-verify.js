@@ -424,6 +424,12 @@ head('Snooker rules: points remaining, snookers, the clock, the copy');
     ok('a free ball is named in the toast: "No ball hit · Free ball"', P.psText(snkd, NAMES).sub === 'No ball hit · Free ball' && P.psText(snkd, NAMES).title === 'Foul · 4 to you');
     const ch = P.psChoiceText(snkd.next.pending, NAMES);
     ok('the choice as buttons: Play / Make Bilal play again (Put back) / Free ball', ch.map(c => c.label).join('|') === 'Play|Make Bilal play again|Free ball' && ch[1].short === 'Put back');
+    ok('a free ball says what it means: any colour may stand in for the ball on',
+       P.psFreeNote({ phase: 'clearance', next: 5 }) === 'Any colour may stand in for the blue' && P.psFreeNote({ phase: 'reds', next: 2 }) === 'Any colour may stand in for the red');
+    ok('a free ball potted says it counted as the ball on and comes back (the black, for the blue: 5)', (() => {
+        const t = P.psText({ shooter: 2, nextTurn: 2, points: 5, scored: [7], on: { freeId: 7, also: [5] }, next: { brk: 5 } }, { 1: 'You', 2: 'CPU' });
+        return t && t.title === 'Free ball · the black counts as the blue' && t.sub === '5 points · the black is re-spotted, the blue is still on';
+    })());
     ok('what the CPU chose: "CPU puts you back in", "CPU takes the free ball", "CPU plays on"',
        P.psChoiceNotice({ offender: 1, chooser: 2 }, 'back', { 1: 'You', 2: 'CPU' }) === 'CPU puts you back in' &&
        P.psChoiceNotice({ offender: 1, chooser: 2 }, 'free', { 1: 'You', 2: 'CPU' }) === 'CPU takes the free ball' &&

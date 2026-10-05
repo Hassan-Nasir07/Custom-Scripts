@@ -2300,6 +2300,435 @@ pool-dev/pool-table.html?game=snooker`, then the real portal once v10 is install
 
 ---
 
+## Cues: the collection, stats and mastery (Phases C0–C4)
+
+### Why and what
+The user asked on 2026-10-05 for cue sticks that unlock "based on achievements, play style, time,
+wins, any other way possible … like a collector edition". They also asked for cue stats that
+change power, spin, aim guideline length and time, as 8 Ball Pool does, and for the code to get
+smaller first: "we need the best amount of code that looks great and does the job". The user
+gave these as hints, not requirements. This section is the plan built from them.
+
+**What the design gives** (canvas revision `1791006223-d009`, artboards `Cue`, `CuePicker`,
+`CuePickerNarrow`, `CueSpec`, `CueGeometry`, `CueUnlock`, `CuePool3D`, `CueSnooker3D`,
+`CueTopDown`, `CuePower`, `CueMaxPicker`, `CueMaxCrown`):
+- **Nine cues as data.** Each cue is a list of sections given as % of the length from the tip,
+  plus rings, points and splices (with veneers), and inlays. All of them are drawn from 34
+  materials. Each material has three shading stops (shadow, base, highlight), a texture type
+  with its parameters, an average colour, and a fade width in px: below that width the texture
+  is drawn as the average colour.
+- **Rod geometry.** The rod is a 10-sided cylinder. Pool is 25.7 D long, with a tip of 0.23 D
+  and a butt of 0.52 D. Snooker is 27.6 D long, with a tip of 0.19 D and a butt of 0.55 D. The
+  rod tapers as a 1.25-power curve, the tip is domed, and the butt ends in a rubber bumper.
+- **The cues and what earns them:**
+
+  | Cue | Earned by |
+  |---|---|
+  | Standard | the house cue, which the CPU also uses |
+  | Tulipwood | Team Player |
+  | Birdseye | Office Gamer |
+  | Ember | On Fire |
+  | Rosewood Six | Level 25 |
+  | Carbon Fin | Pool Shark |
+  | Malachite | Called It |
+  | Century Ash | Century |
+  | Black Crown | Maximum, with a 7 s sheen |
+
+- **The picker.** It opens from a header pill named after the equipped cue. It shows a hero
+  card for the equipped cue, with a detail strip, then one card per cue, each Equipped, Equip
+  or Locked with its achievement. Equipping shows "<name> equipped · your next shot uses it",
+  and an unlock shows a "New cue · <name>" notice. The design has **no stats and no levels**;
+  C3 adds both in its style.
+
+**How 8 Ball Pool does it** (researched 2026-10-05):
+- Four stats, each a bar out of 10:
+  - Force: the most power.
+  - Aim: how long the guideline is.
+  - Spin: how much spin.
+  - Time: the shot clock.
+- Cues come in groups: Standard (bought), Victory and Surprise (pieces from boxes), Country,
+  and Legendary (4 pieces each).
+- Duplicate pieces and coins upgrade a cue a level at a time, raising its bars toward the
+  cue's maximum. Legendary cues need 4 upgrades to max; Archangel maxes at 9/9/8/8.
+- Collection Power gives bonus stat points to every cue as the collection grows, up to +3 per
+  stat.
+
+What carries over here: the four bars, levels that raise a cue toward its own maximum, and a
+reward for collecting. What doesn't: coins, boxes, pieces and any purchase. This widget has no
+economy, so every step is earned by playing.
+
+### The model
+
+**Unlocking: achievements, then mastery, then collecting.**
+1. *Achievements* unlock the nine designed cues as above. A cue is unlocked when its achievement
+   is in `userXP.achievements`, so there is no unlock state to store or sync, and an achievement
+   restored by sync unlocks its cue too.
+2. *Mastery*: each cue levels up with the frames the player wins with it against the CPU.
+   2-player and tournament frames don't, because you cannot beat yourself for a level. Level 5
+   is *Mastered*. This is the "play style" and "wins" path: the cue you play with gets stronger.
+   **The better the cue, the harder its wins and the longer its climb** (the user, 2026-10-05):
+   - The cheapest cue (Standard) levels on Easy pool wins: 5 for level 2, then 7, 10 and 15 more.
+   - The dearest (Collector) levels on Pro snooker wins: 5, then 10, 15 and 20 more.
+   - The rest fall between, by value, with their tier rising in step.
+   - A win counts at the cue's tier or above. A pool cue takes snooker wins too (the harder
+     game); a snooker cue takes only snooker's.
+   - The win goes to the cue that played most of your shots that frame, so changing cue on the
+     last shot doesn't move it.
+
+   | Cue | Counts | Level 2 · 3 · 4 · 5 (more wins each) | Mastered at |
+   |---|---|---|---|
+   | Standard | Easy+ (any CPU win) | 5 · 7 · 10 · 15 | 37 |
+   | Tulipwood | Easy+ | 5 · 7 · 11 · 16 | 39 |
+   | Birdseye | Normal+ | 5 · 8 · 11 · 16 | 40 |
+   | Ember | Normal+ | 5 · 8 · 12 · 17 | 42 |
+   | Rosewood Six | Hard+ | 5 · 8 · 12 · 17 | 42 |
+   | Carbon Fin | Hard+ | 5 · 9 · 13 · 18 | 45 |
+   | Malachite | Pro (pool or snooker) | 5 · 9 · 13 · 18 | 45 |
+   | Century Ash | Hard+ snooker | 5 · 9 · 14 · 19 | 47 |
+   | Black Crown | Pro snooker | 5 · 10 · 14 · 19 | 48 |
+   | Collector | Pro snooker | 5 · 10 · 15 · 20 | 50 |
+3. *Collecting*: a tenth cue, **Collector**, unlocks when **5 cues are Mastered**. Winning with
+   cues unlocks another cue, which makes it the collector's edition. Standard counts, so three
+   achievement cues plus Standard plus one more will do. It is built from the design's own
+   material vocabulary: ebony, abalone points, pearl, and gold rings with a sheen. Its card shows
+   "Master 5 cues · 2 of 5" until then. A canvas pass to restyle it is optional, not blocking.
+
+**Stats: four bars of 1–10, as multipliers on what the game does today.** Standard is **4/4/4/4**
+and plays exactly as now, so the CPU (always Standard), the fingerprint and every balance test
+hold. Each bar above or below 4 changes the stat by a fixed step:
+
+| Bar | Scales | Per step | At 10 | At 1 |
+|---|---|---|---|---|
+| Power | the most cue speed (`cfg.maxSpeed`, for the human's shot only) | +2.5% | +15% | −7.5% |
+| Aim | the guideline (`poolGuideLen()`; None stays 0) | +12.5% | +75% | −37.5% |
+| Spin | the most tip offset (`cfg.maxTip`, the spin pad's radius) | +5% | +30% | −15% |
+| Time | the shot clock, when it is on | +5% | +30% | −15% |
+
+Each cue has its bars at level 1 and at level 5, and levels 2–4 fall in between, rounded.
+
+**No cue is best at everything** (the user, 2026-10-05). Every cue except Standard has a
+weakness of 6 or less, and the most any cue totals at level 5 is 32 of the 40. Better cues buy a
+stronger *style*, not a stronger everything. That is why Ember can have a 10 for power with 2 for
+spin. The looks get richer down the list, and the totals climb slowly:
+
+| Cue | Lv 1 (P/A/S/T) | Lv 5 | Total | Style, and its weakness |
+|---|---|---|---|---|
+| Standard | 4/4/4/4 | 4/4/4/4 | 16 | today's game; it never levels |
+| Tulipwood | 5/5/4/4 | 6/6/5/5 | 22 | an easy all-rounder |
+| Birdseye | 4/5/5/5 | 4/7/6/6 | 23 | control; soft break |
+| Ember | 7/4/2/4 | 10/6/2/6 | 24 | overpowered break and long pots; almost no spin |
+| Rosewood Six | 3/7/4/6 | 3/9/5/8 | 25 | precision and time; the weakest break |
+| Carbon Fin | 6/4/7/3 | 8/5/10/3 | 26 | spin and power; a short clock |
+| Malachite | 4/7/7/4 | 4/9/9/5 | 27 | finesse, aim and spin; a weak break |
+| Century Ash | 5/8/4/7 | 5/10/5/8 | 28 | snooker: the longest line and time; little spin |
+| Black Crown | 7/7/5/6 | 9/9/6/6 | 30 | power and aim; average spin and time |
+| Collector | 8/7/7/5 | 9/9/8/6 | 32 | the top; the clock is its weakness |
+
+**Who uses what:**
+- **Every human seat plays its own cue and may change it during the match**, as in 8 Ball Pool
+  (the user, 2026-10-05): vs CPU, 2 Players and tournaments.
+  - Your seat plays the equipped cue (`userPreferences.poolCue`, synced with the other
+    preferences): picking at the table changes it.
+  - Another human seat (2 Players' Player 2, a tournament's other names) picks from your
+    collection for the match. It starts on your cue. 2 Players' pick lasts until the mode
+    changes; a tournament slot keeps its pick in the saved bracket.
+  - The picker serves the human at the table: the shooter, or you while the CPU plays. The
+    header pill shows that player's cue and changes with the turn.
+  - The clock keeps running while the collection is open, as in 8 Ball Pool.
+- **The CPU plays a cue for its tier** (the user, 2026-10-05): Easy Standard, Normal Tulipwood
+  Lv 3, Hard Malachite Lv 3 (Century Ash Lv 3 in snooker), Pro Black Crown Lv 5. Only power and
+  spin change its play: it has no guideline and no clock. Its look is that cue's, so the
+  matchup reads. The CPU balance runs again with these caps (`snooker-balance.js`, pool-ai's
+  tier tests), and the tiers are re-tuned where they drift.
+
+**Fairness.** The CPU's cue rises with its tier, so a strong cue against Pro meets a strong cue.
+Easy and Normal get easier with a better cue, and they pay the least XP. Pro's aim error, the
+rules and the XP tables don't change.
+
+### Architecture (one renderer, one table, small)
+- **New `pool-dev/pool-cues.js`, about 230 lines, at the end of load.js's FILES:**
+  - `PQ_MATS` and `PQ_SET`: the design's data, kept compact, with `STD_SECTIONS` as the design
+    writes it.
+  - `pqStats(id, wins)`: the bars and the multipliers.
+  - `pqLevel(wins)`.
+  - `pqDraw(ctx, cue, game, map, pxPerUnit)`: **one renderer** for the table and the picker.
+    `map(u, side)` gives a screen point: the table passes the 3D camera's projection and a
+    picker card passes a flat line.
+    - Each section is a quad, filled with a gradient across the rod's screen width through the
+      three shading stops. That is what makes it read as round.
+    - A texture is a cached `createPattern` tile per material, drawn only when the section is
+      wider on screen than the material's fade width. At the compact table's 4–20 px that is
+      rarely, so the usual cost is one gradient per section.
+    - Points, splices and inlays are polygons on the visible half.
+    - The tip is a dome; the butt is a bumper arc.
+    - The sheen is one moving gradient band, drawn only on Black Crown and Collector.
+- **pool-render.js.** The 25-line flat strip becomes a call to `pqDraw` with the view's
+  projection. The cue's size comes from the game's ball, which fixes snooker's tip at half the
+  ball today. Pool's tip is already 0.236 D, so pool changes only in look.
+- **pool-hud.js.** The picker is DOM cards with a `<canvas>` per cue drawn by `pqDraw`, so there
+  is no CSS-gradient copy of the renderer. It also holds the header pill, the notices, and the
+  stats rows (four 10-segment bars: filled to the current level, and outlined to level 5).
+  pool-theme.css gets only layout and theme rules.
+- **pool-game.js.** Four multipliers enter where the values are already read:
+  - `poolSpeedOf`, and a per-shot `cap` that `ppStrike` honours in place of `cfg.maxSpeed`.
+  - the spin pad's radius, with `ppStrike`'s `maxTip` clamp.
+  - `poolGuideLen()`.
+  - `clockTotal`.
+  `fileResult` counts a win for the equipped cue, and the frame-end card shows a level-up.
+- **Host.**
+  - `cueRecord` (wins per cue id) goes into the snapshot, merged as each field's max by the
+    record merge that C0 makes generic.
+  - `unlockAchievement` shows the cue notice when the achievement maps to a cue.
+  - Max gets the picker.
+- **Budget: at most about 550 lines into the host for C1–C4, CSS included,** set against what
+  C0 removes. The phase reports give the host's line count before and after.
+
+### Progress
+#### Phase C0: the lean pass, no behaviour change
+Four read-only reviews ran on 2026-10-05: commit 10443a2 (names, guide None, clocks, ⚙️ tabs) with
+ecc626c; commit 16b5b01 (the Image Box); the snooker code against pool's; and a size map of the
+hand-written host. Baseline: `node ludo-dev/verify-all.js` passes 2533, 0 failed. The host is 28,041
+lines:
+- 13,008 hand-written, with 5,120 of those in the CSS template
+- 7,216 in the pool engine
+- 2,045 Ludo
+- 1,569 Snake
+- 1,776 Cyberpunk CSS
+- 712 Cyberpunk HUD JS, of which 43% is comments
+
+**About 1,300 lines can go without changing behaviour.** C0 does it in four steps, safest first,
+and each step ends green. Several tests match source text exactly: `integration-verify` 40–51 and
+161, `pool-verify` 78–92, `cyber-verify` 1258–1290, `snake-verify` 894–898. Where a step changes
+the text they match, those checks become behavioural ones in the same step.
+
+- [x] **C0a. Bugs first** (done 2026-10-05; each has a test that fails on the old code) (all found by the reviews):
+  - **Pool clock overfill.** A parked pool frame restores `clockLeft` without capping it at a
+    clock the user lowered meanwhile, which overfills the ring (`pool-game.js` `poolRestoreTable`).
+  - **⚙️ Pool CPU ignored.** The host forwards only four prefs to `poolOnPrefChange`, so
+    ⚙️ Pool CPU never arrives. pool-table.html forwards it.
+  - **Uploaded image lost on other devices.** After an upload, the gist syncs the IDB marker
+    `idb:customImage` as `customImageURL`. That wipes the previously synced link, and other
+    devices lose the image.
+  - **Broken image can't be removed.** It has no Remove button.
+  - **Orphan gitlink.** 16b5b01 committed `github-actions-bot` as a gitlink with no
+    `.gitmodules` entry. Take it out of the index (`git rm --cached`, nothing deleted) and add
+    the path to `.gitignore`.
+  - **Unguarded storage reads.** Six `JSON.parse(localStorage…)` calls throw on a corrupt
+    value. They become `lsJSON(k, fallback)` and `lsInt(k)`, and the 70 read sites use them.
+  - **Debug log.** A `console.log` runs on every table row.
+  - **The leaderboards had no light mode** (the user, 2026-10-05). The text followed the widget, but the table, its sticky rank and name cells, and the in-game board overlay stayed dark. One light block now covers the table, the header row, your row, the pills, and the overlay with its tabs.
+- [x] **C0b. Dead code and narration (~600 lines, no behaviour):** done 2026-10-05.
+  - **Dead CSS, about 295 lines:**
+    - light rules for the settings modal that never match (it lives on `<body>`)
+    - 35 light rules restated in full by the "FINAL OVERRIDES" block
+    - rules for classes nothing renders: `.reflex-mode-toggle`, `.achievement-badge.unearned`,
+      `.tetris-wrapper`, `.lb-header` and others, `.progress-text`
+    - the first retro theme's `--neon-*` variables and three unused keyframes
+    - Pool's Max chip rules that later rules override
+  - **Dead JS:** `poolTitle`, the `poolVariant` pref branch, `T.pos2` in the snooker CPU, the
+    Image Box's two old `window.*` exports and `animateImageFrame`, and seven unused variables.
+  - **Comments:** the dated history, revision ids and phase tags (~250 lines in pool-dev,
+    ~160 in cyber-hud.js) move to this plan and the commit messages. Comments that explain why
+    stay.
+  - **Check:** screenshots before and after in Glassmorphic dark, Glassmorphic light and
+    Cyberpunk (host-run, snapshot.js). That is the check for "never matches" and "overridden".
+- [x] **C0c. Shared helpers (~400 lines, low risk):** done 2026-10-05, except `makeLoop` and the snooker CPU's shared search pieces (not worth the risk for the lines), and the Image Box CSS trims (under 20 lines).
+  - **Records and storage.** One max-merge for the pool, snooker and Ludo records (C3's
+    `cueRecord` uses it too). Also `intStore(key)` for the six high-score pairs, `XP_DEFAULTS`,
+    `snkRaise` reused in `applySnakeModeBests`, and one `collectGameBests` in place of the copies
+    pasted into `lbRegister` and `lbSync`.
+  - **Achievements and XP as data.** Achievements become a rule table with `xp` folded in; it
+    replaces the `!includes(id) &&` ladders in three functions. `awardGameXP`'s six tier ladders
+    become one `tier()` helper.
+  - **Pool.**
+    - Snapshot/restore exists twice, as table and tour, so make one `poolSnapOf`/`poolApplySnap`
+      pair.
+    - pool-game's older storage code moves to `poolStoreRead`/`poolStoreWrite`.
+    - The `POOL_GAMES` duplicates go: the two `wins()` bodies, the record defaults and
+      `tierFor`.
+    - The HUD's long/short-span builder goes from four copies to one (`phDuo`).
+    - The 115 ref names become `querySelectorAll('[data-ph]')`.
+    - `phSnookerModel` takes the shared fields from the pool model.
+    - Snooker's verdict literal is built once (`psVerdict`).
+  - **The snooker CPU's copies of pool-ai.** It copies the gap finder, the one-rail kicks and
+    the ghost-ball direct pot from pool-ai. These are shared only if the fingerprint's `cpu`
+    digest stays bit-identical; if not, they stay.
+  - **Host chrome:**
+    - the three copies of the header 🎱|🔴 switch's CSS move into pool-theme.css
+    - `.settings-tab` shares `.game-lb-tab`'s rule
+    - the ⚙️ tab JS shrinks to one handler a tab
+    - the Image Box's six button resets become one `:where()` rule
+    - the Image Box's focus outlines become one token
+    - the Image Box's retro rules state their font once
+  - **Mini-games.** One `makeLoop` replaces the fixed-step loops copied three times (Breakout,
+    Flappy, Tetris).
+- [ ] **C0d. Data-driven UI (~300–500 lines, medium risk):** the `GAME_PANELS` table, `gameScoreBtn` and `sel()` are done; the light-mode tokens wait on the user (below).
+  - **One `GAMES` table.** It replaces five switches over the games, ten switcher buttons, nine
+    score-button blocks and the `window.*Btn` wrappers.
+  - **⚙️ selects from data.** A `sel(pref, label, options)` helper with `DEFAULT_PREFS`, and one
+    delegated listener. It must emit markup identical to today's, or the regex checks move to
+    host-run.
+  - **Glassmorphic light mode as custom properties.** About 12 tokens flip in one block, in
+    place of 199 rules that only recolour. This is the largest single cut, about 500 lines, and
+    the one most likely to shift a colour. It goes last and only with screenshots.
+  - **Not cut** without the user's say: the admin console tools (~100 lines that ship to every
+    user) and `calculateTotalTime`'s duplicated In/Out branch (core time maths, untested).
+
+**Where C0 stands (2026-10-05; the user tested it the same day: "C0 test is a success").**
+- **Line counts:**
+  - The host went from 28,041 to 26,143 lines, −1,898 (−6.8%), after the leaderboard's light block (+27).
+  - Of those, 798 lines came out of the generated blocks: pool −415, Cyberpunk −257, snake −88 (plus earlier small cuts).
+  - The dev sources lost about 750 comment lines; every file's code is verified identical with comments stripped.
+- **Tests:**
+  - `verify-all` passes 2534.
+  - `host-run` passes 161 in real Chrome.
+  - New checks:
+    - the parked clock
+    - corrupt storage
+    - the achievement tables
+    - the XP ladders
+- **Visual check:** a computed-style comparison (35 properties of every element and pseudo-element) of the last commit against this one finds 0 differences:
+  - both themes and both colour schemes
+  - all 10 panels and the 4 ⚙️ tabs
+  - 45,926 elements in all
+- **The light-mode tokens (~500 lines) are not done.** The 199 light rules use 191 distinct colours. Folding them into ~12 tokens shifts some colours slightly, which the style check would show as differences. That is the user's call.
+
+#### Phase C1: the round cue (done 2026-10-05)
+- [x] `pool-cues.js` (324 lines, before `pool-render.js` in FILES; prefix `pq`/`PQ_`): the 34
+      materials, the cues, and `pqDraw(ctx, cue, game, V)`. `V` maps the rod to the screen:
+      `pt(s, w)` (s along from the tip, w ball diameters to the side), `scr`, `poly`, where the
+      light sits, the sheen's time and a canvas factory.
+  - The rod is the design's 10-sided cylinder: five facets face the viewer, each shaded by its
+    angle to a light above and slightly toward the viewer. Side on, that gives the design's
+    stops; from above, the highlight runs down the middle.
+  - A texture is a tile per material and scale (`pqTile`, all 15 kinds), drawn only above the
+    material's fade width and turned along the rod. Under it, the average colour.
+  - The tip is domed, the butt a bumper; points, splices and inlays sit on the visible half.
+  - On the table the silhouette's sides are square to the rod and the line of sight at each
+    point, so the 3D cue reads as round from behind the ball and from above.
+- [x] Each game's scale: pool 25.7 D long with a 0.23 D tip; snooker 27.6 D and 0.19 D. The
+      pull-back scales with the ball (snooker's was pool's).
+- [x] Fingerprints re-recorded once (`snooker-verify.js` §0): `render` for the cue's pixels and
+      `match` for the CPU's cue. With a Standard CPU, the match is identical to HEAD apart from the
+      frame card's cue line and `poolCueRecord` in storage.
+- [x] Perf: `pqDraw` costs 0.04–0.12 ms a frame in compact 3D at dpr 2 (Chrome, the machine
+      busy with the balance runs).
+#### Phase C2: the collection (done 2026-10-05)
+- [x] All ten cues as data, with the design's blurbs and conditions. Collector (mine) is ebony
+      with pearl and abalone points, an oxblood lizard wrap, and gold and pearl rings.
+- [x] The picker (`phCuesHTML`, `phCuesDraw`): dark glass over the whole panel, like the Game mode
+      sheet, so it reads the same in every theme. Cyberpunk gets its opaque screen.
+  - [x] The header pill (`#pool-cue-pill`) in the host's pool scoreboard, made by
+        `poolSyncChrome`. Max has its own button beside the title: the action row has no room.
+  - [x] The hero (a close-up of the forearm, then the whole cue), the cards, and the locked
+        cards dimmed under their goal (it wraps in the narrow column).
+  - [x] Equipping: "<name> equipped · your next shot uses it". The clock follows at once.
+  - [x] "New cue · <name>" with Equip and Dismiss on the table, and a host notification, from
+        `unlockAchievement` (`poolCueUnlocked`); also when Collector unlocks.
+- [x] Collector's "Master 5 cues · n of 5". The sheen moves on the table only, for Black Crown and
+      Collector, and not under reduced motion.
+- [x] Checked in headless Chrome: Glassmorphic dark and light, Cyberpunk; compact, the 316 px
+      column and Max.
+#### Phase C3: stats and mastery (done 2026-10-05)
+- [x] The four multipliers: power into the shot and `ppStrike`'s cap (`shot.cap`), spin into the
+      pad's reach and `shot.tipMax`, aim into `poolGuideLen()`, time into the clock (quick
+      frames and tournaments). The CPU plans with its cue's reach (a world whose cfg has it).
+- [x] `poolCueRecord` (wins per cue): levels, the four bars on every card (filled to the level,
+      outlined to 5), the frame card's line ("Ember: 12 of 15 wins to level 4", "… reached
+      level 3", "… mastered"), and sync (the snapshot, raised field by field on restore).
+- [x] **Wins count against the CPU only.** Tournaments don't count either: they are humans only,
+      the same reason as 2 Players.
+- [x] Tests: 22 in `pool-verify.js` (Standard = today, each bar's step, the CPU's cues, wins
+      only against the CPU, Collector at 5, the achievement map, locked cues), the merge in
+      `host-smoke.js`, and the wiring in `integration-verify.js`.
+- [x] Balance (`POOL_CUES=1` in `balance-check.js` and `snooker-balance.js`): see *Balance with
+      the CPU's cues* below.
+#### Phase C4: polish and release
+- [x] Accessibility: each card is labelled (name, state, goal), each bar reads "Power 6 of 10, 8
+      at level 5", and the notices are `role="status"`. Escape closes the picker, and focus
+      starts on its close button.
+- [x] The sync bot keeps a player's snapshot whole (`validatePlayer` passes unknown fields
+      through), so `poolCueRecord` syncs with no bot change.
+- [x] BUILD_LABEL v11, and the bot's `BUILD_LABEL_CURRENT` v11 (in `github-actions-bot`, its own
+      repository: the bot must be pushed before the userscript ships). The seed stays, as for v10.
+- [x] **Cues during the match, per seat** (the user, 2026-10-05; see *Who uses what*):
+  `poolSeatCueId(seat)`, `poolPickSeat()`. Each turn's clock is the table's stretched by the
+  shooter's cue (`poolTurnClock()`); `S.clockTotal` stays the table's own. A press on the table
+  closes the collection (Max), and Escape does too. Tests: 2 Players' seats, your seat as the
+  setting, a tournament slot's pick saved, the CPU's turn, the clock running.
+
+#### Phase C5 (proposed): a better climb (2026-10-05)
+The ladders above are built. The user asked for a plan to make the climb better. These are the
+scenarios played through against the shipped rules, then the proposals, ranked by value for the
+work. **None is built until the user picks.**
+
+**Scenarios.** Frame times are rough: pool against the CPU about 5 min, snooker with 15 reds
+about 15 min, with 6 reds about 6 min.
+1. *A new player* owns Standard and maybe Tulipwood. Easy wins level both, and level 2 comes in
+   about 5 frames. Good: the first reward is fast.
+2. *A strong pool player* wins on Hard. Every pool cue up to Carbon Fin levels at the same pace,
+   and Malachite waits for Pro. Good: the tier is the gate, not the grind.
+3. *Collector* needs five cues mastered. The cheapest five (Standard, Tulipwood, Birdseye, Ember,
+   Rosewood Six) are 200 qualifying wins, about 17 hours of pool. It is an end-game goal; worth
+   showing the player how far along they are.
+4. *Black Crown and Collector to level 5* need 48–50 Pro snooker wins. Against a CPU that wins
+   every frame against a casual player in the balance runs, that is out of reach for most. It is
+   prestige by design, but a player who earned Crown with a 147 against Easy may never level it.
+5. *6-red snooker* frames take a third of the time and count the same. A player can level the
+   snooker cues three times faster on 6 reds.
+6. *Loopholes checked*:
+   - A cue changed on the last shot: closed (the win goes to the cue that played most shots).
+   - 2 Players and tournaments: no credit.
+   - Adaptive: it counts at the tier it locked for the frame.
+   - A conceding snooker CPU: a real win at that tier.
+   - A reload mid-frame forgets the shots by cue, so the cue held at the end takes the win.
+     That is a small hole; proposal 3 closes it.
+
+**Proposals.**
+1. **Show the climb before the frame** (recommended, small). Each card already says "4 of 7
+   Hard+ wins to level 3". Add the same to the Game mode sheet: under each tier, the cues a win
+   there levels ("Hard levels Ember, Rosewood Six"). Then no frame is played expecting credit
+   that never comes.
+2. **Snooker cues need 10 or 15 reds** (recommended, tiny). It stops the 6-red shortcut in
+   scenario 5; 6-red wins still level the pool cues.
+3. **Keep the shots by cue in the saved frame** (recommended, tiny). It closes the reload hole in
+   scenario 6.
+4. **First win of the day counts double** (recommended, small). The widget is opened every
+   working day, so this rewards the habit without helping a farmer (one a day). It shortens
+   scenario 3 by about 20% for a daily player.
+5. **Mastery shows** (medium). A mastered cue gets a gold "MASTERED" ring on its card and a gold
+   ferrule ring on the table, and a *Cue Master* achievement (3 mastered). It gives the long
+   climb a visible end.
+6. **A trial for level 5** (larger). Each cue's last level asks for one feat in its style
+   instead of the last wins. Ember: win a frame from the break. Carbon Fin: pot with full spin.
+   Rosewood Six: win without using the last 10 s of the clock. Century Ash: a 50 break.
+   Black Crown: a century. It turns scenario 4 from a grind into a goal, and is the most
+   "play style" of these.
+7. **Cue mastery on the leaderboard** (medium, needs the bot). A *Cues mastered* figure on each
+   row, with the bot bounding its growth by games played. Today the field is unchecked, but it
+   only affects the player's own cues.
+
+**Balance with the CPU's cues** (2026-10-05; `POOL_CUES=1`, the same seeds with and without):
+
+| Pool, 100 frames a cell | vs skilled | vs casual |
+|---|---|---|
+| Easy (Standard) | 12% → 12% | 35% → 35% |
+| Normal (Tulipwood Lv 3) | 31% → 37% | 84% → 81% |
+| Hard (Malachite Lv 3) | 73% → 73% | 96% → 96% |
+| Pro (Black Crown Lv 5) | 95% → 92% | 99% → 98% |
+
+Snooker, 20 frames vs casual: Easy 50% → 50%, Normal 80% → 85%, Hard 100% → 100% (mean break
+15.0 → 16.7, centuries 0 → 5 per 100), Pro 100% → 100% (mean break 45.0 → 45.4, centuries 20 → 30
+per 100). Every change is inside its 95% interval, so **no tier is re-tuned**. Hard doesn't move
+at pool: Malachite's power is 4 (×1.0) and Hard's tips sit inside the table's own reach. Snooker
+Pro's mean break was over its 20–40 band before the cues as well (45.0); that is the S4 tuning's,
+not the cue's.
+
+**Where C1–C4 stand.** The host went from 26,143 to 26,785 lines (+642 with the cues per seat and the ladders, against the ~550 budget).
+It is still 1,256 under where C0 started. `verify-all` passes 2574; `host-run` 161 (its overlap checks run only when both parts show).
+
+---
+
 ## Open questions ❓
 
 
@@ -2311,6 +2740,7 @@ pool-dev/pool-table.html?game=snooker`, then the real portal once v10 is install
 3. ~~**Snooker ball size on the compact panel**~~ True scale, no zoom; Max is the clear view (the user, 2026-09-29).
 4. **Is the Phase 8 sync-bot change live?** The box is unticked, but v9 has shipped. Snooker's bot change (S6) stacks on it, and again has to go out before the client does.
 5. **Snooker implementer's calls** (the *Implementer's calls* table in *Snooker*): the 45 s clock, adaptive never reaching Pro, 7 for a foul before nominating, the seeded lot on a re-spotted black, concede only when snookers are needed. Each is easy to flip.
+6. ~~**Cues and the leaderboard**~~ Settled 2026-10-05: the CPU plays a cue for its tier, and no cue is best at everything.
 
 ---
 
@@ -2318,6 +2748,9 @@ pool-dev/pool-table.html?game=snooker`, then the real portal once v10 is install
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-05 | **Cues C1–C3 built.** Tournament frames don't level a cue (humans only, as 2 Players). The picker is dark glass over the panel; compact's pill sits in the host's scoreboard, Max's button beside the title. Fingerprints re-recorded once | The plan said tournament frames count, but its own reason (you cannot beat yourself for a level) covers them. Max's action row had no room: a labelled button wrapped "Vs CPU" |
+| 2026-10-05 | **Cues: achievements unlock, wins level, mastering 5 unlocks Collector; four stat bars where Standard 4/4/4/4 is today** | The user asked for 8 Ball Pool-style stats and unlocks by achievement, play, time, wins and collecting. Standard equal to today keeps the CPU, the fingerprint and the balance tests unchanged |
+| 2026-10-05 | **A lean pass (C0) before any cue code** | The user: the file is nearly 30k lines; the reviews found about 1,300 removable lines and 7 bugs |
 | 2026-09-25 | Plan drafted from the design canvas + a full read of the current engine | – |
 | 2026-09-25 | **Tournaments are humans only.** No CPU slots, no CPU-vs-CPU resolver, no Watch mode | The user's call |
 | 2026-09-25 | ~~Tournaments pay PvP-rate XP only (15 per match)~~ **Superseded the same day:** the **You** seat earns **80 per match won and 15 per match lost**, the same as a game today. There is still no title bonus, tournament achievement or tournament leaderboard. The quick PvP payout stays as it is today | The user's call: every match takes the same time to play, so match XP is rate-limited by the clock. Only per-bracket rewards could be multiplied by typing extra names |

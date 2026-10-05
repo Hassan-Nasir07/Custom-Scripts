@@ -26,16 +26,6 @@
     .snake-game-title { font-size: 1rem; font-weight: 600; color: rgba(255, 255, 255, 0.9); white-space: nowrap; }
     .game-score-btn { display: inline-flex; align-items: baseline; gap: 3px; padding: 3px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.18); color: rgba(255, 255, 255, 0.9); font: inherit; line-height: 1.1; }
     .game-score-btn .gsb-best { font-size: 0.9rem; font-weight: 700; }
-    /* The host's cue game switch in the title (pool-game.js poolRenderTitle), as the widget styles it. */
-    .pool-cue-switch { display: inline-flex; align-items: center; gap: 2px; padding: 2px; margin-right: 8px; vertical-align: middle; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.06); font: inherit; line-height: 1; cursor: pointer; }
-    .pool-cue-opt { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 20px; border-radius: 999px; font-size: 0.8rem; opacity: 0.6; transition: background 0.2s ease, opacity 0.2s ease; }
-    .pool-cue-opt.is-on { opacity: 1; background: rgba(108, 92, 231, 0.45); box-shadow: inset 0 0 0 1px rgba(162, 155, 254, 0.7); }
-    .pool-cue-switch:hover .pool-cue-opt:not(.is-on) { opacity: 0.85; }
-    .pool-cue-name { vertical-align: middle; }
-    @media (prefers-color-scheme: light) {
-        .attendance-summary:not(.retro-theme) .pool-cue-switch { border-color: rgba(0, 0, 0, 0.14); background: rgba(0, 0, 0, 0.04); }
-        .attendance-summary:not(.retro-theme) .pool-cue-opt.is-on { background: rgba(108, 92, 231, 0.2); box-shadow: inset 0 0 0 1px rgba(108, 92, 231, 0.55); }
-    }
     @media (prefers-color-scheme: light) {
         body { background: linear-gradient(135deg, #eef0ff 0%, #f6f3ff 60%, #fbfbff 100%); color: #2d3436; }
         .attendance-summary { background: rgba(255, 255, 255, 0.7); }
@@ -64,7 +54,7 @@
             <div class="snake-game-container">
                 <div class="snake-game-header">
                     <span id="game-title" class="snake-game-title">🎱 8-Ball Pool</span>
-                    <div class="snake-scoreboard">
+                    <div id="pool-scoreboard" class="snake-scoreboard">
                         <button id="pool-lb-btn" class="game-score-btn" type="button"><span class="gsb-best" id="pool-wins">0</span><span class="gsb-trophy">🏆</span></button>
                     </div>
                 </div>
@@ -134,6 +124,9 @@ var userPreferences = Object.assign({
 }, (() => { try { return JSON.parse(localStorage.getItem('poolProtoPrefs') || '{}'); } catch (_) { return {}; } })());
 var isPipActive = false, pipWindow = null;
 var currentGame = 'pool', lbDisplayName = 'Ayesha', xpSystemReady = false;
+// The account's achievements, which unlock the cues: all eight here (poolProtoAch overrides).
+var userXP = { achievements: (() => { try { return JSON.parse(localStorage.getItem('poolProtoAch')) || null; } catch (_) { return null; } })() ||
+    ['teamPlayer', 'gamer', 'streak7', 'level25', 'poolShark', 'calledIt', 'snookerCentury', 'snookerMaximum'] };
 function savePreferences() { try { localStorage.setItem('poolProtoPrefs', JSON.stringify(userPreferences)); } catch (_) {} }
 function hexToRgbStr(hex) {
     const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
@@ -147,29 +140,22 @@ function awardGameXP(type, perf) {
         new Date().toLocaleTimeString() + '  ' + type + ' ' + (perf.won ? 'won' : 'lost') + ': +' + (perf.xp || 0) + ' XP' + (perf.tier ? ' (' + perf.tier + ')' : '') +
         (perf.highBreak ? ', best break ' + perf.highBreak : '');
 }
-function loadPoolHighScore() {
-    const saved = localStorage.getItem('poolGamesWon');
-    return saved ? parseInt(saved) : 0;
+function lsJSON(key, fallback) {
+    try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v; } catch (_) { return fallback; }
 }
-function savePoolHighScore(score) { localStorage.setItem('poolGamesWon', score.toString()); }
+function lsInt(key, fallback = 0) { const n = parseInt(localStorage.getItem(key), 10); return Number.isFinite(n) ? n : fallback; }
+const loadPoolHighScore = () => lsInt('poolGamesWon');
+const savePoolHighScore = n => localStorage.setItem('poolGamesWon', String(n));
 function loadPoolWinsByMode() {
-    let rec = null;
-    try { rec = JSON.parse(localStorage.getItem('poolWinsByMode') || 'null'); } catch (_) {}
-    if (!rec || typeof rec !== 'object') {
-        rec = { cpu: parseInt(localStorage.getItem('poolGamesWon') || '0', 10) || 0, pvp: 0 };
-        localStorage.setItem('poolWinsByMode', JSON.stringify(rec));
-    }
-    return { cpu: parseInt(rec.cpu, 10) || 0, pvp: parseInt(rec.pvp, 10) || 0 };
+    const rec = lsJSON('poolWinsByMode', null);
+    return rec && typeof rec === 'object' ? { cpu: parseInt(rec.cpu, 10) || 0, pvp: parseInt(rec.pvp, 10) || 0 } : { cpu: lsInt('poolGamesWon'), pvp: 0 };
 }
 function savePoolWinByMode(mode) {
     const rec = loadPoolWinsByMode();
     rec[mode === 'pvp' ? 'pvp' : 'cpu']++;
     localStorage.setItem('poolWinsByMode', JSON.stringify(rec));
 }
-function loadPoolRecord() {
-    const saved = localStorage.getItem('poolRecord');
-    return saved ? JSON.parse(saved) : { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 };
-}
+const loadPoolRecord = () => lsJSON('poolRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 });
 function savePoolRecord(rec) { localStorage.setItem('poolRecord', JSON.stringify(rec)); }
 // The host's shared Max modal, its cfg.build path only (the one pool uses):
 // an overlay and an empty panel, backdrop click and Escape to close, cfg.unbuild on close.
@@ -203,6 +189,7 @@ function toggleGameMaxModal(cfg) {
 <script src="pool-snooker.js"></script>
 <script src="pool-tour.js"></script>
 <script src="pool-camera.js"></script>
+<script src="pool-cues.js"></script>
 <script src="pool-render.js"></script>
 <script src="pool-hud.js"></script>
 <script src="pool-tour-ui.js"></script>

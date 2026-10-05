@@ -1,22 +1,17 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — RULES (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // WPA 8-ball with the Miniclip-style choices in POOL_V2_PLAN.md:
-    //   - the break is played from the kitchen and never called; it is legal
-    //     if a ball drops or at least four object balls reach a rail, and an
-    //     illegal break is a foul
-    //   - the table stays open after the break, whatever dropped; the 8 on
-    //     the break is re-spotted and the breaker plays on
+    // WPA 8-ball with Miniclip-style choices:
+    //   - the break is from the kitchen, never called; legal if a ball drops or
+    //     four object balls reach a rail, else a foul
+    //   - the table stays open after the break; an 8 on the break is re-spotted
     //   - on an open table any solid or stripe may be hit first (not the 8);
     //     the first counted pot decides the groups
-    //   - the 8 is always called; call-every-shot is an option (the pro tier
-    //     forces it), and then only a ball in the called pocket counts
+    //   - the 8 is always called; call-every-shot is optional (pro forces it)
     //   - after any foul the opponent has ball in hand anywhere
-    //
-    // Pure: the judge reads a settled physics world and its event log and
-    // returns a verdict plus the next frame state. It never mutates either;
-    // the caller re-spots the 8 and places the cue ball with the helpers at
-    // the bottom. Seats are 1 and 2, as in the rest of the widget.
+    // Pure: the judge reads a settled world and its log and returns a verdict
+    // plus the next state; the table helpers at the bottom do the mutating.
+    // Seats are 1 and 2.
 
     const PR_FOUL_TEXT = {
         scratch: 'Scratch',
@@ -43,11 +38,8 @@
         };
     }
 
-    // What happened on the last shot, from the physics log: the first ball
-    // the cue ball touched, whether any ball reached a cushion after that,
-    // how many object balls reached a cushion at all (the break count), and
-    // the pots in the order they dropped. Jaws count as cushion: they are
-    // the cushion rubber cut back at the pocket.
+    // The last shot from the physics log: first ball hit, a rail after it, object
+    // balls railed (the break count), pots in order. Jaws count as cushion.
     function prSummarize(log) {
         let start = 0;
         for (let i = log.length - 1; i >= 0; i--) if (log[i].type === 'strike') { start = i + 1; break; }
@@ -67,8 +59,7 @@
         return { first, railAfterFirst, objectRails: railed.size, pots, scratch: pots.some(p => p.ball === 0) };
     }
 
-    // A seat's position in the frame, for the HUD and the CPU. `onTable` is
-    // the list of object-ball ids still in play.
+    // A seat's position in the frame; `onTable` lists object-ball ids still in play.
     function prStatusFrom(state, seat, onTable) {
         const group = state.groups[seat];
         const left = group ? onTable.filter(id => prGroupOf(id) === group).length : 7;
@@ -81,9 +72,7 @@
         return prStatusFrom(state, seat || state.turn, on);
     }
 
-    // Judges the shot that just settled. `call` is the called pocket index
-    // (0–5, the table's pocket order), or -1/undefined when nothing was
-    // called. Returns the verdict; verdict.next is the state to play on.
+    // `call` is the called pocket index (0–5) or -1/undefined; verdict.next is the state to play on.
     function prJudge(state, world, call) {
         const s = prSummarize(world.log);
         const me = state.turn, them = 3 - me;
@@ -165,9 +154,7 @@
         return v;
     }
 
-    // The shot clock ran out before a shot was played. As in today's game it
-    // is a foul: the opponent has ball in hand anywhere. On the break there
-    // is nothing to foul, so the break simply passes across (kitchen).
+    // Shot clock ran out: a foul (ball in hand anywhere), except on the break, which passes across.
     function prTimeout(state) {
         const me = state.turn, them = 3 - me;
         const brk = state.isBreak;
@@ -214,9 +201,8 @@
     }
 
     // ── Table helpers (these do mutate the world) ─────────────────────
-    // Why a cue-ball spot is refused, or null if it is fine: 'outside',
-    // 'kitchen' (behind the head string only), 'D' (snooker: inside the D only, its
-    // lines included) or 'overlap'.
+    // Why a cue-ball spot is refused, or null: 'outside', 'kitchen' (behind the head
+    // string only), 'D' (snooker, lines included) or 'overlap'.
     function prCanPlace(world, x, y, zone) {
         const t = world.table, R = world.cfg.ballR;
         if (!(Math.abs(x) <= t.halfLength - R && Math.abs(y) <= t.halfWidth - R)) return 'outside';
@@ -229,18 +215,14 @@
         return null;
     }
 
-    // Inside snooker's D: behind the baulk line and within the half-circle on it (the table's
-    // marks carry both), a hair of float slack on the lines.
+    // Inside snooker's D (behind baulk, within the half-circle), with float slack on the lines.
     function prInD(t, x, y) {
         const m = t.marks;
         return !!m && x <= m.baulkX + 1e-9 && (x - m.baulkX) ** 2 + y * y <= m.dR * m.dR + 1e-6;
     }
 
-    // The nearest spot to (x, y) the zone allows, as [x, y]: on the felt,
-    // behind the head string for 'kitchen', and inside the D for 'D' (up to
-    // the baulk line, then round the arc). Dragging the cue ball through this
-    // makes it slide along those limits instead of crossing them. Other balls
-    // are not pushed aside; an overlap is still refused.
+    // The nearest [x, y] the zone allows, so a dragged cue ball slides along the
+    // limits instead of crossing them. Other balls are not pushed; overlap is refused.
     function prClampPlace(world, x, y, zone) {
         const t = world.table, R = world.cfg.ballR;
         const hx = t.halfLength - R, hy = t.halfWidth - R;
@@ -261,8 +243,7 @@
         return cue;
     }
 
-    // Spots a ball on the long string: on the foot spot, or as close behind
-    // it (toward the foot rail) as room allows, else in front of it.
+    // On the foot spot, or as close behind it (toward the foot rail) as room allows, else in front.
     function prSpotBall(world, id) {
         const t = world.table, R = world.cfg.ballR, b = world.balls.find(o => o.id === id);
         const free = x => world.balls.every(o => o === b || o.state === 'pocketed' || (o.x - x) ** 2 + o.y ** 2 >= (2 * R + 0.02) ** 2);

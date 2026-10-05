@@ -1,29 +1,17 @@
             /* CYBERPUNK HUD THEME
                Generated from cyber-dev/cyber-theme.css. Do not edit the copy in the
                userscript; run node cyber-dev/reinsert.js.
-            
-               THE TOKEN CONTRACT
-               Three groups of user-set tokens. NO token in one group is ever derived
-               from a token in another:
-            
+
+               TOKEN CONTRACT: three user-set groups, none derived from another.
                  STRUCTURE   --rt-bg-1  --rt-bg-2
                  ACCENTS     --rt-accent  --rt-cyber-hl  --rt-cyber-panel
                  LEGIBILITY  --rt-text  --rt-glow-color  --rt-border-color
-            
-               Dim variants derive from their OWN parent by opacity alone, never by
-               mixing in another hue.
-            
-                 ALL TYPE   -> var(--rt-text) / var(--rt-text-dim)
-                 ALL BLOOM  -> var(--rt-glow) / rgba(var(--rt-glow-rgb), a)
-                 ALL FRAMES -> var(--rt-border*) / var(--rt-outline)
-            
-               KNOCKED-OUT TYPE is the one allowed inversion, and in one direction
-               only: a --rt-text fill carrying --rt-bg-1 glyphs. An ACCENT fill
-               carrying text is never allowed — a dark Highlight would hide the label.
-            
-               clip-path removes the border along a cut edge; --rt-outline draws it
-               back with four 1px drop-shadows that follow the clip exactly, so one
-               token outlines every shape without a wrapper element. */
+               Dim variants derive from their OWN parent by opacity alone.
+               All type reads --rt-text, all bloom --rt-glow, all frames --rt-border
+               or --rt-outline. The one allowed inversion is a --rt-text fill carrying
+               --rt-bg-1 glyphs; an accent fill carrying text never is (a dark
+               Highlight would hide the label). --rt-outline redraws the border a
+               clip-path cuts away, with four 1px drop-shadows that follow the clip. */
 
             .retro-theme {
                 /* -- STRUCTURE (user-set) -- */
@@ -35,8 +23,7 @@
                 /* -- ACCENTS (user-set) -- */
                 --rt-accent: #fff200;
                 --rt-accent-rgb: 255, 242, 0;
-                /* Highlight + Panel default to cyan until applyPreferences() writes them;
-                   without these every rule consuming them resolves to an invalid value.
+                /* Highlight + Panel need pre-JS defaults, or every consumer is invalid.
                    Panel has no -rgb companion: nothing takes it at partial alpha. */
                 --rt-cyber-hl: var(--rt-cyan, #00e5ff);
                 --rt-cyber-hl-rgb: var(--rt-cyan-rgb, 0, 229, 255);
@@ -50,18 +37,13 @@
                 --rt-border-color: #fff200;
                 --rt-border-rgb: 255, 242, 0;
 
-                /* --rt-cyan is the fallback Highlight and Panel resolve to before
-                   applyPreferences() runs. It is NOT a colour anything paints with
-                   directly. No other fixed hue exists: a hue no swatch can reach is one
-                   the user cannot fix. */
+                /* Pre-JS fallback for Highlight and Panel only, never painted directly.
+                   No other fixed hue exists: one no swatch can reach cannot be fixed. */
                 --rt-cyan: #00e5ff;
                 --rt-cyan-rgb: 0, 229, 255;
 
-                /* -- SEMANTIC ROLES --
-                   Two roles, both derived from user swatches: accent marks what is
-                   TARGETED (remaining, live, awaited), data marks what is MEASURED
-                   (worked, elapsed, logged). Reading one against the other is the
-                   widget's whole job, so they get names rather than bare swatch refs. */
+                /* -- SEMANTIC ROLES -- accent marks what is TARGETED (remaining, live),
+                   data marks what is MEASURED (worked, elapsed, logged). */
                 --rt-data: var(--rt-cyber-hl);
                 --rt-data-rgb: var(--rt-cyber-hl-rgb);
 
@@ -71,16 +53,11 @@
                 --rt-border: rgba(var(--rt-border-rgb), 0.38);
                 --rt-border-strong: rgba(var(--rt-border-rgb), 0.85);
                 --rt-grid: rgba(var(--rt-border-rgb), 0.07);
-                /* Raw preference, 0 upward. Kept because it is what the setting stores and
-                   what the teardown list clears; no CSS rule reads it directly. */
+                /* Raw stored preference; no CSS rule may read it. */
                 --rt-glow-mul: 0.6;
 
-                /* GLOW SCALE — the Glow Intensity slider, 0 to 1. Written by
-                   applyCyberTokens() rather than derived in CSS, because the settings
-                   modal is body-level and cannot see a property declared on the widget.
-                   This declaration is the pre-JS fallback and mirrors the shipped default.
-                   RADIUS scales with it, not just alpha, and it scales from ZERO — so 0%
-                   is genuinely no glow, not a dimmer one. */
+                /* GLOW SCALE, 0 to 1: pre-JS fallback for the value applyCyberTokens()
+                   writes. Every glow scales RADIUS and alpha from zero, so 0 is no glow. */
                 --rt-glow-k: 0.6;
 
                 --rt-glow:
@@ -100,10 +77,9 @@
                 --rt-scanline: rgba(var(--rt-border-rgb), 0.055);
 
                 /* -- RUNTIME: written from outside this stylesheet -- */
-                /* Written per render by renderFullContent() as an inline style on
-                   .progress-bar: the track needs the percentage because the playhead is
-                   drawn on the track, not the fill. Declared here so the var is never
-                   unset — an unset var() would invalidate the whole declaration. */
+                /* Written per render by renderFullContent() on .progress-bar, where the
+                   playhead is drawn. Declared so it is never unset: an unset var()
+                   invalidates the whole declaration. */
                 --rt-progress: 0%;
 
                 /* 45-degree hazard hatching. */
@@ -115,14 +91,13 @@
                     45deg,
                     rgba(var(--rt-border-rgb), 0.30) 0 5px,
                     transparent 5px 11px);
-                /* Chevron fill for meters — the >>>> run in the reference. */
+                /* Subtractive chevrons for meters. */
                 --rt-chevron: repeating-linear-gradient(
                     115deg,
                     rgba(0, 0, 0, 0.55) 0 3px,
                     transparent 3px 9px);
 
-                /* Chromatic aberration: one text-shadow, warm ghost one way, cool the
-                   other. Offsets stay at 2px. */
+                /* Chromatic aberration, warm one way, cool the other. Keep it at 2px. */
                 --rt-aberr:
                     2px 0 rgba(var(--rt-accent-rgb), 0.55),
                     -2px 0 rgba(var(--rt-data-rgb), 0.40);
@@ -141,9 +116,8 @@
                     var(--rt-border-color) 0 4px,
                     transparent 4px 8px);
 
-                /* POSITIVE chevron: two-tone diagonal fill for meters. --rt-chevron above
-                   is subtractive (notches cut out of what is behind); this one IS the fill.
-                   Sized 16px so rtHazardCrawl walks it exactly one period. */
+                /* POSITIVE chevron: this one IS the meter fill. One 16px period, which
+                   rtHazardCrawl walks exactly. */
                 --rt-chevron-fill: repeating-linear-gradient(
                     115deg,
                     var(--rt-data) 0 8px,
@@ -158,11 +132,9 @@
                     drop-shadow(0 -1px 0 var(--rt-border-color));
             }
 
-            /* PANEL SHAPE — userPreferences.cyberPanelShape, applied as .rt-shape-* on
-               #total-time-summary.
+            /* PANEL SHAPE — cyberPanelShape, as .rt-shape-NAME on #total-time-summary.
                clip-path clips overflow AND box-shadow, so it goes only on elements with
-               nothing escaping their box. The container therefore takes border-radius
-               only; --rt-outline supplies the edge the clip would otherwise remove. */
+               nothing escaping their box; the container takes border-radius only. */
 
             /* Default is notched. */
             .retro-theme,
@@ -254,10 +226,8 @@
                 --rt-bk-inset: 7px;
             }
 
-            /* CORNER BRACKETS + SCHEMATIC DOTS — background layers, no DOM.
-               ::before and ::after are already taken on nearly every panel (top rail,
-               CRT layer, shimmer bar, sensor sweep), so these are painted as extra
-               background layers instead. */
+            /* CORNER BRACKETS + SCHEMATIC DOTS — painted as background layers because
+               ::before and ::after are already taken on nearly every panel. */
 
             .retro-theme {
                 --rt-bk-len: 12px;
@@ -300,12 +270,9 @@
                         bottom calc(var(--rt-bk-inset) - 1px) /
                         var(--rt-bk-dot) var(--rt-bk-dot) no-repeat;
 
-                /* Container ambient grid: plain 44px square lattice, not the hex one — the
-                   diagonal lattice fights the 45-degree hazard hatching. --rt-hex stays for
-                   panel interiors, where nothing is hatched. */
-                /* Position and size live IN the layer, as --rt-studs and --rt-brackets do.
-                   Mixing the two styles (sizes inside the shorthand for some layers, a
-                   separate background-size for others) makes the longhand lists disagree. */
+                /* Container grid: square, not hex, which fights the 45-degree hatching.
+                   Position and size live IN each layer, as in --rt-studs and
+                   --rt-brackets, so the longhand lists never disagree. */
                 --rt-grid-sq:
                     linear-gradient(var(--rt-grid) 1px, transparent 1px)
                         left top / 44px 44px,
@@ -330,10 +297,9 @@
                         var(--rt-grid) 0 1px, transparent 1px 19px);
             }
 
-            /* KEYFRAMES — rt-prefixed so they cannot collide with the shared
-               glassmorphic set. Every one animates transform, opacity, filter or
-               background-position ONLY. Nothing animates box-shadow: an animated
-               box-shadow overrides the static declaration outright. */
+            /* KEYFRAMES — rt-prefixed to avoid the glassmorphic set. Transform, opacity,
+               filter or background-position ONLY: an animated box-shadow overrides the
+               static declaration outright. */
 
             @keyframes rtRailFlow {
                 0%   { background-position: 0% 50%; }
@@ -373,7 +339,6 @@
                 100% { transform: translateX(220%); }
             }
 
-            /* One clean linear pass, far enough to clear the edges. */
             @keyframes rtMeterSweep {
                 0%   { transform: translateX(-100%); }
                 100% { transform: translateX(200%); }
@@ -413,16 +378,14 @@
                 100% { opacity: 1; transform: translateY(0) scaleY(1); filter: none; }
             }
 
-            /* The run holds its text twice, so -50% lands exactly on the
-               start of the second copy and the loop is invisible. */
+            /* The run holds its text twice; -50% lands on the second copy. */
             @keyframes rtTicker {
                 0%   { transform: translateX(0); }
                 100% { transform: translateX(-50%); }
             }
 
-            /* translateY percentages resolve against the BAND's own height, not the
-               container's — 2400% of a 64px band is 1536px of travel, enough for a
-               centre column over 1000px tall with the table expanded. */
+            /* Percentages resolve against the 64px BAND, not the container: 2400% is
+               1536px of travel, enough for a 1000px+ column with the table expanded. */
             @keyframes rtSweepDown {
                 0%   { transform: translateY(-100%); }
                 100% { transform: translateY(2400%); }
@@ -434,9 +397,8 @@
                 100%      { opacity: 1; }
             }
 
-            /* Used by the compact-PiP display, which lives outside this block but
-               belongs to this theme. Animates filter only, so it composites over the
-               declared shadow and follows the Glow tokens. */
+            /* For the compact-PiP display (outside this block). Filter only, so it
+               composites over the declared shadow and follows the Glow tokens. */
             @keyframes rtGlowBreathe {
                 0%, 100% {
                     filter: drop-shadow(0 0 calc(12px * var(--rt-glow-k))
@@ -448,11 +410,8 @@
                 }
             }
 
-            /* MAIN CONTAINER
-               No filter here, deliberately: a filter on an ancestor becomes the
-               containing block for position:fixed descendants, and the widget has two
-               (#aim-results and .lb-ach-popover) that must position against the
-               viewport. */
+            /* MAIN CONTAINER — never a filter: it would become the containing block
+               for the position:fixed #aim-results and .lb-ach-popover. */
 
             .attendance-summary.retro-theme {
                 background:
@@ -491,12 +450,9 @@
                 opacity: 1;
             }
 
-            /* CRT layer + vignette + a hazard strip along the bottom edge.
-               THREE LAYERS, TWO DIRECTIONS, NO TRANSFORM: a transform moves every
-               layer it paints, so the bottom hazard strip would travel with the
-               scanline jitter. Animate background-position instead — the scanlines
-               move vertically, the hazard strip horizontally, and the vignette is
-               static. */
+            /* CRT layer + vignette + bottom hazard strip. NO TRANSFORM: it would move
+               every layer together. background-position moves the scanlines
+               vertically and the strip horizontally; the vignette stays put. */
             .attendance-summary.retro-theme::after {
                 content: '';
                 position: absolute;
@@ -583,10 +539,8 @@
                 animation-delay: 140ms;
             }
 
-            /* TITLE — aberrated display type, NOT a knocked-out plate. The permanent
-               fringe is --rt-aberr; the glitch burst adds two transient RGB ghosts.
-               A solid plate here would collide with the .rt-sec header bar directly
-               below it. */
+            /* TITLE — aberrated display type, NOT a knocked-out plate, which would
+               collide with the .rt-sec header bar directly below it. */
 
             .attendance-summary.retro-theme .summary-title {
                 font-family: 'Orbitron', sans-serif !important;
@@ -606,8 +560,8 @@
                 animation: rtGlitch 7s steps(1, end) infinite !important;
             }
 
-            /* The fringe above is mis-convergence; these two are the transient RGB
-               split during a glitch burst, at opacity 0 for 88% of the cycle. */
+            /* Transient RGB-split ghosts for the glitch burst; opacity 0 for 88% of
+               the cycle. */
             .attendance-summary.retro-theme .summary-title::before,
             .attendance-summary.retro-theme .summary-title::after {
                 content: attr(data-rt-text);
@@ -643,8 +597,7 @@
                         rgba(var(--rt-glow-rgb), calc(0.85 * var(--rt-glow-k)))) !important;
             }
 
-            /* HUD CHROME — decorative only: faint tone, pointer-transparent,
-               unselectable. */
+            /* HUD CHROME — decorative only. */
 
             .attendance-summary.retro-theme .rt-hud-rail {
                 display: flex;
@@ -702,15 +655,10 @@
                 background: var(--rt-comb);
             }
 
-            /* SECTION HEADER — glyph bar, letterspaced caps, hazard filler, right
-               aligned mono readout. Repeated on every panel. */
-
-            /* Rendered as a caption element on .modern-table so it sits inside the
-               clipped plate; a sibling div above the table would be outside it, and a
-               wrapper would re-flow Glassmorphic.
-               THE DISPLAY MUST STAY table-caption: setting display:flex stops it being
-               a proper table child, so the browser wraps it in an anonymous box and it
-               narrows to one column. An inner element does the flex layout instead. */
+            /* SECTION HEADER — glyph bar, caps, hazard filler, mono readout; on every
+               panel. On the table it is a caption, so it sits inside the clipped plate.
+               THE DISPLAY MUST STAY table-caption: display:flex gets it wrapped in an
+               anonymous box that narrows to one column. An inner element flexes. */
             .attendance-summary.retro-theme .rt-sec {
                 --rt-sec-c: var(--rt-data);
                 border-bottom: 1px solid rgba(var(--rt-border-rgb), 0.30);
@@ -788,9 +736,7 @@
                 user-select: none;
             }
 
-            /* SYS TICKER — translateX on a duplicated string, so it composites. The run
-               holds its text twice and travels exactly -50%, putting the loop point on
-               the start of the second copy. */
+            /* SYS TICKER — translateX on a duplicated string, so it composites. */
 
             .attendance-summary.retro-theme .rt-ticker {
                 display: flex;
@@ -814,11 +760,8 @@
                     transparent, #000 3%, #000 97%, transparent);
                 -webkit-mask-image: linear-gradient(90deg,
                     transparent, #000 3%, #000 97%, transparent);
-                /* Game Mode OFF sizes the widget with width:fit-content, which asks every
-                   descendant how wide it would like to be unconstrained — and a
-                   white-space:nowrap span answers with its full un-wrapped width, blowing
-                   the widget out. The ticker is therefore width:0 / min-width:100% so it
-                   contributes nothing to the intrinsic measurement. */
+                /* Keeps the nowrap run out of the intrinsic width that Game Mode OFF's
+                   width:fit-content measures; otherwise it blows the widget out. */
                 contain: inline-size;
             }
 
@@ -874,9 +817,7 @@
                 overflow: hidden;
             }
 
-            /* The column header is deliberately quiet: the table already carries a
-               .rt-sec header directly above it, and two heavy bars stacked read as a
-               mistake rather than a hierarchy. */
+            /* Quiet on purpose: two heavy bars stacked under .rt-sec read as a mistake. */
             .attendance-summary.retro-theme .modern-table thead {
                 background:
                     var(--rt-hazard-dim) left top / 100% 3px no-repeat,
@@ -900,9 +841,8 @@
                 border-bottom: 1px dashed rgba(var(--rt-border-rgb), 0.20) !important;
             }
 
-            /* COLUMN COLOUR CODING — by meaning, not by row. Column order is the
-               host's: # / check-in / check-out / worked / difference. Two hues and a
-               dim tone across the five. Scoped to tbody so the footer is unaffected. */
+            /* COLUMN COLOUR CODING by meaning. Host column order: # / check-in /
+               check-out / worked / difference. tbody only, so the footer is unaffected. */
             .attendance-summary.retro-theme .modern-table tbody td:nth-child(1) {
                 color: var(--rt-text-faint) !important;
                 font-size: 0.7rem !important;
@@ -940,9 +880,8 @@
                 border-bottom: 0 !important;
             }
 
-            /* Hazard-hatched footer: a single colspan cell in tfoot, inside the plate
-               for the same reason the header is a caption. The cell keeps
-               display:table-cell; an inner element does the flex layout. */
+            /* Footer: one colspan cell in tfoot, inside the plate. It keeps
+               display:table-cell; an inner element flexes. */
             .attendance-summary.retro-theme .modern-table td.rt-tbl-foot {
                 padding: 0 !important;
                 border-top: 1px solid rgba(var(--rt-border-rgb), 0.30) !important;
@@ -976,10 +915,8 @@
                 color: var(--rt-accent);
             }
 
-            /* STAT CARDS
-               The breathing glow is a filter, not an animated box-shadow: an animated
-               property beats the static declaration outright, which would leave every
-               declared shadow layer here unrendered. */
+            /* STAT CARDS — glow is a filter: an animated box-shadow would override
+               every declared shadow layer. */
 
             .attendance-summary.retro-theme .stat-card {
                 background:
@@ -1059,9 +996,8 @@
                 animation-delay: 3.6s;
             }
 
-            /* Per-card identity lives in the bracket, the border and the hazard tab —
-               never in the type. A dark Highlight must not be able to hide a number,
-               and no control could undo it if it did. */
+            /* Per-card identity lives in bracket, border and hazard tab, never in the
+               type: a dark Highlight must not be able to hide a number. */
             .attendance-summary.retro-theme .stat-card.worked-time-card {
                 --rt-bk-c: var(--rt-data);
                 border: 1px solid rgba(var(--rt-data-rgb), 0.35) !important;
@@ -1073,9 +1009,8 @@
                 clip-path: var(--rt-clip-alt);
             }
 
-            /* THE HERO CARD — the time-remaining figure: tinted fill, solid accent
-               border, wide bloom, largest type. The two flanking cards are reference
-               values and stay quiet. */
+            /* THE HERO CARD — time remaining gets the emphasis; the flanking cards are
+               reference values and stay quiet. */
             .attendance-summary.retro-theme .stat-card.remaining-time-card {
                 --rt-bk-c: var(--rt-accent);
                 background:
@@ -1098,8 +1033,7 @@
                         rgba(var(--rt-glow-rgb), calc(0.55 * var(--rt-glow-k))) !important;
             }
 
-            /* The sublabel the host renders. Small, dim and wide: it is a caption and
-               must not compete with the number above it. */
+            /* Host sublabel: a caption, so it must not compete with the number. */
             .attendance-summary.retro-theme .remaining-desc {
                 font-family: 'Rajdhani', sans-serif !important;
                 font-weight: 600 !important;
@@ -1158,9 +1092,8 @@
                 z-index: 2;
             }
 
-            /* DAY TIMELINE — an hour ruler, a tick comb, a chevron-hatched fill, the
-               break bitten out in hazard stripes, and a hard playhead at the boundary,
-               so position in the day is readable, not just percentage done. */
+            /* DAY TIMELINE — hour ruler, tick comb, chevron fill and a hard playhead,
+               so position in the day reads, not just percentage done. */
 
             .attendance-summary.retro-theme .rt-ruler {
                 display: flex;
@@ -1217,17 +1150,14 @@
                     0 0 calc(26px * var(--rt-glow-k))
                         rgba(var(--rt-glow-rgb), calc(0.5 * var(--rt-glow-k))) !important;
                 position: relative;
-                /* HIDDEN, and load-bearing. The highlight sweep is a child of this element
-                   and travels well past both ends; with overflow visible it runs out across
-                   the whole widget. */
+                /* Load-bearing: the highlight sweep child travels past both ends and
+                   would otherwise run across the whole widget. */
                 overflow: hidden;
                 border-radius: 0 !important;
             }
 
-            /* PLAYHEAD — a hard bright edge at the boundary, standing proud of the
-               track top and bottom. It belongs to the TRACK, not the fill: as a child
-               of .progress-fill it would be clipped by the fill's own overflow and
-               would ride the fill's width transition a frame behind the number. */
+            /* PLAYHEAD — on the TRACK, not the fill: inside .progress-fill it would be
+               clipped by the fill's overflow and lag its width transition. */
             .attendance-summary.retro-theme .progress-bar::after {
                 content: '';
                 position: absolute;
@@ -1261,10 +1191,8 @@
                 animation: rtMeterSweep 2.2s linear infinite !important;
             }
 
-            /* Everything the host renders FOR this theme must disappear in Glassmorphic.
-               The markup is shared — renderFullContent() emits one tree for both themes —
-               so an rt-* element styled only under .retro-theme still needs an explicit
-               display:none under .attendance-summary:not(.retro-theme). */
+            /* renderFullContent() emits one tree for both themes, so every rt-* element
+               needs an explicit hide rule here for Glassmorphic. */
             .attendance-summary:not(.retro-theme) .rt-hud-rail,
             .attendance-summary:not(.retro-theme) .rt-sec,
             .attendance-summary:not(.retro-theme) .rt-subcode,
@@ -1408,9 +1336,8 @@
                         rgba(var(--rt-glow-rgb), calc(0.45 * var(--rt-glow-k))) !important;
             }
 
-            /* SEGMENTED XP — discrete slabs with slanted ends, because a segmented
-               meter reads as a count and XP is a count. The host renders one continuous
-               fill, so the gaps are knocked back out over the top. */
+            /* SEGMENTED XP — XP is a count. The host renders one continuous fill, so
+               the gaps are knocked back out over the top. */
             .attendance-summary.retro-theme .xp-progress-bar::after {
                 content: '';
                 position: absolute;
@@ -1493,10 +1420,8 @@
                 color: var(--rt-bg-1) !important;
             }
 
-            /* IMAGE BOX — the frame, its kebab and hint, the drop zone, the options menu and
-               the Undo toast. Selected states invert to a text fill, as every Cyberpunk
-               toggle does; Remove takes the accent because it is the one action aimed at
-               something, and the theme has no fixed red to spend on it. */
+            /* IMAGE BOX — selected states invert to a text fill like every toggle;
+               Remove takes the accent because the theme has no fixed red. */
 
             .attendance-summary.retro-theme .image-display {
                 background: var(--rt-bg-1) !important;
@@ -1689,19 +1614,15 @@
             /* SETTINGS MODAL — body-level, so it reads the tokens applyPreferences()
                mirrors onto documentElement. */
 
-            /* EMOJI TINT handles. Declared on the body scope, not inside .retro-theme,
-               because the settings modal is body-level and cannot see a property
-               declared on the widget. Each set gets its own hue-rotate so the tint
-               lands on the same perceived colour whatever the source glyph. */
+            /* EMOJI TINT handles, on body scope so the body-level modal sees them. */
             body:has(.retro-theme) {
                 --rt-emo-tint: url(#rt-emoji-tint);
                 --rt-emo-progress: var(--rt-emo-tint);
             }
 
 
-            /* A bare wrapper around a single emoji and nothing else: a filter applies
-               to everything its element paints, so tinting .game-switch-btn directly
-               would duotone its border and its knocked-out glyphs too. */
+            /* A bare wrapper around one emoji: a filter on the button itself would
+               duotone its border and knocked-out glyphs too. */
             body:has(.retro-theme) .rt-emo {
                 display: inline-block;
                 filter: var(--rt-emo-tint, opacity(1));

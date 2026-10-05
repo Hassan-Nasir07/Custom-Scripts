@@ -288,6 +288,21 @@ store.ludoRecord = JSON.stringify({ wins: 99, losses: 1 });
 H.applyPlayerRecordToLocal(snap);
 ok('restore never lowers ludoGamesWon', store.ludoGamesWon === '99', store.ludoGamesWon);
 ok('restore never lowers ludoRecord', JSON.parse(store.ludoRecord).wins === 99);
+// The wins per cue (their levels): each cue's own highest count, from either side.
+store.poolCueRecord = JSON.stringify({ ember: 12, crown: 3 });
+const cueSnap = H.buildPlayerSnapshot();
+store.poolCueRecord = JSON.stringify({ ember: 4, malachite: 9 });
+H.applyPlayerRecordToLocal(cueSnap);
+const cues = JSON.parse(store.poolCueRecord);
+ok('restore keeps each cue\'s highest win count', cueSnap.poolCueRecord.ember === 12 && cues.ember === 12 && cues.crown === 3 && cues.malachite === 9, store.poolCueRecord);
+
+// A corrupt value reads as its default: the snapshot and the restore carry on.
+Object.assign(store, { poolRecord: '{bad', snookerRecord: 'nope', reflexHighScores: '{', prayerCount: 'x', userXP: '{' });
+let corrupt = null;
+try { corrupt = H.buildPlayerSnapshot(); H.applyPlayerRecordToLocal(snap); } catch (e) { corrupt = e; }
+ok('corrupt storage neither throws nor syncs garbage',
+   corrupt && !(corrupt instanceof Error) && corrupt.poolRecord.p1Wins === 0 && corrupt.prayerCount === 0, String(corrupt));
+ok('…and the restore rewrites the corrupt record whole', JSON.parse(store.snookerRecord).p1Wins === 0 && 'p2Losses' in JSON.parse(store.snookerRecord));
 
 head('Achievement unlock paths');
 store.ludoGamesWon = '150';
@@ -319,6 +334,35 @@ H.userXP.achievements = [];
 store.poolWinsByTier = JSON.stringify({ pro: 1 });
 H.revalidateAchievements();
 ok('revalidate restores Called It from poolWinsByTier', H.userXP.achievements.indexOf('calledIt') !== -1);
+{
+    // The tables: what storage proves comes back, silently; per-run facts never do.
+    const x = H.userXP, has = id => x.achievements.indexOf(id) !== -1, xp0 = x.totalXP;
+    const saved = JSON.stringify(x);
+    Object.assign(x, { achievements: [], totalWorkDays: 20, level: 26, gameSessions: 50, consecutiveDays: 2, longestStreak: 8 });
+    store.snakeHighScores = JSON.stringify({ endless: 41, walled: 12 });
+    store.snakeLevelsBest = '6';
+    H.revalidateAchievements();
+    ok('revalidate restores by table: work days, levels, sessions, best streak, snake modes and stages',
+       ['firstDay', 'week1', 'workdays20', 'level10', 'level25', 'gamer', 'streak7', 'snakeEndless', 'snakeCampaign'].every(has) &&
+       !['centurion', 'level50', 'gamer50', 'streak30', 'snakeWalled', 'snakeConqueror', 'snakeGourmand', 'snakeLong'].some(has) && x.totalXP === xp0);
+    x.achievements = [];
+    H.checkGameAchievements('snooker', { vsCPU: false, highBreak: 147 });
+    H.checkGameAchievements('reflex', { avgTime: 210, falseStarts: 1 });
+    H.checkGameAchievements('snake', { mode: 'walled', score: 40, bigEaten: 10, stagesCleared: 5 });
+    ok('live checks: 2 Players\' breaks and a false start earn nothing; a walled 40 and 10 golden bites do',
+       !has('snookerCentury') && !has('lightning') && has('snakeWalled') && has('snakeCharmer') && has('snakeGourmand') && !has('snakeEndless') && !has('snakeCampaign'));
+    delete store.snakeHighScores; delete store.snakeLevelsBest;
+    Object.assign(x, JSON.parse(saved));
+    // The score ladders: the first step reached pays, plus that game's bonuses (and any achievement).
+    const paid = (game, perf) => {
+        const a0 = x.achievements.slice(), t0 = x.totalXP;
+        H.awardGameXP(game, perf);
+        return x.totalXP - t0 - x.achievements.filter(k => a0.indexOf(k) < 0).reduce((n, k) => n + (H.ACHIEVEMENT_XP[k] || 50), 0);
+    };
+    ok('XP ladders: flappy 10 pipes 45, reflex 200 ms clean 65 + 15, breakout 99 at level 2 12 + 16, aim 0 pts at 80% 12 + 15',
+       paid('flappy', { score: 10 }) === 45 && paid('reflex', { avgTime: 200, falseStarts: 0 }) === 80 &&
+       paid('breakout', { score: 99, level: 2 }) === 28 && paid('aim', { score: 0, accuracy: 80 }) === 27);
+}
 {
     const xp0 = H.userXP.totalXP, s0 = H.userXP.gameSessions || 0;
     H.awardGameXP('pool', { won: true, vsCPU: true, tier: 'pro', xp: 999 });

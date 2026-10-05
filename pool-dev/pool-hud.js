@@ -1,27 +1,17 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — HUD (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // The panel around the table, from the design's Main, InMatch and Max
-    // artboards: player cards with group trackers and the shot clock, the
-    // frame count, the viewport's overlays (camera toggle, group pill,
-    // toast, lean, power gauge, spin, hint, ball-in-hand chip, move-cue-ball
-    // button, pocket
-    // mini-map, frame-over dialog) and the footer or the seat hand-off.
-    // Snooker (the snk* artboards) is the same HUD with its own parts: a score and a
-    // third line on each card, the tracker row (reds, colours, points remaining, snookers
-    // required, Concede), the colour chips, the choice after a foul in the toast, the
-    // frame's score and high break in the dialog, and the concede question
-    // (phSnookerModel).
+    // The panel around the table: player cards (group trackers, shot clock), the frame count,
+    // the viewport's overlays, the frame-over dialog, and the footer or the seat hand-off.
+    // Snooker adds a score and third line per card, the tracker row, the colour chips, the
+    // choice after a foul and the concede question (phSnookerModel).
     //
     // Three layers, so the logic can be tested without a browser:
-    //   phModel(game)      pure: game snapshot → view model (every string,
-    //                      flag and number the HUD shows)
+    //   phModel(game)      pure: game snapshot → view model (everything the HUD shows)
     //   phBuild(root, …)   DOM: builds the HUD once, compact or Max
-    //   phRender(hud, vm)  DOM: applies a view model, touching only what
-    //                      changed
-    // Colours come only from pool-theme.css (--pool-*). The canvas cannot
-    // read CSS, so phThemeTokens() is the bridge the renderer takes its
-    // theme colours from.
+    //   phRender(hud, vm)  DOM: applies a view model, touching only what changed
+    // Colours come only from pool-theme.css (--pool-*); the canvas cannot read CSS, so
+    // phThemeTokens() is the renderer's bridge.
 
     const PH_POCKETS = ['Top left', 'Top side', 'Top right', 'Bottom left', 'Bottom side', 'Bottom right'];
     const PH_SPINS = [
@@ -31,8 +21,7 @@
         { label: 'Left', x: -0.45, y: 0 },
         { label: 'Right', x: 0.45, y: 0 },
     ];
-    // The cue tip can strike anywhere inside the miscue ring, 0.6 R from the
-    // centre (PP_DEFAULTS.maxTip); the presets are quick picks inside it.
+    // The tip strikes anywhere inside the miscue ring, 0.6 R from centre (PP_DEFAULTS.maxTip).
     const PH_TIP_MAX = 0.6;
     const PH_TIP_DEAD = 0.05;        // closer to the centre than this reads as Center
     function phClampTip(x, y) {
@@ -53,7 +42,7 @@
         if (Math.abs(t.x) > PH_TIP_DEAD) parts.push((t.x > 0 ? 'Right ' : 'Left ') + pct(t.x));
         return parts.join(' · ') || 'Center ball';
     }
-    // The Game mode sheet's difficulty list (InMatch.dc.html, ModeSheet), in order.
+    // The Game mode sheet's difficulty list, in order.
     const PH_DIFFS = [
         { key: 'adaptive', name: 'Adaptive', desc: 'Matches your form, frame by frame' },
         { key: 'easy', name: 'Easy', desc: 'Takes simple pots · misses often' },
@@ -61,7 +50,7 @@
         { key: 'hard', name: 'Hard', desc: 'Plays position · rarely leaves a shot' },
         { key: 'pro', name: 'Pro', desc: 'Hardly misses · call every shot' },
     ];
-    // Snooker's list (InMatch.dc.html, snkMode): the same tiers, snooker's words.
+    // Snooker's: the same tiers, snooker's words.
     const PH_SNK_DIFFS = [
         { key: 'adaptive', name: 'Adaptive', desc: 'Matches your form, frame by frame' },
         { key: 'easy', name: 'Easy', desc: 'Pots the simple ones · leaves chances' },
@@ -92,41 +81,31 @@
 
     // ── View model ────────────────────────────────────────────────────
     // game = {
-    //   layout: 'compact' | 'max', mode: 'cpu' | 'pvp' | 'tour',
-    //   names: { 1, 2 }, records: { 1, 2 }, frames: [a, b], trophies,
-    //   game: 'pool' | 'snooker',    which game's balls and words (pool when absent)
-    //   title,                       the game's name, for the Max header
-    //   frame,                       the rules state (pool-rules.js)
-    //   status,                      the shooter's position, from the game's rules
-    //                                (poolRules().status: pool's prStatus)
-    //   world,                       the physics world, for the trackers
+    //   layout: 'compact' | 'max', mode: 'cpu' | 'pvp' | 'tour', game: 'pool' | 'snooker',
+    //   names: { 1, 2 }, records: { 1, 2 }, frames: [a, b], trophies, title (Max header),
+    //   frame (rules state), status (the shooter's position, poolRules().status), world,
     //   phase: 'aim' | 'strike' | 'moving' | 'bih' | 'over',
     //   camera: '3d' | '2d', lean, power, dragging, called,
-    //   tip: { x, y },               the cue tip in R (follow is +y, right is +x); or
-    //   spin (index into PH_SPINS),  a preset, when there is no tip
+    //   tip: { x, y },               the cue tip in R (follow +y, right +x); else
+    //   spin,                        a PH_SPINS index
     //   spinOpen,                    the big spin picker is open
-    //   clock: { left, total } | null,
-    //   toast: prText(…) | null, fouled: seat | 0,
+    //   clock: { left, total } | null, toast: prText(…) | null, fouled: seat | 0,
     //   handoff: seat | 0,           "Pass to …" while seats swap
     //   bih: { valid, reason, placed, sx, sy, sr } | null,
-    //   canReplace,                  the shooter placed the cue ball and may pick it up again
+    //   canReplace,                  the placed cue ball may be picked up again
     //   cpuTurn,                     the CPU is at the table: its own hint, no human controls
-    //   sheet: { open, mode, note, names: [{ value, placeholder }] },  the Game mode sheet: which
-    //                                tab, a line under the list, and 2 Players' two names
-    //   difficulty,                  the picked CPU difficulty ('adaptive' or a tier)
-    //   diffs,                       the difficulty list for this game (PH_DIFFS when absent)
-    //   pots: { 1: [ids], 2: [ids] } the object balls each seat has potted this frame, shown
-    //                                on its card while the table is open
-    //   tour: { kicker, title, frame } | null   a tournament match: the header strip, and
-    //                                the footer becomes Bracket / Pause / Max
-    //   tourSheet: { saved, name }   the sheet's Tournament tab: resume, or set one up
+    //   sheet: { open, mode, note, names: [{ value, placeholder }] },   the Game mode sheet
+    //   difficulty, diffs,           the picked difficulty; this game's list (PH_DIFFS)
+    //   pots: { 1: [ids], 2: [ids] } each seat's potted balls, shown while the table is open
+    //   tour: { kicker, title, frame } | null   header strip; the footer becomes Bracket / Pause / Max
+    //   tourSheet: { saved, name }   the sheet's Tournament tab
     //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
-    //   secondaryLabel,              the frame-over dialog's second button, when the default does not apply
+    //   secondaryLabel,              overrides the frame-over dialog's second button
     //   result: { win, title, reason, recordLabel, record, delta, note, stats? } | null,
-    //   Snooker also:
-    //   nom,                         the colour nominated for this shot, or -1
-    //   choice: { chooser, cpu, options: [{ id, label, short }] } | null   after a foul
-    //   confirm,                     the concede question is open
+    //   cueName, the equipped cue; cues: poolCueModel() | null, the collection open;
+    //   cueNew: a just-unlocked cue's id | null,
+    //   snooker: nom (nominated colour or -1), confirm (concede question open),
+    //            choice: { chooser, cpu, options: [{ id, label, short }] } | null
     // }
     function phModel(g) {
         const st = g.status;
@@ -199,15 +178,13 @@
             else hint = { text: 'Press and drag for power', tone: '' };
         }
 
-        // The call card (3D): the pocket map and the hint in one, bottom right. The pocket
-        // lit on the map names the call, so the caption only says what comes next. The spin
-        // picker covers the corner it would share with Move cue ball, so it steps aside then.
+        // The call card (3D): pocket map and hint in one, bottom right; the lit pocket names the
+        // call, so the caption says what comes next. It steps aside for the spin picker.
         const card = aiming && st.callRequired && g.camera === '3d' && !g.cpuTurn && !g.handoff && !toast && !pickerOpen && !sheetOpen;
         const pwr = Math.round(g.power || 0);
         const cardCap = g.dragging ? { text: 'Release · ' + pwr + '%', tone: pwr >= PH_POWER_HOT ? 'hot' : 'power' }
             : callNeeded ? { text: 'Tap a pocket', tone: 'call' } : { text: 'Drag to shoot', tone: '' };
 
-        // The tip: anywhere in the miscue ring (g.tip), or a preset by index (g.spin).
         const spin = g.tip ? phClampTip(g.tip.x, g.tip.y)
             : PH_SPINS[((g.spin || 0) % PH_SPINS.length + PH_SPINS.length) % PH_SPINS.length];
         const lean = Math.max(0, Math.min(100, Math.round(g.lean || 0)));
@@ -229,8 +206,7 @@
             pill: { show: !toast && !over, text: pill },
             toast: toast ? { show: true, foul: toast.kind === 'foul', title: toast.title, sub: toast.sub, icon: toast.icon || '', choices: [], chooser: '' } : { show: false, choices: [] },
             lean: {
-                // It stays for a call: the call card sits bottom right, not top left as in the
-                // design's 4a, so a call never needs the slider's side.
+                // It stays for a call: the call card sits bottom right, clear of the slider.
                 show: is3d && !over && !moving && !sheetOpen,
                 value: lean,
                 // The pitch the camera actually looks down at, as the design labels it.
@@ -278,15 +254,15 @@
                 tour: g.tourSheet && g.tourSheet.saved ? { saved: true, cta: 'RESUME ' + String(g.tourSheet.name || 'TOURNAMENT').toUpperCase(), sub: g.tourSheet.where || '' }
                     : { saved: false, cta: 'SET UP TOURNAMENT', sub: '' },
             } : { show: false },
+            cueName: g.cueName || 'Standard', cues: g.cues || null,
+            cueNew: g.cueNew && !sheetOpen && !toast ? g.cueNew : null,
             // Snooker's parts; hidden for pool.
             track: { show: false }, chips: { show: false }, concede: { show: false },
         };
         return vm.game === 'snooker' ? phSnookerModel(g, vm) : vm;
     }
 
-    // Snooker's HUD (the snk* artboards) over the shared model: the same cards, pill, toast
-    // and dialog, with a score and a third line on each card, the tracker row, the colour
-    // chips while a colour is to be nominated, the choice after a foul, and Concede.
+    // Snooker's parts over the shared model (see the file header).
     function phSnookerModel(g, vm) {
         const st = g.status, on = st.on || {}, f = g.frame;
         const over = g.phase === 'over', bih = g.phase === 'bih', aiming = g.phase === 'aim' || g.phase === 'strike';
@@ -317,7 +293,6 @@
             aria: 'Reds left ' + (st.redsLeft || 0) + ', colours ' + (left.length ? left.join(', ') : 'none') + ', ' + (over ? 0 : st.remaining) + ' points remaining' +
                 (need ? '; ' + g.names[seat] + ' needs ' + need + (need > 1 ? ' snookers' : ' snooker') : ''),
         };
-        // The pill: what the shooter is on.
         let pill;
         if (bih) pill = f.isBreak ? 'Break-off · in the D' : st.respotBlack ? 'Re-spotted black' : 'Ball in hand · the D';
         else if (st.freeBall) pill = nom >= 0 ? 'Free ball · ' + phCap(phSnkName(nom)) : 'Free ball';
@@ -326,16 +301,14 @@
         else pill = 'On the ' + phSnkName(st.next);
         if (max && !bih) { const who = g.names[seat]; pill = (who === 'You' ? 'Your shot' : who + "'s shot") + ' · ' + pill; }
         vm.pill = { show: !toast && !over, text: pill };
-        // Read out once a shot is over (S7): what the player at the table is on, the score and
-        // the tracker. Held while balls run (null: the last reading stays), so a pot mid-shot
-        // does not interrupt.
+        // Read out once a shot is over: what the shooter is on, the score, the tracker. Null
+        // while balls run (the last reading stays), so a pot mid-shot does not interrupt.
         const settled = g.phase !== 'moving' && g.phase !== 'strike', sc = st.scores || { 1: 0, 2: 0 };
         vm.track.say = !settled ? null : (over ? 'Frame over' : pill) + '. ' + g.names[1] + ' ' + sc[1] + ', ' + g.names[2] + ' ' + sc[2] + '. ' + vm.track.aria + '.';
         // The chips: while a colour is to be nominated (the gauge padlocks until one is).
         const chips = aiming && !!on.needsNomination && !g.cpuTurn && !g.handoff && !toast && !sheetOpen && !vm.spin.open && !g.confirm;
         const pw = Math.round(g.power || 0);
-        // Once a colour is nominated they fold to that one chip and the caption, freeing the
-        // corner for the stroke; the chip opens them again.
+        // Once a colour is nominated they fold to that chip and the caption; the chip reopens them.
         const folded = nom >= 0 && !g.chipsOpen, callNeeded = aiming && !!st.callRequired && !(g.called >= 0);
         vm.chips = chips ? {
             show: true, folded,
@@ -362,7 +335,6 @@
         }
         // While the choice is open the lean slider steps aside for the toast's buttons.
         if (g.phase === 'choice') vm.lean = Object.assign({}, vm.lean, { show: false });
-        // Concede, confirmed.
         const other = 3 - seat;
         vm.concede = g.confirm && seat ? { show: true, text: phWins(g.names[other]) + ' ' + st.scores[other] + '–' + st.scores[seat] } : { show: false };
         return vm;
@@ -391,7 +363,70 @@
         close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
         cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
         flag: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"></path><path d="M5 4h12l-2.5 4L17 12H5"></path></svg>',
+        cue: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20L16.5 7.5M15 6l3 3M17.6 4.4a1.4 1.4 0 0 1 2 2"></path></svg>',
     };
+
+    // ── The cue collection ────────────────────────────────────────────
+    // Each cue's stroke icon: its achievement's (the design's), Standard's check, Collector's star.
+    const PH_CUE_ICON = {
+        standard: 'M5 12.5l4.5 4.5L19 7.5',
+        tulipwood: 'M9 11a3.5 3.5 0 1 0 0-7a3.5 3.5 0 0 0 0 7zM2.5 20c.6-3.4 3.2-5.5 6.5-5.5s5.9 2.1 6.5 5.5M16 4.5a3.2 3.2 0 0 1 0 6.2M18 14.8c2 .6 3.2 2.4 3.5 5.2',
+        birdseye: 'M7 8h10a4 4 0 0 1 4 4v2.5a2.5 2.5 0 0 1-4.6 1.4L15 14H9l-1.4 1.9A2.5 2.5 0 0 1 3 14.5V12a4 4 0 0 1 4-4zM8 10.5v3M6.5 12h3M15.5 11.5h.01M17.5 13h.01',
+        ember: 'M12 3c.8 3.2 5 5.2 5 10a5 5 0 0 1-10 0c0-2 .8-3.4 2-4.5.2 1.6 1 2.6 2.2 3C10.6 8.6 11.4 5.6 12 3z',
+        rosewood6: 'M12 3l7 3v5c0 4.4-3 8.2-7 10-4-1.8-7-5.6-7-10V6l7-3zM8.5 12.5L12 9l3.5 3.5M8.5 16L12 12.5l3.5 3.5',
+        carbonfin: 'M3 17c2 0 2-1.5 4.5-1.5S10 17 12 17s2-1.5 4.5-1.5S19 17 21 17M7 15.5C9 11 11.5 6.5 16 5c-1.2 3.3-1.5 7-.8 10.5',
+        malachite: 'M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18zM12 16.5a4.5 4.5 0 1 0 0-9a4.5 4.5 0 0 0 0 9zM12 12.8a.8.8 0 1 0 0-1.6a.8.8 0 0 0 0 1.6z',
+        centuryash: 'M8 3l2.5 5M16 3l-2.5 5M12 21a6 6 0 1 0 0-12a6 6 0 0 0 0 12zM10.5 13.5L12 12.5v5',
+        crown: 'M4 18h16M5 18L3.5 8l5 4L12 6l3.5 6 5-4L19 18',
+        collector: 'M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6l-5.4 2.9 1.2-6-4.5-4.2 6.1-.7L12 3z',
+        lock: 'M7.5 11V8a4.5 4.5 0 0 1 9 0v3M6.5 11h11a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.5v-7A1.5 1.5 0 0 1 6.5 11z',
+    };
+    const phSvg = (d, n, w) => '<svg width="' + n + '" height="' + n + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (w || 1.8) + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"></path></svg>';
+    const PH_BARS = ['Power', 'Aim', 'Spin', 'Time'];
+    // m: poolCueModel(). The equipped cue up top (a close-up of its forearm, then all of it), then
+    // every cue: its look, how it is earned, its four bars (filled to its level, outlined to 5).
+    function phCuesHTML(m) {
+        const eq = m.list.find(c => c.eq) || m.list[0];
+        const tick = phSvg(PH_CUE_ICON.standard, 13, 2.4);
+        const bars = c => '<div class="ph-cue-bars">' + PH_BARS.map((b, i) => '<span class="ph-cue-bar" role="img" aria-label="' + b + ' ' + c.bars[i] + ' of 10' +
+            (c.top[i] !== c.bars[i] ? ', ' + c.top[i] + ' at level 5' : '') + '"><span class="ph-label">' + b + '</span><span class="ph-cue-segs">' +
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(k => '<i' + (k < c.bars[i] ? ' class="on"' : k < c.top[i] ? ' class="up"' : '') + '></i>').join('') +
+            '</span><span class="ph-num">' + c.bars[i] + '</span></span>').join('') + '</div>';
+        const level = c => '<span class="ph-cue-lv">' + (c.level >= 5 ? 'Level 5 · mastered · ' + c.wins + ' wins' : 'Level ' + c.level + ' · ' + c.have + ' of ' + c.need + ' ' + c.counts + ' to level ' + (c.level + 1)) + '</span>';
+        const card = c => '<div class="ph-cue-card' + (c.eq ? ' is-eq' : '') + (c.open ? '' : ' is-locked') + '" role="listitem" aria-label="' + c.name + ', ' +
+            (c.eq ? 'equipped' : c.open ? 'unlocked' : 'locked. ' + c.cond) + '">' +
+            '<canvas class="ph-cue-cv" data-cue="' + c.id + '" aria-hidden="true"></canvas>' +
+            '<div class="ph-cue-row"><span class="ph-cue-icon">' + phSvg(PH_CUE_ICON[c.id], 17) + '</span>' +
+            '<span class="ph-cue-t"><span class="ph-cue-n">' + c.name + (c.isNew ? '<span class="ph-cue-new ph-label">NEW</span>' : '') + '</span>' +
+            '<span class="ph-cue-d">' + (c.open ? c.blurb : c.cond) + '</span></span>' +
+            (c.eq ? '<span class="ph-cue-tag ph-label">' + tick + 'EQUIPPED</span>'
+                : c.open ? '<button type="button" class="ph-btn ph-cue-eq" data-ph-equip="' + c.id + '" aria-label="Equip ' + c.name + '">Equip</button>'
+                    : '<span class="ph-cue-tag is-lock ph-label">' + phSvg(PH_CUE_ICON.lock, 14, 2) + 'LOCKED</span>') + '</div>' +
+            bars(c) + (c.open && c.id !== eq.id ? level(c) : '') + '</div>';
+        return '<div class="ph-cues-head"><span class="ph-cues-t"><span class="ph-cues-title">Cue collection</span>' +
+            '<span class="ph-cues-sub">' + (m.who ? m.who + '’s cue for this match · from your ' + m.open + ' unlocked' : m.open + ' of ' + m.list.length + ' unlocked · every shot you play, pool and snooker') + '</span></span>' +
+            '<button type="button" class="ph-btn" data-ph-cuesx aria-label="Close the cue collection">' + PH_ICON.close + '</button></div>' +
+            '<div class="ph-cues-list" role="list" aria-label="All cues">' +
+            '<div class="ph-cue-card is-hero' + (m.just === eq.id ? ' is-just' : '') + '"><div class="ph-cue-row is-head"><span class="ph-cue-t"><span class="ph-cue-n">' + eq.name + '</span>' +
+            '<span class="ph-cue-d">' + eq.blurb + '</span></span><span class="ph-cue-tag ph-label">' + tick + 'EQUIPPED</span></div>' +
+            '<div class="ph-cue-show"><canvas class="ph-cue-cv is-detail" data-cue="' + eq.id + '" data-span="0.48,0.77" aria-hidden="true"></canvas>' +
+            '<canvas class="ph-cue-cv is-full" data-cue="' + eq.id + '" aria-hidden="true"></canvas></div>' + bars(eq) + level(eq) +
+            (m.just === eq.id ? '<span class="ph-cue-just" role="status">' + tick + eq.name + ' equipped · ' + (m.who ? m.who + '’s' : 'your') + ' next shot uses it</span>' : '') + '</div>' +
+            m.list.map(card).join('') +
+            '<div class="ph-cues-foot">The CPU plays a cue for its level: Easy Standard, Normal Tulipwood, Hard Malachite (Century Ash at snooker), Pro Black Crown.</div></div>';
+    }
+    // Draws every cue in the open collection at its canvas's size.
+    function phCuesDraw(root, game) {
+        const dpr = window.devicePixelRatio || 1, mk = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+        root.querySelectorAll('canvas[data-cue]').forEach(cv => {
+            const w = cv.clientWidth, h = cv.clientHeight, span = (cv.getAttribute('data-span') || '0,1').split(',').map(Number);
+            if (!w || !h) return;
+            cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+            const c = cv.getContext('2d');
+            c.setTransform(dpr, 0, 0, dpr, 0, 0);
+            pqDrawFlat(c, pqById(cv.getAttribute('data-cue')), game, 10, h / 2, w - 20, span[0], span[1], null, mk);
+        });
+    }
 
     function phCardHTML(seat, max) {
         const top = '<div class="ph-card-top"><span class="ph-name" data-ph="name"></span>' +
@@ -404,8 +439,7 @@
             : top + '<div class="ph-rec" data-ph="rec"></div>' + l3 + group + score;
         return '<div class="ph-card" data-seat="' + seat + '">' + body + '<div class="ph-clock" data-ph="clock"></div></div>';
     }
-    // Snooker's tracker row: REDS × n, the six colours, and what is left to score, with
-    // SNOOKERS REQ. n and Concede when the player at the table needs them.
+    // Snooker's tracker row: REDS × n, the colours, what is left, SNOOKERS REQ. n and Concede.
     function phTrackHTML() {
         return '<div class="ph-track" data-ph="track" hidden><span class="ph-track-reds ph-label"><i class="ph-track-red" data-ph="trred"></i><span data-ph="trreds"></span></span>' +
             '<span class="ph-track-dots" role="img" data-ph="trdots"></span><span class="ph-track-gap"></span>' +
@@ -415,6 +449,7 @@
             '<span class="ph-sr" data-ph="trlive" aria-live="polite" aria-atomic="true"></span></div>';
     }
 
+    const PH_CUES_ROOT = '<div class="ph-cues" role="dialog" aria-label="Cue collection" data-ph="cues" hidden></div>';
     function phViewHTML(max) {
         // The six pocket targets on a 52 × 26 table: the call card's, and the folded chips'.
         const pad = attr => [[0, 0], [26, 0], [52, 0], [0, 26], [26, 26], [52, 26]]
@@ -445,6 +480,9 @@
             '<div class="ph-spinpop-chips">' + PH_SPINS.map((p, i) => '<button type="button" class="ph-btn" data-ph-tip="' + i + '" aria-pressed="false">' + p.label + '</button>').join('') + '</div></div>' +
             '</div>' +
             '<div class="ph-hint ph-glass" data-ph="hint"><span data-ph="hintt"></span></div>' +
+            '<div class="ph-cuenew ph-glass" role="status" data-ph="cuenew" hidden><span class="ph-cuenew-i">' + PH_ICON.cue + '</span>' +
+            '<span class="ph-cuenew-t"><span class="ph-label">NEW CUE</span><span data-ph="cuenewn"></span></span>' +
+            '<button type="button" class="ph-btn" data-ph="cuenewgo">Equip</button><button type="button" class="ph-btn is-icon" data-ph="cuenewx" aria-label="Dismiss">' + PH_ICON.close + '</button></div>' +
             '<div class="ph-bihnote ph-label" data-ph="bihnote" hidden></div>' +
             '<button type="button" class="ph-replace ph-glass" data-ph="replace" hidden>' + PH_ICON.hand + '<span>Move cue ball</span></button>' +
             '<div class="ph-mini ph-glass" data-ph="mini" hidden><span class="ph-mini-cap" data-ph="minicap"></span>' +
@@ -464,7 +502,7 @@
             '<div class="ph-dialog-note" data-ph="dlgn">' + PH_ICON.chip + '<span data-ph="dlgnt"></span></div>' +
             '<div class="ph-dialog-actions"><button type="button" class="ph-primary ph-label" data-ph="dlgp"></button><button type="button" class="ph-btn" data-ph="dlgs"></button></div>' +
             '</div></div>' +
-            // Snooker: Concede the frame? (SnkConcede)
+            // Snooker: the concede question.
             '<div class="ph-scrim" data-ph="cscrim" hidden><div class="ph-dialog is-alert" role="alertdialog" aria-label="Concede the frame" data-ph="cdlg">' +
             '<span class="ph-dialog-icon">' + PH_ICON.flag + '</span>' +
             '<span class="ph-cdlg-t"><span class="ph-dialog-title">Concede the frame?</span><span class="ph-dialog-reason" data-ph="cdlgt"></span></span>' +
@@ -473,8 +511,7 @@
             '</div></div>';
     }
 
-    // The Game mode sheet (InMatch.dc.html's ModeSheet): Vs CPU with the difficulty
-    // list, or 2 Players with its explainer. Tournament joins it in Phase 7.
+    // The Game mode sheet: Vs CPU with the difficulty list, 2 Players with its names, or Tournament.
     function phSheetHTML() {
         const diffs = PH_DIFFS.map(d => '<button type="button" role="radio" class="ph-sheet-diff" data-ph-diff="' + d.key + '" aria-checked="false">' +
             '<span class="ph-sheet-radio"><span></span></span><span class="ph-sheet-dt"><span class="ph-sheet-dn"><span>' + d.name + '</span>' +
@@ -496,7 +533,6 @@
             '<div class="ph-sheet-links"><button type="button" class="ph-btn" data-ph="sheetcab">' + PH_ICON.cup + '<span>Trophy cabinet</span></button>' +
             '<button type="button" class="ph-btn is-hot" data-ph="sheetabandon" hidden><span>Abandon</span></button></div></div>' +
             '<div class="ph-sheet-pvp" data-ph="sheetpvp" hidden><span>Hot-seat on this computer. Hand the panel over after each turn; the game tells you whose shot it is.</span>' +
-            // The two names, as a tournament's setup takes them; an empty one keeps its default.
             '<div class="ph-sheet-names">' + [1, 2].map(seat => '<label class="ph-sheet-name"><span class="ph-sheet-l ph-label">PLAYER ' + seat + '</span>' +
                 '<input type="text" class="ph-sheet-input" maxlength="16" autocomplete="off" spellcheck="false" data-ph="sheetp' + seat + '" aria-label="Player ' + seat + ' name"></label>').join('') + '</div>' +
             '<button type="button" class="ph-primary ph-label" data-ph="sheetstart">START 2-PLAYER FRAME</button></div>' +
@@ -515,21 +551,22 @@
             '<button type="button" class="ph-primary ph-label" data-ph="ready"></button></div>';
     }
 
-    // on = { camera(mode), lean(value), tip({x, y}), tipStep({x, y}), spinToggle(), spinClose(),
-    //        mode(), reset(), max(), call(i), ready(), replace(), primary(), secondary() }
+    // on: the controller's handlers by name (poolOn in pool-game.js); a missing one is a no-op.
     function phBuild(root, opts) {
         const o = opts || {}, max = o.layout === 'max', on = o.on || {};
         const cards = phCardHTML(1, max) + '<div class="ph-frames"><span class="ph-frames-n" data-ph="frames">0–0</span><span class="ph-frames-l ph-label">FRAMES</span></div>' + phCardHTML(2, max);
         let html;
         if (max) {
-            html = '<div class="ph-top"><div class="ph-title" data-ph="title">' + (o.title || '8-Ball Pool') + '</div>' + phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' +
+            // The cue button rides beside the title (or a tournament's head), where there is room.
+            html = '<div class="ph-top"><div class="ph-lead"><div class="ph-title" data-ph="title">' + (o.title || '8-Ball Pool') + '</div>' + phTourHeadHTML() +
+                '<button type="button" class="ph-btn is-icon" data-ph="cue" aria-haspopup="dialog">' + PH_ICON.cue + '</button></div><div class="ph-cards">' + cards + '</div>' +
                 '<div class="ph-actions"><span class="ph-trophy" data-ph="trophy">' + PH_ICON.cup + '<span class="ph-num" data-ph="trophies">0</span></span>' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="reset" aria-label="Reset rack" title="Reset rack">' + PH_ICON.reset + '</button>' +
                 '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="pause" aria-label="Pause" title="Pause" hidden>' + PH_ICON.pause + '</button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="max" aria-label="Exit full view" title="Exit full view">' + PH_ICON.exit + '</button></div></div>' +
-                phTrackHTML() + phViewHTML(true) + phHandoffHTML() + phSheetHTML();
+                phTrackHTML() + phViewHTML(true) + phHandoffHTML() + phSheetHTML() + PH_CUES_ROOT;
         } else {
             html = phTourHeadHTML() + '<div class="ph-cards">' + cards + '</div>' + phTrackHTML() + phViewHTML(false) +
                 '<div class="ph-foot" data-ph="foot">' +
@@ -538,7 +575,7 @@
                 '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="pause" hidden>' + PH_ICON.pause + '<span>Pause</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="max">' + PH_ICON.max + '<span>Max</span></button></div>' +
-                phHandoffHTML() + phSheetHTML();
+                phHandoffHTML() + phSheetHTML() + PH_CUES_ROOT;
         }
         const el = document.createElement('div');
         el.className = 'pool-hud';
@@ -556,7 +593,8 @@
             'foot', 'mode', 'model', 'reset', 'max', 'handoff', 'hot', 'hof', 'ready',
             'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart', 'sheetp1', 'sheetp2',
             'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy',
-            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn'].forEach(n => { hud[n] = ref(n); });
+            'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn',
+            'cue', 'cues', 'cuenew', 'cuenewn', 'cuenewgo', 'cuenewx'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
@@ -569,10 +607,9 @@
         hud.cam2d.addEventListener('click', () => fire('camera', '2d'));
         hud.cam3d.addEventListener('click', () => fire('camera', '3d'));
         hud.leani.addEventListener('input', e => fire('lean', +e.target.value));
-        // Spin. Dragging the dot on the small ball moves the tip there; a click on
-        // the control (no drag) opens the big picker, where a press puts the dot
-        // under the pointer at once. Both map the pointer onto the ball face (its
-        // radius is R) and clamp it to the miscue ring.
+        // Spin: dragging the small ball's dot moves the tip; a click (no drag) opens the big
+        // picker, where a press puts the dot under the pointer at once. Both map the pointer
+        // onto the ball face (radius R), clamped to the miscue ring.
         const tipAt = (el, e) => {
             const b = el.getBoundingClientRect(), r = b.width / 2 || 1;
             return phClampTip((e.clientX - b.left - r) / r, -(e.clientY - b.top - r) / r);
@@ -665,11 +702,20 @@
         hud.bracket.addEventListener('click', () => fire('tourBracket'));
         hud.pause.addEventListener('click', () => fire('tourPause'));
         hud.sheet.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('sheetClose'); hud.mode.focus(); e.preventDefault(); e.stopPropagation(); } });
+        // The cue collection and the "New cue" notice.
+        if (hud.cue) hud.cue.addEventListener('click', () => fire('cues'));
+        hud.cues.addEventListener('click', e => {
+            const t = e.target.closest && e.target.closest('[data-ph-equip], [data-ph-cuesx]');
+            if (!t) return;
+            if (t.hasAttribute('data-ph-cuesx')) fire('cuesClose'); else fire('cueEquip', t.getAttribute('data-ph-equip'));
+        });
+        hud.cues.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('cuesClose'); e.preventDefault(); e.stopPropagation(); } });
+        hud.cuenewgo.addEventListener('click', () => fire('cueEquip', hud.cueNewId));
+        hud.cuenewx.addEventListener('click', () => fire('cueNewX'));
         return hud;
     }
 
-    // Writes a value only when it changed, so a 60 Hz render costs nothing
-    // when nothing moved.
+    // Writes only on change, so a 60 Hz render costs nothing when nothing moved.
     function phSet(hud, key, value, apply) {
         if (hud.last[key] === value) return;
         hud.last[key] = value;
@@ -696,6 +742,18 @@
     function phRender(hud, vm) {
         const s = (k, v, f) => phSet(hud, k, v, f);
         s('game', vm.game, v => hud.el.setAttribute('data-game', v));
+        if (hud.cue) s('cuel', vm.cueName, v => { hud.cue.title = 'Cue: ' + v; hud.cue.setAttribute('aria-label', 'Cue: ' + v + '. Open the cue collection'); });
+        s('cuenew', vm.cueNew, v => { phShow(hud.cuenew, !!v); hud.cuenewn.textContent = v ? pqById(v).name : ''; hud.cueNewId = v; });
+        // The collection is rebuilt when its model changes (poolCueModel is cached until then).
+        s('cues', vm.cues, m => {
+            const was = !hud.cues.hidden;
+            phShow(hud.cues, !!m);
+            if (!m) { hud.cues.innerHTML = ''; return; }
+            const top = hud.cues.querySelector('.ph-cues-list'), y = top ? top.scrollTop : 0;
+            hud.cues.innerHTML = phCuesHTML(m);
+            phCuesDraw(hud.cues, m.game);
+            if (was) hud.cues.querySelector('.ph-cues-list').scrollTop = y; else hud.cues.querySelector('[data-ph-cuesx]').focus();
+        });
         vm.cards.forEach((c, i) => {
             const r = hud.cards[i], k = 'c' + i + '.';
             s(k + 'name', c.name, v => { r.name.textContent = v; });
@@ -724,8 +782,7 @@
                 });
                 s(k + 'tagHot', c.tagHot, v => r.tag.classList.toggle('is-hot', v));
                 s(k + 'tagPulse', c.tagPulse, v => r.tag.classList.toggle('is-pulse', v));
-                // When the name would be cut off beside the tag, the tag goes short
-                // (TO SHOOT → SHOOT). Measured only when the name, tag or width changes.
+                // A name cut off beside the tag gets the short tag (TO SHOOT → SHOOT); measured on change.
                 s(k + 'fit', c.name + '|' + c.tag + '|' + hud.el.clientWidth, () => {
                     r.el.classList.remove('is-tight');
                     if (c.tagShort && r.name.scrollWidth > r.name.clientWidth + 1) r.el.classList.add('is-tight');
@@ -737,17 +794,15 @@
             s(k + 'clock', c.clock, v => { r.clock.style.width = v + '%'; });
             s(k + 'open', c.open, v => { phShow(r.open, v); phShow(r.group, !v); });
             const ids = c.group.map(d => d.id).join();
-            // A new group (a new frame, or the open table decided) rebuilds the dots. Each is
-            // drawn potted or not at once, and the per-dot cache starts over: the old frame's
-            // values would otherwise match and skip the update, leaving a potted ball lit.
+            // A new group rebuilds the dots, each drawn potted or not, and resets the per-dot cache:
+            // the old frame's values would match and skip the update, leaving a potted ball lit.
             s(k + 'ids', ids, () => {
                 r.group.innerHTML = c.group.map(d => '<i class="ph-dot' + (d.down ? ' is-down' : '') + '" style="background:' + phDotStyle(d.id, vm.game) + '"></i>').join('');
                 r.dots = Array.prototype.slice.call(r.group.children);
                 for (let j = 0; j < 7; j++) delete hud.last[k + 'down' + j];
                 c.group.forEach((d, j) => { hud.last[k + 'down' + j] = d.down; });
             });
-            // For a screen reader, and anyone who cannot tell the balls apart by colour at this
-            // size: which are left and which are down, by number.
+            // For screen readers, and anyone who can't tell the colours apart: left and down, by number.
             const left = c.group.filter(d => !d.down).map(d => d.id), gone = c.group.filter(d => d.down).map(d => d.id);
             s(k + 'grpLabel', c.group.length ? (c.group[0].id < 8 ? 'Solids' : 'Stripes') + ': ' + (left.length ? left.join(', ') + ' on the table' : 'all down') + (gone.length ? '; ' + gone.join(', ') + ' potted' : '') : '',
                 v => r.group.setAttribute('aria-label', v));
@@ -831,7 +886,6 @@
             s('chips.called', ch.called === undefined ? -1 : ch.called, v => hud.chipCallButtons.forEach((b, i) => b.setAttribute('aria-pressed', i === v ? 'true' : 'false')));
             s('chips.tone', ch.tone || '', v => { hud.chips.className = 'ph-chips ph-glass' + (v ? ' is-' + v : ''); });
         }
-        // Concede the frame?
         const cq = vm.concede;
         s('concede.show', !!cq.show, v => phShow(hud.cscrim, v));
         if (cq.show) s('concede.text', cq.text, v => { hud.cdlgt.textContent = v; });
@@ -962,8 +1016,7 @@
                 short.className = 'ph-ready-short'; short.textContent = 'READY';
                 hud.ready.append(long, short);
             });
-            // "Pass to <name>" beside "<NAME>'S READY": when the name would be cut off,
-            // the button says READY alone (the line beside it already names the player).
+            // When a name would be cut off, the button says READY alone (the line beside names them).
             s('ho.fit', vm.handoff.to + '|' + vm.handoff.ready + '|' + hud.el.clientWidth, () => {
                 hud.handoff.classList.remove('is-tight');
                 if (hud.hot.scrollWidth > hud.hot.clientWidth + 1 || hud.hof.scrollWidth > hud.hof.clientWidth + 1) hud.handoff.classList.add('is-tight');
@@ -979,11 +1032,10 @@
     }
 
     // ── Out of the way of the shot ────────────────────────────────────
-    // At snooker's true scale the pockets and the balls near them sit under the corner
-    // overlays. While the aim line (from the cue ball), the object ball's path, the contact or the
-    // target pocket passes under one, it is marked data-shy and pool-theme.css fades it (in
-    // 3D, back while the pointer is on it). Max keeps its corner overlays in bars above and
-    // below the table (pool-theme.css), so there it only ever touches the lean slider.
+    // At snooker's true scale the corner overlays cover pockets and balls. While the shot (aim
+    // line, object ball's path, contact, target pocket) passes under one, it gets data-shy and
+    // pool-theme.css fades it (in 3D, back under the pointer). Max keeps its corner overlays in
+    // bars above and below the table, so there it only ever touches the lean slider.
     const PH_SHY = ['cam', 'pill', 'lean', 'spin', 'hint', 'mini', 'chips', 'replace'];
     const PH_SHY_PAD = 6;
     // Does the segment (x0, y0)–(x1, y1) cross the box { l, t, r, b }? (Liang–Barsky)
@@ -1011,8 +1063,7 @@
     function phShy(hud, shot, keep) {
         const on = {};
         if (shot && hud.view) {
-            // In canvas pixels, as the shot is (Max's canvas sits under its top bar), and the Max
-            // frame may be scaled to fit the window.
+            // In canvas pixels, as the shot is (Max's canvas sits under its top bar; Max may be scaled).
             const vr = hud.canvas.getBoundingClientRect(), k = vr.width / (hud.canvas.clientWidth || vr.width || 1) || 1, rects = {};
             PH_SHY.forEach(n => {
                 const el = hud[n];
@@ -1026,9 +1077,8 @@
     }
 
     // ── Canvas bridge ─────────────────────────────────────────────────
-    // The renderer's theme colours, read off the HUD's computed --pool-*
-    // values and normalised to #rrggbb. Cached until phThemeChanged(),
-    // which the host calls on every theme or colour change.
+    // The renderer's theme colours, from the HUD's computed --pool-* values as #rrggbb.
+    // Cached until phThemeChanged(), which the host calls on every theme or colour change.
     function phColour(css, fallback) {
         const v = String(css || '').trim();
         let m = /^#([0-9a-f]{3})$/i.exec(v);

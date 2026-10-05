@@ -1,22 +1,13 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — TOURNAMENT SCREENS (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // The tournament's screens from the design (TournamentSetup, BracketTree,
-    // BracketCompact, BracketFull, MatchIntro, MatchResult, Champion,
-    // ChampionFull, TrophyCabinet, and InMatch's resume, abandon and pause
-    // dialogs), over the pool HUD. Snooker's are the same screens in its words (the design's
-    // snooker variants): best of 2N − 1 for race to N, breaks off, its reds, the frames' points
-    // and the match's high break, and its own cabinet.
-    //
-    //   puTree(t, opts)        the bracket as HTML + SVG, the design's geometry:
-    //                          column (W − champ − rounds·gap) / rounds, card
-    //                          min(64, slot − 12), elbows at the gutter midpoint
-    //   pu*HTML(model)         each screen as HTML, from the tournament and the
-    //                          screen's own state
-    //   puMount / puSync       one overlay per HUD; the controller hands it the
-    //                          screen and it re-renders only when that changes.
-    //                          Clicks and edits come back through data-pu-act
-    //                          and data-pu-in to the controller's handlers
+    // The tournament screens (setup, bracket, intro, result, champion, cabinet and
+    // the in-match dialogs) over the pool HUD; snooker's say it in its own words.
+    //   puTree(t, opts)     the bracket as HTML + SVG: column (W − champ − rounds·gap)
+    //                       / rounds, card min(64, slot − 12), elbows mid-gutter
+    //   pu*HTML(model)      each screen as HTML
+    //   puMount / puSync    one overlay per HUD, re-rendered only when its key changes;
+    //                       clicks and edits return via data-pu-act / data-pu-in
     // Names are typed by people, so everything that goes into HTML is escaped.
 
     const puEsc = s => String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -42,7 +33,6 @@
         const fromEnd = rounds - 1 - r;
         return fromEnd === 0 ? 'F' : fromEnd === 1 ? 'SF' : fromEnd === 2 ? 'QF' : 'R' + Math.pow(2, fromEnd + 1);
     }
-    // How a match reads right now: 'bye' | 'done' | 'live' | 'next' | ''.
     function puState(t, m, liveId) {
         if (m.status === 'bye') return 'bye';
         if (m.status === 'done') return 'done';
@@ -50,7 +40,7 @@
         const n = ptNext(t);
         return n && n.id === m.id ? 'next' : '';
     }
-    // One line of a match: the player, or the bye, or who it is waiting for.
+    // The player, the bye, or who the line is waiting for.
     function puLine(t, m, side) {
         const slot = side === 'a' ? m.a : m.b;
         if (slot !== null) return { name: t.slots[slot].name, seed: String(t.slots[slot].seed), tbd: false };
@@ -59,7 +49,7 @@
         if (feeder && feeder.status === 'bye') return { name: t.slots[feeder.a].name, seed: String(t.slots[feeder.a].seed), tbd: false };
         return { name: 'Winner ' + puShort(t.rounds, m.round - 1) + ' ' + (2 * m.index + (side === 'a' ? 1 : 2)), seed: '', tbd: true };
     }
-    // The round's name where a column is narrow: Last 16, Quarters, Semis, Final.
+    // For narrow columns.
     function puRoundShort(rounds, r) {
         const fromEnd = rounds - 1 - r;
         return fromEnd === 0 ? 'Final' : fromEnd === 1 ? 'Semis' : fromEnd === 2 ? 'Quarters' : 'Last ' + Math.pow(2, fromEnd + 1);
@@ -71,7 +61,7 @@
         if (slot === null) { const y = t.slots.findIndex(s => s.you); slot = y >= 0 && ptOut(t, y) === null ? y : null; }
         const ids = new Set();
         if (slot === null) return { ids, champ: false, name: '' };
-        // Every match they won, and the one they are in now (the design lights the way in).
+        // Every match they won, and the one they are in now.
         t.matches.forEach(m => {
             if (m.a !== slot && m.b !== slot) return;
             if (((m.status === 'done' || m.status === 'bye') && m.winner === slot) || m.status === 'pending' || m.status === 'live') ids.add(m.id);
@@ -79,7 +69,7 @@
         return { ids, champ: champ !== null, name: t.slots[slot].name };
     }
 
-    // The mini tree's height: a row of first-round cards needs about 30 px each.
+    // About 30 px per first-round card.
     const puMiniH = t => Math.max(160, t.size / 2 * 30);
     // opts: { w, h, mini, liveId }
     function puTree(t, opts) {
@@ -154,7 +144,7 @@
             puSeg('Shot clock', 'clock', snk ? [[30, '30s'], [45, '45s'], [60, '60s'], [0, 'Off']] : [[30, '30s'], [45, '45s'], [0, 'Off']], s.clock) +
             (snk ? puSeg('Reds', 'reds', [[15, '15'], [10, '10'], [6, '6']], s.reds) : '') +
             puSeg('Guideline', 'guide', [['full', 'Full'], ['short', 'Short'], ['off', 'Off']], s.guide) +
-            // Pool: the 8 only or every shot; snooker: off, the colours, or every ball (the game's tourDefaults).
+            // Snooker passes its own options (the game's tourDefaults).
             puSeg('Call pocket', 'call', s.calls || [['8', '8 only'], ['every', 'Every shot']], s.call) +
             '<div class="pu-count"><span class="pu-count-t"><span class="pu-strong" id="pu-shuf">Shuffle seeds</span><span class="pu-note">Off keeps the list order as seeding</span></span>' +
             '<button type="button" class="pu-switch" role="switch" aria-checked="' + (s.shuffle ? 'true' : 'false') + '" aria-labelledby="pu-shuf" data-pu-act="shuffle"><span><span></span></span></button></div>' +
@@ -162,7 +152,6 @@
             '<button type="button" class="pu-primary" data-pu-act="start">' + PU_ICON.bracket + 'START TOURNAMENT</button></div>';
     }
 
-    // One match card on the compact bracket's round page.
     function puMatchCard(t, m, liveId) {
         const st = puState(t, m, liveId), [sa, sb] = ptScore(m), showScore = st === 'done' || st === 'live';
         const code = puShort(t.rounds, m.round) + (t.rounds - 1 - m.round === 0 ? 'INAL' : ' ' + (m.index + 1));
@@ -241,8 +230,7 @@
         const final = m.round === t.rounds - 1, next = ptNext(t);
         const snk = ptGameOf(t) === 'snooker';
         const frames = m.frames.map((w, i) => '<div class="pu-frame' + (w === m.winner ? ' is-win' : '') + '"><span class="pu-kicker">FRAME ' + (i + 1) + '</span><span>' + puEsc(t.slots[w].name) + '</span></div>').join('');
-        // Snooker (SnkMatchResult): a row per frame, its winner and its points winner-first,
-        // the frames the loser took muted; then the match's high break.
+        // Snooker: a row per frame, points winner-first, the loser's frames muted; then the high break.
         const pts = (i, w) => { const p = (m.points || [])[i]; if (!p) return ''; const a = w === m.a ? p[0] : p[1], b = w === m.a ? p[1] : p[0]; return a + '–' + b; };
         const frows = m.frames.map((w, i) => '<div class="pu-frow' + (w === m.winner ? '' : ' is-lost') + '"><span class="pu-frow-l pu-kicker">FRAME ' + (i + 1) + '</span>' +
             '<span class="pu-frow-n">' + puEsc(t.slots[w].name) + '</span><span class="pu-frow-p">' + puEsc(pts(i, w)) + '</span></div>').join('') +
@@ -319,7 +307,6 @@
     }
 
     // ── Mounting ──────────────────────────────────────────────────────
-    // One screen layer and one dialog layer per HUD, both inside .pool-hud.
     function puMount(hud, on) {
         if (hud.pu) return hud.pu;
         const screen = document.createElement('div'), dialog = document.createElement('div');
@@ -349,8 +336,7 @@
         const pu = puMount(hud, on);
         if (pu.key.screen !== view.key.screen) {
             pu.key.screen = view.key.screen;
-            // Keep keyboard focus on the same control across a re-render (a stepper
-            // press re-renders the list; the focus stays on that button).
+            // Keep keyboard focus on the same control across a re-render.
             const a = document.activeElement, had = a && pu.screen.contains(a) && a.getAttribute('data-pu-act');
             const sel = had ? '[data-pu-act="' + had + '"]' + (a.getAttribute('data-pu-arg') !== null ? '[data-pu-arg="' + a.getAttribute('data-pu-arg') + '"]' : '') : null;
             pu.screen.innerHTML = view.screen || '';

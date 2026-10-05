@@ -1,24 +1,18 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — CPU (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // Four tiers on one planner (POOL_V2_PLAN.md, CPU):
-    //   1  candidates, from geometry: direct pots (ghost ball), one-rail banks,
-    //      one-rail kicks and two-ball combos, each with a make probability
-    //      for the tier's own aim error, and the best few safeties
-    //   2  the best candidates are played out on a cloned world with the real
-    //      physics and judged by prJudge, so a line that scratches, fouls or
-    //      drops the 8 early is thrown away before it is ever hit. First the
-    //      aim is corrected for throw and squirt: the planner steps a copy to
-    //      the first contact, reads the object ball's real departure and moves
-    //      the cue by the error over the cut's gain
-    //   3  the survivors are tried with the tier's spins and speeds and scored
-    //      on where the cue ball stops: the make probability of the best next
-    //      shot (pro: the best two)
-    //   4  when no pot is likely enough, a safety: a legal hit that leaves the
-    //      opponent the least
+    // Four tiers on one planner:
+    //   1  geometric candidates (direct, one-rail banks and kicks, two-ball
+    //      combos), each with a make probability for the tier's aim error
+    //   2  the best are played out on a cloned world and judged by prJudge, so
+    //      scratches, fouls and early 8s are dropped unhit; the aim is first
+    //      corrected for throw and squirt from the object ball's real departure
+    //   3  survivors are tried with the tier's spins and speeds, scored on the
+    //      best next shot from where the cue ball stops (pro: the best two)
+    //   4  when no pot is likely enough, the safety that leaves the least
     //   5  execution noise per tier
-    // Pure and time-sliced: paPlan() returns a job; job.step(ms) works until
-    // the budget is spent (each full trial is one shot to rest, about 3 ms).
+    // Time-sliced: paPlan() returns a job; job.step(ms) works until the budget
+    // is spent (a full trial is one shot to rest, about 3 ms).
 
     const PA_DEG = Math.PI / 180;
     // Tip offsets, in R (follow +y, right +x).
@@ -28,17 +22,14 @@
         followLeft: { x: -0.25, y: 0.3 }, followRight: { x: 0.25, y: 0.3 },
         drawLeft: { x: -0.25, y: -0.35 }, drawRight: { x: 0.25, y: -0.35 },
     };
-    // The tiers. aim is σ in degrees on direct pots; aimAlt on banks, kicks and
-    // combos; power is σ as a fraction. top = candidates played out; keep = how
-    // many survivors get the spin × speed search; refine = aim corrections.
-    // safeBelow: take a safety when the best pot's make probability is under it.
-    // robust: the top three finished lines are replayed this many times with the
-    // tier's own noise, and a line that fouls or loses the frame when missed is
-    // marked down (a zero-noise tier needs none: it plays what it verified).
-    // robustSafe: the same for safeties and escapes, where it differs from robust.
-    // sweep: when nothing pots and no safety is legal, turn the cue all the way
-    // round (1°), keep the gaps where the first ball hit is a legal one, and play
-    // the middle of each gap out: the escape a blind roll used to be.
+    // aim: σ in degrees on direct pots, aimAlt on banks, kicks and combos; power: σ
+    // as a fraction. top: candidates played out; keep: survivors given the spin ×
+    // speed search; refine: aim corrections. safeBelow: play safe when the best
+    // pot's make probability is under it. robust: the top three lines are replayed
+    // this many times with the tier's noise, marking down any that foul or lose
+    // when missed (zero-noise tiers play what they verified); robustSafe: the same
+    // for safeties and escapes. sweep: with no pot or legal safety, turn the cue
+    // round in 1° steps and play out the middle of each legal-first-hit gap.
     const PA_TIERS = {
         easy:   { label: 'Easy',   desc: 'Takes simple pots · misses often',     top: 4,  keep: 1, refine: 0, spins: ['stun'], speeds: [1],
                   position: 0, bank: false, kick: false, combo: false, safeBelow: 0,    aim: 1.2, aimAlt: 1.8, power: 0.12 },
@@ -51,8 +42,7 @@
                   position: 2, bank: true,  kick: true,  combo: true,  safeBelow: 0.5,  aim: 0,   aimAlt: 0.15, power: 0.0025, callEvery: true, robustSafe: 3, sweep: true },
     };
     const PA_TIER_NAMES = ['easy', 'normal', 'hard', 'pro'];
-    // A zero-noise tier's make probability still allows a hair of error: the
-    // physics the planner verified on is the physics it plays, so this is small.
+    // A hair of error even at zero noise; small, as the planner verifies on the physics it plays.
     const PA_SIGMA_FLOOR = 0.02 * PA_DEG;
     // Candidates are ORDERED as a steady club player would rate them, so every
     // tier tries the easy lines first; DECISIONS use the tier's own error.
@@ -74,8 +64,7 @@
     }
     const paAngDiff = (a, b) => { let d = a - b; d -= 2 * Math.PI * Math.round(d / (2 * Math.PI)); return d; };
 
-    // Is the straight path from (ax, ay) to (bx, by) clear of every ball but
-    // the ones in `skip`? A ball blocks when its centre comes within `gap`.
+    // Is a→b clear of every ball not in `skip`? A ball blocks when its centre comes within `gap`.
     function paClear(balls, ax, ay, bx, by, skip, gap) {
         const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1;
         for (const b of balls) {
@@ -99,16 +88,15 @@
         const mx = (p.mouth[0] + p.mouth[2]) / 2, my = (p.mouth[1] + p.mouth[3]) / 2;
         return { x: (mx + p.x) / 2, y: (my + p.y) / 2 };
     }
-    // How far off line a ball arriving along (dx, dy) can be and still drop.
-    // Corners forgive more than sides, and both less as the approach flattens.
+    // How far off line a ball arriving along (dx, dy) can be and still drop;
+    // corners forgive more than sides, both less as the approach flattens.
     function paPocketTol(p, dx, dy) {
         const nx = p.kind === 'corner' ? p.sx / Math.SQRT2 : 0, ny = p.kind === 'corner' ? p.sy / Math.SQRT2 : p.sy;
         const c = Math.max(0, (dx * nx + dy * ny) / (Math.hypot(dx, dy) || 1));
         return p.kind === 'corner' ? 11 * (0.55 + 0.45 * c) : Math.max(0, 15 * (c - 0.25) / 0.75);
     }
-    // Make probability of a cut: the cue's aim error, amplified by the cut's
-    // gain (dθ_object / dθ_cue = d / (2R cos cut)), against the pocket's
-    // angular tolerance seen from the object ball.
+    // Aim error times the cut's gain (dθ_object / dθ_cue = d / (2R cos cut)),
+    // against the pocket's angular tolerance seen from the object ball.
     function paMakeProb(dcg, cut, lop, tol, sigma, R) {
         if (tol <= 0) return 0;
         const gain = dcg / (2 * R * Math.max(0.15, Math.cos(cut)));
@@ -117,8 +105,7 @@
         return p * (1 - 0.08 * Math.min(1, (dcg + lop) / 1400));
     }
 
-    // A reasonable base speed for a pot: the object ball reaches the pocket
-    // with a little pace left, the cue ball having rolled to the contact.
+    // Base speed: the object ball reaches the pocket with a little pace left.
     function paBaseSpeed(cfg, dcg, cut, lop) {
         const a = cfg.muRoll * cfg.gravity;
         const vObj = 1.4 * Math.sqrt(200 * 200 + 2 * a * lop);
@@ -126,8 +113,7 @@
         return Math.max(450, Math.min(cfg.maxSpeed * 0.85, 1.4 * Math.sqrt(vc * vc + 2 * a * dcg)));
     }
 
-    // Every pot from (cx, cy), best first: direct, and for the tiers that
-    // play them, one-rail banks, one-rail kicks and two-ball combos.
+    // Every pot from (cx, cy), best first.
     function paCandidates(world, frame, seat, cx, cy, tier, directOnly) {
         const T = directOnly ? Object.assign({}, PA_TIERS[tier] || PA_TIERS.normal, { bank: false, kick: false, combo: false }) : (PA_TIERS[tier] || PA_TIERS.normal);
         const R = world.cfg.ballR, t = world.table, cfg = world.cfg, out = [];
@@ -223,13 +209,11 @@
         return out.sort((a, b) => b.rank - a.rank);
     }
 
-    // The best pots left for `seat` from where the cue ball is, as make
-    // probabilities (direct only, so it is cheap): what position is worth.
+    // The pots left for `seat` from the cue ball (direct only, so cheap): what position is worth.
     function paNextShots(world, frame, seat, tier) {
         const cue = world.balls.find(b => b.id === 0);
         if (!cue || cue.state === 'pocketed') return [];
-        // Ranked as a steady player would see them: for a zero-noise tier every p is
-        // near 1, and position is about leaving an easy shot, not merely a possible one.
+        // Steady-player ranks: at zero noise every p is near 1, and position means an easy shot.
         return paCandidates(world, frame, seat, cue.x, cue.y, tier === 'pro' ? 'hard' : tier, true).map(c => c.rank);
     }
 
@@ -246,8 +230,7 @@
         return -1;
     }
 
-    // Steps a copy to the cue ball's first contact and returns the angle the
-    // first object ball actually left at, or null.
+    // The angle the first object ball actually leaves at, or null.
     function paDeparture(world, shot, ballId) {
         const w = ppCloneWorld(world);
         ppStrike(w, shot);
@@ -265,8 +248,7 @@
         }
         return null;
     }
-    // Corrects the aim for throw and squirt: the object ball's departure
-    // error, divided by the cut's gain, moves the cue.
+    // Corrects for throw and squirt: the departure error over the cut's gain moves the cue.
     function paRefine(world, cand, shot, n, R) {
         if (cand.kind === 'kick') return shot;
         let s = shot;
@@ -282,15 +264,13 @@
         return s;
     }
 
-    // Plays a shot to rest on a copy and judges it for the shooter.
     function paTrial(world, frame, seat, shot) {
         const w = ppCloneWorld(world);
         ppStrike(w, shot);
         ppSimulate(w);
         return { w, v: prJudge(frame, w, shot.call) };
     }
-    // How good a judged shot is for the shooter. `p` is the make probability
-    // of the line it was aimed on; position is the next shot's.
+    // `p` is the aimed line's make probability; position is the next shot's.
     function paScore(r, seat, tier, p) {
         const v = r.v, T = PA_TIERS[tier];
         if (v.frameOver) return v.winner === seat ? 1e6 : -1e6;
@@ -314,11 +294,9 @@
         return 400 * (1 - best);
     }
 
-    // opts: { tier, rng, noise (default true), aimDeg / powerFrac (override the
-    // tier's execution noise, for the balance check's human models) }.
-    // The job's shot is { angle, speed, tipX, tipY, call }, job.plan says
-    // what it is ('break' | 'pot' | 'safety' | 'escape' | 'fallback'), and job.kind the
-    // line ('direct' | 'bank' | 'kick' | 'combo' | 'safety').
+    // opts: { tier, rng, noise (default true), aimDeg / powerFrac (override the tier's
+    // execution noise) }. job.shot = { angle, speed, tipX, tipY, call }; job.plan is
+    // 'break' | 'pot' | 'safety' | 'escape' | 'fallback'; job.kind the line.
     function paPlan(world, frame, opts) {
         const o = opts || {}, seat = frame.turn, cfg = world.cfg, R = cfg.ballR;
         const tier = PA_TIERS[o.tier] ? o.tier : 'normal', T = PA_TIERS[tier];
@@ -356,8 +334,7 @@
         const sweep = [], escapes = [];
         const safeReps = T.robustSafe || T.robust;
 
-        // Safety lines: each legal ball, full and half-ball either side, soft; and
-        // one-rail kicks at it, for when the direct way is blocked.
+        // Safeties: each legal ball full and half-ball either side, soft; and one-rail kicks at it.
         const makeSafeties = () => {
             const tg = paTargets(world, frame, seat)
                 .sort((a, b) => Math.hypot(a.x - cue.x, a.y - cue.y) - Math.hypot(b.x - cue.x, b.y - cue.y)).slice(0, 3);
@@ -412,8 +389,7 @@
                             stage = 'R';
                             continue;
                         }
-                        // No pot at all: every tier looks for a legal escape. A pot the tier is
-                        // unlikely to make: the tiers that play safe look for a safety.
+                        // No pot: every tier looks for an escape; an unlikely pot: safe tiers look for a safety.
                         const needSafe = !bestPot || bestPot.score <= 0 || (T.safeBelow > 0 && bestPot.c.p < T.safeBelow);
                         if (needSafe) { makeSafeties(); stage = 'S'; } else stage = 'done';
                         continue;
@@ -446,8 +422,7 @@
                 } else if (stage === 'S') {
                     const shot = safeties.shift();
                     if (!shot) {
-                        // The best three safeties, replayed with the tier's noise: a safety or
-                        // an escape that fouls when it is a little off is no safety.
+                        // Replay the best three with noise: one that fouls when slightly off is no safety.
                         if (safeReps && o.rng && o.noise !== false && safeScored.length) {
                             safeScored.sort((a, b) => b.score - a.score).slice(0, 3).forEach(e => { e.bad = 0; e.n = 0; for (let i = 0; i < safeReps; i++) safeQ.push(e); });
                             stage = 'SR';
@@ -476,8 +451,7 @@
                     // The sweep: the first ball hit, one degree at a time.
                     const a = sweep.length;
                     if (a < 360) { sweep.push(legal.has(paFirstContact(world, { angle: a * PA_DEG, speed: 1800, tipX: 0, tipY: 0 }))); continue; }
-                    // The legal gaps, widest first; the middle of each is the escape that
-                    // forgives the most aim error, so that is the one played out.
+                    // Legal gaps, widest first; each gap's middle forgives the most aim error.
                     const gaps = [];
                     const start = sweep.indexOf(false);
                     if (start === -1) gaps.push({ mid: 0, n: 360 });
@@ -499,12 +473,11 @@
                     const score = paSafetyScore(r, seat);
                     if (!bestEscape || score > bestEscape.score) bestEscape = { shot, score };
                 } else {
-                    // Nothing that pots, no legal safety: hard and pro sweep for an escape
-                    // before they settle for a blind roll.
+                    // Nothing pots and no legal safety: sweeping tiers look for an escape first.
                     const settled = (bestPot && bestPot.score > 0) || (bestSafe && bestSafe.score > 0) || good.length;
                     if (!settled && T.sweep && !swept) { swept = true; stage = 'K'; continue; }
-                    // Choose. A likely pot; else a safety that leaves little; else the
-                    // best pot anyway; else a legal survivor from stage A; else a roll.
+                    // A likely pot; else a safety that leaves little; else the best pot; else a
+                    // stage A survivor; else an escape; else a roll.
                     const potOk = bestPot && bestPot.score > 0;
                     if (potOk && (bestPot.c.p >= T.safeBelow || !bestSafe || bestSafe.score < 250)) { lineKind = bestPot.c.kind; finish(bestPot.shot, 'pot'); }
                     else if (bestSafe && bestSafe.score > 0) { lineKind = 'safety'; finish(bestSafe.shot, 'safety'); }
@@ -526,9 +499,8 @@
         return job;
     }
 
-    // Where to put the cue ball with ball in hand: behind the ghost ball of
-    // the easiest pot, straight or at a slight angle; on the break, in the
-    // middle of the kitchen.
+    // Ball in hand: behind the easiest pot's ghost ball, straight or slightly angled;
+    // on the break, mid kitchen.
     function paPlace(world, frame, rng, tier) {
         const t = world.table, R = world.cfg.ballR, zone = frame.ballInHand;
         if (zone === 'kitchen') {
@@ -562,10 +534,8 @@
         return [t.headX - 60, 0];
     }
 
-    // Adaptive difficulty from your record against the CPU, as Ludo does it:
-    // eased off when you struggle, pushed when you win. It never climbs to pro
-    // by itself, because pro changes the rules for you too (every shot is
-    // called); pro is only ever picked. A pinned tier wins over all of it.
+    // Adaptive difficulty from your record, as Ludo's. Never climbs to pro on its
+    // own (pro calls every shot for you too); a pinned tier wins.
     function paAdaptiveTier(rec) {
         const wins = (rec && rec.wins) || 0, losses = (rec && rec.losses) || 0, games = wins + losses;
         if (games < 5) return 'normal';

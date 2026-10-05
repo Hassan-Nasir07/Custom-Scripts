@@ -13,8 +13,11 @@
 //   pro      ≥92%            20–40        15–50             0.3–3        ≤2%
 //
 // A break is a visit's points, counted over the visits that scored.
+// POOL_CUES=1: the CPU plays its tier's cue (pool-cues.js PQ_CPU), the human model Standard.
 const L = require('./load');
 const P = L.snookerAi();
+const CUES = process.env.POOL_CUES === '1' ? L.render() : null;
+const cueCfg = (cfg, tier) => { if (!CUES) return cfg; const s = CUES.pqCpuStats(tier, 'snooker'); return Object.assign({}, cfg, { maxSpeed: cfg.maxSpeed * s.power, maxTip: cfg.maxTip * s.spin }); };
 
 // Tuning without editing pool-snooker-ai.js: SNOOKER_TIER_TUNE='{"hard":{"aim":0.06}}'
 if (process.env.SNOOKER_TIER_TUNE) {
@@ -51,7 +54,7 @@ function wilson(k, n) {
 }
 
 function playFrame(tier, prof, rng, st) {
-    const w = P.psRack(P.psCreateWorld(), rng, REDS), R = w.cfg.ballR;
+    const w = P.psRack(P.psCreateWorld(), rng, REDS), R = w.cfg.ballR, base = w.cfg, mine = cueCfg(base, tier);
     let f = P.psNewFrame({ breaker: 1, reds: REDS, seed: Math.floor(rng() * 1e9) });
     let shots = 0, safeRun = 0;
     const endVisit = (seat, brk) => {
@@ -80,6 +83,7 @@ function playFrame(tier, prof, rng, st) {
         }
         f = Object.assign({}, f, { touching: P.psTouching(w.balls, R) });
         // No time cap: the numbers must not depend on the machine (the trial caps still hold).
+        w.cfg = cpu ? mine : base;
         const job = cpu ? P.paSnPlan(w, f, { rng, tier, safeRun, timeCap: false })
             : P.paSnPlan(w, f, { rng, tier: 'hard', aimDeg: prof.aimDeg, powerFrac: prof.power, timeCap: false });
         const t0 = process.hrtime.bigint();

@@ -6,7 +6,7 @@
 //   require('./load').physics()   pp*                  the physics alone
 //   require('./load').rules()     + pr*                the rules
 //   require('./load').snooker()   + ps*                snooker's table (and rules)
-//   require('./load').render()    + pc*, pg*           camera and renderer
+//   require('./load').render()    + pc*, pq*, pg*      camera, cues and renderer
 //   require('./load').hud()       + ph*                the HUD (its DOM parts need a browser)
 //   require('./load').ai()        physics, rules, pa*  pool's CPU
 //   require('./load').snookerAi() + snooker, paSn*     snooker's CPU (on pool's helpers)
@@ -20,11 +20,11 @@ const path = require('path');
 
 // Splice order: each file only uses names from the ones before it at call time,
 // but keeping the dependency order makes the block read top-down.
-const FILES = ['pool-physics.js', 'pool-rules.js', 'pool-snooker.js', 'pool-tour.js', 'pool-camera.js', 'pool-render.js', 'pool-hud.js', 'pool-tour-ui.js', 'pool-ai.js', 'pool-snooker-ai.js', 'pool-game.js'];
+const FILES = ['pool-physics.js', 'pool-rules.js', 'pool-snooker.js', 'pool-tour.js', 'pool-camera.js', 'pool-cues.js', 'pool-render.js', 'pool-hud.js', 'pool-tour-ui.js', 'pool-ai.js', 'pool-snooker-ai.js', 'pool-game.js'];
 const TARGET = path.join(__dirname, '..', 'AttendanceTimeCheckerPlus.js');
 // Module prefixes, plus the host-facing names pool-game.js keeps from v1. ps / PS_ is
 // snooker's (pool-snooker.js, from Phase S1): the userscript has no ps* names of its own.
-const PREFIX = /^    (?:function|const)\s+((?:pp|PP_|pr|PR_|ps(?=[A-Z])|PS_|pt|PT_|pc|PC_|pg|PG_|ph|PH_|pu|PU_|pa|PA_|pool|POOL_|initPool|resetPool|togglePool)[\w$]*)/gm;
+const PREFIX = /^    (?:function|const)\s+((?:pp|PP_|pr|PR_|ps(?=[A-Z])|PS_|pt|PT_|pc|PC_|pg|PG_|ph|PH_|pu|PU_|pa|PA_|pq|PQ_|pool|POOL_|initPool|resetPool|togglePool)[\w$]*)/gm;
 
 const read = f => fs.readFileSync(path.join(__dirname, f), 'utf8');
 
@@ -41,10 +41,10 @@ function rules() { return v2(['pool-physics.js', 'pool-rules.js']); }
 // Snooker's table and rules on the same physics and placement helpers.
 function snooker() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-snooker.js']); }
 // Physics, rules, camera and renderer together (snooker's table included, to draw it).
-function render() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-snooker.js', 'pool-camera.js', 'pool-render.js']); }
+function render() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-snooker.js', 'pool-camera.js', 'pool-cues.js', 'pool-render.js']); }
 // Everything above plus the HUD. Its DOM functions touch `document` only when
 // called, so the pure view model (phModel) loads and runs in Node.
-function hud() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-snooker.js', 'pool-camera.js', 'pool-render.js', 'pool-hud.js']); }
+function hud() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-snooker.js', 'pool-camera.js', 'pool-cues.js', 'pool-render.js', 'pool-hud.js']); }
 // The rules plus the CPU.
 function ai() { return v2(['pool-physics.js', 'pool-rules.js', 'pool-ai.js']); }
 // Snooker's rules and CPU (it borrows pool's geometry and aim helpers).
@@ -56,10 +56,13 @@ function tour() { return v2(['pool-physics.js', 'pool-tour.js']); }
 // and restore paths depend on exactly how they seed poolWinsByMode.
 function hostStorageHelpers() {
     const src = fs.readFileSync(TARGET, 'utf8').replace(/\r\n/g, '\n');
-    const from = src.indexOf('    function loadPoolHighScore() {');
-    const to   = src.indexOf('    // ludoGamesWon / ludoRecord live in the LUDO block');
-    if (from === -1 || to === -1 || to < from) throw new Error('pool storage helpers not found in AttendanceTimeCheckerPlus.js');
-    return src.slice(from, to);
+    const cut = (a, b) => {
+        const from = src.indexOf(a), to = src.indexOf(b, from);
+        if (from === -1 || to === -1) throw new Error('pool storage helpers not found in AttendanceTimeCheckerPlus.js');
+        return src.slice(from, to);
+    };
+    return cut('    // localStorage, read safely', '    function loadPreferences()') +
+        cut('    const [loadPoolHighScore', '    // ludoGamesWon / ludoRecord live in the LUDO block');
 }
 
 // mulberry32, for a reproducible Math.random / Date.now inside one load.

@@ -32,6 +32,7 @@ function page() {
         applyPreferences, poolEndFrame, poolNewFrame, resetPoolGame, prCanPlace, phThemeTokens, pcProject, pcView,
         toggleSettingsModal: typeof toggleSettingsModal === 'function' ? toggleSettingsModal : null,
         collectGameModeBests, toggleGameLeaderboard, get xp() { return userXP; },
+        unlockAchievement, poolOnPrefChange,
     };
 `;
     if (!OPEN) script = script.slice(0, end) + probe + script.slice(end);
@@ -540,6 +541,25 @@ async function main() {
     await ev("window.switchGame('pool')");
     await sleep(400);
     ok('switching back picks up the same frame', (await ev('window.__probe.S.rackId')) === keep && await ev('window.__probe.S.running'));
+    // The cue collection: the header's pill, a cue an achievement earns, equipping it.
+    const cue = await ev(`(() => { const pill = document.getElementById('pool-cue-pill'), out = { pill: pill && pill.textContent };
+        window.__probe.unlockAchievement('streak7');
+        out.notice = window.__probe.S.cueNew;
+        if (pill) pill.click();
+        return out; })()`);
+    await sleep(400);
+    const picked = await ev(`(() => { const p = document.querySelector('#pool-root .ph-cues');
+        const out = { open: !!p && !p.hidden, cards: p ? p.querySelectorAll('.ph-cue-card:not(.is-hero)').length : 0, drawn: !!p && [...p.querySelectorAll('canvas')].every(c => c.width > 0) };
+        const b = p && p.querySelector('[data-ph-equip="ember"]');
+        if (b) b.click();
+        return out; })()`);
+    await sleep(400);
+    const worn = await ev(`(() => ({ pref: window.__probe.prefs.poolCue, pill: document.getElementById('pool-cue-pill').textContent, just: !!document.querySelector('#pool-root .ph-cue-just') }))()`);
+    ok('the header\'s cue pill names the cue; a cue an achievement earns is noticed; the pill opens the collection, every cue drawn',
+       cue.pill === 'Standard' && cue.notice === 'ember' && picked.open && picked.cards === 10 && picked.drawn, [cue, picked]);
+    ok('Equip puts it on: the setting, the pill and the "equipped" line', worn.pref === 'ember' && worn.pill === 'Ember' && worn.just, worn);
+    await ev(`(() => { document.querySelector('#pool-root .ph-cues [data-ph-cuesx]').click(); window.__probe.prefs.poolCue = 'standard'; window.__probe.poolOnPrefChange('poolCue'); return 1; })()`);
+    await sleep(300);
     if (await ev('!!window.__probe.toggleSettingsModal')) {
         await ev('window.__probe.toggleSettingsModal()');
         await sleep(400);

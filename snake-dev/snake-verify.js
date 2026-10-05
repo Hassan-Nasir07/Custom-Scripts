@@ -843,8 +843,8 @@ ok('cleanupCurrentGame detaches both listeners',
 // teardown clears snakeDying, and before the restart timer it arms is cleared.
 ok('cleanupCurrentGame commits a run that was still dying',
    /case 'snake':[\s\S]{0,900}?if \(snakeDying\) \{[^}]*snakeFinalizeDeath\(\)[\s\S]{0,600}?snakeGameRunning = false[\s\S]{0,600}?clearTimeout\(snakeRestartTimer\)/.test(src));
-ok('initCurrentGame still has a snake case',
-   /case 'snake':[\s\S]{0,200}?initSnakeGame\(\)/.test(src));
+ok('GAME_PANELS still has a snake entry',
+   /snake: \{ el: 'snake-canvas', title: '🐍 Snake', start: \(\) => initSnakeGame\(\) \}/.test(src));
 ok('all snake window bridges defined',
    ['snakePlayPause', 'resetSnake', 'cycleSnakeModeBtn', 'toggleSnakeSkinTrayBtn']
        .every(b => has('window.' + b + ' =')));
@@ -865,9 +865,9 @@ ok('scoreboard carries the mode chip', has('id="snake-mode-chip"'));
 // opens this mode's leaderboard. Four chips in a ~340px header wrapped onto
 // three lines and stranded the title.
 ok('score and best are folded into the leaderboard button',
-   /id="snake-lb-btn"[\s\S]{0,400}?id="snake-current-score"[\s\S]{0,200}?id="snake-high-score"/.test(src));
+   has("gameScoreBtn('snake', 'snake-high-score', 'snake-current-score')"));
 ok('the score button opens the in-game leaderboard',
-   has(`window.openGameLeaderboard('snake')`));
+   has("onclick=\"window.openGameLeaderboard('${g}')\""));
 ok('the in-game leaderboard overlay exists', has('id="game-lb-overlay"'));
 ok('the overlay reuses the panel row builder, not a second copy',
    has('function lbBoardRowsHtml(') &&
@@ -892,11 +892,10 @@ ok('all six achievements defined', SNAKE_ACH.every(k => has(k + ':')));
 ok('all six have an XP value',
    SNAKE_ACH.every(k => new RegExp(k + ':\\s*\\d+').test(src)));
 ok('checkGameAchievements reads the new payload fields',
-   /case 'snake':[\s\S]{0,900}?p\.bigEaten[\s\S]{0,600}?p\.maxLength/.test(src));
-ok('revalidateAchievements can restore the two mode achievements',
-   has("!has('snakeEndless')") && has("!has('snakeWalled')"));
-ok('per-run achievements are NOT retroactively granted',
-   !has("!has('snakeGourmand')") && !has("!has('snakeLong')"));
+   /snake: \{[\s\S]{0,600}?p\.bigEaten[\s\S]{0,200}?p\.maxLength/.test(src));
+const reval = src.slice(src.indexOf('function revalidateAchievements('), src.indexOf('function checkGameAchievements('));
+ok('revalidateAchievements can restore the two mode achievements', /snakeEndless:/.test(reval) && /snakeWalled:/.test(reval));
+ok('per-run achievements are NOT retroactively granted', !/snakeGourmand:|snakeLong:/.test(reval));
 ok('awardGameXP is mode-aware',
    /case 'snake': \{[\s\S]{0,1400}?stagesCleared/.test(src));
 
@@ -922,7 +921,7 @@ ok('the empty-state colspan matches the main table width',
 ok('pool bests are collected via the seeding loader, not the raw key',
    /const poolModes = loadPoolWinsByMode\(\)/.test(src));
 ok('snakeCampaign is gated on stages CLEARED, matching its backfill',
-   /snakeCampaign'\) && \(p\.stagesCleared \|\| 0\) >= 6/.test(src));
+   /snakeCampaign: \(p\.stagesCleared \|\| 0\) >= 6/.test(src));
 ok('the board registry exists', has('const LB_BOARDS'));
 ok('every game has a board', ['snake', 'tetris', 'breakout', 'flappy', 'aim', 'reflex', 'pool', 'ludo']
    .every(g => new RegExp('\\b' + g + ':\\s*\\{[^}]*label:').test(src)));
@@ -941,7 +940,7 @@ ok('the panel renders only the roster table and its footer',
 const LB_GAMES = ['snake', 'tetris', 'breakout', 'flappy', 'aim', 'reflex', 'pool', 'ludo'];
 LB_GAMES.forEach(g => {
     ok(g + ' has a scoreboard button wired to its board',
-       has('id="' + g + '-lb-btn"') && has(`window.openGameLeaderboard('` + g + `')`));
+       has("${gameScoreBtn('" + g + "'"));
 });
 // The overlay must follow the mode actually being played, not a remembered
 // preference that may have drifted from it.
@@ -996,7 +995,7 @@ ok('the old "Best: …" label pairs are gone',
 });
 ['loadAimHighScore', 'loadReflexHighScores', 'loadPoolWinsByMode', 'ludoLoadWins']
     .forEach(fn => ok('scoreboard helper "' + fn + '" is defined',
-                      new RegExp('function\\s+' + fn + '\\b').test(src)));
+                      new RegExp('function\\s+' + fn + '\\b|const \\[' + fn + '\\b').test(src)));
 // RefleX's chip reads .icon and .name off the mode config.
 ok('every RefleX mode config has the fields the chip renders',
    /screen:\s*\{[\s\S]{0,200}?name:[\s\S]{0,60}?icon:/.test(src) &&
@@ -1007,13 +1006,13 @@ ok('the snapshot carries gameModeBests and the ruleset version',
 // gameBests.snake must stay a scalar: older clients still in the wild send one,
 // and turning it into an object is what would let the merge silently mangle it.
 ok('gameBests.snake is still a scalar',
-   /snake:\s+parseInt\(localStorage\.getItem\('snakeHighScore'/.test(src));
-// One definition plus three call sites: buildPlayerSnapshot, and the two
-// inline snapshot literals in window.lbRegister and window.lbSync. Missing one
-// of the inline copies is the classic way a new synced field half-ships.
+   /snake:\s+lsInt\('snakeHighScore'\)/.test(src));
+// One definition plus two call sites: buildPlayerSnapshot and lbOwnEntry (the
+// board row lbRegister and lbSync share). A pasted copy is how a new synced
+// field half-ships.
 const gmbSites = (src.match(/collectGameModeBests\(\)/g) || []).length;
-ok('all three gameModeBests call sites updated (snapshot + register + sync)',
-   gmbSites === 4, 'found ' + gmbSites + ' (expected 1 definition + 3 calls)');
+ok('both gameModeBests call sites (snapshot + the board row)',
+   gmbSites === 3, 'found ' + gmbSites + ' (expected 1 definition + 2 calls)');
 ok('restore merges the per-mode blob', has('applySnakeModeBests') || has('gmb'));
 ok('pool wins are split by mode', has('poolWinsByMode'));
 
@@ -1174,7 +1173,8 @@ head('gameModeBests collection (behavioural)');
     }
 
     const collect = block('function collectGameModeBests(');
-    const loadPool = block('function loadPoolWinsByMode(');
+    // With the host's safe storage readers, which it calls.
+    const loadPool = ['function lsJSON(', 'function lsInt(', 'function loadPoolWinsByMode('].map(block).join('\n');
     if (!collect || !loadPool) {
         ok('collectGameModeBests could be lifted out of the host', false, 'block not found');
         return;
@@ -1229,7 +1229,7 @@ head('gameModeBests collection (behavioural)');
     if (restoreFn) {
         const restore = (store, gmb) => {
             const ls = { _s: Object.assign({}, store), getItem(k) { return Object.prototype.hasOwnProperty.call(this._s, k) ? this._s[k] : null; }, setItem(k, v) { this._s[k] = String(v); } };
-            new Function('localStorage', restoreFn + '\nreturn applySnakeModeBests;')(ls)(gmb);
+            new Function('localStorage', ['function lsJSON(', 'function lsInt(', 'function lsRaise('].map(block).join('\n') + '\n' + restoreFn + '\nreturn applySnakeModeBests;')(ls)(gmb);
             return ls._s;
         };
         const after = JSON.parse(restore({ poolWinsByTier: '{"easy":4,"hard":1}' }, { 'pool:easy': 2, 'pool:hard': 6, 'pool:pro': 3 }).poolWinsByTier);
@@ -1288,7 +1288,7 @@ head('RefleX per-mode storage (behavioural)');
             setItem(k, v) { this._s[k] = String(v); }
         };
         const api = new Function('localStorage',
-            norm + '\n' + load + '\n' + save +
+            block('function lsJSON(') + '\n' + norm + '\n' + load + '\n' + save +
             '\nreturn { load: loadReflexHighScores, save: saveReflexHighScores, ls: localStorage };')(ls);
         return api;
     };

@@ -1,23 +1,16 @@
     // ═══════════════════════════════════════════════════════════════════
     // 8-BALL POOL — PHYSICS (v2)
     // ═══════════════════════════════════════════════════════════════════
-    // A pure, deterministic ball model. Nothing here touches the DOM, the
-    // canvas or Math.random, so the CPU can clone a world and run the real
-    // physics on it, and the tests can replay a shot exactly.
-    //
-    // World frame: x right, y up, z up (right-handed), in table units. The
-    // playfield is 1000 × 500 with the origin at its centre and R = 14, the
-    // design canvas's numbers. The renderer flips y for the screen.
-    //
-    // Each ball is in one of four motion states, and each state has a closed
-    // form, so a ball is advanced exactly rather than integrated:
-    //   sliding   the contact point slips; cloth friction slows v and drives
-    //             ω toward natural roll along a fixed slip direction
+    // Pure and deterministic (no DOM, canvas or Math.random), so the CPU can
+    // clone a world and run the real physics, and tests replay shots exactly.
+    // World frame: x right, y up, z up, table units; the playfield is
+    // 1000 × 500 centred on the origin, R = 14. The renderer flips y.
+    // Each motion state has a closed form, so balls advance exactly:
+    //   sliding   contact slips; friction slows v and drives ω toward natural roll
     //   rolling   no slip; constant rolling-resistance deceleration
     //   spinning  v = 0, only ω_z (English) left, decaying
-    //   stationary
-    // Collisions are found by time of impact inside each sub-step and
-    // resolved one at a time, so nothing tunnels and nothing overlaps.
+    // Collisions are found by time of impact per sub-step and resolved one
+    // at a time, so nothing tunnels or overlaps.
 
     const PP_DEFAULTS = {
         // Geometry, table units
@@ -25,8 +18,7 @@
         halfWidth: 250,
         ballR: 14,
         railWidth: 48,            // cushion + rail, for the off-table fail-safe
-        // Pockets and cushion ends, straight from the final design (Table.dc.html). A jaw
-        // runs from a cushion's nose end to its rail end and on to the hole's edge.
+        // Pockets and cushion ends. A jaw runs from a cushion's nose end to its rail end and on to the hole.
         cushionWidth: 12,         // nose line to rail line
         cornerNose: 36,           // nose end, from the corner along each cushion (mouth 36·√2)
         cornerRailEnd: 22,        // rail end, from the corner, on the rail line
@@ -60,11 +52,9 @@
     const PP_CONTACT = 1e-3;      // contact tolerance, table units
 
     // ── Table geometry ────────────────────────────────────────────────
-    // Cushion noses, jaws and pockets, derived from cfg. Every collider is
-    // either a one-sided segment (normal points onto the playable side) or a
-    // point (a nose or jaw tip). Jaws run from each nose point, at the jaw
-    // angle, until they meet the pocket's capture circle, which closes the
-    // throat: a ball in the throat either drops or comes back out.
+    // Every collider is a one-sided segment (normal onto the playable side) or
+    // a point (nose or jaw tip). Jaws end on the pocket's capture circle, which
+    // closes the throat: a ball in it either drops or comes back out.
     function ppBuildTable(cfg) {
         if (cfg.pocketStyle === 'rounded') return ppBuildRoundedTable(cfg);
         const HL = cfg.halfLength, HW = cfg.halfWidth;
@@ -86,8 +76,7 @@
             return t > 0 ? { x: px + dx * t, y: py + dy * t } : null;
         };
 
-        // A jaw leaves nose point (px,py) toward its rail end (rx,ry) and runs
-        // on until it meets the hole, which closes the throat.
+        // A jaw leaves nose point (px,py) toward its rail end (rx,ry) and runs on to the hole.
         const addJaw = (px, py, rx, ry, pocket, otherX, otherY) => {
             const l = Math.hypot(rx - px, ry - py), dx = (rx - px) / l, dy = (ry - py) / l;
             const end = rayCircle(px, py, dx, dy, pocket.x, pocket.y, pocket.r);
@@ -103,8 +92,7 @@
         const c = cfg.cornerNose, s = cfg.sideNose;
         const cr = cfg.cornerRailEnd, sr = cfg.sideRailEnd, CU = cfg.cushionWidth;
 
-        // Pockets, in the order the old engine used: TL, top-side, TR, BL, bottom-side, BR.
-        // y is up, so "top" is +HW.
+        // Pocket indices are fixed: TL, top-side, TR, BL, bottom-side, BR (y up: top is +HW).
         const corner = (sx, sy) => {
             const k = cfg.cornerPocketOffset;
             return { kind: 'corner', x: sx * (HL + k), y: sy * (HW + k), r: cfg.cornerPocketR, sx, sy, jaws: [] };
@@ -118,13 +106,11 @@
             addSeg(-HL + c, y, -s, y, 0, ny, 'cushion');
             addSeg(s, y, HL - c, y, 0, ny, 'cushion');
         });
-        // Short cushions (left and right).
         [-1, 1].forEach(sx => {
             const x = sx * HL;
             addSeg(x, -HW + c, x, HW - c, -sx, 0, 'cushion');
         });
 
-        // Nose points and jaws.
         pockets.forEach(p => {
             if (p.kind === 'corner') {
                 const ax = p.sx * (HL - c), ay = p.sy * HW;          // on the long cushion
@@ -149,14 +135,10 @@
         };
     }
 
-    // Snooker's table (pocketStyle 'rounded', the design's Table.dc.html): each cushion runs
-    // straight along its nose, rounds off in a nose of radius noseRound, then a straight jaw
-    // goes back to the rail (square to it at the middle pockets, leaning sideJawBack /
-    // cornerJawBack toward the pocket). The rounded nose is an arc collider (a ball meets it
-    // at R + noseRound from its centre, only on the quarter that is there), tangent to the nose
-    // so there is no tip; the jaw is a cushion segment facing the gap, and every jaw ends at
-    // the rail inside its pocket's hole, which closes the throat. Only a table built with
-    // pocketStyle 'rounded' has arcs; pool's never does.
+    // Snooker's table (pocketStyle 'rounded'; only it has arcs): each cushion rounds off in a
+    // nose of radius noseRound, then a straight jaw goes back to the rail, leaning sideJawBack /
+    // cornerJawBack toward the pocket. The nose is an arc collider (met at R + noseRound, only
+    // on its quarter), tangent so there is no tip; each jaw ends inside its pocket's hole.
     function ppBuildRoundedTable(cfg) {
         const HL = cfg.halfLength, HW = cfg.halfWidth, CU = cfg.cushionWidth, RHO = cfg.noseRound;
         const c = cfg.cornerNose, s = cfg.sideNose;
@@ -258,9 +240,8 @@
         };
     }
 
-    // Standard 8-ball rack: apex on the foot spot, the 8 in the middle of the
-    // third row, one solid and one stripe in the back corners. `rng` shuffles
-    // the rest and jitters each ball by a hair so no two breaks are identical.
+    // 8-ball rack: apex on the foot spot, the 8 mid third row, a solid and a stripe
+    // in the back corners; `rng` shuffles the rest and jitters each ball by a hair.
     function ppRack(w, rng) {
         const R = w.cfg.ballR, t = w.table;
         const gap = 0.02;                               // a hair between balls, so contacts are unambiguous
@@ -383,10 +364,8 @@
             ppSpinDecay(b, cfg, h);
             rem -= h;
             if (h === tRoll) {
-                // Slip is gone: land exactly on natural roll, or at rest. The
-                // speed is settled first and the spin derived from it, so a
-                // crawl that rounds to zero cannot leave spin behind that
-                // reads as fresh slip (which once left a ball 'rolling' at v = 0).
+                // Slip is gone: land on natural roll or rest. Speed is settled first and
+                // spin derived from it, so a crawl rounding to zero leaves no fake slip.
                 if (Math.hypot(b.vx, b.vy) < PP_EPS_V) { b.vx = 0; b.vy = 0; }
                 b.wx = -b.vy / R; b.wy = b.vx / R;
                 if (b.vx || b.vy) b.state = 'rolling';
@@ -457,16 +436,11 @@
     }
 
     // ── Touching clusters (the break) ──────────────────────────────────
-    // Resolving contacts one pair at a time is right for two balls, and for a
-    // line of balls (it gives Newton's cradle), but wrong for a tight rack:
-    // there the apex compresses into both balls behind it at once, each of
-    // those pushes on two more, and the impulse fans out through the whole
-    // triangle. Pairwise, it runs down the two edges instead and only the back
-    // corners move. So when a ball hits a group of touching balls, the contact
-    // itself is simulated: stiff springs over the ~0.1 ms of compression, with
-    // damping chosen to give the ball–ball restitution. Only the velocity
-    // change is kept; positions snap back, so at table scale the impact is
-    // still instantaneous. Spin and throw are left to the pairwise path.
+    // Pairwise resolution is right for two balls or a line, but in a tight rack
+    // the impulse must fan out through the triangle (pairwise, only the back
+    // corners move). So a hit on a touching group simulates the contact: stiff
+    // springs over ~0.1 ms, damped to the ball–ball restitution. Only the
+    // velocity change is kept (positions snap back); spin and throw stay pairwise.
     const PP_CLUSTER_GAP = 0.5;       // balls closer than this count as touching, table units
     const PP_CONTACT_TIME = 1e-4;     // duration of one ball–ball contact, s
     const PP_CLUSTER_MAX_T = 5e-3;    // give up on the micro-sim after this, s
@@ -534,10 +508,8 @@
         order.forEach(([a, b]) => w.log.push({ type: 'ball', t: w.t, a, b }));
     }
 
-    // Cushion or jaw (segment face, or a nose/jaw tip). n points from the
-    // cushion into the ball. The cushion nose meets the ball above its
-    // centre, so the contact sits noseRise·R up and friction there couples
-    // English and follow/draw into the rebound.
+    // Cushion, jaw or tip; n points into the ball. The nose meets the ball noseRise·R
+    // above centre, so friction there couples English and follow/draw into the rebound.
     function ppResolveCushion(b, nx, ny, cfg) {
         const R = cfg.ballR, I = 0.4 * R * R;
         const vn = b.vx * nx + b.vy * ny;
@@ -576,9 +548,10 @@
         const cfg = w.cfg, R = cfg.ballR;
         const cue = w.balls.find(b => b.id === 0);
         let a = shot.tipX || 0, bt = shot.tipY || 0;
-        const m = Math.hypot(a, bt);
-        if (m > cfg.maxTip) { a *= cfg.maxTip / m; bt *= cfg.maxTip / m; }
-        const v0 = Math.max(0, Math.min(cfg.maxSpeed, shot.speed));
+        // A cue's own reach (shot.cap, shot.tipMax) stands in for the table's.
+        const m = Math.hypot(a, bt), tm = shot.tipMax || cfg.maxTip;
+        if (m > tm) { a *= tm / m; bt *= tm / m; }
+        const v0 = Math.max(0, Math.min(shot.cap || cfg.maxSpeed, shot.speed));
         const th = shot.angle + cfg.squirt * a;                 // squirt: away from the English
         const dx = Math.cos(shot.angle), dy = Math.sin(shot.angle);
         const k = 5 * v0 / (2 * R);
@@ -596,9 +569,8 @@
         w.log.push({ type: 'pocket', t: w.t, ball: b.id, pocket: pi });
     }
 
-    // Anything inside a capture circle drops; anything that somehow left the
-    // table is dropped into the nearest pocket and counted, so a geometry
-    // bug is loud in the tests instead of a ball vanishing off-screen.
+    // Inside a capture circle drops. A ball that left the table drops into the nearest
+    // pocket and is counted in escapes, so a geometry bug is loud in the tests.
     function ppCheckPockets(w) {
         const t = w.table;
         for (const b of w.balls) {
@@ -715,16 +687,10 @@
         ppCheckPockets(w);
     }
 
-    // The time of impact assumes straight lines over the sub-step. When a front
-    // ball decelerates harder than the ball behind it (or an over-spun ball
-    // speeds up into a rail), contact comes up to ~0.015 u early and the pair
-    // ends the sub-step slightly interpenetrating. This puts them back to
-    // touching, positions only, and resolves the contact if they are still
-    // closing, so nothing ever overlaps at a frame boundary.
-    // Pushing one pair apart can press a ball in a packed group into a third,
-    // so the pass repeats until nothing overlaps (a few rounds at most).
-    // Only balls that moved this sub-step (or were pushed by this pass) can
-    // be overlapping anything, so resting balls are skipped entirely.
+    // Linear TOI misses deceleration differences (or an over-spun ball speeding
+    // into a rail) by up to ~0.015 u, leaving slight overlaps. This pushes them
+    // back to touching and resolves any still closing. Pushing one pair can press
+    // into a third, so it repeats; only balls that moved can overlap.
     function ppSeparate(w) {
         const cfg = w.cfg, R = cfg.ballR, D = 2 * R, t = w.table;
         const live = w.balls.filter(b => b.state !== 'pocketed');

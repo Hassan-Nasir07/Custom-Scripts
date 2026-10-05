@@ -3936,6 +3936,13 @@
         const keeps = (you(v.shooter) ? 'You keep' : n(v.shooter) + ' keeps') + ' the break going';
         if (v.notice === 'maximum') return { kind: 'notice', icon: 'trophy', title: 'Maximum break · ' + nx.brk, sub: v.frameOver ? '' : keeps };
         if (v.notice === 'century') return { kind: 'notice', icon: 'trophy', title: 'Century break · ' + nx.brk, sub: keeps };
+        // A free ball potted: it scores as the ball on and goes back on its spot.
+        const fid = v.on && v.on.freeId;
+        if (fid >= 0 && v.scored.indexOf(fid) >= 0) {
+            const as = v.on.also.length === 1 ? psName(v.on.also[0]) : 'red';
+            return { kind: 'notice', title: 'Free ball · the ' + psName(fid) + ' counts as the ' + as,
+                sub: v.points + (v.points === 1 ? ' point' : ' points') + ' · the ' + psName(fid) + ' is re-spotted' + (as === 'red' ? '' : ', the ' + as + ' is still on') };
+        }
         return null;
     }
 
@@ -3948,6 +3955,8 @@
     }
 
     // The chooser's decision as a notice, when it was not the viewer.
+    // Under a free ball's notice: what it means, so a colour off the order doesn't look like a miss.
+    const psFreeNote = state => 'Any colour may stand in for the ' + (state.phase === 'clearance' ? psName(state.next) : 'red');
     function psChoiceNotice(pending, choice, names) {
         const who = names[pending.chooser], me = who === 'You', off = names[pending.offender];
         if (choice === 'back') return (me ? 'You put ' : who + ' puts ') + (off === 'You' ? 'you' : off) + ' back in';
@@ -8203,6 +8212,7 @@
             choose: (f, id) => psChoose(f, id),
             choices: (p, names) => psChoiceText(p, names),
             choiceNotice: (p, id, names) => psChoiceNotice(p, id, names),
+            choiceSub: (f, id) => (id === 'free' ? psFreeNote(f) : ''),
             concede: (f, seat) => psConcede(f, seat),
             resultText: (v, names) => psResultText(v, names),
             // A CPU trial is 5–8 ms at 22 balls, so it thinks in 12 ms slices (the still table
@@ -8620,7 +8630,9 @@
         const before = S.frame.turn;
         S.frame = R.choose(S.frame, id);
         S.fouled = 0; S.nom = -1;
-        poolShowToast(byCpu ? { kind: 'notice', title: R.choiceNotice(p, id, poolNames()), sub: '' } : null);
+        poolShowToast(byCpu ? { kind: 'notice', title: R.choiceNotice(p, id, poolNames()), sub: R.choiceSub ? R.choiceSub(S.frame, id) : '' } : null);
+        // The CPU's free ball stays up until it strikes: its colour is off the order on purpose.
+        if (byCpu && id === 'free') S.toastMs = 0;
         if (poolMode !== 'cpu' && S.frame.turn !== before) S.handoff = S.frame.turn;
         poolStartTurn();
         poolTourSnapshot();

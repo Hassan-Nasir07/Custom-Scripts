@@ -2729,7 +2729,7 @@ It is still 1,256 under where C0 started. `verify-all` passes 2574; `host-run` 1
 
 ---
 
-## Achievement icons (Phases A0–A5)
+## Achievement icons (Phases A0–A6)
 
 **What the design gives** (canvas revision `1791193248-0b3b`, from Appendix D; artboards
 `AchIconSet`, `AchMedalSpec`, `AchDistinct`, `AchEarned`, `AchEarnedNarrow`, `AchModal`,
@@ -2739,8 +2739,8 @@ It is still 1,256 under where C0 started. `verify-all` passes 2574; `host-run` 1
   - **Centurion is a trophy with a Roman "C" on the cup** (C is 100, for 100 shifts). It is the
     set's only trophy. The first revision's helmet and crest read as a lamp at 16–20 px and
     didn't look Legendary.
-  - **No UI icon borrows an achievement's shape.** The modal header and the leaderboard badge
-    use a sparkle, not a trophy.
+  - **No UI icon borrows an achievement's shape.** The modal header and the Work Rewards
+    title use a sparkle, not a trophy.
 - **A medallion per tier**, with the tier taken from `ACHIEVEMENT_XP` (the design's 39 tiers
   match it exactly):
   - Common (under 100 XP): a hairline ring.
@@ -2758,14 +2758,29 @@ It is still 1,256 under where C0 started. `verify-all` passes 2574; `host-run` 1
     0.6 → 1.06 → 1, the glyph draws and the +XP chip slides in. It holds 4 s and fades out
     in 180 ms. Under reduced motion it is a fade only.
   - The leaderboard popover: 20 px medallions, rarest first, nine at most, then +N.
+- **The panels around them** (`AchEarned`, `AchEarnedNarrow`, `AchPopover`), each with a
+  token set `T` per theme (panel, border, shadow, blur, text, muted, accent, track, inner):
+  - *Work Rewards*, the whole XP panel: a 32 px head with a sparkle and a Level pill, an 8 px
+    bar with the XP held and the XP still to go, the next milestone, the streak, two stat
+    tiles, then the earned row in its own inset box. It narrows to 12 px padding at 316 px.
+  - The leaderboard as player rows (rank, initials, name, level, XP), 52 px each. Hovering,
+    focusing or clicking a row opens its popover: below the row for the top three, above it
+    after that, right-aligned 8 px in.
+  - Sora for text, and Chakra Petch for the Cyberpunk display face.
 
 **Where the build departs from it:**
-- **Fonts.** It uses the widget's fonts instead of the canvas's Sora and Chakra Petch, which
-  the widget doesn't load: Inter in Glassmorphic, Orbitron and Share Tech Mono in Cyberpunk.
 - **The glyph draw.** It uses `pathLength="1"` instead of a dasharray of 120, because a
   glyph longer than 120 units would end the draw with a gap.
-- **Modal descriptions** wrap to two lines instead of one ellipsised line, since the host's
-  descriptions are longer than the artboard's.
+- **Cyberpunk follows the user's palette**, not the artboard's fixed hexes, as the rest of the
+  theme does:
+  - Text, panels and lines take Text, BG 1/2 and Border, and the XP bar takes Accent.
+  - Rare takes Highlight, Epic takes Accent, and Legendary takes all three swatches.
+  - Filled controls with text (the Level pill, View all, the active tab, the +XP chip) are filled
+    with Text and labelled in BG 1, never with an accent, so a dark pick can't hide the label.
+- **The earned row is a grid** of 44 px columns that share the box's width. The artboard's
+  wrapping flex row left an empty strip at the right whenever the width wasn't a multiple of 44.
+- **The leaderboard's subtitle** reads "Total XP · hover a player", not "XP this week": the
+  board ranks by total XP and has no weekly figure.
 - **Body-level surfaces.** The modal, toast and popover sit on `body`, outside
   `.retro-theme`, so they take Cyberpunk from `body:has(.attendance-summary.retro-theme)`.
   That is the settings modal's convention, and it follows a live theme switch.
@@ -2782,32 +2797,61 @@ It is still 1,256 under where C0 started. `verify-all` passes 2574; `host-run` 1
   toasts now stack by their real heights.
 - **A4, the leaderboard.**
   - The popover gets the new medallions.
-  - The badge's 🏆 becomes the sparkle, the modal header's icon.
   - The emoji sweeps leave the modal and the popover, which no longer hold any emoji, and
     `cyber-verify` says so.
 - **A5, real Chrome.** Every surface in all three themes, checked against the artboards.
+- **A6, the panels** (after the user: "the Icons were changed only … follow the artboards
+  exactly"). Commit `0d14ad6` had put the medallions into the old XP panel and leaderboard.
+  A6 rebuilds both:
+  - The XP panel becomes *Work Rewards*.
+  - The leaderboard becomes player rows that open the popover. The 🏆 badge goes, since a
+    row is the trigger. As drawn, the rows carry no game scores; each game's own board still
+    has them.
+  - The widgets take the artboards' tokens in `.ach-ui`, with Sora and Chakra Petch loaded
+    from Google Fonts.
+  - The modal's descriptions become one ellipsised line, and the popover's gap goes back to
+    6 px.
+  - The old `.xp-*` and `.lb-table` rules leave the host and `cyber-theme.css`.
 
-**Where A0–A5 stand** (2026-10-05):
-- **All six phases are built.** The host went from 26,796 to 27,092 lines (+296, of which 225
-  are the CSS for the three themes and the four surfaces).
-- **`verify-all` passes 2,585.** `host-smoke` gains 9 checks: glyphs with no emoji and no two
-  alike, the tier counts, medallion geometry and lock badge, and the rarest-first order.
-  `cyber-verify` now checks that the achievement surfaces hold no emoji, where it used to
-  check that they were swept.
-- **`host-run` passes 160.**
-- **The real-Chrome run passes 39 checks per theme** (Glassmorphic dark, light, Cyberpunk):
-  - Earned row: 36 px in 44 px buttons, rarest first, the tier colours.
+**Where A0–A6 stand** (2026-10-05):
+- **All seven phases are built.** The host is 26,945 lines, 147 fewer than after A5, because
+  the panels' new CSS is smaller than the old `.xp-*` and table rules.
+- **`verify-all` passes 2,580.**
+  - `host-smoke` gains 9 checks: glyphs with no emoji and no two alike, the tier counts,
+    medallion geometry and lock badge, and the rarest-first order.
+  - `cyber-verify` now checks that the achievement surfaces hold no emoji, where it used to
+    check that they were swept.
+  - `cyber-verify` also loses 5 checks on rules A6 removed: the hexagon level badge, the
+    View all knock-out and the XP glow.
+  - The roster checks in `snake-verify` and `integration-verify` now expect rows, not a
+    table.
+- **`host-run` passes 165.**
+- **The real-Chrome run passes 60 checks**, 19 per theme (Glassmorphic dark, light,
+  Cyberpunk) plus 3 overall, with the webfonts loading:
+  - Work Rewards: the theme's panel colour; Sora, plus Chakra Petch figures in Cyberpunk;
+    the drawn heights.
+  - Earned row: 36 px medallions in 44 px buttons, rarest first, the tier colours.
   - Modal: 39 cards, 12 locked with the padlock, the tabs, focus moving to the close button,
-    Escape.
+    Escape. Descriptions sit on one line and never scroll the grid sideways.
   - Toasts: stacked 10 px apart; the chip only when XP is paid; gone at 4.18 s.
-  - Popover: nine medallions then +N, the player's name escaped, the row fitting 290 px.
+  - Leaderboard: five 52 px rows with initials and "(you)"; row 1 opens the popover 6 px
+    below, row 4 opens it 4 px above, with `aria-expanded`.
+  - Popover: nine medallions then +N, the player's name escaped, at 290 px.
   - Reduced motion: the toast only fades.
   - No page errors.
-- **Found by the browser and fixed:**
-  - A toast measured the one above while it slid in, so they stacked 2 px apart.
-  - The popover's row overflowed by 3 px with +18. Its gap is now 5 px, not the design's 6.
-  - The modal's close button couldn't take focus during the opening frame. Visibility now
-    switches at once on open.
+- **What the browser checks found, and what was done about each:**
+  - A toast measured the one above while it slid in, so they stacked 2 px apart. Fixed.
+  - The modal's close button couldn't take focus during the opening frame. Fixed:
+    visibility now switches at once on open.
+  - The one-line descriptions widened the grid's `1fr` columns into a sideways scroll.
+    Fixed with `minmax(0, 1fr)`.
+  - The Level pill's flex layout dropped the space in "Level 2". Fixed with `&nbsp;`.
+  - The popover's +18 chip runs 3 px into its 12 px padding. Kept, because the artboard
+    does the same.
+  - The 40 px streak row and the 60 px stat tiles measure 42 and 62 px with their borders.
+    Kept, because the artboard draws them content-box.
+  - On a hovered row in Glassmorphic dark, the initials circle (`track`) almost matches the
+    row (`inner`). Kept, because that is the artboard's colouring.
 
 ---
 
@@ -2830,6 +2874,7 @@ It is still 1,256 under where C0 started. `verify-all` passes 2574; `host-run` 1
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-10-05 | **A6: the achievement panels follow the artboards exactly**: Work Rewards replaces the XP panel; the leaderboard is player rows that open the popover; Sora and Chakra Petch; one-line modal descriptions | The user: "the Icons were changed only and the rest of the work done by the claude designer was not integrated … follow the artboards exactly for all themes", and "the leaderboard is also designed". The A0–A5 departures for fonts, two-line descriptions and the 5 px gap are withdrawn |
 | 2026-10-05 | **Centurion's glyph is a trophy with a Roman "C"** (revision `1791193248-0b3b`), and no UI icon uses a trophy | The user's call: a Roman helmet as a Legendary icon made no sense. The designer drew four trophies (star, band, plain base, "C") and compared them at 20 and 16 px against all 39. The star blurred at 16 px; the "C" was the clearest and the most distinct |
 | 2026-10-05 | **Achievement icons are designed by the user in Claude Design from the prompt in Appendix D**: stroke glyphs in the cue icons' family, with a medallion per XP tier | The user asked for sleek, unique icons like the cue ones. All 39 are still emoji, and three pairs clash: 🎯 Day One and Sharpshooter, 🧱 Wallflower and Block Master, 👑 Veteran and Grand Serpent, plus the Maximum cue's crown |
 | 2026-10-05 | **Snooker: a CPU free ball now explains itself** (reported: "after a foul the CPU played the black, not the blue, and no foul was given") | The rules were right: 569 simulated fouls with blue, pink and black left gave 27 CPU shots off the order, every one a legal free ball (the black nominated, scored as the blue, re-spotted, the blue still on). But the "CPU takes the free ball" notice timed out before the CPU struck, and the pot itself said nothing. The notice now says "Any colour may stand in for the blue" and stays until the strike; a potted free ball says "Free ball · the black counts as the blue · 5 points · the black is re-spotted, the blue is still on" |

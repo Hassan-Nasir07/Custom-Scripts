@@ -1315,43 +1315,34 @@
             return;
         }
 
-        const achTotal = Object.keys(ACHIEVEMENTS).length;
-        let rows = '';
-        leaderboardData.forEach((p, i) => {
-            const rank = i + 1;
-            const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+        // AchPopover: one row per player (rank, initials, name, level, XP); a row's hover or focus
+        // opens its achievements. Identity and progression only — game scores live in the per-game boards.
+        const rows = leaderboardData.map((p, i) => {
             const isMe = p.clientId === lbClientId;
-            // Identity and progression only — game scores live in the per-game boards below.
-            // Achievement count uses keys still present in ACHIEVEMENTS, so a retired or renamed key
-            // synced from an older build cannot inflate the total.
+            // Keys still present in ACHIEVEMENTS, so a retired or renamed key synced from an older
+            // build cannot inflate the count.
             const achKeys = (Array.isArray(p.achievements) ? p.achievements : []).filter(k => ACHIEVEMENTS[k]);
-            const nameHtml = escapeHtml(p.displayName);
-            // escapeHtml encodes text-content characters only; the attributes below also need
-            // quotes encoded, or a name containing one breaks out of the attribute.
-            const nameAttr = nameHtml.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-            const achBadge = `<span class="lb-ach-badge" tabindex="0" aria-label="${achKeys.length} of ${achTotal} achievements" data-ach-name="${nameAttr}" data-ach-keys="${achKeys.join(',')}">${achSvg(ACH_SPARKLE_D, 10, 2)}${achKeys.length}/${achTotal}</span>`;
-            rows += `<tr class="${isMe ? 'lb-row-me' : ''}">
-                <td class="lb-rank">${medal}</td>
-                <td class="lb-name" title="${nameAttr}">${nameHtml}${isMe ? ' <span class="lb-you">You</span>' : ''}</td>
-                <td class="lb-level"><span class="lb-level-pill">Lv.${p.level}</span></td>
-                <td class="lb-xp">${(p.totalXP || 0).toLocaleString()}${achBadge}</td>
-            </tr>`;
-        });
+            const name = String(p.displayName || ''), shown = name + (isMe ? ' (you)' : '');
+            // escapeHtml encodes text-content characters only; the attributes also need quotes
+            // encoded, or a name containing one breaks out of the attribute.
+            const attr = v => escapeHtml(v).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            return `<button type="button" class="lb-row" aria-expanded="false" aria-label="${attr(shown + ', rank ' + (i + 1) + ', level ' + p.level + ', ' + (p.totalXP || 0) + ' XP')}" data-ach-name="${attr(shown)}" data-ach-keys="${achKeys.join(',')}">
+                <span class="lb-row-rank">${i + 1}</span>
+                <span class="lb-row-av" aria-hidden="true">${escapeHtml(lbInitials(name))}</span>
+                <span class="lb-row-who"><span class="lb-row-name">${escapeHtml(shown)}</span><span class="lb-row-lv">Level ${p.level}</span></span>
+                <span class="lb-row-xp">${(p.totalXP || 0).toLocaleString()} XP</span>
+            </button>`;
+        }).join('');
 
-        const lastSync = leaderboardData.length > 0 ? new Date(leaderboardData[0].lastSync || Date.now()).toLocaleTimeString() : '—';
         panel.innerHTML = `
-            <div class="lb-table-wrap">
-                <table class="lb-table">
-                    <thead><tr>
-                        <th class="lb-rank"></th>
-                        <th class="lb-name">Player</th>
-                        <th>Lv.</th>
-                        <th>XP</th>
-                    </tr></thead>
-                    <tbody>${rows || '<tr><td colspan="4" class="lb-empty">No players yet</td></tr>'}</tbody>
-                </table>
-            </div>
-            <div class="lb-footer">Last updated: ${lastSync}</div>`;
+            <div class="lb-head"><span class="lb-head-t">Leaderboard</span><span class="lb-head-n">Total XP · hover a player</span></div>
+            <div class="lb-list">${rows || '<div class="lb-empty">No players yet</div>'}</div>`;
+    }
+
+    // A player's initials: the first letters of two words, else the first two letters (Bilal → BI).
+    function lbInitials(name) {
+        const words = String(name || '').trim().split(/\s+/).map(w => w.replace(/[^\p{L}\p{N}]/gu, '')).filter(Boolean);
+        return (words.length > 1 ? words[0][0] + words[1][0] : (words[0] || '?').slice(0, 2)).toUpperCase();
     }
 
     const LB_BOARDS = {
@@ -1635,44 +1626,42 @@
                 '</div><span class="lb-ach-pop-foot">Rarest first · Legendary, Epic, Rare, Common</span>'
                 : '<span class="lb-ach-pop-foot">No achievements yet</span>');
         pop.style.display = 'flex';
+        document.querySelectorAll('.lb-row[aria-expanded="true"]').forEach(r => { if (r !== badge) r.setAttribute('aria-expanded', 'false'); });
+        badge.setAttribute('aria-expanded', 'true');
 
+        // As AchPopover: 8 px in from the row's right, under the top three rows and over the rest,
+        // turned the other way if that side has no room.
         const rect = badge.getBoundingClientRect();
         const popRect = pop.getBoundingClientRect();
-        let top = rect.top - popRect.height - 8;
-        let below = false;
-        if (top < 4) { top = rect.bottom + 8; below = true; }
-        let left = rect.left + rect.width / 2 - popRect.width / 2;
-        left = Math.max(4, Math.min(left, window.innerWidth - popRect.width - 4));
+        const idx = Array.prototype.indexOf.call(badge.parentNode ? badge.parentNode.children : [], badge);
+        const under = rect.bottom + 6, over = rect.top - popRect.height - 4;
+        let top = idx < 3 ? under : over;
+        if (top + popRect.height > window.innerHeight - 4) top = over;
+        if (top < 4) top = under;
+        const left = Math.max(4, Math.min(rect.right - 8 - popRect.width, window.innerWidth - popRect.width - 4));
         pop.style.top = `${top}px`;
         pop.style.left = `${left}px`;
-        pop.classList.toggle('lb-ach-popover-below', below);
     }
 
     function hideLbAchPopover() {
         const pop = document.getElementById('lb-ach-popover');
         if (pop) pop.style.display = 'none';
+        document.querySelectorAll('.lb-row[aria-expanded="true"]').forEach(r => r.setAttribute('aria-expanded', 'false'));
     }
 
     function initLbAchPopoverDelegation() {
         if (lbAchPopoverInit) return;
         lbAchPopoverInit = true;
-        document.addEventListener('mouseover', (e) => {
-            const badge = e.target.closest && e.target.closest('.lb-ach-badge');
-            if (badge) showLbAchPopover(badge);
-        });
+        const rowOf = e => e.target.closest && e.target.closest('.lb-row');
+        document.addEventListener('mouseover', (e) => { const row = rowOf(e); if (row) showLbAchPopover(row); });
         document.addEventListener('mouseout', (e) => {
-            const badge = e.target.closest && e.target.closest('.lb-ach-badge');
-            if (badge && !badge.contains(e.relatedTarget)) hideLbAchPopover();
+            const row = rowOf(e);
+            if (row && !row.contains(e.relatedTarget)) hideLbAchPopover();
         });
-        document.addEventListener('focusin', (e) => {
-            const badge = e.target.closest && e.target.closest('.lb-ach-badge');
-            if (badge) showLbAchPopover(badge);
-        });
-        document.addEventListener('focusout', (e) => {
-            const badge = e.target.closest && e.target.closest('.lb-ach-badge');
-            if (badge) hideLbAchPopover();
-        });
-        // Positions go stale once the badge moves under a scroll/resize — just hide.
+        document.addEventListener('focusin', (e) => { const row = rowOf(e); if (row) showLbAchPopover(row); });
+        document.addEventListener('focusout', (e) => { if (rowOf(e)) hideLbAchPopover(); });
+        document.addEventListener('click', (e) => { const row = rowOf(e); if (row) showLbAchPopover(row); });
+        // Positions go stale once the row moves under a scroll/resize — just hide.
         document.addEventListener('scroll', hideLbAchPopover, true);
         window.addEventListener('resize', hideLbAchPopover);
     }
@@ -15640,8 +15629,11 @@
 
         if (levelElement) levelElement.textContent = userXP.level;
         if (currentXPElement) currentXPElement.textContent = userXP.currentXP;
-        if (neededXPElement) neededXPElement.textContent = xpNeeded;
+        // What is left to the next level, as the artboard reads: "3351 XP · 11548 XP to next level".
+        if (neededXPElement) neededXPElement.textContent = Math.max(0, xpNeeded - userXP.currentXP);
         if (progressBar) progressBar.style.width = `${progress}%`;
+        const bar = document.getElementById('xp-progress-bar');
+        if (bar) { bar.setAttribute('aria-valuemax', xpNeeded); bar.setAttribute('aria-valuenow', userXP.currentXP); }
         if (totalXPElement) totalXPElement.textContent = userXP.totalXP;
         if (todayHoursElement) todayHoursElement.textContent = userXP.todayHours;
         if (streakElement) streakElement.textContent = userXP.consecutiveDays;
@@ -15668,8 +15660,9 @@
 
             if (nextMilestone) {
                 const hoursRemaining = nextMilestone - userXP.todayHours;
-                nextMilestoneElement.textContent = `${hoursRemaining}h to ${MILESTONE_BONUSES[nextMilestone].label}`;
-                nextMilestoneElement.style.display = 'block';
+                // "6-Hour Almost There" reads as "6-Hour · Almost There".
+                nextMilestoneElement.textContent = `${hoursRemaining}h to ${MILESTONE_BONUSES[nextMilestone].label.replace(' ', ' · ')}`;
+                nextMilestoneElement.style.display = 'flex';
             } else {
                 nextMilestoneElement.style.display = 'none';
             }
@@ -16312,6 +16305,7 @@
             @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
             @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap');
             @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Chakra+Petch:wght@500;600;700&display=swap');
 
             :root {
                 --mouse-x: 0;
@@ -18137,22 +18131,13 @@
                     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
                 }
 
-                .attendance-summary:not(.retro-theme) .xp-container {
-                    background: linear-gradient(135deg, rgba(108, 92, 231, 0.12), rgba(102, 126, 234, 0.08));
-                    border-color: rgba(108, 92, 231, 0.25);
-                    backdrop-filter: blur(20px);
-                    box-shadow: 0 4px 16px rgba(108, 92, 231, 0.15);
-                }
-
                 .attendance-summary:not(.retro-theme) .snake-game-title,
-                .attendance-summary:not(.retro-theme) .quotes-title,
-                .attendance-summary:not(.retro-theme) .xp-title {
+                .attendance-summary:not(.retro-theme) .quotes-title {
                     color: rgba(0, 0, 0, 0.85);
                 }
 
                 .attendance-summary:not(.retro-theme) .snake-score,
-                .attendance-summary:not(.retro-theme) .quote-text,
-                .attendance-summary:not(.retro-theme) .xp-stat-label {
+                .attendance-summary:not(.retro-theme) .quote-text {
                     color: rgba(0, 0, 0, 0.65);
                 }
 
@@ -18987,7 +18972,7 @@
             .attendance-summary.retro-theme.rt-booting .progress-bar,
             .attendance-summary.retro-theme.rt-booting .snake-game-container,
             .attendance-summary.retro-theme.rt-booting .quotes-container,
-            .attendance-summary.retro-theme.rt-booting .xp-container,
+            .attendance-summary.retro-theme.rt-booting .xpr,
             .attendance-summary.retro-theme.rt-booting .image-box-container {
                 animation: rtBoot 500ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
             }
@@ -19735,7 +19720,6 @@
 
             .attendance-summary.retro-theme .snake-game-container,
             .attendance-summary.retro-theme .quotes-container,
-            .attendance-summary.retro-theme .xp-container,
             .attendance-summary.retro-theme .image-box-container {
                 background:
                     var(--rt-brackets),
@@ -19752,8 +19736,7 @@
             }
 
             .attendance-summary.retro-theme .snake-game-title,
-            .attendance-summary.retro-theme .quotes-title,
-            .attendance-summary.retro-theme .xp-title {
+            .attendance-summary.retro-theme .quotes-title {
                 color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 letter-spacing: 0.12em !important;
@@ -19774,58 +19757,7 @@
                 border-radius: 0 !important;
             }
 
-            /* XP / QUOTES / IMAGE PANELS */
-
-            .attendance-summary.retro-theme .xp-progress-bar {
-                background: var(--rt-hazard-dim) !important;
-                background-size: 22px 100% !important;
-                border: 1px solid var(--rt-border) !important;
-                border-radius: 0 !important;
-                position: relative;
-                overflow: hidden;
-            }
-
-            .attendance-summary.retro-theme .xp-progress-fill {
-                background: var(--rt-chevron-fill) !important;
-                background-size: 22px 100% !important;
-                animation: rtHazardCrawl 2s linear infinite !important;
-                border-radius: 0 !important;
-                box-shadow:
-                    0 0 calc(7px * var(--rt-glow-k))
-                        rgba(var(--rt-glow-rgb), calc(0.85 * var(--rt-glow-k))),
-                    0 0 calc(22px * var(--rt-glow-k))
-                        rgba(var(--rt-glow-rgb), calc(0.45 * var(--rt-glow-k))) !important;
-            }
-
-            /* SEGMENTED XP — XP is a count. The host renders one continuous fill, so
-               the gaps are knocked back out over the top. */
-            .attendance-summary.retro-theme .xp-progress-bar::after {
-                content: '';
-                position: absolute;
-                inset: 0;
-                background: repeating-linear-gradient(
-                    115deg,
-                    transparent 0 calc(5% - 2px),
-                    var(--rt-bg-1) calc(5% - 2px) 5%);
-                pointer-events: none;
-                z-index: 2;
-            }
-
-            .attendance-summary.retro-theme .xp-stat-value {
-                color: var(--rt-text) !important;
-                font-family: 'Share Tech Mono', monospace !important;
-                text-shadow: var(--rt-glow-soft) !important;
-            }
-
-            .attendance-summary.retro-theme .xp-stat-label {
-                color: var(--rt-text-dim) !important;
-                font-family: 'Share Tech Mono', monospace !important;
-                letter-spacing: 0.1em !important;
-            }
-
-            .attendance-summary.retro-theme .xp-info {
-                color: var(--rt-text-dim) !important;
-            }
+            /* QUOTES */
 
             .attendance-summary.retro-theme .quote-text {
                 color: var(--rt-text) !important;
@@ -19844,39 +19776,6 @@
             }
 
             .attendance-summary.retro-theme .quote-add-btn:hover {
-                background: var(--rt-text) !important;
-                color: var(--rt-bg-1) !important;
-            }
-
-            /* Solid knocked-out badge, cut to a HEXAGON — the one shape used nowhere
-               else, so a rank is never mistaken for a button. */
-            .attendance-summary.retro-theme .level-badge {
-                background: var(--rt-text) !important;
-                border: 0 !important;
-                border-radius: 0 !important;
-                clip-path: polygon(
-                    50% 0, 100% 25%, 100% 75%,
-                    50% 100%, 0 75%, 0 25%);
-                padding-left: 15px !important;
-                padding-right: 15px !important;
-                color: var(--rt-bg-1) !important;
-                font-family: 'Orbitron', sans-serif !important;
-                font-weight: 700 !important;
-                letter-spacing: 0.1em !important;
-                text-shadow: none !important;
-                box-shadow: var(--rt-glow) !important;
-            }
-
-            .attendance-summary.retro-theme .xp-achievements-view-all {
-                background: transparent !important;
-                border: 1px solid var(--rt-border-strong) !important;
-                border-radius: 0 !important;
-                color: var(--rt-text) !important;
-                font-family: 'Share Tech Mono', monospace !important;
-                letter-spacing: 0.08em !important;
-            }
-
-            .attendance-summary.retro-theme .xp-achievements-view-all:hover {
                 background: var(--rt-text) !important;
                 color: var(--rt-bg-1) !important;
             }
@@ -22256,129 +22155,14 @@
                 contain: layout style paint;
             }
 
-            .xp-container {
-                background: linear-gradient(135deg, rgba(108, 92, 231, 0.2), rgba(102, 126, 234, 0.15));
-                border: 1px solid rgba(108, 92, 231, 0.3);
-                border-radius: 16px;
-                padding: 20px;
-                position: relative;
-                overflow: hidden;
-            }
-
-            .xp-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 16px;
-            }
-
-            .xp-title {
-                font-size: 1rem;
-                font-weight: 600;
-                color: rgba(255, 255, 255, 0.9);
-            }
-
-            .xp-level {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-            }
-
-            .level-badge {
-                background: linear-gradient(135deg, #6c5ce7, #a29bfe);
-                padding: 6px 12px;
-                border-radius: 20px;
-                font-weight: 700;
-                font-size: 0.875rem;
-                box-shadow: 0 2px 8px rgba(108, 92, 231, 0.4);
-            }
-
-            .xp-progress-container {
-                margin-bottom: 12px;
-            }
-
-            .xp-progress-bar {
-                width: 100%;
-                height: 20px;
-                background: rgba(0, 0, 0, 0.3);
-                border-radius: 10px;
-                overflow: hidden;
-                position: relative;
-            }
-
-            .xp-progress-fill {
-                height: 100%;
-                background: linear-gradient(90deg, #6c5ce7, #a29bfe, #6c5ce7);
-                background-size: 200% 100%;
-                animation: gradientFlow 3s ease infinite;
-                transition: width 0.5s ease;
-                box-shadow: 0 0 10px rgba(108, 92, 231, 0.5);
-            }
-
-            .xp-info {
-                display: flex;
-                justify-content: space-between;
-                font-size: 0.75rem;
-                color: rgba(255, 255, 255, 0.7);
-                margin-top: 8px;
-            }
-
-            .xp-stats {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 12px;
-                margin-top: 12px;
-            }
-
-            .xp-stat-item {
-                background: rgba(255, 255, 255, 0.05);
-                padding: 12px;
-                border-radius: 8px;
-                text-align: center;
-            }
-
-            .xp-stat-label {
-                font-size: 0.75rem;
-                color: rgba(255, 255, 255, 0.6);
-                margin-bottom: 4px;
-            }
-
-            .xp-stat-value {
-                font-size: 1.25rem;
-                font-weight: 700;
-                color: #a29bfe;
-            }
-
-            .xp-streak {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 6px;
-                margin-top: 12px;
-                padding: 8px;
-                background: rgba(255, 107, 53, 0.15);
-                border: 1px solid rgba(255, 107, 53, 0.3);
-                border-radius: 8px;
-                font-weight: 600;
-                font-size: 0.875rem;
-            }
-
-            .xp-streak-icon {
-                font-size: 1.2rem;
-                animation: fireFlicker 1.5s ease-in-out infinite;
-            }
-
-            @keyframes fireFlicker {
-                0%, 100% { transform: scale(1); opacity: 1; }
-                50% { transform: scale(1.1); opacity: 0.9; }
-            }
-
             /* ACHIEVEMENTS (POOL_V2_PLAN.md, Achievement icons). Tokens: Glassmorphic dark here,
                light under prefers-color-scheme, Cyberpunk under .retro-theme inside the widget
                or, for the modal, toast and popover on <body>, while the widget is in it. A locked medallion
                carries .ach-t-locked instead of its tier, so no tier colour reaches it. */
-            .ach-ui, .xp-achievements {
+            .ach-ui {
                 --ach-surface: #24202F;
+                --ach-panel: rgba(36, 32, 48, 0.72);
+                --ach-blur: blur(18px);
                 --ach-border: rgba(255, 255, 255, 0.09);
                 --ach-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
                 --ach-text: #EEEAF6;
@@ -22391,8 +22175,8 @@
                 --ach-track: #2E2A3B;
                 --ach-ok: #5FD3A1;
                 --ach-focus: #B3A6FF;
-                --ach-font: 'Inter', system-ui, sans-serif;
-                --ach-display: 'Inter', system-ui, sans-serif;
+                --ach-font: 'Sora', system-ui, sans-serif;
+                --ach-display: 'Sora', system-ui, sans-serif;
             }
             .ach-t-common    { --md-g: #B9C3CF; --md-disc: #262833; --md-ring: #4A5160; }
             .ach-t-rare      { --md-g: #7CB8FF; --md-disc: #1B2638; --md-ring: #3D6FB0; }
@@ -22401,8 +22185,9 @@
             .ach-t-locked    { --md-g: #625D72; --md-disc: #1D1B25; --md-ring: #34313F; --md-badge: #2A2735; --md-lock: #C4BFD2; }
 
             @media (prefers-color-scheme: light) {
-                .ach-ui, .xp-achievements {
+                .ach-ui {
                     --ach-surface: #F6F4FC;
+                    --ach-panel: rgba(255, 255, 255, 0.62);
                     --ach-border: rgba(255, 255, 255, 0.85);
                     --ach-shadow: 0 12px 32px rgba(60, 40, 120, 0.14);
                     --ach-text: #1E1B2E;
@@ -22423,28 +22208,38 @@
                 .ach-t-locked    { --md-g: #A19DB3; --md-disc: #EEEDF3; --md-ring: #D6D4DE; --md-badge: #FFFFFF; --md-lock: #5B5670; }
             }
 
-            .retro-theme .xp-achievements, body:has(.attendance-summary.retro-theme) .ach-ui {
-                --ach-surface: #0F0D18;
-                --ach-border: #2A2540;
-                --ach-shadow: 0 0 0 1px rgba(0, 240, 255, 0.06);
-                --ach-text: #F2F0FF;
-                --ach-muted: #9E9AB8;
-                --ach-accent: #00F0FF;
-                --ach-on-accent: #04121A;
-                --ach-ink: #00F0FF;
-                --ach-inner: #151225;
-                --ach-inner-border: #231F38;
-                --ach-track: #1C1930;
-                --ach-ok: #00F0A8;
-                --ach-focus: #00F0FF;
-                --ach-font: 'Share Tech Mono', monospace;
-                --ach-display: 'Orbitron', sans-serif;
+            /* Cyberpunk follows the user's swatches, not fixed hexes: only the user-set --rt-* tokens,
+               which applyCyberTokens() also mirrors onto <html> for the body-level modal, toast and
+               popover. A fill that carries text is --rt-text with --rt-bg-1 type, never an accent
+               (a dark pick would hide the label); the accent fills only the XP bar. */
+            .retro-theme .ach-ui, body:has(.attendance-summary.retro-theme) .ach-ui {
+                --ach-surface: var(--rt-bg-1, #07091a);
+                --ach-panel: linear-gradient(160deg, var(--rt-bg-2, #11142b), var(--rt-bg-1, #07091a));
+                --ach-blur: none;
+                --ach-border: rgba(var(--rt-border-rgb, 255, 242, 0), 0.38);
+                --ach-shadow: 0 0 calc(14px * var(--rt-glow-k, 0.6)) rgba(var(--rt-glow-rgb, 255, 242, 0), calc(0.3 * var(--rt-glow-k, 0.6)));
+                --ach-text: var(--rt-text, #fff200);
+                --ach-muted: rgba(var(--rt-text-rgb, 255, 242, 0), 0.72);
+                --ach-accent: var(--rt-text, #fff200);
+                --ach-on-accent: var(--rt-bg-1, #07091a);
+                --ach-bar: var(--rt-accent, #fff200);
+                --ach-ink: var(--rt-accent, #fff200);
+                --ach-inner: rgba(var(--rt-border-rgb, 255, 242, 0), 0.06);
+                --ach-inner-border: rgba(var(--rt-border-rgb, 255, 242, 0), 0.2);
+                --ach-track: rgba(var(--rt-border-rgb, 255, 242, 0), 0.16);
+                --ach-ok: var(--rt-cyber-hl, #00e5ff);
+                --ach-focus: var(--rt-text, #fff200);
+                --ach-font: 'Sora', system-ui, sans-serif;
+                --ach-display: 'Chakra Petch', 'Sora', sans-serif;
             }
-            .retro-theme .ach-t-common,    body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-common    { --md-g: #A9B4C8; --md-disc: #14131F; --md-ring: #3A3F55; }
-            .retro-theme .ach-t-rare,      body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-rare      { --md-g: #00E5FF; --md-disc: #071A22; --md-ring: #00B8D4; }
-            .retro-theme .ach-t-epic,      body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-epic      { --md-g: #FF4FD8; --md-disc: #1F0A1E; --md-grad: linear-gradient(135deg, #FF2BD6, #7A2BFF); }
-            .retro-theme .ach-t-legendary, body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-legendary { --md-g: #F8E71C; --md-disc: #1C1A05; --md-grad: conic-gradient(from 210deg, #F8E71C, #FF2BD6, #00F0FF, #F8E71C, #F8E71C); --md-sheen: rgba(248, 231, 28, 0.35); }
-            .retro-theme .ach-t-locked,    body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-locked    { --md-g: #4C4868; --md-disc: #0D0C15; --md-ring: #262439; --md-badge: #1A1828; --md-lock: #B7B3D0; }
+            /* The tiers take the palette too: Rare the Highlight, Epic the Accent, Legendary all three
+               swatches. The ring style (solid, gradient, conic with a sheen) keeps them apart when two
+               swatches match. */
+            .retro-theme .ach-t-common,    body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-common    { --md-g: rgba(var(--rt-text-rgb, 255, 242, 0), 0.72); --md-disc: var(--rt-bg-1, #07091a); --md-ring: rgba(var(--rt-border-rgb, 255, 242, 0), 0.35); }
+            .retro-theme .ach-t-rare,      body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-rare      { --md-g: var(--rt-cyber-hl, #00e5ff); --md-disc: color-mix(in srgb, var(--rt-cyber-hl, #00e5ff) 10%, var(--rt-bg-1, #07091a)); --md-ring: var(--rt-cyber-hl, #00e5ff); }
+            .retro-theme .ach-t-epic,      body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-epic      { --md-g: var(--rt-accent, #fff200); --md-disc: color-mix(in srgb, var(--rt-accent, #fff200) 10%, var(--rt-bg-1, #07091a)); --md-grad: linear-gradient(135deg, var(--rt-accent, #fff200), var(--rt-cyber-panel, #00e5ff)); }
+            .retro-theme .ach-t-legendary, body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-legendary { --md-g: var(--rt-text, #fff200); --md-disc: color-mix(in srgb, var(--rt-text, #fff200) 12%, var(--rt-bg-1, #07091a)); --md-grad: conic-gradient(from 210deg, var(--rt-accent, #fff200), var(--rt-cyber-hl, #00e5ff), var(--rt-text, #fff200), var(--rt-cyber-panel, #00e5ff), var(--rt-accent, #fff200)); --md-sheen: rgba(var(--rt-text-rgb, 255, 242, 0), 0.4); }
+            .retro-theme .ach-t-locked,    body:has(.attendance-summary.retro-theme) .ach-ui .ach-t-locked    { --md-g: rgba(var(--rt-text-rgb, 255, 242, 0), 0.3); --md-disc: var(--rt-bg-1, #07091a); --md-ring: rgba(var(--rt-border-rgb, 255, 242, 0), 0.18); --md-badge: var(--rt-bg-2, #11142b); --md-lock: rgba(var(--rt-text-rgb, 255, 242, 0), 0.8); }
 
             /* The medallion: size, ring width and badge placement come inline from achMedal. */
             .ach-md {
@@ -22493,10 +22288,139 @@
                 100% { background-position: -50% 0; }
             }
 
-            /* A1: the XP panel's earned row, rarest first, then View all. */
+            /* AchEarned: the Work Rewards panel. 16 px in, 12 px in a column under 340 px (AchEarnedNarrow). */
+            .right-panel { container: ach-rpanel / inline-size; }
+            .xpr {
+                position: relative;
+                box-sizing: border-box;
+                padding: 16px;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                border-radius: 20px;
+                background: var(--ach-panel);
+                border: 1px solid var(--ach-border);
+                box-shadow: var(--ach-shadow);
+                backdrop-filter: var(--ach-blur);
+                -webkit-backdrop-filter: var(--ach-blur);
+                color: var(--ach-text);
+                font-family: var(--ach-font);
+                line-height: 1.3;
+            }
+            @container ach-rpanel (max-width: 340px) {
+                .xpr { padding: 12px; }
+            }
+            .xpr-head {
+                height: 32px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+            }
+            .xpr-title {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                min-width: 0;
+                color: var(--ach-ink);
+            }
+            .xpr-title > span {
+                font-family: var(--ach-display);
+                font-size: 16px;
+                font-weight: 600;
+                color: var(--ach-text);
+                white-space: nowrap;
+            }
+            .xpr-level {
+                height: 30px;
+                padding: 0 12px;
+                border-radius: 15px;
+                display: flex;
+                align-items: center;
+                background: var(--ach-accent);
+                color: var(--ach-on-accent);
+                font-size: 13px;
+                font-weight: 600;
+                white-space: nowrap;
+                font-variant-numeric: tabular-nums;
+            }
+            .xpr-progress {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+            .xpr-bar {
+                height: 8px;
+                border-radius: 4px;
+                background: var(--ach-track);
+                overflow: hidden;
+            }
+            .xpr-fill {
+                height: 100%;
+                border-radius: 4px;
+                background: var(--ach-bar, var(--ach-accent));
+                transition: width 0.5s ease;
+            }
+            .xpr-info {
+                display: flex;
+                justify-content: space-between;
+                gap: 8px;
+                font-size: 11px;
+                color: var(--ach-muted);
+                font-variant-numeric: tabular-nums;
+            }
+            .xpr-row {
+                border-radius: 10px;
+                background: var(--ach-inner);
+                border: 1px solid var(--ach-inner-border);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .xpr-milestone {
+                height: 34px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            .xpr-streak {
+                height: 40px;
+                gap: 8px;
+            }
+            .xpr-flame { display: flex; color: var(--md-g); }
+            .xpr-streak-n { font-size: 14px; font-weight: 600; }
+            .xpr-muted { font-size: 12px; color: var(--ach-muted); }
+            .xpr-stats {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px;
+            }
+            .xpr-stat {
+                height: 60px;
+                border-radius: 12px;
+                background: var(--ach-inner);
+                border: 1px solid var(--ach-inner-border);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 2px;
+            }
+            .xpr-stat-l { font-size: 11px; color: var(--ach-muted); }
+            .xpr-stat-v {
+                font-family: var(--ach-display);
+                font-size: 20px;
+                font-weight: 700;
+                color: var(--ach-ink);
+                font-variant-numeric: tabular-nums;
+            }
+
+            /* A1: the earned row, rarest first, then View all. */
             .xp-achievements {
-                margin-top: 12px;
+                box-sizing: border-box;
                 padding: 10px 8px 6px;
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
                 border-radius: 14px;
                 background: var(--ach-inner);
                 border: 1px solid var(--ach-inner-border);
@@ -22514,14 +22438,16 @@
             .xp-ach-count {
                 font-size: 11px;
                 font-weight: 400;
-                opacity: 0.7;
+                color: var(--ach-muted);
                 font-variant-numeric: tabular-nums;
             }
+            /* As many 44 px columns as fit, sharing the leftover width, so a column
+               that is not a multiple of 44 leaves no gap at the right edge. */
             .xp-ach-row {
-                display: flex;
-                flex-wrap: wrap;
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+                justify-items: center;
                 align-items: center;
-                margin-top: 4px;
             }
             .xp-ach-btn {
                 width: 44px;
@@ -22538,13 +22464,16 @@
             }
             .xp-ach-btn:hover { transform: translateY(-1px); }
             .xp-achievements-empty {
-                flex: 1;
+                grid-column: 1 / -1;
+                justify-self: start;
                 padding: 8px 4px;
                 font-size: 12px;
                 opacity: 0.7;
             }
             .xp-achievements-view-all {
                 height: 36px;
+                grid-column: span 3;
+                justify-self: start;
                 margin: 4px 0 4px 6px;
                 padding: 0 14px;
                 border: 0;
@@ -22703,7 +22632,7 @@
                 min-height: 0;
                 overflow-y: auto;
                 display: grid;
-                grid-template-columns: 1fr;
+                grid-template-columns: minmax(0, 1fr);
                 gap: 8px;
                 align-content: start;
                 padding-right: 2px;
@@ -22711,7 +22640,7 @@
                 scrollbar-color: var(--ach-track) transparent;
             }
             @media (min-width: 480px) {
-                .achievements-modal-grid { grid-template-columns: 1fr 1fr; }
+                .achievements-modal-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             }
             .ach-card {
                 box-sizing: border-box;
@@ -22739,10 +22668,9 @@
                 font-size: 11px;
                 line-height: 1.3;
                 color: var(--ach-muted);
-                display: -webkit-box;
-                -webkit-line-clamp: 2;
-                -webkit-box-orient: vertical;
+                white-space: nowrap;
                 overflow: hidden;
+                text-overflow: ellipsis;
             }
             .ach-card-tier {
                 font-size: 10px;
@@ -22856,18 +22784,6 @@
                 .ach-toast .ach-draw,
                 .ach-toast-chip { animation: none; }
                 .ach-md.ach-t-legendary::after { animation: none; opacity: 0; }
-            }
-
-            .xp-next-milestone {
-                margin-top: 8px;
-                padding: 6px 12px;
-                background: rgba(255, 193, 7, 0.15);
-                border: 1px solid rgba(255, 193, 7, 0.3);
-                border-radius: 6px;
-                text-align: center;
-                font-size: 0.75rem;
-                color: rgba(255, 193, 7, 0.9);
-                font-weight: 600;
             }
 
             .xp-milestone-notification {
@@ -23572,12 +23488,6 @@
                     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
                 }
 
-                .xp-container {
-                    background: linear-gradient(135deg, rgba(108, 92, 231, 0.10), rgba(102, 126, 234, 0.06));
-                    border-color: rgba(108, 92, 231, 0.20);
-                    box-shadow: 0 4px 16px rgba(108, 92, 231, 0.10);
-                }
-
                 .snake-game-header {
                     color: rgba(0, 0, 0, 0.85);
                 }
@@ -23690,38 +23600,6 @@
                 }
                 .attendance-summary:not(.retro-theme) .quote-author {
                     color: rgba(0, 0, 0, 0.50);
-                }
-
-                .attendance-summary:not(.retro-theme) .xp-title {
-                    color: rgba(0, 0, 0, 0.88);
-                }
-                .attendance-summary:not(.retro-theme) .xp-info {
-                    color: rgba(0, 0, 0, 0.55);
-                }
-                .attendance-summary:not(.retro-theme) .xp-stat-item {
-                    background: rgba(0, 0, 0, 0.04);
-                }
-                .attendance-summary:not(.retro-theme) .xp-stat-label {
-                    color: rgba(0, 0, 0, 0.60);
-                }
-                .attendance-summary:not(.retro-theme) .xp-stat-value {
-                    color: #6c5ce7;
-                }
-                .attendance-summary:not(.retro-theme) .xp-progress-bar {
-                    background: rgba(0, 0, 0, 0.08);
-                }
-                .attendance-summary:not(.retro-theme) .xp-streak {
-                    background: rgba(255, 107, 53, 0.07);
-                    border-color: rgba(255, 107, 53, 0.18);
-                    color: rgba(0, 0, 0, 0.78);
-                }
-                .attendance-summary:not(.retro-theme) .xp-next-milestone {
-                    background: rgba(255, 193, 7, 0.10);
-                    border-color: rgba(255, 193, 7, 0.22);
-                    color: #8a6300;
-                }
-                .attendance-summary:not(.retro-theme) .level-badge {
-                    color: #fff;
                 }
 
                 /* Image Box: the frame, drop zone and menu go light. The kebab and hint sit
@@ -23968,16 +23846,83 @@
                 }
             }
 
+            /* AchPopover: the leaderboard as player rows; a row's hover, focus or press opens its achievements. */
             .leaderboard-panel {
                 display: flex;
                 flex-direction: column;
                 gap: 10px;
+                box-sizing: border-box;
                 padding: 14px;
                 min-height: 200px;
-                background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
-                border-radius: 16px;
-                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 20px;
+                background: var(--ach-panel);
+                border: 1px solid var(--ach-border);
+                box-shadow: var(--ach-shadow);
+                backdrop-filter: var(--ach-blur);
+                -webkit-backdrop-filter: var(--ach-blur);
+                color: var(--ach-text);
+                font-family: var(--ach-font);
+                line-height: 1.3;
             }
+            .lb-head {
+                height: 32px;
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+            }
+            .lb-head-t { font-family: var(--ach-display); font-size: 16px; font-weight: 600; }
+            .lb-head-n { font-size: 11px; color: var(--ach-muted); white-space: nowrap; }
+            .lb-list {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                max-height: 300px;
+                overflow-y: auto;
+                scrollbar-width: thin;
+                scrollbar-color: var(--ach-track) transparent;
+            }
+            .lb-row {
+                flex-shrink: 0;
+                height: 52px;
+                box-sizing: border-box;
+                padding: 0 12px 0 10px;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                border-radius: 12px;
+                border: 1px solid transparent;
+                background: transparent;
+                color: inherit;
+                font: inherit;
+                text-align: left;
+                cursor: pointer;
+            }
+            .lb-row:hover,
+            .lb-row[aria-expanded="true"] {
+                background: var(--ach-inner);
+                border-color: var(--ach-inner-border);
+            }
+            .lb-row:focus-visible { outline: 2px solid var(--ach-focus); outline-offset: 2px; }
+            .lb-row-rank { width: 18px; flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--ach-muted); font-variant-numeric: tabular-nums; }
+            .lb-row-av {
+                width: 32px;
+                height: 32px;
+                flex-shrink: 0;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: var(--ach-track);
+                color: var(--ach-text);
+                font-size: 11px;
+                font-weight: 700;
+            }
+            .lb-row-who { display: flex; flex-direction: column; gap: 1px; flex-grow: 1; min-width: 0; }
+            .lb-row-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .lb-row-lv { font-size: 11px; color: var(--ach-muted); }
+            .lb-row-xp { flex-shrink: 0; font-size: 13px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
             .lb-register-card {
                 display: flex;
                 flex-direction: column;
@@ -24048,29 +23993,6 @@
                 transition: background 0.2s;
             }
             .lb-sync-btn:hover { background: rgba(255,255,255,0.2); }
-            /* .lb-table-wrap is the ONE scroll container for both axes: sticky positions
-                           against whichever ancestor actually scrolls, so header/rank/name must stick
-                           in this box, not a parent one level up. */
-            .lb-table-wrap {
-                max-height: 280px;
-                overflow: auto;
-                border-radius: 12px;
-                border: 1px solid rgba(255,255,255,0.08);
-                background: rgba(0,0,0,0.15);
-                -webkit-overflow-scrolling: touch;
-                /* Themed thin scrollbar — same recipe as .game-switcher — instead
-                   of the OS default block scrollbar. */
-                scrollbar-width: thin;
-                scrollbar-color: rgba(255,255,255,0.28) transparent;
-            }
-            .lb-table-wrap::-webkit-scrollbar { width: 7px; height: 7px; }
-            .lb-table-wrap::-webkit-scrollbar-track { background: transparent; }
-            .lb-table-wrap::-webkit-scrollbar-thumb {
-                background: rgba(255,255,255,0.28);
-                border-radius: 999px;
-            }
-            .lb-table-wrap::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.45); }
-            .lb-table-wrap::-webkit-scrollbar-corner { background: transparent; }
             .lb-table {
                 width: max-content;
                 min-width: 100%;
@@ -24149,21 +24071,6 @@
                 z-index: 3;
                 background: rgba(14,16,26,0.96);
             }
-            /* The portal stylesheet sets .emp-list-table table thead th to
-               position:sticky, top:0, z-index:1000 and background-color:#fff, all
-               !important, and the widget renders inside that container. Sticky is
-               what this table wants; the white fill is not, and z-index 1000 on every
-               header cell flattens the two corner cells, which have to stay above the
-               rest of the row while the score columns scroll under them. */
-            .lb-table-wrap .lb-table thead th {
-                background-color: rgba(14,16,26,0.92) !important;
-                z-index: 2 !important;
-            }
-            .lb-table-wrap .lb-table thead .lb-rank,
-            .lb-table-wrap .lb-table thead .lb-name {
-                background-color: rgba(14,16,26,0.96) !important;
-                z-index: 3 !important;
-            }
             .lb-row-me .lb-rank, .lb-row-me .lb-name {
                 background: linear-gradient(rgba(102,126,234,0.32), rgba(102,126,234,0.32)), rgba(16,18,28,0.94);
             }
@@ -24178,28 +24085,6 @@
                 font-weight: 700;
             }
             .lb-xp { white-space: nowrap; min-width: 58px; font-variant-numeric: tabular-nums; }
-            .lb-ach-badge {
-                display: inline-flex;
-                align-items: center;
-                gap: 3px;
-                margin-left: 6px;
-                padding: 1px 6px;
-                border-radius: 8px;
-                font-size: 0.62rem;
-                font-weight: 600;
-                letter-spacing: 0.2px;
-                background: rgba(255,215,0,0.14);
-                border: 1px solid rgba(255,215,0,0.3);
-                color: inherit;
-                opacity: 0.85;
-                cursor: help;
-                vertical-align: middle;
-            }
-            .lb-ach-badge:hover, .lb-ach-badge:focus {
-                opacity: 1;
-                background: rgba(255,215,0,0.24);
-                outline: none;
-            }
             .lb-score { text-align: right; min-width: 52px; font-variant-numeric: tabular-nums; opacity: 0.9; white-space: nowrap; }
             .lb-you {
                 display: inline-block;
@@ -24213,13 +24098,6 @@
                 letter-spacing: 0.3px;
                 vertical-align: middle;
             }
-            .lb-footer {
-                font-size: 0.68rem;
-                opacity: 0.5;
-                text-align: right;
-                padding: 0 2px;
-            }
-
             .lb-board-table td {
                 padding: 5px 6px;
             }
@@ -24287,7 +24165,7 @@
             .lb-ach-pop-row {
                 display: flex;
                 align-items: center;
-                gap: 5px;
+                gap: 6px;
             }
             .lb-ach-pop-row > span { display: flex; }
             .lb-ach-pop-more {
@@ -24305,11 +24183,6 @@
             /* Light mode: the boards' own surfaces (their text already follows the widget's).
                The sticky rank and name cells stay opaque, so scrolled scores never show through. */
             @media (prefers-color-scheme: light) {
-                .attendance-summary:not(.retro-theme) .lb-table-wrap { background: rgba(255, 255, 255, 0.65); border-color: rgba(0, 0, 0, 0.08); scrollbar-color: rgba(0, 0, 0, 0.25) transparent; }
-                .attendance-summary:not(.retro-theme) .lb-table-wrap::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.25); }
-                .attendance-summary:not(.retro-theme) .lb-table-wrap .lb-table thead th { background-color: rgba(240, 241, 247, 0.97) !important; border-bottom-color: rgba(0, 0, 0, 0.1); }
-                .attendance-summary:not(.retro-theme) .lb-table-wrap .lb-table thead .lb-rank,
-                .attendance-summary:not(.retro-theme) .lb-table-wrap .lb-table thead .lb-name { background-color: #f0f1f7 !important; }
                 .attendance-summary:not(.retro-theme) .lb-table tbody td { border-bottom-color: rgba(0, 0, 0, 0.06); }
                 .attendance-summary:not(.retro-theme) .lb-rank, .attendance-summary:not(.retro-theme) .lb-name { background: #fafafd; }
                 .attendance-summary:not(.retro-theme) .lb-name { box-shadow: 2px 0 6px rgba(0, 0, 0, 0.08); }
@@ -26521,7 +26394,7 @@
                     <div id="prayer-controls" class="snake-controls" style="display: none;"></div>
 
                     <!-- Leaderboard Panel -->
-                    <div id="leaderboard-panel" class="leaderboard-panel" style="display: none;"></div>
+                    <div id="leaderboard-panel" class="leaderboard-panel ach-ui" style="display: none;"></div>
                     <div id="leaderboard-controls" class="snake-controls" style="display: none;"></div>
                     <div id="leaderboard-scoreboard" class="snake-scoreboard" style="display: none;">
                         <button class="lb-sync-btn" onclick="window.lbSync()" title="Sync & Refresh">🔄</button>
@@ -26595,45 +26468,39 @@
         // Right panel - XP System & Image Box
         const rightPanelHTML = `
             <div class="right-panel">
-                <!-- XP System -->
-                <div class="xp-container">
-                    <div class="xp-header">
-                        <span class="xp-title">⭐ Work Rewards</span>
-                        <div class="xp-level">
-                            <span class="level-badge">Level <span id="xp-level">1</span></span>
-                        </div>
+                <!-- Work Rewards (AchEarned): the level, its bar, today's milestone, the streak, the totals, the earned row -->
+                <section class="xpr ach-ui" aria-label="Work rewards">
+                    <div class="xpr-head">
+                        <span class="xpr-title">${achSvg(ACH_SPARKLE_D, 18)}<span>Work Rewards</span></span>
+                        <span class="xpr-level">Level&nbsp;<span id="xp-level">1</span></span>
                     </div>
-                    <div class="xp-progress-container">
-                        <div class="xp-progress-bar">
-                            <div id="xp-progress-fill" class="xp-progress-fill" style="width: 0%"></div>
+                    <div class="xpr-progress">
+                        <div id="xp-progress-bar" class="xpr-bar" role="progressbar" aria-label="XP to the next level" aria-valuemin="0" aria-valuemax="120" aria-valuenow="0">
+                            <div id="xp-progress-fill" class="xpr-fill" style="width: 0%"></div>
                         </div>
-                        <div class="xp-info">
+                        <div class="xpr-info">
                             <span><span id="xp-current">0</span> XP</span>
                             <span><span id="xp-needed">120</span> XP to next level</span>
                         </div>
-                        <div id="xp-next-milestone" class="xp-next-milestone" style="display: none;">
-                            Next milestone in Xh
+                    </div>
+                    <div id="xp-next-milestone" class="xpr-row xpr-milestone" style="display: none;"></div>
+                    <div class="xpr-row xpr-streak">
+                        <span class="xpr-flame ach-t-rare">${achSvg(ACHIEVEMENTS.streak7.d, 18)}</span>
+                        <span class="xpr-streak-n"><span id="xp-streak">0</span>-Day Streak</span>
+                        <span class="xpr-muted">Best: <span id="xp-longest-streak">0</span></span>
+                    </div>
+                    <div class="xpr-stats">
+                        <div class="xpr-stat">
+                            <span class="xpr-stat-l">Total XP</span>
+                            <span id="xp-total" class="xpr-stat-v">0</span>
+                        </div>
+                        <div class="xpr-stat">
+                            <span class="xpr-stat-l">Today's Hours</span>
+                            <span id="xp-today-hours" class="xpr-stat-v">0</span>
                         </div>
                     </div>
-                    <div class="xp-streak">
-                        <span class="xp-streak-icon">🔥</span>
-                        <span><span id="xp-streak">0</span>-Day Streak</span>
-                        <span style="opacity: 0.6; font-size: 0.75rem;">(Best: <span id="xp-longest-streak">0</span>)</span>
-                    </div>
-                    <div class="xp-stats">
-                        <div class="xp-stat-item">
-                            <div class="xp-stat-label">Total XP</div>
-                            <div id="xp-total" class="xp-stat-value">0</div>
-                        </div>
-                        <div class="xp-stat-item">
-                            <div class="xp-stat-label">Today's Hours</div>
-                            <div id="xp-today-hours" class="xp-stat-value">0</div>
-                        </div>
-                    </div>
-                    <div id="xp-achievements" class="xp-achievements">
-                        <!-- Achievement badges will be dynamically inserted here -->
-                    </div>
-                </div>
+                    <div id="xp-achievements" class="xp-achievements"></div>
+                </section>
 
                 <!-- Image Box -->
                 ${imageBoxHTML()}

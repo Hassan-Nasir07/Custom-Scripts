@@ -170,9 +170,13 @@ const thead = (src.match(/<thead><tr>[\s\S]*?<\/tr><\/thead>/) || [''])[0];
 const mainCols = (thead.match(/<th[ >]/g) || []).length;
 ok('no per-game columns left in the main table', th === 0 && td === 0,
    th + ' headers, ' + td + ' cells');
-ok('the empty-state colspan matches the main table width',
-   mainCols > 0 && Number(colspan) === mainCols,
-   'colspan=' + colspan + ' but the header has ' + mainCols + ' columns');
+// The roster is player rows now (AchPopover), so the one table left is a game board: its
+// empty state spans the cells of one of its rows.
+const boardFn = (src.match(/function lbBoardRowsHtml\([\s\S]*?\n    \}/) || [''])[0];
+const boardCells = ((boardFn.match(/<tr class=[\s\S]*?<\/tr>/) || [''])[0].match(/<td[ >]/g) || []).length;
+ok("the roster has no table, and a board's empty state spans its row",
+   mainCols === 0 && boardCells > 0 && Number(colspan) === boardCells,
+   'colspan=' + colspan + ', board row has ' + boardCells + ' cells, roster header ' + mainCols);
 ok('ludo has a board in the selector',
    /ludo:\s*\{[^}]*label:\s*'Ludo'/.test(src));
 // Hot-seat wins are never recorded (ludoSaveWins runs only under `if (vsCPU)`),

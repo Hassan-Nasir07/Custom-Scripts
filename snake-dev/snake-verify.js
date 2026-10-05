@@ -913,9 +913,13 @@ ok('no per-game columns remain in the main table', th === 0 && td === 0,
 const thead = (src.match(/<thead><tr>[\s\S]*?<\/tr><\/thead>/) || [''])[0];
 // `<th[ >]` so the enclosing `<thead>` isn't counted as a column.
 const mainCols = (thead.match(/<th[ >]/g) || []).length;
-ok('the empty-state colspan matches the main table width',
-   mainCols > 0 && Number(colspan) === mainCols,
-   'colspan=' + colspan + ' but the header has ' + mainCols + ' columns');
+// The roster is player rows now (AchPopover), so the one table left is a game board: its
+// empty state spans the cells of one of its rows.
+const boardFn = (src.match(/function lbBoardRowsHtml\([\s\S]*?\n    \}/) || [''])[0];
+const boardCells = ((boardFn.match(/<tr class=[\s\S]*?<\/tr>/) || [''])[0].match(/<td[ >]/g) || []).length;
+ok("the roster has no table, and a board's empty state spans its row",
+   mainCols === 0 && boardCells > 0 && Number(colspan) === boardCells,
+   'colspan=' + colspan + ', board row has ' + boardCells + ' cells, roster header ' + mainCols);
 // gameModeBests is authoritative once present, so a key sourced from a
 // lazily-seeded store would erase that game rather than fall back.
 ok('pool bests are collected via the seeding loader, not the raw key',
@@ -932,8 +936,8 @@ ok('RefleX is marked lower-is-better', has('lowerIsBetter: true'));
 ok('the leaderboard panel no longer appends a board section',
    !has('renderLbBoardSection') && !has('bindLbBoardSelectors') &&
    !has('id="lb-board-select"') && !has('data-lb-board='));
-ok('the panel renders only the roster table and its footer',
-   /panel\.innerHTML = `[\s\S]{0,700}?lb-table-wrap[\s\S]{0,700}?lb-footer[\s\S]{0,40}?`;/.test(src));
+ok('the panel renders only its head and the player rows (AchPopover)',
+   /panel\.innerHTML = `[\s\S]{0,300}?lb-head[\s\S]{0,300}?lb-list[\s\S]{0,120}?`;/.test(src));
 
 // Every ranked game needs a button, or its board is unreachable now that the
 // panel section is gone.

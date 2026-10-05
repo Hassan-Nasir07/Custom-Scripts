@@ -526,7 +526,7 @@
             .attendance-summary.retro-theme.rt-booting .progress-bar,
             .attendance-summary.retro-theme.rt-booting .snake-game-container,
             .attendance-summary.retro-theme.rt-booting .quotes-container,
-            .attendance-summary.retro-theme.rt-booting .xp-container,
+            .attendance-summary.retro-theme.rt-booting .xpr,
             .attendance-summary.retro-theme.rt-booting .image-box-container {
                 animation: rtBoot 500ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
             }
@@ -1274,7 +1274,6 @@
 
             .attendance-summary.retro-theme .snake-game-container,
             .attendance-summary.retro-theme .quotes-container,
-            .attendance-summary.retro-theme .xp-container,
             .attendance-summary.retro-theme .image-box-container {
                 background:
                     var(--rt-brackets),
@@ -1291,8 +1290,7 @@
             }
 
             .attendance-summary.retro-theme .snake-game-title,
-            .attendance-summary.retro-theme .quotes-title,
-            .attendance-summary.retro-theme .xp-title {
+            .attendance-summary.retro-theme .quotes-title {
                 color: var(--rt-text) !important;
                 font-family: 'Orbitron', sans-serif !important;
                 letter-spacing: 0.12em !important;
@@ -1313,58 +1311,7 @@
                 border-radius: 0 !important;
             }
 
-            /* XP / QUOTES / IMAGE PANELS */
-
-            .attendance-summary.retro-theme .xp-progress-bar {
-                background: var(--rt-hazard-dim) !important;
-                background-size: 22px 100% !important;
-                border: 1px solid var(--rt-border) !important;
-                border-radius: 0 !important;
-                position: relative;
-                overflow: hidden;
-            }
-
-            .attendance-summary.retro-theme .xp-progress-fill {
-                background: var(--rt-chevron-fill) !important;
-                background-size: 22px 100% !important;
-                animation: rtHazardCrawl 2s linear infinite !important;
-                border-radius: 0 !important;
-                box-shadow:
-                    0 0 calc(7px * var(--rt-glow-k))
-                        rgba(var(--rt-glow-rgb), calc(0.85 * var(--rt-glow-k))),
-                    0 0 calc(22px * var(--rt-glow-k))
-                        rgba(var(--rt-glow-rgb), calc(0.45 * var(--rt-glow-k))) !important;
-            }
-
-            /* SEGMENTED XP — XP is a count. The host renders one continuous fill, so
-               the gaps are knocked back out over the top. */
-            .attendance-summary.retro-theme .xp-progress-bar::after {
-                content: '';
-                position: absolute;
-                inset: 0;
-                background: repeating-linear-gradient(
-                    115deg,
-                    transparent 0 calc(5% - 2px),
-                    var(--rt-bg-1) calc(5% - 2px) 5%);
-                pointer-events: none;
-                z-index: 2;
-            }
-
-            .attendance-summary.retro-theme .xp-stat-value {
-                color: var(--rt-text) !important;
-                font-family: 'Share Tech Mono', monospace !important;
-                text-shadow: var(--rt-glow-soft) !important;
-            }
-
-            .attendance-summary.retro-theme .xp-stat-label {
-                color: var(--rt-text-dim) !important;
-                font-family: 'Share Tech Mono', monospace !important;
-                letter-spacing: 0.1em !important;
-            }
-
-            .attendance-summary.retro-theme .xp-info {
-                color: var(--rt-text-dim) !important;
-            }
+            /* QUOTES */
 
             .attendance-summary.retro-theme .quote-text {
                 color: var(--rt-text) !important;
@@ -1383,39 +1330,6 @@
             }
 
             .attendance-summary.retro-theme .quote-add-btn:hover {
-                background: var(--rt-text) !important;
-                color: var(--rt-bg-1) !important;
-            }
-
-            /* Solid knocked-out badge, cut to a HEXAGON — the one shape used nowhere
-               else, so a rank is never mistaken for a button. */
-            .attendance-summary.retro-theme .level-badge {
-                background: var(--rt-text) !important;
-                border: 0 !important;
-                border-radius: 0 !important;
-                clip-path: polygon(
-                    50% 0, 100% 25%, 100% 75%,
-                    50% 100%, 0 75%, 0 25%);
-                padding-left: 15px !important;
-                padding-right: 15px !important;
-                color: var(--rt-bg-1) !important;
-                font-family: 'Orbitron', sans-serif !important;
-                font-weight: 700 !important;
-                letter-spacing: 0.1em !important;
-                text-shadow: none !important;
-                box-shadow: var(--rt-glow) !important;
-            }
-
-            .attendance-summary.retro-theme .xp-achievements-view-all {
-                background: transparent !important;
-                border: 1px solid var(--rt-border-strong) !important;
-                border-radius: 0 !important;
-                color: var(--rt-text) !important;
-                font-family: 'Share Tech Mono', monospace !important;
-                letter-spacing: 0.08em !important;
-            }
-
-            .attendance-summary.retro-theme .xp-achievements-view-all:hover {
                 background: var(--rt-text) !important;
                 color: var(--rt-bg-1) !important;
             }

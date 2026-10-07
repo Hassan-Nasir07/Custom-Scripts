@@ -848,11 +848,11 @@
         ctx.font = 'bold 15px system-ui, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('🎲  ' + LUDO_MODE_LABEL[ludoMode],
-                     LUDO_CANVAS_W / 2, LUDO_BOARD_Y + LUDO_BOARD / 2 - 10);
+        ludoIconText(ctx, 'g-ludo', LUDO_MODE_LABEL[ludoMode],
+                     LUDO_CANVAS_W / 2, LUDO_BOARD_Y + LUDO_BOARD / 2 - 10, 20);
         ctx.font = '11px system-ui, sans-serif';
         ctx.fillStyle = 'rgba(255,255,255,0.70)';
-        ctx.fillText('Press ▶ Play to start',
+        ctx.fillText('Press Play to start',
                      LUDO_CANVAS_W / 2, LUDO_BOARD_Y + LUDO_BOARD / 2 + 12);
         ctx.restore();
     }
@@ -878,7 +878,7 @@
         ctx.textBaseline = 'middle';
         ctx.font = 'bold 14px system-ui, sans-serif';
         ctx.fillStyle = '#ffd166';
-        ctx.fillText('🏆  ' + LUDO_COLORS[order[0]].label + ' wins', x + w / 2, y + 20);
+        ludoIconText(ctx, 'trophy', LUDO_COLORS[order[0]].label + ' wins', x + w / 2, y + 20, 18);
 
         order.forEach((ci, k) => {
             const ry = y + 44 + k * 20;
@@ -898,7 +898,7 @@
         ctx.textAlign = 'center';
         ctx.font = '10px system-ui, sans-serif';
         ctx.fillStyle = 'rgba(255,255,255,0.55)';
-        ctx.fillText('▶ Play for a new match', x + w / 2, y + h - 14);
+        ctx.fillText('Press Play for a new match', x + w / 2, y + h - 14);
         ctx.restore();
     }
 
@@ -1178,7 +1178,12 @@
     // canvas chip. Icons are duplicated in the host's LB_BOARDS labels; the
     // engine can't reach the host's tables, and two emoji is a cheaper coupling
     // than a lookup that has to exist in the standalone harness too.
-    const LUDO_TIER_ICON = { easy: '🌱', normal: '⚔️', hard: '🔥' };
+    const LUDO_TIER_ICON = { easy: 'easy', normal: 'normal', hard: 'hard' };
+    // The host's colour icons (attIcon / attIconText); the standalone harness has none and shows text.
+    const ludoIco = id => typeof attIcon === 'function' ? attIcon(id) + ' ' : '';
+    function ludoIconText(ctx, id, text, x, y, n) {
+        if (typeof attIconText === 'function') attIconText(ctx, id, text, x, y, n); else ctx.fillText(text, x, y);
+    }
 
     function updateLudoScoreboard() {
         const modeEl = document.getElementById('ludo-mode-label');
@@ -1193,10 +1198,10 @@
             tierEl.style.display = vsCPU ? '' : 'none';
             if (vsCPU) {
                 const tier = LUDO_TIER_ICON[ludoCpuTier] ? ludoCpuTier : 'normal';
-                tierEl.textContent = LUDO_TIER_ICON[tier] + ' ' + tier;
+                tierEl.innerHTML = ludoIco(LUDO_TIER_ICON[tier]) + tier;
             }
         }
-        if (homeEl) homeEl.textContent = '🏠 ' + ludoTokensHome(LUDO_HUMAN_CI) + '/4';
+        if (homeEl) homeEl.innerHTML = ludoIco('home') + ludoTokensHome(LUDO_HUMAN_CI) + '/4';
         if (!turnEl) return;
         if (ludoPhase === 'over') {
             const winner = ludoStandings()[0];
@@ -1218,7 +1223,8 @@
         if (typeof toggleGameMaxModal !== 'function') return;
         ludoMaximized = toggleGameMaxModal({
             canvasId: 'ludo-canvas',
-            title: '🎲 Ludo',
+            title: 'Ludo',
+            icon: 'g-ludo',
             bufferW: LUDO_CANVAS_W,
             bufferH: LUDO_CANVAS_H,
         });

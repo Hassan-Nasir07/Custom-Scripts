@@ -149,9 +149,7 @@ const EXPORTS = [
     'relativeLuminance', 'contrastRatio', 'cyberTextContrast', 'cyberSwatchContrast',
     'cyberWorstContrast', 'CYBER_TEXT_SWATCHES', 'updateCyberContrastChip',
     'updateCyberTitleGhosts', 'triggerCyberBoot',
-    'applyCyberpunkTheme', 'clearCyberpunkTheme',
-    'CYBER_EMOJI_RUN_RE', 'cyberEmojiSkipAncestor', 'cyberWrapEmojiTextNode',
-    'cyberSweepEmoji', 'cyberWatchEmoji'
+    'applyCyberpunkTheme', 'clearCyberpunkTheme'
 ];
 
 function load(prefs) {

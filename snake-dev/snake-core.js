@@ -33,6 +33,7 @@
     let snakeSkinTime  = 0;         // seconds, drives the legendary hue flow
     let snakeBannerT   = 0;
     let snakeBannerText = '';
+    let snakeBannerIcon = '';
 
     let snakeMode      = 'walled';
     let snakeStageIdx  = 0;
@@ -72,10 +73,14 @@
     // ── Modes ──────────────────────────────────────────────────────────
     const SNAKE_MODES = ['endless', 'walled', 'levels'];
     const SNAKE_MODE_META = {
-        endless: { icon: '♾️', label: 'Endless', desc: 'Edges wrap around' },
-        walled:  { icon: '🧱', label: 'Walled',  desc: 'Walls are lethal' },
-        levels:  { icon: '🎯', label: 'Levels',  desc: '12 designed stages' }
+        endless: { icon: 'endless', label: 'Endless', desc: 'Edges wrap around' },
+        walled:  { icon: 'walled',  label: 'Walled',  desc: 'Walls are lethal' },
+        levels:  { icon: 'levels',  label: 'Levels',  desc: '12 designed stages' }
     };
+    // A mode's icon and label as markup: the host's colour icon (attIcon), or the label alone in the
+    // standalone harness, which has none.
+    const snakeIco = id => typeof attIcon === 'function' ? attIcon(id) + ' ' : '';
+    const snakeModeHtml = (meta, text) => snakeIco(meta.icon) + text;
 
     // 'all' | 'lr' | 'tb' | 'none' → which edges teleport rather than kill.
     function snakeWrapFlags(spec) {
@@ -514,7 +519,8 @@
         snakeSaveLevelsBest(snakeStageIdx + 1);
 
         if (snakeStageIdx >= SNAKE_STAGES.length - 1) {
-            snakeBannerText = '🏆 All ' + SNAKE_STAGES.length + ' stages cleared!';
+            snakeBannerText = 'All ' + SNAKE_STAGES.length + ' stages cleared!';
+            snakeBannerIcon = 'trophy';
             snakeBannerT = SNAKE_BANNER_MS;
             snakeGameOver('conquered');
             return;
@@ -523,6 +529,7 @@
         snakeStageIdx++;
         snakeStageEaten = 0;
         snakeBannerText = 'Stage ' + (snakeStageIdx + 1) + ' — ' + SNAKE_STAGES[snakeStageIdx].name;
+        snakeBannerIcon = 'levels';
         snakeBannerT = SNAKE_BANNER_MS;
 
         // New layout, fresh snake, score carries over.

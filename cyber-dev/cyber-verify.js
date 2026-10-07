@@ -414,14 +414,8 @@ group('C4. Cyberpunk-only markup is hidden in Glassmorphic');
 //            the wrapper hides these too.
 //   STATE  — a class on the container that toggles behaviour rather than
 //            adding an element. There is nothing to hide.
-//   PASSTHROUGH - a wrapper around content that must stay visible in BOTH
-//            themes. Hiding it would hide the thing it wraps. .rt-emo wraps
-//            an emoji so the Cyberpunk tint filter lands on the glyph alone
-//            instead of on the button around it; in Glassmorphic it is an
-//            unstyled inline span and the emoji renders exactly as before.
 const RT_INNER = /^rt-(sec-|ticker-|foot-row)/;
 const RT_STATE = /^rt-(shape|booting|active)/;
-const RT_PASSTHROUGH = /^rt-emo$/;
 // rt-code is shared: it appears in the HUD rail and in the ticker, both of
 // which are hidden as wholes.
 const RT_SHARED = /^rt-code$/;
@@ -429,8 +423,7 @@ const RT_SHARED = /^rt-code$/;
 const renderedRt = new Set(
     (host.match(/class="(rt-[a-z-]+)[^"]*"/g) || [])
         .map(s => /class="(rt-[a-z-]+)/.exec(s)[1])
-        .filter(c => !RT_INNER.test(c) && !RT_STATE.test(c) && !RT_SHARED.test(c) &&
-                     !RT_PASSTHROUGH.test(c))
+        .filter(c => !RT_INNER.test(c) && !RT_STATE.test(c) && !RT_SHARED.test(c))
 );
 const hideBlock = /((?:\s*\.attendance-summary:not\(\.retro-theme\)[^,{]+,)+\s*\.attendance-summary:not\(\.retro-theme\)[^,{]+\{[^}]*\})/.exec(cssCode);
 ok(!!hideBlock, 'the :not(.retro-theme) hide block is present');
@@ -443,12 +436,6 @@ renderedRt.forEach(function (c) {
        'the rendered element ".' + c + '" is hidden in Glassmorphic',
        'add .attendance-summary:not(.retro-theme) .' + c + ' to the hide block');
 });
-// The other direction for passthrough: being in the hide block would be the
-// bug. .rt-emo wraps an emoji the Glassmorphic theme still renders.
-ok(!hidden.has('rt-emo'),
-   '.rt-emo is NOT hidden in Glassmorphic',
-   'hiding the wrapper hides the emoji it wraps');
-
 hidden.forEach(function (c) {
     ok(renderedRt.has(c),
        'the hidden element ".' + c + '" is still rendered by the host',
@@ -466,7 +453,7 @@ ok(/transform:\s*translateX\(-50%\)/.test(cssCode),
 // because that function does not re-render the table. Without this the number
 // freezes at page load.
 ok(/id="rt-day-total"/.test(host), 'the footer total has an id');
-ok(/cachedElements\.dayTotal/.test(host),
+ok(/\['#rt-day-total', /.test(host),
    'updateDynamicContent() keeps the footer total live');
 
 // ══════════════════════════════════════════════════════════════════
@@ -505,12 +492,10 @@ ok(headRule && /var\(--rt-progress/.test(headRule[1]),
 // fill keeps moving.
 ok(/--rt-progress:\s*\$\{progress\}%/.test(host),
    'renderFullContent() writes --rt-progress on the track');
-ok(/property:\s*'--rt-progress'/.test(host),
-   'updateDynamicContent() keeps --rt-progress in step with the fill width');
-// A custom property is neither a style key nor an element property, so
-// assigning it either way is a silent no-op — the applier needs the branch.
-ok(/startsWith\('--'\)/.test(host) && /setProperty\(update\.property/.test(host),
-   'the update applier writes custom properties with setProperty()');
+// A custom property is neither a style key nor an element property, so it is written
+// with setProperty(), in the same frame as the fill.
+ok(/fill\.style\.width = M\.pct \+ '%';[\s\S]{0,200}?bar\.style\.setProperty\('--rt-progress', M\.pct \+ '%'\)/.test(host),
+   'the per-second update keeps --rt-progress in step with the fill width, through setProperty()');
 
 // ── 3. no transform on the container CRT layer ─────────────────────
 // That pseudo-element paints THREE layers whose motions differ: the bottom
@@ -899,8 +884,9 @@ ok(/\.rt-hud-rail[^{]*\{[^}]*pointer-events:\s*none/.test(cssCode),
 // And that block really is inside the centre column. Game Mode collapses
 // .left-panel and .right-panel only, so anything in main-attendance-content
 // survives it — which is why the progress bar lives there.
-const centre = (host.match(/<div class="main-attendance-content">[\s\S]*?\n            <\/div>/) || [''])[0];
-ok(centre.indexOf('${progressBarHTML}') !== -1,
+const centre = (host.match(/<div class="main-attendance-content[^"]*"[^>]*>[\s\S]*?\n            <\/div>/) || [''])[0];
+const timeCard = (host.match(/const timeCardHTML = \x60[\s\S]*?\n        \x60;/) || [''])[0];
+ok(centre.indexOf('${timeCardHTML}') !== -1 && timeCard.indexOf('${progressBarHTML}') !== -1,
    'the progress bar block is interpolated inside .main-attendance-content, so Game Mode keeps it');
 const leftPanel  = (host.match(/const leftPanelHTML = `[\s\S]*?\n        `;/) || [''])[0];
 const rightPanel = (host.match(/const rightPanelHTML = `[\s\S]*?\n        `;/) || [''])[0];
@@ -1038,65 +1024,16 @@ if (m) {
            'no swatch can reach it, so the contrast guard cannot measure it either');
     });
     // ══════════════════════════════════════════════════════════════════
-    group('H3. the emoji tint id agrees across JS and CSS');
+    group('H3. nothing left to tint: the widget draws the design\'s colour icons');
     // ══════════════════════════════════════════════════════════════════
-    // Same failure shape as H2, different pair. The filter element is built
-    // in JS with an id, and the stylesheet reaches it by url(#that-id).
-    // Nothing links the two but a matching string, and a mismatch is silent:
-    // Chrome ignores a filter reference it cannot resolve and simply paints
-    // the emoji untinted (verified in a real engine), so the feature just
-    // quietly does nothing.
-    const filterId = (hudJs.match(/CYBER_EMOJI_FILTER_ID\s*=\s*'([^']+)'/) || [])[1];
-    ok(!!filterId, 'cyber-hud.js declares CYBER_EMOJI_FILTER_ID');
-    const cssFilterRefs = [...new Set(
-        (cssCode.match(/url\(#([a-z0-9-]+)\)/g) || []).map(x => /url\(#([a-z0-9-]+)\)/.exec(x)[1]))];
-    ok(cssFilterRefs.length > 0, 'the stylesheet references a filter by url(#...)');
-    cssFilterRefs.forEach(function (ref) {
-        ok(ref === filterId,
-           'url(#' + ref + ') matches the id JS actually creates',
-           'JS builds #' + filterId + ' — a mismatch paints the emoji untinted, silently');
-    });
-
-    // The tint must never land on an element that paints a background or a
-    // border: a filter applies to everything the element paints, so tinting
-    // a button would duotone its border and its knocked-out fill too.
-    const tintedSelectors = (cssCode.match(/([^{}]+)\{([^{}]*)\}/g) || [])
-        .filter(r => /filter:[^;}]*(--rt-emo|url\(#)/.test(r))
-        .map(r => r.slice(0, r.indexOf('{')).trim());
-    ok(tintedSelectors.length > 0, 'some rule applies the tint');
-    const FORBIDDEN_TINT = [",", ".game-switch-btn", ".settings-button", ".stat-card",
-                            ".attendance-summary.retro-theme {"];
-    tintedSelectors.forEach(function (sel) {
-        const bad = /\.game-switch-btn|\.settings-button|\.stat-card|\.left-panel|\.right-panel/.test(sel);
-        ok(!bad, 'the tint is not applied to a background-painting element: ' + sel.slice(0, 60),
-           'a filter duotones the border and fill as well as the glyph');
-        const isContainer = /\.attendance-summary\.retro-theme\s*(,|\{|$)/.test(sel);
-        ok(!isContainer, 'the tint is not applied to the container itself',
-           'a filter there becomes the containing block for #aim-results and .lb-ach-popover');
-    });
-
-    // The ramp has to have three stops. Two makes a flat duotone that loses
-    // every specular highlight, which is what made the glyphs unreadable.
-    ok(/CYBER_TINT_HILITE/.test(hudJs), 'the highlight stop is a named constant');
-    const tintFn = (hudJs.match(/function cyberTintTable[\s\S]*?\n    \}/) || [''])[0];
-    ok(/'0 ' \+ v\.toFixed\(4\) \+ ' ' \+ hi\.toFixed\(4\)/.test(tintFn),
-       'the ramp emits three stops (0, hue, highlight)',
-       'a two-stop duotone collapses highlights and the glyphs go muddy');
-
-    // sRGB or the transfer runs in linearRGB and the result is hue-shifted
-    // away from the swatch the user picked.
-    ok(/color-interpolation-filters['"\s,)]*,\s*'sRGB'/.test(hudJs) ||
-       /color-interpolation-filters[^\n]*sRGB/.test(hudJs),
-       'the filter is declared sRGB, not the linearRGB default');
-
-    // Teardown: the defs node is appended to <body>, outside the widget, so
-    // nothing else removes it on a theme switch.
-    ok(/clearCyberEmojiFilter\(document\)/.test(hudJs),
-       'clearCyberpunkTheme removes the injected filter defs',
-       'left behind, it is an orphaned <svg> in the Glassmorphic DOM');
-    ok(/ensureCyberEmojiFilter\(pipWindow\.document\)/.test(hudJs),
-       'the PiP document gets its own defs',
-       'a filter reference resolves per-document; the clone cannot see the parent\'s');
+    // The emoji tint (an SVG filter plus a DOM sweep that wrapped every emoji in
+    // .rt-emo) existed because colour emoji ignore CSS colour. The widget now
+    // draws the design's icon pack, whose colours are fixed for all three
+    // themes, so the filter, its defs node and the wrapper are gone for good.
+    ok(!/CYBER_EMOJI|cyberTintTable|cyberSweepEmoji|cyberWatchEmoji|EmojiFilter/.test(hudJs + host.replace(/^\s*\/\/.*$/gm, '')),
+       'no emoji tint, filter or sweep is left in cyber-hud.js or the host');
+    ok(!/url\(#|--rt-emo|\.rt-emo/.test(cssCode), 'the stylesheet references no tint filter or .rt-emo wrapper');
+    ok(!/rt-emo/.test(host.replace(/^\s*\/\/.*$/gm, '')), 'the host renders no .rt-emo wrapper');
 
     group('H. token write and teardown mirror');
     m.clearCyberTokens(el);
@@ -1176,86 +1113,28 @@ if (m) {
        '--rt-data still aliases --rt-cyber-hl rather than a literal');
 
     // ══════════════════════════════════════════════════════════════════
-    group('H5. the emoji sweep — universal coverage, not a hand-typed list');
+    group('H5. icons, not emoji — everywhere the widget draws');
     // ══════════════════════════════════════════════════════════════════
-    // The wrap-every-known-template-literal approach (32 sites, by hand)
-    // still missed the achievement badges, the leaderboard join card and the
-    // settings-modal close button — every one of those injects its icon from
-    // ACHIEVEMENTS[key].icon or similar at RENDER time, which no regex over
-    // the source can find. This section checks the mechanism that replaced
-    // it: a DOM sweep plus a live MutationObserver, and the handful of host
-    // call sites that feed it.
-    ok(/const CYBER_EMOJI_RUN_RE\s*=/.test(hudJs), 'the emoji-run regex is a named constant');
-    ok(/\\p\{Emoji_Presentation\}/.test(hudJs) && /\\p\{Extended_Pictographic\}\\uFE0F/.test(hudJs),
-       'the regex matches Emoji_Presentation, and Extended_Pictographic only when forced by FE0F',
-       'Extended_Pictographic alone also matches plain monochrome glyphs (checkmarks, arrows, stars) that already correctly follow --rt-text');
-    ['SCRIPT', 'STYLE', 'TEXTAREA', 'OPTION', 'SELECT'].forEach(function (tag) {
-        ok(new RegExp(tag + ':\\s*1').test(hudJs), 'the sweep never enters a <' + tag + '>');
-    });
-    ok(/classList\.contains\('rt-emo'\)/.test(hudJs) &&
-       /function cyberEmojiSkipAncestor/.test(hudJs),
-       'an already-wrapped .rt-emo is skipped',
-       'without this the observer would see its own inserted span as new content and recurse');
-    ok(/classList\.contains\('emoji-display'\)/.test(hudJs),
-       'the progress glyph is excluded from the generic sweep',
-       'it already carries its own bespoke filter chain (--rt-emo-progress); double-wrapping would nest one filter inside another');
-    ok(/function cyberWrapEmojiTextNode/.test(hudJs) && /node\.ownerDocument/.test(hudJs),
-       'the wrapper creates through node.ownerDocument, not the global document',
-       'the PiP clone is a second document; nodes built in the wrong one do not reliably insert');
-    ok(/function cyberSweepEmoji/.test(hudJs) &&
-       /typeof doc\.createTreeWalker !== 'function'/.test(hudJs),
-       'cyberSweepEmoji feature-detects TreeWalker rather than assuming it',
-       'the Node test stub has no TreeWalker; applyCyberpunkTheme() must not throw when this suite calls it');
-    ok(/typeof doc\.createElementNS !== 'function'/.test(hudJs),
-       'ensureCyberEmojiFilter is feature-detected the same way',
-       'the pre-existing filter-defs injector had no such guard until this section started calling applyCyberpunkTheme() against the stub');
-    ok(/function cyberWatchEmoji/.test(hudJs) &&
-       /cyberEmojiObservedRoots\.has\(root\)/.test(hudJs) &&
-       /typeof MutationObserver !== 'function'/.test(hudJs),
-       'cyberWatchEmoji dedups per root and feature-detects MutationObserver');
-    ok(/let cyberEmojiTintActive = false;/.test(hudJs),
-       'the tint-active flag defaults OFF',
-       'an observer that wraps emoji before Cyberpunk is ever entered would leave stray spans in Glassmorphic');
-
-    // The two places the flag actually flips, and the one call that must NOT
-    // run on every colour-slider tick (a full sweep on every 'input' event
-    // during a drag is the kind of thing that reads as "the picker feels
-    // laggy" with nothing in the console to explain it).
-    const applyThemeFn = (hudJs.match(/function applyCyberpunkTheme\(container\)[\s\S]*?\n    \}/) || [''])[0];
-    ok(/cyberEmojiTintActive = true;/.test(applyThemeFn), 'applyCyberpunkTheme() turns tinting on');
-    ok(/cyberWatchEmoji\(container\)/.test(applyThemeFn),
-       'applyCyberpunkTheme() attaches the container observer');
-    ok(!/cyberSweepEmoji\(container\)/.test(applyThemeFn),
-       'applyCyberpunkTheme() does NOT sweep on every call',
-       'it runs on every colour-slider tick; the full walk belongs at theme-entry only (see applyPreferences() below)');
-    const clearThemeFn = (hudJs.match(/function clearCyberpunkTheme\(container\)[\s\S]*?\n    \}/) || [''])[0];
-    ok(/cyberEmojiTintActive = false;/.test(clearThemeFn), 'clearCyberpunkTheme() turns tinting off');
-
-    // Host wiring: the handful of places that inject an emoji from data
-    // rather than from a literal in a template string, each with the sweep
-    // called explicitly because their content only changes when THEY decide
-    // to change it, not as a side effect of anything the container observer
-    // would see.
-    ok(/if \(enteringRetro\) cyberSweepEmoji\(container\);/.test(host),
-       'entering Cyberpunk runs one full correcting sweep of the widget',
-       'content rendered while Glassmorphic was active (an achievement earned before the user ever tried Cyberpunk) has fired no mutation since, so the observer alone would leave it unwrapped forever');
-    // Achievements left the sweep's care (POOL_V2_PLAN.md, Achievement icons): every one is a
-    // stroke glyph (ACHIEVEMENTS[k].d) in a medallion, and their surfaces hold no emoji to wrap.
+    // Comments may still name an emoji; code may not. A data-driven icon (a mode chip,
+    // a board tab, a toast) is an attIcon() id, so no regex over strings misses one.
+    const hostCode = host.replace(/^\s*(\/\/|\*|\/\*).*$/gm, '').replace(/\/\/ .*$/gm, '');
+    const left = hostCode.match(/\p{Extended_Pictographic}/gu) || [];
+    ok(left.length === 0, 'the userscript\'s code holds no emoji', 'left: ' + [...new Set(left)].join(' '));
+    ok(/const ATT_ICONS = \{/.test(host) && /const ATT_DUO = \{/.test(host) && /const attIcon = /.test(host),
+       'the colour icons: the design\'s pack (ATT_ICONS) and the ones drawn in its recipe (ATT_DUO)');
+    ok(/function attIconText\(/.test(host) && /const attDrawIcon = /.test(host), 'canvas games draw the same icons (attDrawIcon, attIconText)');
+    // Achievements: every one is a stroke glyph (ACHIEVEMENTS[k].d) in a medallion.
     const achBlock = (host.match(/const ACHIEVEMENTS = \{[\s\S]*?\n    \};/) || [''])[0];
     ok(achBlock && !/\bicon:/.test(achBlock) && !/\p{Extended_Pictographic}/u.test(achBlock),
        'ACHIEVEMENTS carries glyphs, not emoji');
     const achFn = (host.match(/function openAchievementsModal\(\)[\s\S]*?\n    \}/) || [''])[0];
     const popFn = (host.match(/function showLbAchPopover\(badge\)[\s\S]*?\n    \}/) || [''])[0];
     const toastFn = (host.match(/function showAchievementToast\([\s\S]*?\n    \}/) || [''])[0];
-    ok([achFn, popFn, toastFn].every(f => f && /achMedal\(/.test(f) && !/cyberSweepEmoji/.test(f) && !/\p{Extended_Pictographic}/u.test(f)),
-       'the modal, the leaderboard popover and the unlock toast draw medallions, with no emoji and so no sweep');
+    ok([achFn, popFn, toastFn].every(f => f && /achMedal\(/.test(f) && !/\p{Extended_Pictographic}/u.test(f)),
+       'the modal, the leaderboard popover and the unlock toast draw medallions');
     const notifFn = (host.match(/function showXPNotification\([\s\S]*?\n    \}/) || [''])[0];
-    ok(/cyberSweepEmoji\(notification\)/.test(notifFn),
-       'showXPNotification() sweeps its toast before it is shown');
-    const toggleSettingsFn = (host.match(/function toggleSettingsModal\(\)[\s\S]*?\n    \}/) || [''])[0];
-    ok(/cyberSweepEmoji\(modal\)/.test(toggleSettingsFn),
-       'toggleSettingsModal() re-sweeps on every open, not just at first creation',
-       'the modal is built once and reused — content can predate the theme it is now viewed under');
+    ok(/attIcon\(icon\)/.test(notifFn) && /escapeHtml\(message\)/.test(notifFn),
+       'showXPNotification() leads with an icon and escapes its text');
 
     // The settings modal's Palette row has to render from CYBER_PALETTES
     // itself, not a hand-typed second copy — the exact drift the harness's

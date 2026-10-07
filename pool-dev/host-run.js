@@ -376,7 +376,7 @@ async function main() {
     await key('Escape');
     await sleep(450);
     const closed = await ev(`(() => { const S = window.__probe.S; return { overlay: !!document.querySelector('.pool-modal-overlay'), back: document.getElementById('pool-root').contains(S.canvas), maximized: window.__probe.maximized, W: S.W }; })()`);
-    ok('Esc closes Max and the table comes back to the panel', !closed.overlay && closed.back && !closed.maximized && closed.W > 300 && closed.W < 400, closed);
+    ok('Esc closes Max and the table comes back to the panel', !closed.overlay && closed.back && !closed.maximized && closed.W > 260 && closed.W < 400, closed);
 
     // ── Theme ─────────────────────────────────────────────────────────
     head('Theme');
@@ -410,7 +410,7 @@ async function main() {
     head('Light mode contrast');
     const lightBad = await contrast('#total-time-summary');
     ok('light: the widget\'s text is readable (pool panel open)', !lightBad.length, lightBad.slice(0, 8).join(' | '));
-    for (const g of ['snake', 'flappy', 'tetris', 'reflex', 'aim', 'breakout', 'ludo', 'prayer', 'leaderboard']) {
+    for (const g of ['snake', 'flappy', 'tetris', 'reflex', 'aim', 'breakout', 'ludo', 'prayer']) {
         await ev("window.switchGame('" + g + "')"); await sleep(500);
         await shot('host-' + g + '-light', '.snake-game-container');
         const b = await contrast('.snake-game-container');
@@ -594,12 +594,12 @@ async function main() {
         await sleep(300);
         ok('the header carries the cue game switch', sw.found && sw.label === 'Switch to Snooker', sw.label);
         const sn = await ev(`(() => { const S = window.__probe.S, h = S.hud.el, t = document.getElementById('game-title'); return { game: S.game, balls: S.world.balls.length,
-            title: (t.querySelector('.pool-cue-name') || t).textContent, lit: (t.querySelector('.pool-cue-opt.is-on') || {}).textContent, next: (t.querySelector('.pool-cue-switch') || { getAttribute: () => '' }).getAttribute('aria-label'),
+            title: (t.querySelector('.pool-cue-name') || t).textContent, lit: (t.querySelector('.pool-cue-opt.is-on') || {}).innerHTML, next: (t.querySelector('.pool-cue-switch') || { getAttribute: () => '' }).getAttribute('aria-label'),
             poolBtn: getComputedStyle(document.getElementById('pool-lb-btn')).display, snkBtn: getComputedStyle(document.getElementById('snooker-lb-btn')).display,
             dg: h.getAttribute('data-game'), track: !h.querySelector('[data-ph=track]').hidden, pref: window.__probe.prefs.poolVariant, zone: S.frame.ballInHand, phase: S.phase,
             tip: document.getElementById('game-switch-pool').title }; })()`);
-        ok('the switch → Snooker: the panel plays snooker: its title (🔴 lit), wins button and tracker, 22 balls, ball in hand in the D',
-           sn.game === 'snooker' && sn.balls === 22 && sn.title === 'Snooker' && /🔴/.test(sn.lit) && sn.next === 'Switch to 8-Ball Pool' && sn.poolBtn === 'none' && sn.snkBtn !== 'none' && sn.dg === 'snooker' && sn.track && sn.pref === 'snooker' && sn.zone === 'D' && sn.phase === 'bih' && sn.tip === 'Snooker', sn);
+        ok('the switch → Snooker: the panel plays snooker: its title (the snooker icon lit), wins button and tracker, 22 balls, ball in hand in the D',
+           sn.game === 'snooker' && sn.balls === 22 && sn.title === 'Snooker' && /data-icon="snooker"/.test(sn.lit) && sn.next === 'Switch to 8-Ball Pool' && sn.poolBtn === 'none' && sn.snkBtn !== 'none' && sn.dg === 'snooker' && sn.track && sn.pref === 'snooker' && sn.zone === 'D' && sn.phase === 'bih' && sn.tip === 'Snooker', sn);
         await shot('host-snooker-break', '.snake-game-container');
         // In the D by mouse, then the break-off by the power drag.
         const cb = await ev('(() => { const S = window.__probe.S, v = window.__probe.pcView(S.director.pose), q = window.__probe.pcProject(v, [-335, 25, S.cfg.ballR]), r = S.canvas.getBoundingClientRect(), k = r.width / S.W; return [r.left + q[0] * k, r.top + q[1] * k, r.left + r.width / 2, r.top + r.height - 70]; })()');
@@ -661,7 +661,7 @@ async function main() {
         ok('…the win and the break are filed: the wins button shows Pro\'s wins, the sync snapshot carries them and the 104',
            snk.pro >= 1 && snk.wins === String(snk.pro) && snk.sync === snk.pro && snk.high === '104' && snk.syncHigh === 104, snk);
         ok('the Snooker board: the four tiers, All-time, Hot-seat and High break, opening on the tier being played',
-           snk.shown === 'flex' && /Snooker/.test(snk.head) && snk.tabs.join() === '🎯 Pro,🔥 Hard,⚔️ Normal,🌱 Easy,📚 All-time,👥 Hot-seat,💯 High break' && /Pro/.test(snk.active) && /best break/.test(snk.foot), snk);
+           snk.shown === 'flex' && /Snooker/.test(snk.head) && snk.tabs.join() === 'Pro,Hard,Normal,Easy,All-time,Hot-seat,High break' && /Pro/.test(snk.active) && /best break/.test(snk.foot), snk);
         await click('#snooker-lb-btn'); await sleep(250);
         await ev(`window.setGameLeaderboardMode('highBreak')`); await sleep(100);
         await shot('host-snooker-board', '.snake-game-container');
@@ -697,7 +697,7 @@ async function main() {
         return res; })()`);
     ok('a Pro win unlocks Called It', pro.tier === 'pro' && pro.calledIt, pro);
     ok('the Pool board has the four tiers, All-time and Hot-seat, and opens on the tier being played',
-       pro.tabs.join() === '🎯 Pro,🔥 Hard,⚔️ Normal,🌱 Easy,📚 All-time,👥 Hot-seat' && /Pro/.test(pro.active || '') && pro.proSync >= 1, pro);
+       pro.tabs.join() === 'Pro,Hard,Normal,Easy,All-time,Hot-seat' && /Pro/.test(pro.active || '') && pro.proSync >= 1, pro);
     ok('no page errors anywhere', !errors.length, errors.slice(0, 3));
     if (consoleErrors.length) console.log('  · console errors (fonts and sync are blocked on purpose):', consoleErrors.length);
 

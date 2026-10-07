@@ -42,7 +42,7 @@ ok('cleanupCurrentGame has a ludo case',
 // One GAME_PANELS entry drives the canvas, the switcher button, the controls row, the
 // scoreboard and the title (initCurrentGame, updateGameSwitcher, updateGameControls, updateGameTitle).
 ok('GAME_PANELS has a ludo entry: its canvas, its title, initLudoGame, and its scoreboard refresh',
-   /ludo: \{ el: 'ludo-canvas', title: '🎲 Ludo', start: \(\) => initLudoGame\(\), shown: \(\) => \{ updateLudoScoreboard\(\); refreshGameScoreBtn\('ludo'\); \} \}/.test(src));
+   /ludo: \{ el: 'ludo-canvas', icon: 'g-ludo', title: 'Ludo', start: \(\) => initLudoGame\(\), shown: \(\) => \{ updateLudoScoreboard\(\); refreshGameScoreBtn\('ludo'\); \} \}/.test(src));
 ok('the four switcher functions read GAME_PANELS',
    ['function initCurrentGame', 'function updateGameSwitcher', 'function updateGameControls', 'function updateGameTitle']
        .every(f => new RegExp(f + '\\([^)]*\\) \\{[\\s\\S]{0,200}?GAME_PANELS').test(src)));
@@ -62,7 +62,8 @@ ok('#ludo-canvas rule with the right aspect ratio',
    /#ludo-canvas\s*\{[\s\S]*?aspect-ratio:\s*344\s*\/\s*416/.test(src));
 ok('.ludo-rule-toggles styled', has('.ludo-rule-toggles'));
 ok("keyboard '9' switches to ludo", has("case '9': window.switchGame('ludo'); break;"));
-ok("keyboard '8' is still leaderboard", has("case '8': window.switchGame('leaderboard'); break;"));
+// The Leaderboard tab moved out of the switcher into the left column, so nothing switches to it.
+ok("no shortcut or button switches to a Leaderboard tab", !has("switchGame('leaderboard')"));
 ok('Escape resets ludo', has("case 'ludo': resetLudoGame(); break;"));
 ok('all four window bridges defined',
    ['startLudoGameBtn', 'resetLudoGameBtn', 'cycleLudoModeBtn', 'toggleLudoMaximizeBtn']

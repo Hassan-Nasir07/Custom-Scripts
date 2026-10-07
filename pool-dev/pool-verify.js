@@ -65,7 +65,7 @@ ok('the whole userscript parses (a duplicated top-level name would be a SyntaxEr
 
 // ── 3. Host wiring ────────────────────────────────────────────────────
 head('Host wiring');
-ok('switchGame enters through initPoolGame(), on #pool-root, with no controls row', /pool: \{ el: 'pool-root', noControls: true, title: '🎱 8-Ball Pool', start: \(\) => initPoolGame\(\) \}/.test(src));
+ok('switchGame enters through initPoolGame(), on #pool-root, with no controls row', /pool: \{ el: 'pool-root', noControls: true, icon: 'g-pool', title: '8-Ball Pool', start: \(\) => initPoolGame\(\) \}/.test(src));
 ok('switchGame leaves through poolDetach()', /case 'pool':[\s\S]{0,200}?poolDetach\(\);\n\s+break;/.test(src));
 ok('the panel element is #pool-root, shown and hidden with the canvases', /<div id="pool-root" class="pool-root" style="display:none;"><\/div>/.test(src));
 ok('the header keeps the title and the wins button only', /<div id="pool-scoreboard" class="snake-scoreboard" style="display: none;">\n\s+\$\{gameScoreBtn\('pool', 'pool-wins'\)\}/.test(src) && !src.includes('pool-turn-label'));
@@ -84,7 +84,7 @@ ok('⚙️ offers the shot camera: Overhead or Stay 3D', /sel\('poolShotCam', [^
        [...fn.matchAll(/data-settings-tab="(\w+)"/g)].map(x => x[1]).join() === 'general,theme,cue,ludo' &&
        [...fn.matchAll(/data-settings-group="(\w+)"/g)].map(x => x[1]).join() === 'general,theme,cue,ludo');
     ok('…the cue games\' tab heads its rows: both games, then pool, then snooker',
-       /data-settings-group="cue"[\s\S]*?Both games[\s\S]*?sel\('poolShotCam'[\s\S]*?🎱 8-Ball Pool[\s\S]*?sel\('poolClock'[\s\S]*?🔴 Snooker[\s\S]*?sel\('snookerClock'[\s\S]*?data-settings-group="ludo"/.test(fn));
+       /data-settings-group="cue"[\s\S]*?Both games[\s\S]*?sel\('poolShotCam'[\s\S]*?attIcon\('g-pool'\)\} 8-Ball Pool[\s\S]*?sel\('poolClock'[\s\S]*?attIcon\('snooker'\)\} Snooker[\s\S]*?sel\('snookerClock'[\s\S]*?data-settings-group="ludo"/.test(fn));
     ok('the cue game is not a ⚙️ setting any more (the header switches it)', opts('poolVariant') === null);
     ok('⚙️ Aim Guide offers None', opts('poolGuideLen') === 'long,medium,short,none');
     ok('⚙️ Shot Clock: the tournament\'s choices for each game', opts('poolClock') === '30,45,0' && opts('snookerClock') === '30,45,60,0');
@@ -412,7 +412,7 @@ function playFrame(P, maxTicks) {
     const el = { innerHTML: '', firstChild: { addEventListener: (t, f) => { el.click = t === 'click' ? f : null; } } };
     P.poolRenderTitle(el);
     ok('the title: both games\' icons with pool lit, its name, and a click that switches', /class="pool-cue-switch"[^>]*aria-label="Switch to Snooker"/.test(el.innerHTML) &&
-       /<span class="pool-cue-opt is-on">🎱<\/span><span class="pool-cue-opt">🔴<\/span>/.test(el.innerHTML) && /<span class="pool-cue-name">8-Ball Pool<\/span>/.test(el.innerHTML) && el.click === P.poolToggleVariant);
+       /<span class="pool-cue-opt is-on"><\/span><span class="pool-cue-opt"><\/span>/.test(el.innerHTML) && /<span class="pool-cue-name">8-Ball Pool<\/span>/.test(el.innerHTML) && el.click === P.poolToggleVariant);
 }
 
 // ── 5. The CPU (pool-ai.js) ───────────────────────────────────────────
@@ -1164,7 +1164,9 @@ head('Cues (pool-cues.js, pool-game.js)');
     const P = L.game({ seed: 61 }), S = P.poolS;
     P.poolNewFrame(1);
     const std = P.pqStats('standard', 999);
-    ok('Standard plays the game as it was: every multiplier 1, at any level', std.level === 5 && std.power === 1 && std.aim === 1 && std.spin === 1 && std.time === 1);
+    const std1 = P.pqStats('standard', 0);
+    ok('Standard at level 1 plays the game as it was: every multiplier 1 (the CPU\'s Easy cue)', std1.level === 1 && std1.power === 1 && std1.aim === 1 && std1.spin === 1 && std1.time === 1);
+    ok('…and it levels too, to 5/5/5/5', std.level === 5 && std.bars.join('/') === '5/5/5/5');
     const top = P.PQ_SET.filter(q => q.id !== 'standard').map(q => P.pqStats(q.id, 0, 5));
     ok('no cue is best at everything: each has a bar of 6 or less at level 5, none totals over 32', top.every(s => Math.min(...s.bars) <= 6 && s.bars.reduce((a, b) => a + b) <= 32) && top.some(s => s.bars[0] === 10 && s.bars[2] <= 2));
     const steps = id => P.pqSteps(P.pqById(id)).join(), rank = q => P.PQ_TIERS.indexOf(q.need[1]) + (q.need[0] === 'snooker' ? 4 : 0);
@@ -1175,6 +1177,16 @@ head('Cues (pool-cues.js, pool-game.js)');
     ok('a pool cue takes wins at its tier or above, snooker\'s too; a snooker cue only snooker\'s', P.pqCounts(P.pqById('ember'), 'snooker', 'normal') && P.pqCounts(P.pqById('ember'), 'pool', 'pro') &&
        !P.pqCounts(P.pqById('ember'), 'pool', 'easy') && !P.pqCounts(P.pqById('crown'), 'pool', 'pro') && !P.pqCounts(P.pqById('crown'), 'snooker', 'hard') && P.pqCounts(P.pqById('crown'), 'snooker', 'pro'));
     ok('levels 2–4 fall between: Ember at level 3 is 9/5/2/5', P.pqStats('ember', 15).bars.join('/') === '9/5/2/5');
+    const sum = b => b.reduce((x, y) => x + y, 0);
+    ok('every level-up gives every cue at least one bar point, and level 5 is the design\'s',
+       P.PQ_SET.every(q => [2, 3, 4, 5].every(l => sum(P.pqStats(q.id, 0, l).bars) > sum(P.pqStats(q.id, 0, l - 1).bars)) &&
+           P.pqStats(q.id, 0, 5).bars.join() === q.bars[1].join() && P.pqStats(q.id, 0, 1).bars.join() === q.bars[0].join()));
+    ok('the ghost segments show the next level: Ember at level 2 (8/5/2/4) outlines level 3 (9/5/2/5)', (() => {
+        const G = L.game({ seed: 65, store: { poolCueRecord: JSON.stringify({ ember: 5 }) } });
+        G.host.userXP.achievements.push('streak7');
+        const c = G.poolCueModel().list.find(x => x.id === 'ember');
+        return c.level === 2 && c.bars.join('/') === '8/5/2/4' && c.top.join('/') === '9/5/2/5';
+    })());
     ok('every cue draws from the design\'s materials', P.PQ_SET.every(q => q.sections.concat(q.rings || []).every(x => P.PQ_MATS[x[2]]) && (q.points || []).every(p => P.PQ_MATS[p.core])));
     // Unlocks.
     P.host.userPreferences.poolCue = 'ember';

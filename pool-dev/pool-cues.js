@@ -46,7 +46,7 @@
     // need: [game, tier, wins for levels 2, 3, 4 and 5]: the better the cue, the harder its wins
     // and the longer its climb (the user, 2026-10-05). See pqCounts.
     const PQ_SET = [
-        { id: 'standard', name: 'Standard', cond: 'Always yours · the house cue', blurb: 'Maple shaft · black linen wrap', bars: [[4, 4, 4, 4], [4, 4, 4, 4]], need: ['pool', 'easy', [5, 7, 10, 15]],
+        { id: 'standard', name: 'Standard', cond: 'Always yours · the house cue', blurb: 'Maple shaft · black linen wrap', bars: [[4, 4, 4, 4], [5, 5, 5, 5]], need: ['pool', 'easy', [5, 7, 10, 15]],
             sections: pqStd('maple', 'brass', 'lacquer', 'linenBlack', 'walnut') },
         { id: 'tulipwood', name: 'Tulipwood', cond: 'Team Player · join the leaderboard', ach: 'teamPlayer', blurb: 'Tulipwood forearm · navy linen', bars: [[5, 5, 4, 4], [6, 6, 5, 5]], need: ['pool', 'easy', [5, 7, 11, 16]],
             sections: pqStd('maple', 'silver', 'tulipwood', 'linenNavy', 'tulipwood'), rings: [[72, 0.8, 'silver'], [90, 0.8, 'silver']] },
@@ -106,9 +106,15 @@
     }
     // Each bar above or below 4 moves its stat a step: Standard (4/4/4/4) is the game as it was.
     const PQ_STEP = [0.025, 0.125, 0.05, 0.05];
+    // Every level-up adds at least one bar point. (Rounding the straight line from level 1 to 5
+    // lost some: a bar gaining 1 moved only at level 3.) The cue's gains are dealt out one at a
+    // time, round-robin, its biggest first; level n has round(total × (n − 1) / 4) of them.
     function pqStats(id, wins, level) {
-        const q = pqById(id), lv = level || pqLevel(wins, q);
-        const bars = q.bars[0].map((v, i) => Math.round(v + (q.bars[1][i] - v) * (lv - 1) / 4));
+        const q = pqById(id), lv = level || pqLevel(wins, q), bars = q.bars[0].slice();
+        const left = q.bars[1].map((v, i) => Math.max(0, v - bars[i])), total = left.reduce((a, b) => a + b, 0);
+        const order = [0, 1, 2, 3].sort((a, b) => left[b] - left[a] || a - b), steps = [];
+        while (steps.length < total) order.forEach(i => { if (left[i] > 0) { left[i]--; steps.push(i); } });
+        steps.slice(0, Math.round(total * (lv - 1) / 4)).forEach(i => { bars[i]++; });
         const m = bars.map((b, i) => 1 + PQ_STEP[i] * (b - 4));
         return { id: q.id, level: lv, bars, power: m[0], aim: m[1], spin: m[2], time: m[3] };
     }

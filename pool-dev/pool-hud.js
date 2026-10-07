@@ -165,17 +165,17 @@
 
         let hint = null;
         if (bih) {
-            if (g.bih && g.bih.placed) hint = { text: 'Placed · aim when ready', tone: '' };
-            else if (g.bih && g.bih.valid === false) hint = { text: 'Release on open felt', tone: 'hot' };
-            else hint = { text: g.frame.ballInHand === 'kitchen' ? 'Place behind the head string' : 'Drag the cue ball to place it', tone: '' };
+            if (g.bih && g.bih.placed) hint = { text: 'Placed · aim', tone: '' };
+            else if (g.bih && g.bih.valid === false) hint = { text: 'Drop on open felt', tone: 'hot' };
+            else hint = { text: g.frame.ballInHand === 'kitchen' ? 'Place in kitchen' : 'Drag to place', tone: '' };
         } else if (aiming && g.cpuTurn) {
-            hint = { text: (g.names[g.frame.turn] || 'CPU') + ' is lining up', tone: '' };
+            hint = { text: (g.names[g.frame.turn] || 'CPU') + ' is aiming', tone: '' };
         } else if (aiming) {
             const pw = Math.round(g.power || 0);
-            if (g.dragging) hint = { text: 'Release to shoot · ' + pw + '%', tone: pw >= PH_POWER_HOT ? 'hot' : 'power' };
-            else if (callNeeded) hint = { text: 'Tap a pocket to call it', tone: 'call' };
-            else if (st.callRequired && g.called >= 0) hint = { text: PH_POCKETS[g.called] + ' called · drag to shoot', tone: '' };
-            else hint = { text: 'Press and drag for power', tone: '' };
+            if (g.dragging) hint = { text: 'Release · ' + pw + '%', tone: pw >= PH_POWER_HOT ? 'hot' : 'power' };
+            else if (callNeeded) hint = { text: 'Tap a pocket', tone: 'call' };
+            else if (st.callRequired && g.called >= 0) hint = { text: PH_POCKETS[g.called] + ' called', tone: '' };
+            else hint = { text: 'Drag for power', tone: '' };
         }
 
         // The call card (3D): pocket map and hint in one, bottom right; the lit pocket names the
@@ -324,7 +324,7 @@
         // The chips hold the corner, and the call with them: no call card beside them.
         if (chips) vm.mini = Object.assign({}, vm.mini, { show: false });
         // The hint: the D, and none while the chips carry the caption.
-        if (bih && !(g.bih && (g.bih.placed || g.bih.valid === false))) vm.hint = Object.assign({}, vm.hint, { text: 'Place the cue ball in the D', tone: '' });
+        if (bih && !(g.bih && (g.bih.placed || g.bih.valid === false))) vm.hint = Object.assign({}, vm.hint, { text: 'Place in the D', tone: '' });
         if (chips) vm.hint = Object.assign({}, vm.hint, { show: false });
         // The choice after a foul: its buttons for a human chooser, once the seat is taken.
         if (vm.toast.show && ch) {
@@ -384,12 +384,13 @@
     const phSvg = (d, n, w) => '<svg width="' + n + '" height="' + n + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (w || 1.8) + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"></path></svg>';
     const PH_BARS = ['Power', 'Aim', 'Spin', 'Time'];
     // m: poolCueModel(). The equipped cue up top (a close-up of its forearm, then all of it), then
-    // every cue: its look, how it is earned, its four bars (filled to its level, outlined to 5).
+    // every cue: its look, how it is earned, its four bars (filled to its level, outlined: what
+    // the next level adds).
     function phCuesHTML(m) {
         const eq = m.list.find(c => c.eq) || m.list[0];
         const tick = phSvg(PH_CUE_ICON.standard, 13, 2.4);
         const bars = c => '<div class="ph-cue-bars">' + PH_BARS.map((b, i) => '<span class="ph-cue-bar" role="img" aria-label="' + b + ' ' + c.bars[i] + ' of 10' +
-            (c.top[i] !== c.bars[i] ? ', ' + c.top[i] + ' at level 5' : '') + '"><span class="ph-label">' + b + '</span><span class="ph-cue-segs">' +
+            (c.top[i] !== c.bars[i] ? ', ' + c.top[i] + ' at level ' + (c.level + 1) : '') + '"><span class="ph-label">' + b + '</span><span class="ph-cue-segs">' +
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(k => '<i' + (k < c.bars[i] ? ' class="on"' : k < c.top[i] ? ' class="up"' : '') + '></i>').join('') +
             '</span><span class="ph-num">' + c.bars[i] + '</span></span>').join('') + '</div>';
         const level = c => '<span class="ph-cue-lv">' + (c.level >= 5 ? 'Level 5 · mastered · ' + c.wins + ' wins' : 'Level ' + c.level + ' · ' + c.have + ' of ' + c.need + ' ' + c.counts + ' to level ' + (c.level + 1)) + '</span>';

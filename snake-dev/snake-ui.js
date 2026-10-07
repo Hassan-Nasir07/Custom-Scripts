@@ -517,6 +517,8 @@
     }
 
     // ── Overlays ───────────────────────────────────────────────────────
+    // An icon and its text centred on x: the host's attIconText, or the text alone standalone.
+    const snakeIconText = (ctx, id, text, x, y, n) => typeof attIconText === 'function' && id ? attIconText(ctx, id, text, x, y, n) : ctx.fillText(text, x, y);
     function snakeDrawBanner(m) {
         if (snakeBannerT <= 0 || !snakeBannerText) return;
         const ctx = snakeCtx;
@@ -529,7 +531,7 @@
         ctx.fillStyle = '#ffeaa7';
         ctx.font = 'bold 15px system-ui, sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(snakeBannerText, m.W / 2, m.H * 0.5);
+        snakeIconText(ctx, snakeBannerIcon, snakeBannerText, m.W / 2, m.H * 0.5, 18);
         ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
         ctx.restore();
     }
@@ -543,10 +545,10 @@
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 20px system-ui, sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('⏸ Paused', m.W / 2, m.H / 2 - 8);
+        snakeIconText(ctx, 'pause', 'Paused', m.W / 2, m.H / 2 - 8, 22);
         ctx.font = '12px system-ui, sans-serif';
         ctx.fillStyle = 'rgba(255,255,255,0.7)';
-        ctx.fillText('press P or ▶ to resume', m.W / 2, m.H / 2 + 16);
+        ctx.fillText('Press P or Play to resume', m.W / 2, m.H / 2 + 16);
         ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
         ctx.restore();
     }
@@ -649,11 +651,11 @@
         if (score) score.textContent = snakeScore;
         const sub = el.querySelector('.snake-go-sub');
         if (sub) {
-            sub.textContent = snakeMode === 'levels'
+            sub.innerHTML = snakeMode === 'levels'
                 ? 'Stage ' + (snakeStageIdx + 1) + '/' + SNAKE_STAGES.length +
                   ' · ' + snakeStagesCleared + ' cleared'
-                : SNAKE_MODE_META[snakeMode].icon + ' ' + SNAKE_MODE_META[snakeMode].label +
-                  ' · best ' + snakeModeBest(snakeMode);
+                : snakeModeHtml(SNAKE_MODE_META[snakeMode], SNAKE_MODE_META[snakeMode].label +
+                  ' · best ' + snakeModeBest(snakeMode));
         }
     }
 
@@ -672,13 +674,13 @@
             const meta = SNAKE_MODE_META[snakeMode];
             if (snakeMode === 'levels') {
                 const stage = SNAKE_STAGES[snakeStageIdx];
-                mode.textContent = meta.icon + ' Stage ' + (snakeStageIdx + 1) + '/' + SNAKE_STAGES.length;
+                mode.innerHTML = snakeModeHtml(meta, 'Stage ' + (snakeStageIdx + 1) + '/' + SNAKE_STAGES.length);
                 mode.title = stage
                     ? 'Stage ' + (snakeStageIdx + 1) + ' — ' + stage.name +
                       ' · ' + snakeStageEaten + '/' + stage.goal + ' eaten'
                     : meta.desc;
             } else {
-                mode.textContent = meta.icon + ' ' + meta.label;
+                mode.innerHTML = snakeModeHtml(meta, meta.label);
                 mode.title = meta.desc;
             }
         }
@@ -700,13 +702,13 @@
     function updateSnakePlayButton() {
         const btn = document.getElementById('snake-play-btn');
         if (!btn) return;
-        btn.textContent = (!snakeGameRunning || snakeGamePaused) ? '▶ Play' : '⏸ Pause';
+        btn.innerHTML = (!snakeGameRunning || snakeGamePaused) ? snakeIco('play') + 'Play' : snakeIco('pause') + 'Pause';
     }
 
     function updateSnakeModeButton() {
         const btn = document.getElementById('snake-mode-btn');
         if (btn) {
-            btn.textContent = SNAKE_MODE_META[snakeMode].icon + ' ' + SNAKE_MODE_META[snakeMode].label;
+            btn.innerHTML = snakeModeHtml(SNAKE_MODE_META[snakeMode], SNAKE_MODE_META[snakeMode].label);
             btn.title = SNAKE_MODE_META[snakeMode].desc;
         }
         updateSnakeScoreDisplay();
@@ -740,7 +742,7 @@
         if (!tray) return;
         const activeId = snakeActiveSkinId();
         tray.innerHTML =
-            '<div class="snake-skin-title">🎨 Snake Skins</div>' +
+            '<div class="snake-skin-title">' + snakeIco('f-skins') + 'Snake Skins</div>' +
             '<div class="snake-skin-grid">' +
             Object.keys(SNAKE_SKINS).map(id => {
                 const skin = SNAKE_SKINS[id];
@@ -754,7 +756,7 @@
                     '" data-snake-skin="' + id + '"' + (unlocked ? '' : ' disabled') +
                     ' title="' + escapeHtml(skin.name + ' — ' + hint) + '">' +
                     '<span class="snake-skin-swatch" style="' + snakeSwatchStyle(id) + '">' +
-                    (unlocked ? '' : '🔒') + '</span>' +
+                    (unlocked ? '' : snakeIco('lock')) + '</span>' +
                     '<span class="snake-skin-name">' + escapeHtml(skin.name) + '</span>' +
                     '<span class="snake-skin-hint">' + escapeHtml(hint) + '</span>' +
                     '</button>';

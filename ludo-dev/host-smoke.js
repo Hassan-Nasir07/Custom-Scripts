@@ -452,7 +452,7 @@ ok('…and Maximum from a 147', H.userXP.achievements.indexOf('snookerMaximum') 
     ok('the player snapshot carries snooker\'s seat record', JSON.stringify(H.buildPlayerSnapshot().snookerRecord) === store.snookerRecord);
     const B = H.LB_BOARDS.snooker;
     ok('the Snooker board: Pro, Hard, Normal, Easy, All-time, Hot-seat and High break, points on the last',
-       Object.keys(B.modes).join() === 'pro,hard,normal,easy,cpu,pvp,highBreak' && B.unit === 'wins' && B.units.highBreak === 'pts' && B.notes.highBreak && B.icon === '🔴');
+       Object.keys(B.modes).join() === 'pro,hard,normal,easy,cpu,pvp,highBreak' && B.unit === 'wins' && B.units.highBreak === 'pts' && B.notes.highBreak && B.icon === 'snooker');
     ok('pool\'s and Ludo\'s boards keep their All-time notes', /predate/.test(H.LB_BOARDS.pool.notes.cpu) && /predate/.test(H.LB_BOARDS.ludo.notes.cpu));
 }
 

@@ -844,7 +844,7 @@ ok('cleanupCurrentGame detaches both listeners',
 ok('cleanupCurrentGame commits a run that was still dying',
    /case 'snake':[\s\S]{0,900}?if \(snakeDying\) \{[^}]*snakeFinalizeDeath\(\)[\s\S]{0,600}?snakeGameRunning = false[\s\S]{0,600}?clearTimeout\(snakeRestartTimer\)/.test(src));
 ok('GAME_PANELS still has a snake entry',
-   /snake: \{ el: 'snake-canvas', title: '🐍 Snake', start: \(\) => initSnakeGame\(\) \}/.test(src));
+   /snake: \{ el: 'snake-canvas', icon: 'g-snake', title: 'Snake', start: \(\) => initSnakeGame\(\) \}/.test(src));
 ok('all snake window bridges defined',
    ['snakePlayPause', 'resetSnake', 'cycleSnakeModeBtn', 'toggleSnakeSkinTrayBtn']
        .every(b => has('window.' + b + ' =')));
@@ -879,7 +879,7 @@ ok('the separate stage chip is gone from the header', !has('id="snake-stage-chip
 ok('nothing draws a stage label onto the playfield',
    !/snakeDrawStageHud/.test(src));
 ok('the mode chip carries the stage in Levels',
-   /snakeMode === 'levels'[\s\S]{0,300}?mode\.textContent = meta\.icon \+ ' Stage '/.test(src));
+   /snakeMode === 'levels'[\s\S]{0,300}?mode\.innerHTML = snakeModeHtml\(meta, 'Stage '/.test(src));
 ok('skin tray element present', has('id="snake-skin-tray"'));
 ok('skin tray styled', all(['.snake-skin-card', '.snake-skin-swatch', '.snake-skin-grid']));
 ok('game-over overlay has the mode sub-line', has('snake-go-sub'));
@@ -936,8 +936,8 @@ ok('RefleX is marked lower-is-better', has('lowerIsBetter: true'));
 ok('the leaderboard panel no longer appends a board section',
    !has('renderLbBoardSection') && !has('bindLbBoardSelectors') &&
    !has('id="lb-board-select"') && !has('data-lb-board='));
-ok('the panel renders only its head and the player rows (AchPopover)',
-   /panel\.innerHTML = `[\s\S]{0,300}?lb-head[\s\S]{0,300}?lb-list[\s\S]{0,120}?`;/.test(src));
+ok('the leaderboard is the left-column panel: player rows that carry their achievements (AchPopover)',
+   /function renderMiniBoard\(\) \{[\s\S]*?class="ws-row[\s\S]*?data-ach-keys=/.test(src) && !has('id="leaderboard-panel"'));
 
 // Every ranked game needs a button, or its board is unreachable now that the
 // panel section is gone.

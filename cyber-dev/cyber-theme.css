@@ -515,10 +515,6 @@
                 z-index: 1000;
             }
 
-            .attendance-summary.retro-theme .developer-tooltip {
-                z-index: 9999 !important;
-            }
-
             /* Boot-in scan reveal. Added on entering the theme and on Game
                Mode toggle, removed on a timer so it can re-trigger. */
             .attendance-summary.retro-theme.rt-booting .modern-table,
@@ -587,11 +583,8 @@
                 animation: rtGhostR 7s steps(1, end) infinite;
             }
 
-            /* The tint chains AHEAD of the shadows so the glyph is recoloured first and
-               the bloom thrown from the result; reversed, the halo stops following it. */
             .attendance-summary.retro-theme .emoji-display {
                 filter:
-                    var(--rt-emo-progress, opacity(1))
                     drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4))
                     drop-shadow(0 0 calc(15px * var(--rt-glow-k))
                         rgba(var(--rt-glow-rgb), calc(0.85 * var(--rt-glow-k)))) !important;
@@ -888,6 +881,7 @@
                 border-bottom: 0 !important;
                 background: var(--rt-hazard-dim) !important;
                 background-size: 22px 100%;
+                animation: rtHazardCrawl 2.4s linear infinite;
                 position: relative;
                 z-index: 2;
                 user-select: none;
@@ -1527,20 +1521,6 @@
 
             /* SETTINGS MODAL — body-level, so it reads the tokens applyPreferences()
                mirrors onto documentElement. */
-
-            /* EMOJI TINT handles, on body scope so the body-level modal sees them. */
-            body:has(.retro-theme) {
-                --rt-emo-tint: url(#rt-emoji-tint);
-                --rt-emo-progress: var(--rt-emo-tint);
-            }
-
-
-            /* A bare wrapper around one emoji: a filter on the button itself would
-               duotone its border and knocked-out glyphs too. */
-            body:has(.retro-theme) .rt-emo {
-                display: inline-block;
-                filter: var(--rt-emo-tint, opacity(1));
-            }
 
             body:has(.retro-theme) .close-modal-button {
                 background: var(--rt-text, #fff200) !important;

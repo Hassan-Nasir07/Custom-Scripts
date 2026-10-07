@@ -55,7 +55,7 @@ const vm = o => P.phModel(game(o));
     const m = vm({});
     ok('main: seat 1 "TO SHOOT", seat 2 shows the CPU tier, frames "0–0"',
         m.cards[0].tag === 'TO SHOOT' && m.cards[0].active && !m.cards[1].active && m.cards[1].rec === 'Adaptive · Normal' && m.frames === '0–0');
-    ok('main: pill "Solids", hint "Press and drag for power", spin "Center"', m.pill.text === 'Solids' && m.hint.text === 'Press and drag for power' && m.spin.label === 'Center');
+    ok('main: pill "Solids", hint "Drag for power", spin "Center"', m.pill.text === 'Solids' && m.hint.text === 'Drag for power' && m.spin.label === 'Center');
     ok('main: lean shows in 3D, labelled with the camera pitch (12° at 35)', m.lean.show && m.lean.label === '12°', m.lean.label);
     ok('main: the gauge shows, dim, unlocked; footer reads "Vs CPU"', m.gauge.show && !m.gauge.live && !m.gauge.locked && m.foot.show && m.foot.modeLabel === 'Vs CPU');
     const trk = m.cards[0].group;
@@ -73,25 +73,25 @@ const vm = o => P.phModel(game(o));
     ok('lean labels run 2°–31° across the slider', lean0 === '2°' && lean100 === '31°', lean0 + ' … ' + lean100);
 
     const d = vm({ dragging: true, power: 62 });
-    ok('dragging: "Release to shoot · 62%", the gauge lit', d.hint.text === 'Release to shoot · 62%' && d.hint.tone === 'power' && d.gauge.live && d.gauge.power === 62);
+    ok('dragging: "Release · 62%", the gauge lit', d.hint.text === 'Release · 62%' && d.hint.tone === 'power' && d.gauge.live && d.gauge.power === 62);
     const h = vm({ dragging: true, power: 90 });
     ok('power ≥ 85% goes hot', h.hint.tone === 'hot' && h.gauge.hot);
 
     const b = vm({ phase: 'bih', frame: { ballInHand: 'anywhere' }, bih: { valid: true } });
     ok('ball in hand: "BALL IN HAND", camera forced to "2D · AUTO"', b.cards[0].tag === 'BALL IN HAND' && !b.cam.is3d && b.cam.label2d === '2D · AUTO');
-    ok('ball in hand: pill "Ball in hand", hint "Drag the cue ball to place it"', b.pill.text === 'Ball in hand' && b.hint.text === 'Drag the cue ball to place it');
+    ok('ball in hand: pill "Ball in hand", hint "Drag to place"', b.pill.text === 'Ball in hand' && b.hint.text === 'Drag to place');
     ok('ball in hand: no spin, gauge or lean', !b.spin.show && !b.gauge.show && !b.lean.show);
     const bb = vm({ phase: 'bih', frame: { ballInHand: 'anywhere' }, bih: { valid: false, reason: 'overlap', sx: 100, sy: 200, sr: 5 } });
-    ok('invalid spot: hot "Release on open felt" and the "Overlaps a ball" chip under the ghost',
-        bb.hint.text === 'Release on open felt' && bb.hint.tone === 'hot' && bb.bihNote.show && bb.bihNote.text === 'Overlaps a ball' && bb.bihNote.y === 231);
+    ok('invalid spot: hot "Drop on open felt" and the "Overlaps a ball" chip under the ghost',
+        bb.hint.text === 'Drop on open felt' && bb.hint.tone === 'hot' && bb.bihNote.show && bb.bihNote.text === 'Overlaps a ball' && bb.bihNote.y === 231);
     const bk = vm({ phase: 'bih', frame: { ballInHand: 'kitchen', isBreak: true, groups: { 1: null, 2: null } }, down: [], bih: { valid: false, reason: 'kitchen', sx: 0, sy: 0 } });
     ok('break: "TO BREAK", "Break · kitchen only", both cards "Open table"',
         bk.cards[0].tag === 'TO BREAK' && bk.pill.text === 'Break · kitchen only' && bk.cards[0].open && bk.cards[1].open);
     ok('break, bad spot: "Behind the head string only"', bk.bihNote.text === 'Behind the head string only');
     const bp = vm({ phase: 'bih', frame: { ballInHand: 'anywhere' }, bih: { valid: true, placed: true } });
-    ok('placed: "Placed · aim when ready"', bp.hint.text === 'Placed · aim when ready');
+    ok('placed: "Placed · aim"', bp.hint.text === 'Placed · aim');
     const rp = { frame: { ballInHand: 'anywhere' }, canReplace: true };
-    ok('placed, aiming: "Move cue ball" shows beside the aim controls', vm(rp).replace.show && vm(rp).gauge.show && vm(rp).hint.text === 'Press and drag for power');
+    ok('placed, aiming: "Move cue ball" shows beside the aim controls', vm(rp).replace.show && vm(rp).gauge.show && vm(rp).hint.text === 'Drag for power');
     ok('"Move cue ball" hides mid-stroke, in the hand-off, while placing and once balls run',
         !vm(Object.assign({ dragging: true, power: 40 }, rp)).replace.show && !vm(Object.assign({ handoff: 2 }, rp)).replace.show &&
         !vm(Object.assign({ phase: 'bih' }, rp)).replace.show && !vm(Object.assign({ phase: 'moving' }, rp)).replace.show);
@@ -116,7 +116,7 @@ const vm = o => P.phModel(game(o));
     ok('the card steps aside for the spin picker, and the hint comes back', !vm({ down: SOLIDS, spinOpen: true }).mini.show && vm({ down: SOLIDS, spinOpen: true }).hint.show);
     ok('on the CPU\'s turn there is no card, only its hint', !vm({ down: SOLIDS.concat([9]), frame: { turn: 2, groups: { 1: 'solids', 2: 'stripes' } }, cpuTurn: true, every: true }).mini.show);
     const c2 = vm({ camera: '2d', every: true, called: 1 });
-    ok('2D: no card; every pocket is on screen, so the hint names the call', !c2.mini.show && c2.hint.show && c2.hint.text === 'Top side called · drag to shoot');
+    ok('2D: no card; every pocket is on screen, so the hint names the call', !c2.mini.show && c2.hint.show && c2.hint.text === 'Top side called');
     ok('call every shot: the pill keeps the group', c2.pill.text === 'Solids' && vm({ mode: 'pvp', every: true }).pill.text === 'Solids');
     ok('Max: the pill names the shooter on the 8 too', vm({ down: SOLIDS, layout: 'max' }).pill.text === 'Ayesha\'s shot · On the 8');
 
@@ -199,7 +199,7 @@ head("Snooker's in-match states");
        !m.cards[0].group.length && !m.cards[0].open && m.game === 'snooker');
     ok('snkRed: the pill "On a red"; the tracker: REDS × 9, six colours, 99 REMAINING, no snookers', m.pill.text === 'On a red' && m.track.show && m.track.reds === 9 && m.track.dots.length === 6 &&
        m.track.rem === '99 REMAINING' && !m.track.snookers && !m.track.concede && m.track.aria === 'Reds left 9, colours yellow, green, brown, blue, pink, black, 99 points remaining');
-    ok('snkRed: no chips, the gauge unlocked, the usual hint', !m.chips.show && !m.gauge.locked && m.hint.text === 'Press and drag for power');
+    ok('snkRed: no chips, the gauge unlocked, the usual hint', !m.chips.show && !m.gauge.locked && m.hint.text === 'Drag for power');
     // The tracker read out (S7): once the shot is over, what is on, the score and the tracker.
     ok('snkRed: the readout says what is on, the score and the tracker',
        m.track.say === 'On a red. Ayesha 34, CPU 21. Reds left 9, colours yellow, green, brown, blue, pink, black, 99 points remaining.', m.track.say);
@@ -221,7 +221,7 @@ head("Snooker's in-match states");
     ok('…in 2D no map: the pockets are tapped on the table', !snkGame({ frame: { phase: 'colour', call: 'colours' }, nom: 6, camera: '2d' }).chips.pad);
     m = snkGame({ frame: { call: 'all' } });
     ok('called on a red (all): no chips, pool\'s call card in 3D, the padlock', !m.chips.show && m.mini.show && m.mini.caption === 'Tap a pocket' && m.gauge.locked);
-    ok('…in 2D, the hint asks for it', snkGame({ frame: { call: 'all' }, camera: '2d' }).hint.text === 'Tap a pocket to call it');
+    ok('…in 2D, the hint asks for it', snkGame({ frame: { call: 'all' }, camera: '2d' }).hint.text === 'Tap a pocket');
     // The user's test: the lean slider went missing whenever a call was due (Hard, Pro, a
     // tournament calling pockets). It stays, before the call and after.
     ok('with a call due the lean stays: on a red (all), on a colour (colours), and once called',
@@ -262,8 +262,8 @@ head("Snooker's in-match states");
     m = snkGame({ reds: 0, frame: { phase: 'clearance', next: 2, scores: { 1: 56, 2: 41 }, brk: 22 } });
     ok('snkColours: "On the yellow", 27 REMAINING, the yellow ringed', m.pill.text === 'On the yellow' && m.track.rem === '27 REMAINING' && m.track.dots[0].on && m.track.reds === 0);
     m = snkGame({ reds: 0, down: [2, 3, 4, 5, 6], phase: 'bih', frame: { phase: 'clearance', next: 7, respotBlack: true, ballInHand: 'D', scores: { 1: 61, 2: 61 }, brk: 0 }, bih: { valid: true, placed: false } });
-    ok('snkRespot: "Re-spotted black", BALL IN HAND, "Place the cue ball in the D", 7 REMAINING, the black ringed', m.pill.text === 'Re-spotted black' && m.cards[0].tag === 'BALL IN HAND' &&
-       m.hint.text === 'Place the cue ball in the D' && m.track.rem === '7 REMAINING' && m.track.dots[5].on);
+    ok('snkRespot: "Re-spotted black", BALL IN HAND, "Place in the D", 7 REMAINING, the black ringed', m.pill.text === 'Re-spotted black' && m.cards[0].tag === 'BALL IN HAND' &&
+       m.hint.text === 'Place in the D' && m.track.rem === '7 REMAINING' && m.track.dots[5].on);
     m = snkGame({ phase: 'bih', reds: 15, frame: { isBreak: true, ballInHand: 'D', scores: { 1: 0, 2: 0 }, brk: 0 }, bih: { valid: true, placed: false } });
     ok('snkBreak: "Break-off · in the D", TO BREAK, 147 REMAINING', m.pill.text === 'Break-off · in the D' && m.cards[0].tag === 'TO BREAK' && m.track.rem === '147 REMAINING');
     ok('ball in hand outside the D: "Inside the D only"', snkGame({ phase: 'bih', frame: { ballInHand: 'D' }, bih: { valid: false, reason: 'D', sx: 100, sy: 100, sr: 3 } }).bihNote.text === 'Inside the D only');

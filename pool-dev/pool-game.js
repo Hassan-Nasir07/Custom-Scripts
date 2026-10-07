@@ -59,7 +59,7 @@
     // rules, CPU or storage directly (pool-verify.js checks it).
     const POOL_GAMES = {
         pool: {
-            id: 'pool', title: '8-Ball Pool', icon: '🎱', lb: 'pool', xpType: 'pool', diffPref: 'poolDifficulty', diffs: PH_DIFFS,
+            id: 'pool', title: '8-Ball Pool', icon: 'g-pool', lb: 'pool', xpType: 'pool', diffPref: 'poolDifficulty', diffs: PH_DIFFS,
             keys: { cpuRec: 'poolCpuRecord', byTier: 'poolWinsByTier', tour: 'poolTournament', cab: 'poolTrophyCabinet' },
             clock: POOL_CLOCK_S,
             // ⚙️ Shot Clock choices for a quick frame (0 is off).
@@ -130,7 +130,7 @@
         // Snooker (pool-snooker.js; CPU pool-snooker-ai.js): 147 rules, a nominated colour, the
         // choice after a foul, and a quick frame that survives a reload.
         snooker: {
-            id: 'snooker', title: 'Snooker', icon: '🔴', lb: 'snooker', xpType: 'snooker', diffPref: 'snookerDifficulty', diffs: PH_SNK_DIFFS,
+            id: 'snooker', title: 'Snooker', icon: 'snooker', lb: 'snooker', xpType: 'snooker', diffPref: 'snookerDifficulty', diffs: PH_SNK_DIFFS,
             keys: { cpuRec: 'snookerCpuRecord', byTier: 'snookerWinsByTier', tour: 'snookerTournament', cab: 'snookerTrophyCabinet', frame: 'snookerFrame' },
             // True scale: aiming is slower, so a longer clock and finer aim steps.
             clock: 45, aimKey: 0.025, aimFine: 0.0125,
@@ -391,7 +391,7 @@
         const had = pqMastered(rec);
         rec[id] = (rec[id] || 0) + 1;
         poolStoreWrite(POOL_CUE_KEY, rec);
-        S.cueRec = rec;
+        S.cueRec = rec; S.cueView = null;
         if (had < 5 && pqMastered(rec) >= 5) poolCueUnlocked('collector');
         const lv = pqLevel(rec[id], q), steps = pqSteps(q);
         if (lv > was) return lv >= 5 ? q.name + ' mastered' : q.name + ' reached level ' + lv;
@@ -445,7 +445,7 @@
             const cond = q.id === 'collector' ? q.cond + ' · ' + Math.min(5, pqMastered(rec)) + ' of 5' : q.cond;
             // Progress within the level: "4 of 7 Hard+ wins to level 3".
             return { id: q.id, name: q.name, blurb: q.blurb, cond, open, eq: q.id === eq, isNew: q.id === S.cueNew, level: st.level, wins,
-                have: wins - steps[st.level - 1], need: q.need[2][st.level - 1], counts: pqNeedText(q), bars: st.bars, top: pqStats(q.id, 0, 5).bars };
+                have: wins - steps[st.level - 1], need: q.need[2][st.level - 1], counts: pqNeedText(q), bars: st.bars, top: pqStats(q.id, 0, Math.min(5, st.level + 1)).bars };
         });
         return { eq, who, just: S.cueJust, game: S.game, open: list.filter(c => c.open).length, list };
     }
@@ -522,7 +522,7 @@
         userXP.totalXP += xpGained;
         checkLevelUp();
         saveUserXP(userXP);
-        showXPNotification(poolRules().icon + ' +' + xpGained + ' XP (' + (n === 1 ? '1 pot' : n + ' pots') + ')', 'game');
+        showXPNotification('+' + xpGained + ' XP (' + (n === 1 ? '1 pot' : n + ' pots') + ')', 'game', poolRules().icon);
         updateXPDisplay();
     }
 
@@ -1336,7 +1336,7 @@
     function poolRenderTitle(el) {
         const S = poolS, next = POOL_GAMES[S.game === 'snooker' ? 'pool' : 'snooker'].title;
         el.innerHTML = '<button type="button" class="pool-cue-switch" data-game="' + S.game + '" aria-label="Switch to ' + next + '" title="Switch to ' + next + '">' +
-            Object.keys(POOL_GAMES).map(g => '<span class="pool-cue-opt' + (g === S.game ? ' is-on' : '') + '">' + POOL_GAMES[g].icon + '</span>').join('') +
+            Object.keys(POOL_GAMES).map(g => '<span class="pool-cue-opt' + (g === S.game ? ' is-on' : '') + '">' + (typeof attIcon === 'function' ? attIcon(POOL_GAMES[g].icon) : '') + '</span>').join('') +
             '</button><span class="pool-cue-name">' + poolRules().title + '</span>';
         el.firstChild.addEventListener('click', poolToggleVariant);
     }

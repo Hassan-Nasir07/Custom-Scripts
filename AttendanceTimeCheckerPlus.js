@@ -32,12 +32,141 @@
         return;
     }
 
-    const emojiSets = {
-        fun: ['😭', '😖', '😟', '😓', '😌', '🙂', '☺️', '😄']
+    // COLOUR ICONS (design: Attendance widget · icon spec): one 24-grid SVG body each, in fixed colours
+    // that read on Glass dark, Glass light and Cyberpunk. Their gradient ids are local, so attIcon()
+    // prefixes every copy: two copies on one page would otherwise share, and lose, a gradient.
+    const ATT_ICONS = {
+        'crying': '<defs><radialGradient id="face" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFF2AE"/><stop offset=".55" stop-color="#FFD23F"/><stop offset="1" stop-color="#F29A1F"/></radialGradient><linearGradient id="tear" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B8EAFF"/><stop offset="1" stop-color="#3E9BF0"/></linearGradient></defs><circle cx="12" cy="12" r="9.6" fill="url(#face)" stroke="#D9861A" stroke-width=".6"/><ellipse cx="8.6" cy="6.6" rx="3.4" ry="1.7" fill="#FFFFFF" fill-opacity=".38" transform="rotate(-28 8.6 6.6)"/><path d="M6.9 7.9l2.6-1M17.1 7.9l-2.6-1" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.9 10.6c1-.9 2.4-.9 3.4 0M13.7 10.6c1-.9 2.4-.9 3.4 0" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.1 11.4c-.5 3-.3 5.9.6 8.4.9.5 2 .4 2.6-.3-.6-2.7-.9-5.4-.7-8.1z" fill="url(#tear)"/><path d="M16.9 11.4c.5 3 .3 5.9-.6 8.4-.9.5-2 .4-2.6-.3.6-2.7.9-5.4.7-8.1z" fill="url(#tear)"/><path d="M9.4 17.7c0-2.3 1.2-3.7 2.6-3.7s2.6 1.4 2.6 3.7c-.8.4-4.4.4-5.2 0z" fill="#5A3412"/><path d="M10.4 17.5c.4-.8 2.8-.8 3.2 0-.6.3-2.6.3-3.2 0z" fill="#FF7A8A"/>',
+        'confounded': '<defs><radialGradient id="face" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFF2AE"/><stop offset=".55" stop-color="#FFD23F"/><stop offset="1" stop-color="#F29A1F"/></radialGradient><linearGradient id="tear" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B8EAFF"/><stop offset="1" stop-color="#3E9BF0"/></linearGradient></defs><circle cx="12" cy="12" r="9.6" fill="url(#face)" stroke="#D9861A" stroke-width=".6"/><ellipse cx="8.6" cy="6.6" rx="3.4" ry="1.7" fill="#FFFFFF" fill-opacity=".38" transform="rotate(-28 8.6 6.6)"/><path d="M7 8.6l2.8 1.6-2.8 1.6M17 8.6l-2.8 1.6 2.8 1.6" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 16.4l1.3-1.1 1.3 1.1 1.4-1.1 1.4 1.1 1.3-1.1 1.3 1.1" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="6.6" cy="13.6" rx="1.5" ry="0.9" fill="#FF6B5A" fill-opacity=".35"/><ellipse cx="17.4" cy="13.6" rx="1.5" ry="0.9" fill="#FF6B5A" fill-opacity=".35"/>',
+        'worried': '<defs><radialGradient id="face" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFF2AE"/><stop offset=".55" stop-color="#FFD23F"/><stop offset="1" stop-color="#F29A1F"/></radialGradient><linearGradient id="tear" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B8EAFF"/><stop offset="1" stop-color="#3E9BF0"/></linearGradient></defs><circle cx="12" cy="12" r="9.6" fill="url(#face)" stroke="#D9861A" stroke-width=".6"/><ellipse cx="8.6" cy="6.6" rx="3.4" ry="1.7" fill="#FFFFFF" fill-opacity=".38" transform="rotate(-28 8.6 6.6)"/><path d="M7.2 8.2l2.6-1.2M16.8 8.2l-2.6-1.2" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="9" cy="11.2" rx="0.95" ry="1.35" fill="#5A3412"/><ellipse cx="15" cy="11.2" rx="0.95" ry="1.35" fill="#5A3412"/><path d="M9 16.9c1.6-1.6 4.4-1.6 6 0" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>',
+        'sweat': '<defs><radialGradient id="face" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFF2AE"/><stop offset=".55" stop-color="#FFD23F"/><stop offset="1" stop-color="#F29A1F"/></radialGradient><linearGradient id="tear" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B8EAFF"/><stop offset="1" stop-color="#3E9BF0"/></linearGradient><linearGradient id="cold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5E8BFF" stop-opacity=".55"/><stop offset=".55" stop-color="#5E8BFF" stop-opacity="0"/></linearGradient></defs><circle cx="12" cy="12" r="9.6" fill="url(#face)" stroke="#D9861A" stroke-width=".6"/><circle cx="12" cy="12" r="9.6" fill="url(#cold)"/><ellipse cx="8.6" cy="6.6" rx="3.4" ry="1.7" fill="#FFFFFF" fill-opacity=".38" transform="rotate(-28 8.6 6.6)"/><path d="M7.4 9.1l2.4-.6M16.6 9.1l-2.4-.6" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.6 11.5c.7.6 1.9.6 2.6 0M13.8 11.5c.7.6 1.9.6 2.6 0" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.6 16.2h4.8" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.7 4.4c1.1 1.5 1.7 2.5 1.7 3.3a1.7 1.7 0 0 1-3.4 0c0-.8.6-1.8 1.7-3.3z" fill="url(#tear)" stroke="#2F7FD0" stroke-width=".4"/>',
+        'yawn': '<defs><radialGradient id="face" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFF2AE"/><stop offset=".55" stop-color="#FFD23F"/><stop offset="1" stop-color="#F29A1F"/></radialGradient><linearGradient id="tear" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B8EAFF"/><stop offset="1" stop-color="#3E9BF0"/></linearGradient></defs><circle cx="12" cy="12" r="9.6" fill="url(#face)" stroke="#D9861A" stroke-width=".6"/><ellipse cx="8.6" cy="6.6" rx="3.4" ry="1.7" fill="#FFFFFF" fill-opacity=".38" transform="rotate(-28 8.6 6.6)"/><path d="M7.2 10c.8.5 2.2.5 3 0M13.8 10c.8.5 2.2.5 3 0" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="12" cy="15.6" rx="2.2" ry="2.7" fill="#5A3412"/><ellipse cx="12" cy="17.2" rx="1.3" ry="0.8" fill="#FF7A8A"/><path d="M17.2 3.6h2l-2 2.2h2" fill="none" stroke="#5B6BD9" stroke-width="0.9" stroke-linecap="round" stroke-linejoin="round"/>',
+        'drained': '<defs><radialGradient id="face" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFF6D2"/><stop offset=".55" stop-color="#EED98A"/><stop offset="1" stop-color="#C7A852"/></radialGradient><linearGradient id="tear" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B8EAFF"/><stop offset="1" stop-color="#3E9BF0"/></linearGradient></defs><circle cx="12" cy="12" r="9.6" fill="url(#face)" stroke="#A88A45" stroke-width=".6"/><ellipse cx="8.6" cy="6.6" rx="3.4" ry="1.7" fill="#FFFFFF" fill-opacity=".38" transform="rotate(-28 8.6 6.6)"/><path d="M7 10.6h3.4M13.6 10.6h3.4" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.4 12.3c.8.4 1.8.4 2.6 0M14 12.3c.8.4 1.8.4 2.6 0" fill="none" stroke="#A88A45" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 15.9h6" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>',
+        'dizzy': '<defs><radialGradient id="face" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFF2AE"/><stop offset=".55" stop-color="#FFD23F"/><stop offset="1" stop-color="#F29A1F"/></radialGradient><linearGradient id="tear" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B8EAFF"/><stop offset="1" stop-color="#3E9BF0"/></linearGradient></defs><circle cx="12" cy="12" r="9.6" fill="url(#face)" stroke="#D9861A" stroke-width=".6"/><ellipse cx="8.6" cy="6.6" rx="3.4" ry="1.7" fill="#FFFFFF" fill-opacity=".38" transform="rotate(-28 8.6 6.6)"/><path d="M7.4 8.6l2.8 2.8M10.2 8.6l-2.8 2.8M13.8 8.6l2.8 2.8M16.6 8.6l-2.8 2.8" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.4 16.2c1.2-1 2.4-1 3.6 0s2.4 1 3.6 0" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.6 3.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5z" fill="#7A6BFF"/><path d="M18.6 2.9l.4.9.9.4-.9.4-.4.9-.4-.9-.9-.4.9-.4z" fill="#7A6BFF"/>',
+        'melting': '<defs><radialGradient id="face" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFF2AE"/><stop offset=".55" stop-color="#FFD23F"/><stop offset="1" stop-color="#F29A1F"/></radialGradient></defs><path d="M3.4 15.3a8.7 8.7 0 1 1 17.2 0c-.4 1.3-.2 2.4.6 3.6.4.7 0 1.5-.8 1.5H3.6c-.8 0-1.2-.8-.8-1.5.8-1.2 1-2.3.6-3.6z" fill="url(#face)" stroke="#D9861A" stroke-width=".6"/><ellipse cx="8.4" cy="6.4" rx="3.2" ry="1.6" fill="#FFFFFF" fill-opacity=".38" transform="rotate(-28 8.4 6.4)"/><ellipse cx="8.6" cy="10.6" rx="0.95" ry="1.3" fill="#5A3412"/><ellipse cx="15.2" cy="11.1" rx="0.95" ry="1.3" fill="#5A3412"/><path d="M8.4 14.7c1.2 1 2.4.6 3.6 0s2.4-.8 3.4.2" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>',
+        'zombie': '<defs><radialGradient id="face" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#DDF7A8"/><stop offset=".55" stop-color="#8CCB4E"/><stop offset="1" stop-color="#4E8A2C"/></radialGradient><linearGradient id="tear" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B8EAFF"/><stop offset="1" stop-color="#3E9BF0"/></linearGradient></defs><circle cx="12" cy="12" r="9.6" fill="url(#face)" stroke="#3F7524" stroke-width=".6"/><ellipse cx="8.6" cy="6.6" rx="3.4" ry="1.7" fill="#FFFFFF" fill-opacity=".38" transform="rotate(-28 8.6 6.6)"/><path d="M7.2 10.4h3" fill="none" stroke="#2E4A1A" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15.3" cy="10.6" r="1.7" fill="#F4F7E8" stroke="#2E4A1A" stroke-width=".5"/><ellipse cx="15.5" cy="10.8" rx="0.6" ry="0.6" fill="#2E4A1A"/><path d="M8.6 15.8h6.8M10 14.7v2.2M12 14.7v2.2M14 14.7v2.2" fill="none" stroke="#2E4A1A" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.4 5.6l2.6 1.8M9.2 7l.5-.9M10.3 7.7l.5-.9" fill="none" stroke="#3F6B22" stroke-width="0.7" stroke-linecap="round" stroke-linejoin="round"/>',
+        'skull': '<defs><radialGradient id="bone" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".6" stop-color="#ECE9F2"/><stop offset="1" stop-color="#BDB7CC"/></radialGradient></defs><path d="M12 2.8a8.2 8.2 0 0 0-8.2 8.2c0 2.6 1.2 4.6 3.1 5.8v3.4c0 .5.4.9.9.9h8.4c.5 0 .9-.4.9-.9v-3.4c1.9-1.2 3.1-3.2 3.1-5.8A8.2 8.2 0 0 0 12 2.8z" fill="url(#bone)" stroke="#8E86A3" stroke-width=".6"/><ellipse cx="8.8" cy="11.8" rx="2" ry="2.2" fill="#3A3448"/><ellipse cx="15.2" cy="11.8" rx="2" ry="2.2" fill="#3A3448"/><path d="M12 14.4l-1.1 1.9h2.2z" fill="#3A3448"/><path d="M10.2 21v-2.3M12 21v-2.3M13.8 21v-2.3" fill="none" stroke="#8E86A3" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"/>',
+        'ghost': '<defs><radialGradient id="gh" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".6" stop-color="#EEEAFE"/><stop offset="1" stop-color="#BDB0F2"/></radialGradient></defs><path d="M5 11a7 7 0 0 1 14 0v9.4l-2.3-1.4-2.3 1.4-2.4-1.4-2.4 1.4-2.3-1.4L5 20.4z" fill="url(#gh)" stroke="#9A8BE0" stroke-width=".6" stroke-linejoin="round"/><ellipse cx="9.5" cy="10.6" rx="1" ry="1.4" fill="#2E2650"/><ellipse cx="14.5" cy="10.6" rx="1" ry="1.4" fill="#2E2650"/><ellipse cx="12" cy="14.6" rx="1.2" ry="1.5" fill="#2E2650"/><ellipse cx="7.8" cy="13" rx="1.1" ry="0.7" fill="#FF9FC0" fill-opacity=".45"/><ellipse cx="16.2" cy="13" rx="1.1" ry="0.7" fill="#FF9FC0" fill-opacity=".45"/>',
+        'relieved': '<defs><radialGradient id="face" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFF2AE"/><stop offset=".55" stop-color="#FFD23F"/><stop offset="1" stop-color="#F29A1F"/></radialGradient><linearGradient id="tear" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B8EAFF"/><stop offset="1" stop-color="#3E9BF0"/></linearGradient></defs><circle cx="12" cy="12" r="9.6" fill="url(#face)" stroke="#D9861A" stroke-width=".6"/><ellipse cx="8.6" cy="6.6" rx="3.4" ry="1.7" fill="#FFFFFF" fill-opacity=".38" transform="rotate(-28 8.6 6.6)"/><path d="M7.2 10.6c.9.8 2.3.8 3.2 0M13.6 10.6c.9.8 2.3.8 3.2 0" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.4 8c.7-.5 1.6-.6 2.4-.4M16.6 8c-.7-.5-1.6-.6-2.4-.4" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 15.2c1.7 1.4 4.3 1.4 6 0" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="6.9" cy="13.7" rx="1.6" ry="1" fill="#FF7FA0" fill-opacity=".3"/><ellipse cx="17.1" cy="13.7" rx="1.6" ry="1" fill="#FF7FA0" fill-opacity=".3"/>',
+        'smile': '<defs><radialGradient id="face" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFF2AE"/><stop offset=".55" stop-color="#FFD23F"/><stop offset="1" stop-color="#F29A1F"/></radialGradient><linearGradient id="tear" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B8EAFF"/><stop offset="1" stop-color="#3E9BF0"/></linearGradient></defs><circle cx="12" cy="12" r="9.6" fill="url(#face)" stroke="#D9861A" stroke-width=".6"/><ellipse cx="8.6" cy="6.6" rx="3.4" ry="1.7" fill="#FFFFFF" fill-opacity=".38" transform="rotate(-28 8.6 6.6)"/><ellipse cx="9" cy="10.6" rx="0.95" ry="1.35" fill="#5A3412"/><ellipse cx="15" cy="10.6" rx="0.95" ry="1.35" fill="#5A3412"/><path d="M8.6 14.6c1.9 1.7 4.9 1.7 6.8 0" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>',
+        'blush': '<defs><radialGradient id="face" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFF2AE"/><stop offset=".55" stop-color="#FFD23F"/><stop offset="1" stop-color="#F29A1F"/></radialGradient><linearGradient id="tear" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B8EAFF"/><stop offset="1" stop-color="#3E9BF0"/></linearGradient></defs><circle cx="12" cy="12" r="9.6" fill="url(#face)" stroke="#D9861A" stroke-width=".6"/><ellipse cx="8.6" cy="6.6" rx="3.4" ry="1.7" fill="#FFFFFF" fill-opacity=".38" transform="rotate(-28 8.6 6.6)"/><path d="M7.2 10.9c.9-1 2.3-1 3.2 0M13.6 10.9c.9-1 2.3-1 3.2 0" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 15c1.7 1.4 4.3 1.4 6 0" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="6.9" cy="13.7" rx="1.6" ry="1" fill="#FF7FA0" fill-opacity=".55"/><ellipse cx="17.1" cy="13.7" rx="1.6" ry="1" fill="#FF7FA0" fill-opacity=".55"/>',
+        'grin': '<defs><radialGradient id="face" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFF2AE"/><stop offset=".55" stop-color="#FFD23F"/><stop offset="1" stop-color="#F29A1F"/></radialGradient><linearGradient id="tear" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B8EAFF"/><stop offset="1" stop-color="#3E9BF0"/></linearGradient></defs><circle cx="12" cy="12" r="9.6" fill="url(#face)" stroke="#D9861A" stroke-width=".6"/><ellipse cx="8.6" cy="6.6" rx="3.4" ry="1.7" fill="#FFFFFF" fill-opacity=".38" transform="rotate(-28 8.6 6.6)"/><path d="M7.2 10.9c.9-1 2.3-1 3.2 0M13.6 10.9c.9-1 2.3-1 3.2 0" fill="none" stroke="#5A3412" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.8 13.4h8.4a4.2 4.2 0 0 1-8.4 0z" fill="#5A3412"/><path d="M8.1 13.4h7.8l-.4 1.3H8.5z" fill="#FFFFFF"/><path d="M10 17c.6-.9 3.4-.9 4 0-.9.6-3.1.6-4 0z" fill="#FF7A8A"/>',
+        'run': '<defs><radialGradient id="skin" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFE3BF"/><stop offset="1" stop-color="#F2A65A"/></radialGradient><linearGradient id="cl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#C9D2E3"/></linearGradient></defs><circle cx="4.6" cy="14.8" r="1.9" fill="url(#cl)"/><circle cx="6.8" cy="13.4" r="2.1" fill="url(#cl)"/><circle cx="4.8" cy="12" r="1.5" fill="url(#cl)"/><path d="M14.2 8.4l3 1.5 1.5-2.2" fill="none" stroke="#E59A52" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.4 13l3.1 2.3-.9 4.4" fill="none" stroke="#3A5BD9" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.4 13l-2.2 3.4H7.4" fill="none" stroke="#2E48B0" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.7 7.6l-2.4 5.3" fill="none" stroke="#FF6B3D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 8.7l-3.1.6-1.5 2.2" fill="none" stroke="#E59A52" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15.7" cy="4.6" r="2.1" fill="url(#skin)" stroke="#C97A35" stroke-width=".5"/><ellipse cx="14.9" cy="20.2" rx="1.3" ry="0.7" fill="#262A3A"/><ellipse cx="6.8" cy="16.6" rx="0.7" ry="1.1" fill="#262A3A"/>',
+        'clown': '<defs><radialGradient id="hair" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFB36B"/><stop offset="1" stop-color="#E5341F"/></radialGradient><radialGradient id="cf" cx="0.38" cy="0.32" r="0.78"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".7" stop-color="#F4F0FA"/><stop offset="1" stop-color="#D9D0EA"/></radialGradient><radialGradient id="nose" cx="0.35" cy="0.3" r="0.8"><stop offset="0" stop-color="#FF9A9A"/><stop offset=".6" stop-color="#F0283E"/><stop offset="1" stop-color="#B3122A"/></radialGradient><linearGradient id="hat" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7FA6FF"/><stop offset="1" stop-color="#2F5FE0"/></linearGradient></defs><circle cx="5.1" cy="9.2" r="2.3" fill="url(#hair)"/><circle cx="4.2" cy="12.4" r="2.1" fill="url(#hair)"/><circle cx="5.3" cy="15.2" r="1.8" fill="url(#hair)"/><circle cx="18.9" cy="9.2" r="2.3" fill="url(#hair)"/><circle cx="19.8" cy="12.4" r="2.1" fill="url(#hair)"/><circle cx="18.7" cy="15.2" r="1.8" fill="url(#hair)"/><circle cx="12" cy="12" r="7.2" fill="url(#cf)" stroke="#BFB3D6" stroke-width=".6"/><path d="M9.8 5.3L12 1.9l2.2 3.4z" fill="url(#hat)"/><circle cx="12" cy="2.2" r=".9" fill="#FFD23F"/><path d="M9.1 7.6l1.1 2-1.1 2-1.1-2z" fill="#4F86FF" fill-opacity=".85"/><path d="M14.9 7.6l1.1 2-1.1 2-1.1-2z" fill="#4F86FF" fill-opacity=".85"/><ellipse cx="9.1" cy="9.7" rx="0.65" ry="0.9" fill="#2B2140"/><ellipse cx="14.9" cy="9.7" rx="0.65" ry="0.9" fill="#2B2140"/><circle cx="12" cy="12.2" r="1.9" fill="url(#nose)"/><ellipse cx="11.4" cy="11.6" rx="0.55" ry="0.4" fill="#FFFFFF" fill-opacity=".85"/><path d="M7.9 14.1c1.3 2.9 6.9 2.9 8.2 0-.9.7-7.3.7-8.2 0z" fill="#E01E37"/>',
+        'g-snake': '<defs><linearGradient id="sk" x1="4" y1="6" x2="20" y2="19" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#B6F06A"/><stop offset="0.5" stop-color="#3FCB6B"/><stop offset="1" stop-color="#16935A"/></linearGradient><radialGradient id="gold" cx="0.35" cy="0.3" r="0.8"><stop offset="0" stop-color="#FFF6C2"/><stop offset="0.5" stop-color="#FFC93C"/><stop offset="1" stop-color="#E08A00"/></radialGradient></defs><ellipse cx="12" cy="21.4" rx="7.5" ry="1.1" fill="#1A1430" fill-opacity=".18"/><path d="M5 18.4h9.4a3.2 3.2 0 0 0 0-6.4H9.6a3.2 3.2 0 0 1 0-6.4h5.2" fill="none" stroke="#11704A" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 .35)"/><path d="M5 18.4h9.4a3.2 3.2 0 0 0 0-6.4H9.6a3.2 3.2 0 0 1 0-6.4h5.2" fill="none" stroke="url(#sk)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.6 17.7h8.6M8 10.6c-.6-.6-.9-1.4-.9-2.2M10 5h4" fill="none" stroke="#E6FFC4" stroke-width=".7" stroke-linecap="round" stroke-opacity=".75"/><ellipse cx="16.2" cy="5.6" rx="2.6" ry="2.2" fill="url(#sk)"/><circle cx="16.9" cy="4.9" r=".75" fill="#FFFFFF"/><circle cx="17.1" cy="5" r=".38" fill="#14301F"/><path d="M18.7 6.1l1.4.4M20.1 6.5l.6-.5M20.1 6.5l.5.6" fill="none" stroke="#FF4D6D" stroke-width=".55" stroke-linecap="round"/><circle cx="19.4" cy="16.6" r="2" fill="url(#gold)"/><ellipse cx="18.8" cy="15.9" rx="0.7" ry="0.4" fill="#FFFFFF" fill-opacity="0.55" transform="rotate(-30 18.8 15.9)"/><path d="M19.4 14.6c.2-.7.7-1.1 1.3-1.2" fill="none" stroke="#6A4A12" stroke-width=".5" stroke-linecap="round"/>',
+        'g-pool': '<defs><radialGradient id="ball" cx="0.35" cy="0.3" r="0.85"><stop offset="0" stop-color="#5B5670"/><stop offset="0.45" stop-color="#22202E"/><stop offset="1" stop-color="#07060C"/></radialGradient><linearGradient id="cue" x1="14" y1="3" x2="21" y2="10" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#F3D9A4"/><stop offset="0.7" stop-color="#C98A45"/><stop offset="1" stop-color="#7A4A1E"/></linearGradient></defs><ellipse cx="12" cy="21.4" rx="7.5" ry="1.1" fill="#1A1430" fill-opacity=".18"/><path d="M14.6 9.4L21 3" stroke="#6A3E16" stroke-width="2" stroke-linecap="round"/><path d="M14.6 9.4L21 3" stroke="url(#cue)" stroke-width="1.5" stroke-linecap="round"/><path d="M14.6 9.4l1-1" stroke="#2F6BFF" stroke-width="1.5" stroke-linecap="round"/><circle cx="10.5" cy="13.5" r="7.2" fill="url(#ball)"/><circle cx="10.1" cy="12.9" r="3.1" fill="#FFFFFF"/><circle cx="10.1" cy="12" r=".95" fill="none" stroke="#14121C" stroke-width=".75"/><circle cx="10.1" cy="13.75" r="1.15" fill="none" stroke="#14121C" stroke-width=".75"/><ellipse cx="7.2" cy="9.6" rx="2.2" ry="1.1" fill="#FFFFFF" fill-opacity="0.45" transform="rotate(-35 7.2 9.6)"/><ellipse cx="14.2" cy="17.8" rx="1.3" ry="0.5" fill="#FFFFFF" fill-opacity="0.12" transform="rotate(-35 14.2 17.8)"/>',
+        'g-flappy': '<defs><linearGradient id="pipe" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3E9E3A"/><stop offset="0.35" stop-color="#8EE36A"/><stop offset="1" stop-color="#2F7D2C"/></linearGradient><radialGradient id="bird" cx="0.35" cy="0.3" r="0.8"><stop offset="0" stop-color="#FFF3A6"/><stop offset="0.55" stop-color="#FFCE2E"/><stop offset="1" stop-color="#F08A00"/></radialGradient><linearGradient id="beak" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF9C4A"/><stop offset="1" stop-color="#E04B1A"/></linearGradient></defs><ellipse cx="12" cy="21.4" rx="7.5" ry="1.1" fill="#1A1430" fill-opacity=".18"/><rect x="15.2" y="13" width="5.2" height="8.6" fill="url(#pipe)"/><rect x="14.4" y="11.4" width="6.8" height="2.4" rx=".5" fill="url(#pipe)"/><rect x="15.2" y="2.4" width="5.2" height="3.2" fill="url(#pipe)"/><rect x="14.4" y="5" width="6.8" height="2.2" rx=".5" fill="url(#pipe)"/><ellipse cx="9.6" cy="12.6" rx="6.4" ry="5.8" fill="url(#bird)"/><path d="M3.6 12.4c1.4-2.6 4.2-2.6 5.2-.2-1.2 2.4-3.9 2.6-5.2.2z" fill="#FFFFFF" stroke="#E7B200" stroke-width=".4"/><circle cx="12.2" cy="10.2" r="2.1" fill="#FFFFFF"/><circle cx="12.9" cy="10.3" r=".85" fill="#1C1A2A"/><circle cx="13.2" cy="9.9" r=".3" fill="#FFFFFF"/><path d="M13.6 12.6h3.6c.6 0 .9.6.5 1l-.6.5.5.5c.4.4.1 1-.5 1h-3.5z" fill="url(#beak)"/><path d="M13.7 14.1h3.4" stroke="#B03A10" stroke-width=".4"/><ellipse cx="7.6" cy="8.6" rx="2" ry="1" fill="#FFFFFF" fill-opacity="0.5" transform="rotate(-25 7.6 8.6)"/>',
+        'g-reflex': '<defs><radialGradient id="case" cx="0.35" cy="0.3" r="0.8"><stop offset="0" stop-color="#FFB27A"/><stop offset="0.6" stop-color="#FF6A3D"/><stop offset="1" stop-color="#C9341A"/></radialGradient><radialGradient id="face" cx="0.4" cy="0.35" r="0.8"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#E9E4F2"/></radialGradient><linearGradient id="bolt" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF27A"/><stop offset="1" stop-color="#FFB400"/></linearGradient></defs><ellipse cx="12" cy="21.4" rx="7.5" ry="1.1" fill="#1A1430" fill-opacity=".18"/><rect x="10.4" y="1.8" width="3.2" height="1.8" rx=".6" fill="#C9341A"/><rect x="11.3" y="3.2" width="1.4" height="1.6" fill="#E0502A"/><rect x="17.2" y="4.6" width="2" height="1.4" rx=".5" fill="#C9341A" transform="rotate(45 18.2 5.3)"/><circle cx="12" cy="13" r="8.2" fill="url(#case)"/><circle cx="12" cy="13" r="6.2" fill="url(#face)"/><path d="M12 7.6v.9M12 17.5v.9M6.6 13h.9M16.5 13h.9" stroke="#B9B2C8" stroke-width=".7" stroke-linecap="round"/><path d="M12.9 8.4L9.6 13.6h2.6l-1 4 3.4-5.4h-2.6z" fill="url(#bolt)" stroke="#E08A00" stroke-width=".45" stroke-linejoin="round"/><ellipse cx="8.4" cy="8.2" rx="2.4" ry="1.1" fill="#FFFFFF" fill-opacity="0.45" transform="rotate(-38 8.4 8.2)"/>',
+        'g-tasbih': '<defs><radialGradient id="bd" cx="0.35" cy="0.3" r="0.8"><stop offset="0" stop-color="#7FF0D8"/><stop offset="0.55" stop-color="#17B897"/><stop offset="1" stop-color="#0B6E5E"/></radialGradient><radialGradient id="gd" cx="0.35" cy="0.3" r="0.8"><stop offset="0" stop-color="#FFF2B0"/><stop offset="0.6" stop-color="#FFC93C"/><stop offset="1" stop-color="#C98500"/></radialGradient></defs><ellipse cx="12" cy="21.4" rx="7.5" ry="1.1" fill="#1A1430" fill-opacity=".18"/><ellipse cx="12" cy="9.6" rx="6.3" ry="5.6" fill="none" stroke="#9A7A4A" stroke-width=".5"/><circle cx="12.00" cy="4.00" r="1.35" fill="url(#bd)"/><circle cx="11.55" cy="3.55" r=".42" fill="#FFFFFF" fill-opacity=".75"/><circle cx="15.15" cy="4.75" r="1.35" fill="url(#bd)"/><circle cx="14.70" cy="4.30" r=".42" fill="#FFFFFF" fill-opacity=".75"/><circle cx="17.46" cy="6.80" r="1.35" fill="url(#bd)"/><circle cx="17.01" cy="6.35" r=".42" fill="#FFFFFF" fill-opacity=".75"/><circle cx="18.30" cy="9.60" r="1.35" fill="url(#bd)"/><circle cx="17.85" cy="9.15" r=".42" fill="#FFFFFF" fill-opacity=".75"/><circle cx="17.46" cy="12.40" r="1.35" fill="url(#bd)"/><circle cx="17.01" cy="11.95" r=".42" fill="#FFFFFF" fill-opacity=".75"/><circle cx="15.15" cy="14.45" r="1.35" fill="url(#bd)"/><circle cx="14.70" cy="14.00" r=".42" fill="#FFFFFF" fill-opacity=".75"/><circle cx="8.85" cy="14.45" r="1.35" fill="url(#bd)"/><circle cx="8.40" cy="14.00" r=".42" fill="#FFFFFF" fill-opacity=".75"/><circle cx="6.54" cy="12.40" r="1.35" fill="url(#bd)"/><circle cx="6.09" cy="11.95" r=".42" fill="#FFFFFF" fill-opacity=".75"/><circle cx="5.70" cy="9.60" r="1.35" fill="url(#bd)"/><circle cx="5.25" cy="9.15" r=".42" fill="#FFFFFF" fill-opacity=".75"/><circle cx="6.54" cy="6.80" r="1.35" fill="url(#bd)"/><circle cx="6.09" cy="6.35" r=".42" fill="#FFFFFF" fill-opacity=".75"/><circle cx="8.85" cy="4.75" r="1.35" fill="url(#bd)"/><circle cx="8.40" cy="4.30" r=".42" fill="#FFFFFF" fill-opacity=".75"/><circle cx="12" cy="15.6" r="1.6" fill="url(#gd)"/><path d="M12 17.2v1.2M10.6 21.2l1.4-2.8 1.4 2.8z" fill="url(#gd)" stroke="#C98500" stroke-width=".5" stroke-linejoin="round"/><path d="M11.2 21.1l.4-1.6M12 21.2v-1.8M12.8 21.1l-.4-1.6" stroke="#B07000" stroke-width=".35" stroke-linecap="round"/>',
+        'g-ludo': '<defs><linearGradient id="base" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#DCD6EA"/></linearGradient></defs><ellipse cx="12" cy="21.4" rx="7.5" ry="1.1" fill="#1A1430" fill-opacity=".18"/><rect x="2.6" y="3.4" width="18.8" height="18" rx="2.6" fill="#B9B0D1"/><rect x="2.6" y="2.6" width="18.8" height="18" rx="2.6" fill="url(#base)"/><rect x="3.6" y="3.6" width="6.6" height="6.6" rx="1.4" fill="#FF5A5F"/><circle cx="6.9" cy="6.9" r="1.6" fill="#FFFFFF"/><circle cx="6.9" cy="6.9" r=".9" fill="#D7263D"/><rect x="13.8" y="3.6" width="6.6" height="6.6" rx="1.4" fill="#3DCB6E"/><circle cx="17.1" cy="6.9" r="1.6" fill="#FFFFFF"/><circle cx="17.1" cy="6.9" r=".9" fill="#1E9A4C"/><rect x="3.6" y="13" width="6.6" height="6.6" rx="1.4" fill="#3B8CFF"/><circle cx="6.9" cy="16.3" r="1.6" fill="#FFFFFF"/><circle cx="6.9" cy="16.3" r=".9" fill="#1C5FD0"/><rect x="13.8" y="13" width="6.6" height="6.6" rx="1.4" fill="#FFC93C"/><circle cx="17.1" cy="16.3" r="1.6" fill="#FFFFFF"/><circle cx="17.1" cy="16.3" r=".9" fill="#E09A00"/><path d="M10.2 10.2L12 11.6 13.8 10.2z" fill="#3DCB6E"/><path d="M10.2 10.2L12 11.6 10.2 13z" fill="#FF5A5F"/><path d="M10.2 13L12 11.6 13.8 13z" fill="#3B8CFF"/><path d="M13.8 10.2L12 11.6 13.8 13z" fill="#FFC93C"/><ellipse cx="6" cy="4.6" rx="2.2" ry="0.7" fill="#FFFFFF" fill-opacity="0.35" transform="rotate(-15 6 4.6)"/>',
+        'g-tetris': '<defs></defs><ellipse cx="12" cy="21.4" rx="7.5" ry="1.1" fill="#1A1430" fill-opacity=".18"/><rect x="3" y="10" width="3.6" height="3.6" rx=".7" fill="#5B2BB5"/><rect x="3.35" y="10.3" width="2.9000000000000004" height="2.85" rx=".55" fill="#9B5CF6"/><rect x="3.6" y="10.5" width="2.4000000000000004" height="1.1520000000000001" rx=".4" fill="#E6CCFF" fill-opacity=".9"/><rect x="6.6" y="10" width="3.6" height="3.6" rx=".7" fill="#5B2BB5"/><rect x="6.949999999999999" y="10.3" width="2.9000000000000004" height="2.85" rx=".55" fill="#9B5CF6"/><rect x="7.199999999999999" y="10.5" width="2.4000000000000004" height="1.1520000000000001" rx=".4" fill="#E6CCFF" fill-opacity=".9"/><rect x="10.2" y="10" width="3.6" height="3.6" rx=".7" fill="#5B2BB5"/><rect x="10.549999999999999" y="10.3" width="2.9000000000000004" height="2.85" rx=".55" fill="#9B5CF6"/><rect x="10.799999999999999" y="10.5" width="2.4000000000000004" height="1.1520000000000001" rx=".4" fill="#E6CCFF" fill-opacity=".9"/><rect x="6.6" y="6.4" width="3.6" height="3.6" rx=".7" fill="#5B2BB5"/><rect x="6.949999999999999" y="6.7" width="2.9000000000000004" height="2.85" rx=".55" fill="#9B5CF6"/><rect x="7.199999999999999" y="6.9" width="2.4000000000000004" height="1.1520000000000001" rx=".4" fill="#E6CCFF" fill-opacity=".9"/><rect x="13.8" y="10" width="3.6" height="3.6" rx=".7" fill="#B4520F"/><rect x="14.15" y="10.3" width="2.9000000000000004" height="2.85" rx=".55" fill="#FF9A3D"/><rect x="14.4" y="10.5" width="2.4000000000000004" height="1.1520000000000001" rx=".4" fill="#FFE0B0" fill-opacity=".9"/><rect x="13.8" y="13.6" width="3.6" height="3.6" rx=".7" fill="#B4520F"/><rect x="14.15" y="13.9" width="2.9000000000000004" height="2.85" rx=".55" fill="#FF9A3D"/><rect x="14.4" y="14.1" width="2.4000000000000004" height="1.1520000000000001" rx=".4" fill="#FFE0B0" fill-opacity=".9"/><rect x="13.8" y="17.2" width="3.6" height="3.6" rx=".7" fill="#B4520F"/><rect x="14.15" y="17.5" width="2.9000000000000004" height="2.85" rx=".55" fill="#FF9A3D"/><rect x="14.4" y="17.7" width="2.4000000000000004" height="1.1520000000000001" rx=".4" fill="#FFE0B0" fill-opacity=".9"/><rect x="17.4" y="17.2" width="3.6" height="3.6" rx=".7" fill="#B4520F"/><rect x="17.75" y="17.5" width="2.9000000000000004" height="2.85" rx=".55" fill="#FF9A3D"/><rect x="18.0" y="17.7" width="2.4000000000000004" height="1.1520000000000001" rx=".4" fill="#FFE0B0" fill-opacity=".9"/><rect x="3" y="17.2" width="3.6" height="3.6" rx=".7" fill="#1E7A45"/><rect x="3.35" y="17.5" width="2.9000000000000004" height="2.85" rx=".55" fill="#3DCB6E"/><rect x="3.6" y="17.7" width="2.4000000000000004" height="1.1520000000000001" rx=".4" fill="#D2FFB8" fill-opacity=".9"/><rect x="6.6" y="17.2" width="3.6" height="3.6" rx=".7" fill="#1E7A45"/><rect x="6.949999999999999" y="17.5" width="2.9000000000000004" height="2.85" rx=".55" fill="#3DCB6E"/><rect x="7.199999999999999" y="17.7" width="2.4000000000000004" height="1.1520000000000001" rx=".4" fill="#D2FFB8" fill-opacity=".9"/><rect x="6.6" y="13.6" width="3.6" height="3.6" rx=".7" fill="#1E7A45"/><rect x="6.949999999999999" y="13.9" width="2.9000000000000004" height="2.85" rx=".55" fill="#3DCB6E"/><rect x="7.199999999999999" y="14.1" width="2.4000000000000004" height="1.1520000000000001" rx=".4" fill="#D2FFB8" fill-opacity=".9"/><rect x="10.2" y="13.6" width="3.6" height="3.6" rx=".7" fill="#1E7A45"/><rect x="10.549999999999999" y="13.9" width="2.9000000000000004" height="2.85" rx=".55" fill="#3DCB6E"/><rect x="10.799999999999999" y="14.1" width="2.4000000000000004" height="1.1520000000000001" rx=".4" fill="#D2FFB8" fill-opacity=".9"/>',
+        'g-breakout': '<defs><radialGradient id="ball" cx="0.35" cy="0.3" r="0.8"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.6" stop-color="#E6E0FF"/><stop offset="1" stop-color="#9C8CF0"/></radialGradient><linearGradient id="pad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B7A6FF"/><stop offset="1" stop-color="#5B3FD9"/></linearGradient></defs><ellipse cx="12" cy="21.4" rx="7.5" ry="1.1" fill="#1A1430" fill-opacity=".18"/><rect x="2.6" y="3" width="5.8" height="3" rx=".6" fill="#B5203A"/><rect x="2.9" y="3.25" width="5.2" height="2.4" rx=".5" fill="#FF5A6E"/><rect x="3.2" y="3.45" width="4.6" height=".8" rx=".4" fill="#FFD0D6" fill-opacity=".9"/><rect x="9.1" y="3" width="5.8" height="3" rx=".6" fill="#B4620F"/><rect x="9.4" y="3.25" width="5.2" height="2.4" rx=".5" fill="#FFA83D"/><rect x="9.7" y="3.45" width="4.6" height=".8" rx=".4" fill="#FFE6B0" fill-opacity=".9"/><rect x="15.6" y="3" width="5.8" height="3" rx=".6" fill="#B48A00"/><rect x="15.9" y="3.25" width="5.2" height="2.4" rx=".5" fill="#FFD23F"/><rect x="16.2" y="3.45" width="4.6" height=".8" rx=".4" fill="#FFF5B0" fill-opacity=".9"/><rect x="2.6" y="6.6" width="5.8" height="3" rx=".6" fill="#1E7A45"/><rect x="2.9" y="6.85" width="5.2" height="2.4" rx=".5" fill="#3DCB6E"/><rect x="3.2" y="7.05" width="4.6" height=".8" rx=".4" fill="#D2FFB8" fill-opacity=".9"/><rect x="15.6" y="6.6" width="5.8" height="3" rx=".6" fill="#1C4FB8"/><rect x="15.9" y="6.85" width="5.2" height="2.4" rx=".5" fill="#3B8CFF"/><rect x="16.2" y="7.05" width="4.6" height=".8" rx=".4" fill="#C9E3FF" fill-opacity=".9"/><path d="M11.9 7.6l1 4.6" stroke="#B7A6FF" stroke-width=".6" stroke-dasharray=".8 .8" stroke-linecap="round"/><circle cx="13.6" cy="14.4" r="1.9" fill="url(#ball)"/><ellipse cx="13" cy="13.8" rx="0.6" ry="0.35" fill="#FFFFFF" fill-opacity="0.55" transform="rotate(-30 13 13.8)"/><rect x="7" y="18.6" width="10" height="2.4" rx="1.2" fill="url(#pad)"/><rect x="8" y="18.9" width="8" height=".7" rx=".35" fill="#FFFFFF" fill-opacity=".6"/>',
+        'g-aim': '<defs><radialGradient id="rim" cx="0.4" cy="0.35" r="0.75"><stop offset="0" stop-color="#FF8A8A"/><stop offset="0.7" stop-color="#E5263D"/><stop offset="1" stop-color="#A3122A"/></radialGradient><linearGradient id="fl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7FB2FF"/><stop offset="1" stop-color="#2F5FE0"/></linearGradient></defs><ellipse cx="12" cy="21.4" rx="7.5" ry="1.1" fill="#1A1430" fill-opacity=".18"/><circle cx="11" cy="12.4" r="8.4" fill="url(#rim)"/><circle cx="11" cy="12.4" r="6.4" fill="#FFFFFF"/><circle cx="11" cy="12.4" r="4.4" fill="url(#rim)"/><circle cx="11" cy="12.4" r="2.4" fill="#FFFFFF"/><circle cx="11" cy="12.4" r="1.1" fill="#E5263D"/><path d="M11.2 12.2l7.2-7.2" stroke="#3A3448" stroke-width=".9" stroke-linecap="round"/><path d="M18.4 5l1.6-2.6.7 1.9 1.9.7L20 6.6z" fill="url(#fl)"/><ellipse cx="7.4" cy="7.6" rx="2.4" ry="1.1" fill="#FFFFFF" fill-opacity="0.4" transform="rotate(-38 7.4 7.6)"/>',
+        'g-board': '<defs><linearGradient id="gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE58A"/><stop offset="1" stop-color="#F0A500"/></linearGradient><linearGradient id="silv" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F2F4F8"/><stop offset="1" stop-color="#A9B2C3"/></linearGradient><linearGradient id="brz" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFC79A"/><stop offset="1" stop-color="#C8743A"/></linearGradient><radialGradient id="cup" cx="0.35" cy="0.3" r="0.85"><stop offset="0" stop-color="#FFF6C2"/><stop offset="0.55" stop-color="#FFC93C"/><stop offset="1" stop-color="#D08A00"/></radialGradient></defs><ellipse cx="12" cy="21.4" rx="7.5" ry="1.1" fill="#1A1430" fill-opacity=".18"/><rect x="8.6" y="12" width="6.8" height="9.4" rx=".8" fill="url(#gold)"/><rect x="8.6" y="12" width="6.8" height="1.2" rx=".6" fill="#FFF3C0"/><rect x="2.6" y="14.6" width="6.2" height="6.8" rx=".8" fill="url(#silv)"/><rect x="2.6" y="14.6" width="6.2" height="1.1" rx=".55" fill="#FFFFFF"/><rect x="15.2" y="16.4" width="6.2" height="5" rx=".8" fill="url(#brz)"/><rect x="15.2" y="16.4" width="6.2" height="1.1" rx=".55" fill="#FFE2C8"/><path d="M11.3 15.6l1-.7v3.9" fill="none" stroke="#A86A00" stroke-width=".9" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.4 3h5.2v2.8a2.6 2.6 0 0 1-5.2 0z" fill="url(#cup)"/><path d="M9.4 3.6H8.2a1.3 1.3 0 0 0 1.4 1.9M14.6 3.6h1.2a1.3 1.3 0 0 1-1.4 1.9" fill="none" stroke="#E0A000" stroke-width=".6"/><rect x="11.4" y="8.2" width="1.2" height="1.6" fill="#E0A000"/><rect x="10.2" y="9.8" width="3.6" height="1.4" rx=".4" fill="#B57A00"/><ellipse cx="10.6" cy="3.9" rx="0.6" ry="0.9" fill="#FFFFFF" fill-opacity="0.55" transform="rotate(0 10.6 3.9)"/>',
+        'f-xp': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E1D2FF"/><stop offset="1" stop-color="#8B6CF0"/></linearGradient><clipPath id="c"><path d="M12 3l7.5 4.5v9L12 21l-7.5-4.5v-9z"/></clipPath></defs><path d="M12 3l7.5 4.5v9L12 21l-7.5-4.5v-9z" fill="url(#g)"/><path d="M12 3l7.5 4.5v9L12 21l-7.5-4.5v-9z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M12 3l7.5 4.5v9L12 21l-7.5-4.5v-9zM8.5 13.5L12 10l3.5 3.5" fill="none" stroke="#4B2FA8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 13.5L12 10l3.5 3.5" fill="none" stroke="#8B6CF0" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>',
+        'f-ach': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFEDAE"/><stop offset="1" stop-color="#F5B83D"/></linearGradient><clipPath id="c"><path d="M12 14a5 5 0 1 0 0-10a5 5 0 0 0 0 10z"/></clipPath></defs><path d="M12 14a5 5 0 1 0 0-10a5 5 0 0 0 0 10z" fill="url(#g)"/><path d="M12 14a5 5 0 1 0 0-10a5 5 0 0 0 0 10z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M12 14a5 5 0 1 0 0-10a5 5 0 0 0 0 10zM9 13l-1.5 7.5L12 18l4.5 2.5L15 13" fill="none" stroke="#9A6200" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 13l-1.5 7.5L12 18l4.5 2.5L15 13" fill="none" stroke="#F5B83D" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>',
+        'f-cloud': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B7DCFF"/><stop offset="1" stop-color="#3B8CFF"/></linearGradient><clipPath id="c"><path d="M7 18.5a4.5 4.5 0 0 1-.6-9 6 6 0 0 1 11.3 1.5 3.8 3.8 0 0 1-.7 7.5z"/></clipPath></defs><path d="M7 18.5a4.5 4.5 0 0 1-.6-9 6 6 0 0 1 11.3 1.5 3.8 3.8 0 0 1-.7 7.5z" fill="url(#g)"/><path d="M7 18.5a4.5 4.5 0 0 1-.6-9 6 6 0 0 1 11.3 1.5 3.8 3.8 0 0 1-.7 7.5z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M7 18.5a4.5 4.5 0 0 1-.6-9 6 6 0 0 1 11.3 1.5 3.8 3.8 0 0 1-.7 7.5zM10 13l2-2 2 2M12 11v5" fill="none" stroke="#1C4FB8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 13l2-2 2 2M12 11v5" fill="none" stroke="#3B8CFF" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>',
+        'f-integrity': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C9F59A"/><stop offset="1" stop-color="#4CC26A"/></linearGradient><clipPath id="c"><path d="M12 3l7 3v5c0 4.4-3 8.2-7 10-4-1.8-7-5.6-7-10V6l7-3z"/></clipPath></defs><path d="M12 3l7 3v5c0 4.4-3 8.2-7 10-4-1.8-7-5.6-7-10V6l7-3z" fill="url(#g)"/><path d="M12 3l7 3v5c0 4.4-3 8.2-7 10-4-1.8-7-5.6-7-10V6l7-3z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M12 3l7 3v5c0 4.4-3 8.2-7 10-4-1.8-7-5.6-7-10V6l7-3zM8.8 12l2.2 2.2 4.2-4.4" fill="none" stroke="#1F7A45" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.8 12l2.2 2.2 4.2-4.4" fill="none" stroke="#4CC26A" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>',
+        'f-skins': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD0E6"/><stop offset="1" stop-color="#FF5FA8"/></linearGradient><clipPath id="c"><path d="M12 21a9 9 0 1 1 9-9c0 2-1.5 3-3.5 3H15a2 2 0 0 0-1.4 3.4c.4.4.6.9.6 1.4 0 .7-.6 1.2-1.3 1.2H12z"/></clipPath></defs><path d="M12 21a9 9 0 1 1 9-9c0 2-1.5 3-3.5 3H15a2 2 0 0 0-1.4 3.4c.4.4.6.9.6 1.4 0 .7-.6 1.2-1.3 1.2H12z" fill="url(#g)"/><path d="M12 21a9 9 0 1 1 9-9c0 2-1.5 3-3.5 3H15a2 2 0 0 0-1.4 3.4c.4.4.6.9.6 1.4 0 .7-.6 1.2-1.3 1.2H12z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M12 21a9 9 0 1 1 9-9c0 2-1.5 3-3.5 3H15a2 2 0 0 0-1.4 3.4c.4.4.6.9.6 1.4 0 .7-.6 1.2-1.3 1.2H12zM7.5 12.5h.01M9.5 8h.01M14.5 8h.01" fill="none" stroke="#A31F63" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
+        'f-pip': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B7DCFF"/><stop offset="1" stop-color="#3B8CFF"/></linearGradient><clipPath id="c"><path d="M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5zM12.5 12h5.5v4.5h-5.5z"/></clipPath></defs><path d="M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5zM12.5 12h5.5v4.5h-5.5z" fill="url(#g)"/><path d="M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5zM12.5 12h5.5v4.5h-5.5z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5zM12.5 12h5.5v4.5h-5.5z" fill="none" stroke="#1C4FB8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
+        'f-theme': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E1D2FF"/><stop offset="1" stop-color="#8B6CF0"/></linearGradient><clipPath id="c"><path d="M12 3a9 9 0 0 1 0 18z"/></clipPath></defs><path d="M12 3a9 9 0 0 1 0 18z" fill="url(#g)"/><path d="M12 3a9 9 0 0 1 0 18z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18zM12 3v18M12 7.5a4.5 4.5 0 0 1 0 9" fill="none" stroke="#4B2FA8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 3v18M12 7.5a4.5 4.5 0 0 1 0 9" fill="none" stroke="#8B6CF0" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>',
+        'f-shifts': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD9A0"/><stop offset="1" stop-color="#FF9A3D"/></linearGradient><clipPath id="c"><path d="M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18z"/></clipPath></defs><path d="M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18z" fill="url(#g)"/><path d="M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18zM12 7v5l3.5 2" fill="none" stroke="#B4520F" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l3.5 2" fill="none" stroke="#FF9A3D" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>',
+        'f-quotes': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E6EBF2"/><stop offset="1" stop-color="#8D9AAE"/></linearGradient><clipPath id="c"><path d="M4 7h4.5v5.8c0 2.6-1.6 4.6-4 5.2V12.5H4zM14 7h4.5v5.8c0 2.6-1.6 4.6-4 5.2V12.5H14z"/></clipPath></defs><path d="M4 7h4.5v5.8c0 2.6-1.6 4.6-4 5.2V12.5H4zM14 7h4.5v5.8c0 2.6-1.6 4.6-4 5.2V12.5H14z" fill="url(#g)"/><path d="M4 7h4.5v5.8c0 2.6-1.6 4.6-4 5.2V12.5H4zM14 7h4.5v5.8c0 2.6-1.6 4.6-4 5.2V12.5H14z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M4.5 18c2.4-.6 4-2.6 4-5.2V7H4v5.5h4.5M14.5 18c2.4-.6 4-2.6 4-5.2V7H14v5.5h4.5" fill="none" stroke="#3E4A5E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 18c2.4-.6 4-2.6 4-5.2V7H4v5.5h4.5M14.5 18c2.4-.6 4-2.6 4-5.2V7H14v5.5h4.5" fill="none" stroke="#8D9AAE" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>',
+        'u-app': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B7DCFF"/><stop offset="1" stop-color="#3B8CFF"/></linearGradient><clipPath id="c"><path d="M5.5 5h13A1.5 1.5 0 0 1 20 6.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-12A1.5 1.5 0 0 1 5.5 5z"/></clipPath></defs><path d="M5.5 5h13A1.5 1.5 0 0 1 20 6.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-12A1.5 1.5 0 0 1 5.5 5z" fill="url(#g)"/><path d="M5.5 5h13A1.5 1.5 0 0 1 20 6.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-12A1.5 1.5 0 0 1 5.5 5z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M5.5 5h13A1.5 1.5 0 0 1 20 6.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-12A1.5 1.5 0 0 1 5.5 5zM8.5 3v4M15.5 3v4M4 9.5h16M8 13.5h.01M12 13.5h.01M16 13.5h.01M8 16.5h.01M12 16.5h.01" fill="none" stroke="#1C4FB8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.5 3v4M15.5 3v4M4 9.5h16" fill="none" stroke="#3B8CFF" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>',
+        'u-settings': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E6EBF2"/><stop offset="1" stop-color="#8D9AAE"/></linearGradient><clipPath id="c"><path d="M12 15a3 3 0 1 0 0-6a3 3 0 0 0 0 6zM10.3 3.5h3.4l.5 2.4 1.7 1 2.3-.8 1.7 3-1.8 1.6v1.9l1.8 1.6-1.7 3-2.3-.8-1.7 1-.5 2.4h-3.4l-.5-2.4-1.7-1-2.3.8-1.7-3 1.8-1.6v-1.9L3.9 9.1l1.7-3 2.3.8 1.7-1z"/></clipPath></defs><path d="M12 15a3 3 0 1 0 0-6a3 3 0 0 0 0 6zM10.3 3.5h3.4l.5 2.4 1.7 1 2.3-.8 1.7 3-1.8 1.6v1.9l1.8 1.6-1.7 3-2.3-.8-1.7 1-.5 2.4h-3.4l-.5-2.4-1.7-1-2.3.8-1.7-3 1.8-1.6v-1.9L3.9 9.1l1.7-3 2.3.8 1.7-1z" fill="url(#g)"/><path d="M12 15a3 3 0 1 0 0-6a3 3 0 0 0 0 6zM10.3 3.5h3.4l.5 2.4 1.7 1 2.3-.8 1.7 3-1.8 1.6v1.9l1.8 1.6-1.7 3-2.3-.8-1.7 1-.5 2.4h-3.4l-.5-2.4-1.7-1-2.3.8-1.7-3 1.8-1.6v-1.9L3.9 9.1l1.7-3 2.3.8 1.7-1z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M12 15a3 3 0 1 0 0-6a3 3 0 0 0 0 6zM10.3 3.5h3.4l.5 2.4 1.7 1 2.3-.8 1.7 3-1.8 1.6v1.9l1.8 1.6-1.7 3-2.3-.8-1.7 1-.5 2.4h-3.4l-.5-2.4-1.7-1-2.3.8-1.7-3 1.8-1.6v-1.9L3.9 9.1l1.7-3 2.3.8 1.7-1z" fill="none" stroke="#3E4A5E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
+        'u-float': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E1D2FF"/><stop offset="1" stop-color="#8B6CF0"/></linearGradient><clipPath id="c"><path d="M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5zM12.5 12h5.5v4.5h-5.5z"/></clipPath></defs><path d="M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5zM12.5 12h5.5v4.5h-5.5z" fill="url(#g)"/><path d="M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5zM12.5 12h5.5v4.5h-5.5z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5zM12.5 12h5.5v4.5h-5.5zM7 9l3 3M10 9.5V12H7.5" fill="none" stroke="#4B2FA8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 9l3 3M10 9.5V12H7.5" fill="none" stroke="#8B6CF0" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>',
+        'u-info': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B7DCFF"/><stop offset="1" stop-color="#3B8CFF"/></linearGradient><clipPath id="c"><path d="M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18z"/></clipPath></defs><path d="M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18z" fill="url(#g)"/><path d="M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18zM12 11v5.5M12 7.8h.01" fill="none" stroke="#1C4FB8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 11v5.5" fill="none" stroke="#3B8CFF" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>',
+        'u-tip': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFEDAE"/><stop offset="1" stop-color="#F5B83D"/></linearGradient><clipPath id="c"><path d="M12 3a6 6 0 0 0-3.6 10.8c.5.4.6 1 .6 1.7V16h6v-.5c0-.7.2-1.3.7-1.7A6 6 0 0 0 12 3z"/></clipPath></defs><path d="M12 3a6 6 0 0 0-3.6 10.8c.5.4.6 1 .6 1.7V16h6v-.5c0-.7.2-1.3.7-1.7A6 6 0 0 0 12 3z" fill="url(#g)"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.5.4.6 1 .6 1.7V16h6v-.5c0-.7.2-1.3.7-1.7A6 6 0 0 0 12 3z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.5.4.6 1 .6 1.7V16h6v-.5c0-.7.2-1.3.7-1.7A6 6 0 0 0 12 3z" fill="none" stroke="#9A6200" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 18h6M10 21h4" fill="none" stroke="#F5B83D" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>',
+        'u-back': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E1D2FF"/><stop offset="1" stop-color="#8B6CF0"/></linearGradient><clipPath id="c"><path d="M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5z"/></clipPath></defs><path d="M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5z" fill="url(#g)"/><path d="M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5z" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/><path d="M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5zM16.5 9.5l-5 5M11.5 10.5v4h4" fill="none" stroke="#4B2FA8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.5 9.5l-5 5M11.5 10.5v4h4" fill="none" stroke="#8B6CF0" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>',
+        'u-close': '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E6EBF2"/><stop offset="1" stop-color="#8D9AAE"/></linearGradient></defs><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="#3E4A5E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="#8D9AAE" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/>',
+        gear: '<defs><radialGradient id="m" cx="0.38" cy="0.3" r="0.85"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.5" stop-color="#C9D1DE"/><stop offset="1" stop-color="#6F7C92"/></radialGradient><linearGradient id="h" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3C4658"/><stop offset="1" stop-color="#1F2633"/></linearGradient></defs><path d="M10.3 3.5h3.4l.5 2.4 1.7 1 2.3-.8 1.7 3-1.8 1.6v1.9l1.8 1.6-1.7 3-2.3-.8-1.7 1-.5 2.4h-3.4l-.5-2.4-1.7-1-2.3.8-1.7-3 1.8-1.6v-1.9L3.9 9.1l1.7-3 2.3.8 1.7-1z" fill="url(#m)"/><circle cx="12" cy="12" r="3.4" fill="url(#h)"/><circle cx="12" cy="12" r="3.4" fill="none" stroke="#FFFFFF" stroke-opacity=".5" stroke-width=".5"/><ellipse cx="8.6" cy="7.2" rx="2.2" ry="0.9" fill="#FFFFFF" fill-opacity="0.55" transform="rotate(-35 8.6 7.2)"/>',
+        info: '<defs><radialGradient id="b" cx="0.35" cy="0.3" r="0.85"><stop offset="0" stop-color="#B9DEFF"/><stop offset="0.55" stop-color="#3B8CFF"/><stop offset="1" stop-color="#1C4FB8"/></radialGradient></defs><circle cx="12" cy="12" r="9.4" fill="url(#b)"/><ellipse cx="8.4" cy="7.2" rx="3" ry="1.4" fill="#FFFFFF" fill-opacity="0.5" transform="rotate(-35 8.4 7.2)"/><circle cx="12" cy="7.6" r="1.4" fill="#FFFFFF"/><rect x="10.8" y="10.2" width="2.4" height="7.4" rx="1.2" fill="#FFFFFF"/>',
+        float: '<defs><linearGradient id="w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C9B8FF"/><stop offset="1" stop-color="#6D4FE0"/></linearGradient><linearGradient id="p" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#E4DCFF"/></linearGradient></defs><rect x="2.6" y="4.4" width="18.8" height="15.2" rx="3" fill="url(#w)"/><rect x="2.6" y="4.4" width="18.8" height="3.4" rx="3" fill="#FFFFFF" fill-opacity=".22"/><circle cx="5.2" cy="6.1" r=".6" fill="#FFFFFF" fill-opacity=".8"/><circle cx="7.1" cy="6.1" r=".6" fill="#FFFFFF" fill-opacity=".8"/><rect x="11.6" y="11" width="7.6" height="6.4" rx="1.4" fill="url(#p)"/><path d="M6.2 10l3.4 3.4M9.6 10.7v2.7H6.9" fill="none" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+        spark: '<defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF2A8"/><stop offset="0.5" stop-color="#FFC93C"/><stop offset="1" stop-color="#E08A00"/></linearGradient></defs><path d="M12 2.5l2.3 7.2 7.2 2.3-7.2 2.3L12 21.5l-2.3-7.2L2.5 12l7.2-2.3z" fill="url(#s)"/><path d="M12 2.5l2.3 7.2L12 12z" fill="#FFFFFF" fill-opacity=".45"/>',
+        flame: '<defs><linearGradient id="o" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD45A"/><stop offset="0.55" stop-color="#FF7A2E"/><stop offset="1" stop-color="#E0341F"/></linearGradient><linearGradient id="i" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF6C2"/><stop offset="1" stop-color="#FFC93C"/></linearGradient></defs><path d="M12 2.6c1 3.4 5.6 5.6 5.6 11a5.6 5.6 0 0 1-11.2 0c0-2.3.9-3.9 2.3-5.1.2 1.8 1.1 2.9 2.4 3.4C10.3 8.6 11.2 5.2 12 2.6z" fill="url(#o)"/><path d="M12 11.4c.6 1.6 2.6 2.6 2.6 4.8a2.6 2.6 0 0 1-5.2 0c0-1.2.5-2 1.2-2.6.2.8.6 1.3 1.1 1.5-.2-1.4.1-2.7.3-3.7z" fill="url(#i)"/>',
     };
-
-    const runningEmoji = '🏃💨'; // shift end to shift + 30 min
-    const clownEmoji = '🫵🤡'; // After shift + 30 min (go home!)
+    // Icons the pack lacks, drawn in its own recipe from 3-stop palettes (light, mid, dark):
+    // [body, open strokes, palette]. attDuo() is that recipe, byte-for-byte what the pack's duotone
+    // icons are: a gradient body, a white inner light offset up-left and clipped to it, a dark
+    // outline over body and strokes, and a mid-tone core down the open strokes.
+    const ATT_PAL = { violet: '#E1D2FF #8B6CF0 #4B2FA8', gold: '#FFEDAE #F5B83D #9A6200', blue: '#B7DCFF #3B8CFF #1C4FB8', green: '#C9F59A #4CC26A #1F7A45', orange: '#FFD9A0 #FF9A3D #B4520F', steel: '#E6EBF2 #8D9AAE #3E4A5E', pink: '#FFD0E6 #FF5FA8 #A31F63', red: '#FFB8AE #F0503F #9C1F14', brick: '#FFC9AE #E2774E #97381A', ice: '#D4F3FF #5CC8F0 #1A6E96', bronze: '#F6CFA6 #C9803F #7A4416' };
+    const ATT_CIRCLE = 'M12 21a9 9 0 1 0 0-18a9 9 0 0 0 0 18z', ATT_MEDAL = ['M12 14a5 5 0 1 0 0-10a5 5 0 0 0 0 10z', 'M9 13l-1.5 7.5L12 18l4.5 2.5L15 13'];
+    const ATT_DUO = {
+        play: ['M8 5.4v13.2a.9.9 0 0 0 1.4.8l10.2-6.6a.9.9 0 0 0 0-1.6L9.4 4.6A.9.9 0 0 0 8 5.4z', '', 'green'],
+        pause: ['M6.5 5h3.8v14H6.5zM13.7 5h3.8v14h-3.8z', '', 'blue'],
+        reset: ['', 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.6 4.2v4.3h-4.3', 'blue'],
+        swap: ['', 'M4 8.5h14.5M15 5l3.5 3.5L15 12M20 15.5H5.5M9 12l-3.5 3.5L9 19', 'violet'],
+        easy: ['M12 13c0-4-2.5-6.5-7-6.5 0 4 2.5 6.5 7 6.5zM12 11c0-3.6 2.4-6 6.5-6 0 3.6-2.4 6-6.5 6z', 'M12 20.5V11M8.5 20.5h7', 'green'],
+        normal: ['', 'M4.5 4.5l10 10M19.5 4.5l-10 10M7 13.5l3.5 3.5M17 13.5L13.5 17M5 19l2.5-2.5M19 19l-2.5-2.5', 'steel'],
+        hard: ['M12 21a6.5 6.5 0 0 0 6.5-6.5c0-3.8-2.6-5.6-3.6-8.8-.5 2-1.6 3.3-2.9 3.9.1-3.2-1.2-5.8-3.8-7.6.4 3.4-2.7 5.9-2.7 10.4A6.5 6.5 0 0 0 12 21z', 'M12 18.6a2.4 2.4 0 0 0 2.4-2.4c0-1.6-1.2-2.3-1.7-3.8-.9 1.3-3.1 2.1-3.1 3.9a2.4 2.4 0 0 0 2.4 2.3z', 'orange'],
+        pro: [ATT_CIRCLE, 'M12 16.5a4.5 4.5 0 1 0 0-9a4.5 4.5 0 0 0 0 9zM12 12.6a.6.6 0 1 0 0-1.2a.6.6 0 0 0 0 1.2z', 'red'],
+        book: ['M5.5 4h11A1.5 1.5 0 0 1 18 5.5v15H7.5a2 2 0 0 1-2-2z', 'M5.5 18.5a2 2 0 0 1 2-2H18M9 8h5.5M9 11h3.5', 'blue'],
+        people: ['M9 11a3 3 0 1 0 0-6a3 3 0 0 0 0 6zM3.5 19.5c.4-3 2.7-5 5.5-5s5.1 2 5.5 5z', 'M15.5 5.2a3 3 0 0 1 0 5.6M17 14.6c2 .5 3.3 2.3 3.5 4.9', 'violet'],
+        star: ['M12 3.3l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.8z', '', 'gold'],
+        home: ['M4 10.8L12 4l8 6.8v8.7a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z', '', 'orange'],
+        heart: ['M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7a4.3 4.3 0 0 1 7.5 2.8C19.5 15.4 12 20 12 20z', '', 'red'],
+        gold: ATT_MEDAL.concat('gold'),
+        silver: ATT_MEDAL.concat('steel'),
+        bronze: ATT_MEDAL.concat('bronze'),
+        lock: ['M6 10.5h12a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8.5a1 1 0 0 1 1-1z', 'M8 10.5V8a4 4 0 0 1 8 0v2.5M12 14.5v3', 'steel'],
+        warn: ['M10.3 4.3a2 2 0 0 1 3.4 0l7.5 13a2 2 0 0 1-1.7 3H4.5a2 2 0 0 1-1.7-3z', 'M12 9.5v4.2M12 16.9h.01', 'gold'],
+        trophy: ['M7 4h10v5.5a5 5 0 0 1-10 0z', 'M7 6.5H4.5a2.8 2.8 0 0 0 3 3.6M17 6.5h2.5a2.8 2.8 0 0 1-3 3.6M12 14.5v3M8.5 20.5h7M9.5 20.5c.2-1.8 1.2-3 2.5-3s2.3 1.2 2.5 3', 'gold'],
+        snooker: ['M12 20a8 8 0 1 0 0-16a8 8 0 0 0 0 16z', 'M8.3 9.2a4.4 4.4 0 0 1 3-2.6', 'red'],
+        sparkle: ['M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z', '', 'gold'],
+        party: ['M3.8 20.2L8.5 8.5l7 7z', 'M12.5 6.5c.8-1.2.7-2.4 0-3.3M17.5 11.5c1.2-.8 2.4-.7 3.3 0M15 9l3.5-3.5M18.5 3.5h.01M20.5 8h.01M9.5 4h.01', 'pink'],
+        rocket: ['M12 2.8c3.4 2 4.9 5.6 4.4 10.2l-2 2.5H9.6l-2-2.5C7.1 8.4 8.6 4.8 12 2.8z', 'M12 10.8a1.6 1.6 0 1 0 0-3.2a1.6 1.6 0 0 0 0 3.2zM9.6 15.5L6.8 18l.6-4M14.4 15.5l2.8 2.5-.6-4M10.6 18.5L12 21l1.4-2.5', 'blue'],
+        check: [ATT_CIRCLE, 'M8 12.4l2.8 2.8 5.5-5.7', 'green'],
+        cross: [ATT_CIRCLE, 'M9 9l6 6M15 9l-6 6', 'red'],
+        block: [ATT_CIRCLE, 'M5.8 5.8l12.4 12.4', 'red'],
+        hourglass: ['M7.5 4h9c0 4.2-4.5 5.6-4.5 8 0-2.4-4.5-3.8-4.5-8zM7.5 20c0-4.2 4.5-5.6 4.5-8 0 2.4 4.5 3.8 4.5 8z', 'M6 4h12M6 20h12', 'gold'],
+        walled: ['M3 5h18v14H3z', 'M3 9.7h18M3 14.3h18M9 5v4.7M15 5v4.7M6 9.7v4.6M12 9.7v4.6M18 9.7v4.6M9 14.3V19M15 14.3V19', 'brick'],
+        endless: ['', 'M12 12c-2-2.6-3.7-4-5.6-4a4 4 0 0 0 0 8c1.9 0 3.6-1.4 5.6-4zm0 0c2 2.6 3.7 4 5.6 4a4 4 0 0 0 0-8c-1.9 0-3.6 1.4-5.6 4z', 'violet'],
+        levels: ['M6 4h11.5l-2.6 3.6 2.6 3.6H6z', 'M6 21V4', 'green'],
+        monitor: ['M4 4.5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z', 'M8.5 20.5h7M12 16.5v4', 'blue'],
+        wave: ['', 'M3 9.5c2-2 4-2 6 0s4 2 6 0 4-2 6 0M3 15c2-2 4-2 6 0s4 2 6 0 4-2 6 0', 'ice'],
+        setsquare: ['M4 20V4l16 16z', 'M8 16v-4.8l4.8 4.8z', 'gold'],
+        image: ['M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'M3.5 16.5l5-5 4 4 2.5-2.5 5.5 5.5M15.5 9.5h.01', 'green'],
+        bolt: ['M13.5 2.5L5 13.5h6l-1.2 8 8.7-11.2h-6.2z', '', 'gold'],
+        snow: ['', 'M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9M9.6 4.6L12 6.2l2.4-1.6M9.6 19.4L12 17.8l2.4 1.6', 'ice'],
+        widen: ['', 'M3.5 12h17M7 8.5L3.5 12 7 15.5M17 8.5l3.5 3.5-3.5 3.5', 'green'],
+        narrow: ['', 'M3.5 12H9M20.5 12H15M6 8.5L9.5 12 6 15.5M18 8.5L14.5 12l3.5 3.5', 'red'],
+        multiball: ['M7.5 16a3.5 3.5 0 1 0 0-7a3.5 3.5 0 0 0 0 7zM16.5 11.5a3.5 3.5 0 1 0 0-7a3.5 3.5 0 0 0 0 7zM16.5 20a3.5 3.5 0 1 0 0-7a3.5 3.5 0 0 0 0 7z', '', 'gold'],
+        sticky: ['M12 3.5c3.5 4.3 5.8 7.6 5.8 10.6a5.8 5.8 0 0 1-11.6 0c0-3 2.3-6.3 5.8-10.6z', 'M9.5 14.5a2.6 2.6 0 0 0 2.2 2.4', 'violet'],
+        laser: ['M10.3 2.5h3.4V15h-3.4z', 'M12 18v3.5M8 19l-2 2M16 19l2 2', 'pink'],
+        burst: ['M12 2.5l1.9 4.8 4.8-2.1-2.1 4.8 4.8 1.9-4.8 1.9 2.1 4.8-4.8-2.1-1.9 4.8-1.9-4.8-4.8 2.1 2.1-4.8-4.8-1.9 4.8-1.9-2.1-4.8 4.8 2.1z', '', 'orange'],
+        through: ['M12 18a6 6 0 1 0 0-12a6 6 0 0 0 0 12z', 'M2.5 12h3.5M18 12h3.5M19 9.5l2.5 2.5-2.5 2.5', 'ice'],
+    };
+    const attDuo = ([b, o, pal]) => { const [l, m, d] = ATT_PAL[pal].split(' ');
+        const st = (p, c, w) => `<path d="${p}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
+        return `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${l}"/><stop offset="1" stop-color="${m}"/></linearGradient>` +
+            (b ? `<clipPath id="c"><path d="${b}"/></clipPath></defs><path d="${b}" fill="url(#g)"/><path d="${b}" fill="#FFFFFF" fill-opacity=".22" transform="translate(-.5 -.6)" clip-path="url(#c)"/>` : '</defs>') +
+            st(b + o, d, '1.7') + (o ? st(o, m, '.8') : ''); };
+    let attIconN = 0;
+    // n: a CSS length; the default sits an icon in a line of text the way an emoji sat there.
+    const attIcon = (id, n = '1.25em') => { const p = 'ai' + (++attIconN) + '-', body = ATT_ICONS[id] || (ATT_ICONS[id] = attDuo(ATT_DUO[id]));
+        return `<svg class="att-ico" data-icon="${id}" viewBox="0 0 24 24" width="${n}" height="${n}" aria-hidden="true" focusable="false">${body.replace(/id="/g, 'id="' + p).replace(/url\(#/g, 'url(#' + p)}</svg>`; };
+    // Canvas: one cached image per icon, loaded up front for the ones the games draw.
+    const attIconImgs = {};
+    const attIconImg = id => attIconImgs[id] || (attIconImgs[id] = typeof Image !== 'function' ? {} : Object.assign(new Image(),
+        { src: 'data:image/svg+xml,' + encodeURIComponent(attIcon(id, 24).replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')) }));
+    const attDrawIcon = (ctx, id, x, y, n) => { const img = attIconImg(id); if (img.complete) ctx.drawImage(img, x - n / 2, y - n / 2, n, n); };
+    // An icon and its text, the pair centred on x (textAlign 'center', textBaseline 'middle').
+    function attIconText(ctx, id, text, x, y, n) {
+        const w = ctx.measureText(text).width, gap = n * 0.4, x0 = x - (w + n + gap) / 2;
+        attDrawIcon(ctx, id, x0 + n / 2, y, n);
+        ctx.fillText(text, x0 + n + gap + w / 2, y);
+    }
+    ['pause', 'trophy', 'levels', 'g-ludo', 'widen', 'narrow', 'multiball', 'snow', 'bolt', 'heart', 'sticky', 'laser', 'hard', 'through', 'burst'].forEach(attIconImg);
+    // Mood path: shifts up to 8h walk the 8 standard faces; each hour past 8 adds one overtime face
+    // (yawn … ghost) between the first four and the last four. Then Run for 30 min, then the clown.
+    const ATT_MOODS = ['crying', 'confounded', 'worried', 'sweat', 'yawn', 'drained', 'dizzy', 'melting', 'zombie', 'skull', 'ghost', 'relieved', 'smile', 'blush', 'grin'];
+    function attMood(worked, shift) {
+        const H = Math.round(shift / 3600), lad = ATT_MOODS.slice(0, Math.max(4, H - 4)).concat(ATT_MOODS.slice(11));
+        if (worked >= shift + 1800) return { id: 'clown', tone: 'home', kind: 'home', lad, i: lad.length };
+        if (worked >= shift) return { id: 'run', tone: 'run', kind: 'run', lad, i: lad.length };
+        const i = Math.min(lad.length - 1, Math.floor(worked / shift * lad.length));
+        return { id: lad[i], tone: i < 2 ? 'low' : i < 4 ? 'tense' : i >= lad.length - 4 ? 'up' : 'void', kind: 'shift', lad, i };
+    }
 
     // Global variables for performance optimization
     let lastTotalWorkedTime = -1; // Track if we need to re-render
@@ -84,7 +213,7 @@
     const reflexGameModes = {
         screen: {
             name: 'Screen Mode',
-            icon: '⚡',
+            icon: 'g-reflex',
             description: 'Full screen reaction',
             rounds: 5,
             minDelay: 1000,
@@ -93,7 +222,7 @@
         } ,
         target: {
             name: 'Target Mode',
-            icon: '🎯',
+            icon: 'pro',
             description: 'Click specific targets',
             rounds: 8,
             minDelay: 800,
@@ -117,7 +246,7 @@
 
     const aimChaosMode = {
         name: 'Chaos Mode',
-        icon: '💥',
+        icon: 'g-aim',
         description: 'Multiple fast targets',
         targetSize: 35,
         targetCount: 3,
@@ -168,10 +297,7 @@
         { shape: [[0,0,1],[1,1,1]], color: '#0000f0' },      // L
     ];
 
-    let quotesArray = [];
-    let currentQuoteIndex = 0;
-    let quoteInterval = null;
-    let quotesInitialized = false; // Track if quotes system is already set up
+    let quotesArray = []; // the desk card's quotes (customQuotes)
 
     // A level-1 record. loadUserXP lays a saved one over it: a field that is missing or falsy
     // (a record from before the field existed) takes its default.
@@ -263,25 +389,13 @@
     // What localStorage holds for the Image Box: a link, or IMAGE_BOX_IDB_REF for an uploaded
     // file, which lives in IndexedDB because a data: URL of a photo can outgrow localStorage.
     let currentImageURL = '';
-    let currentAspectRatio = '16:9'; // Default: Widescreen ratio
     let currentImageFit = 'cover';   // 'cover' fills the frame, 'contain' shows the whole image
     // What the <img> shows: the link itself, or an object URL made from imageBoxBlob.
     let imageBoxSrc = '';
     let imageBoxBlob = null;
     let imageBoxReady = false;  // false until the upload is read back, so the drop zone doesn't flash
     let imageBoxFailed = false;
-    let imageBoxUndo = null;    // { ref, blob } kept for the toast's Undo
-    let imageBoxToastTimer = 0;
-    let imageBoxEventsBound = false;
 
-    const aspectRatios = {
-        '1:1':  { name: 'Square',            css: '1 / 1',  iw: 12, ih: 12 },
-        '16:9': { name: 'Landscape 16 by 9', css: '16 / 9', iw: 16, ih: 9 },
-        '21:9': { name: 'Wide 21 by 9',      css: '21 / 9', iw: 18, ih: 8 },
-        '3:4':  { name: 'Portrait 3 by 4',   css: '3 / 4',  iw: 9,  ih: 12 }
-    };
-    // Ratios the old button row offered, mapped to their nearest replacement.
-    const LEGACY_ASPECT_RATIOS = { '4:3': '16:9', '9:16': '3:4' };
     const IMAGE_BOX_IDB_REF = 'idb:customImage';
 
     let userPreferences = {
@@ -421,16 +535,6 @@
     function saveImageURL(url) {
         if (url) localStorage.setItem('customImageURL', url);
         else localStorage.removeItem('customImageURL');
-    }
-
-    function loadAspectRatio() {
-        const saved = localStorage.getItem('customImageAspectRatio') || '16:9';
-        const ratio = LEGACY_ASPECT_RATIOS[saved] || saved;
-        return aspectRatios[ratio] ? ratio : '16:9';
-    }
-
-    function saveAspectRatio(ratio) {
-        localStorage.setItem('customImageAspectRatio', ratio);
     }
 
     function loadImageFit() {
@@ -817,12 +921,12 @@
         // Block banned clientIds from registering or re-registering
         if (isBlocked(lbClientId)) {
             console.warn('[Leaderboard] Registration denied — clientId is on the blocklist.');
-            showXPNotification('🚫 Access denied', 'hourly');
+            showXPNotification('Access denied', 'hourly', 'block');
             return false;
         }
 
         const registry = await fetchRegistry();
-        if (!registry) { showXPNotification('❌ Could not reach leaderboard server', 'hourly'); return false; }
+        if (!registry) { showXPNotification('Could not reach leaderboard server', 'hourly', 'cross'); return false; }
 
         const existing = registry.players.find(p => p.clientId === lbClientId);
         if (existing) {
@@ -842,12 +946,12 @@
             lbDisplayName = displayName;
             lbRegistered = true;
             saveLeaderboardProfile();
-            showXPNotification('🤝 Joined the leaderboard!', 'achievement');
+            showXPNotification('Joined the leaderboard!', 'achievement', 'people');
             if (!userXP.achievements.includes('teamPlayer')) unlockAchievement('teamPlayer');
             return true;
         } catch (e) {
             console.error('[Leaderboard] register error:', e);
-            showXPNotification('❌ Registration failed — try again', 'hourly');
+            showXPNotification('Registration failed — try again', 'hourly', 'cross');
             return false;
         }
     }
@@ -875,7 +979,7 @@
             // a refresh banner before the user wastes a dispatch.
             if (registry.latestBuild && registry.latestBuild !== BUILD_LABEL && _clientIsBehindBuild(BUILD_LABEL, registry.latestBuild)) {
                 console.warn(`[Sync] Outdated build (local: ${BUILD_LABEL}, latest: ${registry.latestBuild}). Sync will be rejected by server.`);
-                showXPNotification(`🔄 Script outdated (${BUILD_LABEL} → ${registry.latestBuild}). Refresh your tab!`, 'hourly');
+                showXPNotification(`Script outdated (${BUILD_LABEL} → ${registry.latestBuild}). Refresh your tab!`, 'hourly', 'reset');
                 showBuildUpdateBanner(registry.latestBuild);
                 return;
             }
@@ -888,7 +992,7 @@
             // Anti-cheat gate 1: an already-flagged player never syncs.
             if (prev.flagged) {
                 console.warn('[AntiCheat] Account frozen — sync blocked.');
-                showXPNotification('🚫 Sync disabled — account flagged', 'hourly');
+                showXPNotification('Sync disabled — account flagged', 'hourly', 'block');
                 return;
             }
 
@@ -896,7 +1000,7 @@
             // local hash (after a restore, or first run on a new browser) is a false positive.
             if (!_verifyXPIntegrity()) {
                 console.warn('[AntiCheat] XP integrity check FAILED — sync blocked locally (not flagging gist).');
-                showXPNotification('⚠️ Local integrity check failed — sync blocked', 'hourly');
+                showXPNotification('Local integrity check failed — sync blocked', 'hourly', 'warn');
                 return;
             }
 
@@ -907,7 +1011,7 @@
                 const msSinceLast = Date.now() - new Date(prevSyncAt).getTime();
                 if (msSinceLast < AC_SYNC_COOLDOWN_MS) {
                     console.warn(`[AntiCheat] Sync cooldown: ${Math.ceil((AC_SYNC_COOLDOWN_MS - msSinceLast) / 1000)}s remaining`);
-                    showXPNotification(`⏳ Sync cooldown — wait ${Math.ceil((AC_SYNC_COOLDOWN_MS - msSinceLast) / 1000)}s`, 'hourly');
+                    showXPNotification(`Sync cooldown — wait ${Math.ceil((AC_SYNC_COOLDOWN_MS - msSinceLast) / 1000)}s`, 'hourly', 'hourglass');
                     return;
                 }
             }
@@ -928,7 +1032,7 @@
                     + newAch * AC_MAX_XP_PER_ACHIEVEMENT;
                 if (xpDelta > maxAllowed) {
                     console.warn(`[AntiCheat] XP gain exceeds activity budget: +${xpDelta} XP vs max ${maxAllowed} (${elapsedDays}d, ${newGames} games, ${newAch} achievements). Sync blocked.`);
-                    showXPNotification(`⚠️ Sync paused — XP gain (${xpDelta}) exceeds what ${elapsedDays}d of activity allows`, 'hourly');
+                    showXPNotification(`Sync paused — XP gain (${xpDelta}) exceeds what ${elapsedDays}d of activity allows`, 'hourly', 'warn');
                     return;
                 }
             }
@@ -1166,7 +1270,7 @@
         const ok = applyPlayerRecordToLocal(rec);
         if (ok) {
             console.log(`[Restore] ✓ Restored ${lbDisplayName || 'account'} — Level ${userXP.level}, ${userXP.totalXP} XP`);
-            try { showXPNotification(`🛟 Progress restored — Level ${userXP.level}`, 'achievement'); } catch (_) {}
+            try { showXPNotification(`Progress restored — Level ${userXP.level}`, 'achievement', 'f-cloud'); } catch (_) {}
             try { if (typeof updateXPDisplay === 'function') updateXPDisplay(); } catch (_) {}
         }
         return ok;
@@ -1299,46 +1403,6 @@
         }
     }
 
-    function renderLeaderboardPanel() {
-        const panel = document.getElementById('leaderboard-panel');
-        if (!panel) return;
-
-        if (!lbRegistered) {
-            panel.innerHTML = `
-                <div class="lb-register-card">
-                    <div class="lb-register-icon">🏆</div>
-                    <h3 class="lb-register-title">Join the Leaderboard</h3>
-                    <p class="lb-register-desc">Compete with your team! Your level, XP, and game scores will be shared.</p>
-                    <input id="lb-name-input" class="lb-name-input" type="text" placeholder="Display name (e.g. Hassan N.)" maxlength="20" />
-                    <button class="lb-register-btn" onclick="window.lbRegister()">🚀 Join Now</button>
-                </div>`;
-            return;
-        }
-
-        // AchPopover: one row per player (rank, initials, name, level, XP); a row's hover or focus
-        // opens its achievements. Identity and progression only — game scores live in the per-game boards.
-        const rows = leaderboardData.map((p, i) => {
-            const isMe = p.clientId === lbClientId;
-            // Keys still present in ACHIEVEMENTS, so a retired or renamed key synced from an older
-            // build cannot inflate the count.
-            const achKeys = (Array.isArray(p.achievements) ? p.achievements : []).filter(k => ACHIEVEMENTS[k]);
-            const name = String(p.displayName || ''), shown = name + (isMe ? ' (you)' : '');
-            // escapeHtml encodes text-content characters only; the attributes also need quotes
-            // encoded, or a name containing one breaks out of the attribute.
-            const attr = v => escapeHtml(v).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-            return `<button type="button" class="lb-row" aria-expanded="false" aria-label="${attr(shown + ', rank ' + (i + 1) + ', level ' + p.level + ', ' + (p.totalXP || 0) + ' XP')}" data-ach-name="${attr(shown)}" data-ach-keys="${achKeys.join(',')}">
-                <span class="lb-row-rank">${i + 1}</span>
-                <span class="lb-row-av" aria-hidden="true">${escapeHtml(lbInitials(name))}</span>
-                <span class="lb-row-who"><span class="lb-row-name">${escapeHtml(shown)}</span><span class="lb-row-lv">Level ${p.level}</span></span>
-                <span class="lb-row-xp">${(p.totalXP || 0).toLocaleString()} XP</span>
-            </button>`;
-        }).join('');
-
-        panel.innerHTML = `
-            <div class="lb-head"><span class="lb-head-t">Leaderboard</span><span class="lb-head-n">Total XP · hover a player</span></div>
-            <div class="lb-list">${rows || '<div class="lb-empty">No players yet</div>'}</div>`;
-    }
-
     // A player's initials: the first letters of two words, else the first two letters (Bilal → BI).
     function lbInitials(name) {
         const words = String(name || '').trim().split(/\s+/).map(w => w.replace(/[^\p{L}\p{N}]/gu, '')).filter(Boolean);
@@ -1346,33 +1410,33 @@
     }
 
     const LB_BOARDS = {
-        snake:    { icon: '🐍', label: 'Snake',    unit: 'pts',
+        snake:    { icon: 'g-snake', label: 'Snake',    unit: 'pts',
                     modes: { endless: 'Endless', walled: 'Walled', levels: 'Levels' } },
-        tetris:   { icon: '🧱', label: 'Tetris',   unit: 'pts' },
-        breakout: { icon: '🏓', label: 'Breakout', unit: 'pts' },
-        flappy:   { icon: '🐦', label: 'Flappy',   unit: 'pipes' },
-        aim:      { icon: '💥', label: 'Aim',      unit: 'pts' },
-        reflex:   { icon: '⚡', label: 'RefleX',   unit: 'ms', lowerIsBetter: true,
+        tetris:   { icon: 'g-tetris', label: 'Tetris',   unit: 'pts' },
+        breakout: { icon: 'g-breakout', label: 'Breakout', unit: 'pts' },
+        flappy:   { icon: 'g-flappy', label: 'Flappy',   unit: 'pipes' },
+        aim:      { icon: 'g-aim', label: 'Aim',      unit: 'pts' },
+        reflex:   { icon: 'g-reflex', label: 'RefleX',   unit: 'ms', lowerIsBetter: true,
                     modes: { screen: 'Screen', target: 'Target' } },
         // Pool ranks CPU wins by tier as Ludo does, filed under the tier locked when the frame
         // started. 'cpu' is the all-time total (older wins predate the split); 'pvp' is hot-seat.
         // Tournaments have no board: their brackets are farmable.
-        pool:     { icon: '🎱', label: 'Pool',     unit: 'wins',
-                    modes: { pro: '🎯 Pro', hard: '🔥 Hard', normal: '⚔️ Normal', easy: '🌱 Easy',
-                             cpu: '📚 All-time', pvp: '👥 Hot-seat' },
+        pool:     { icon: 'g-pool', label: 'Pool',     unit: 'wins',
+                    modes: { pro: 'Pro', hard: 'Hard', normal: 'Normal', easy: 'Easy',
+                             cpu: 'All-time', pvp: 'Hot-seat' },
                     notes: { cpu: 'every CPU win — older wins predate the difficulty split' } },
         // Snooker ranks as pool does, plus the best break against the CPU (points, not wins).
         // Every snooker win is filed by tier from the start, so its All-time has no older wins.
-        snooker:  { icon: '🔴', label: 'Snooker',  unit: 'wins', units: { highBreak: 'pts' },
-                    modes: { pro: '🎯 Pro', hard: '🔥 Hard', normal: '⚔️ Normal', easy: '🌱 Easy',
-                             cpu: '📚 All-time', pvp: '👥 Hot-seat', highBreak: '💯 High break' },
+        snooker:  { icon: 'snooker', label: 'Snooker',  unit: 'wins', units: { highBreak: 'pts' },
+                    modes: { pro: 'Pro', hard: 'Hard', normal: 'Normal', easy: 'Easy',
+                             cpu: 'All-time', pvp: 'Hot-seat', highBreak: 'High break' },
                     notes: { cpu: 'every CPU win, all tiers', highBreak: 'best break in one visit, against the CPU' } },
         // Ludo ranks by CPU tier, not game mode (hot-seat wins are never recorded: ludoSaveWins runs
         // only under 'if (vsCPU)'). 'cpu' is the pre-split total — real wins whose difficulty was never
         // recorded, so they rank on their own board rather than an unmeasured tier.
-        ludo:     { icon: '🎲', label: 'Ludo',     unit: 'wins',
-                    modes: { hard: '🔥 Hard', normal: '⚔️ Normal', easy: '🌱 Easy',
-                             cpu: '📚 All-time' },
+        ludo:     { icon: 'g-ludo', label: 'Ludo',     unit: 'wins',
+                    modes: { hard: 'Hard', normal: 'Normal', easy: 'Easy',
+                             cpu: 'All-time' },
                     notes: { cpu: 'every CPU win — older wins predate the difficulty split' } }
     };
 
@@ -1426,14 +1490,11 @@
         const cfg = LB_BOARDS[game];
         if (!cfg) return '';
 
-        const ranked = leaderboardData
-            .map(p => ({ p, v: lbBoardValue(p, game, mode) }))
-            .filter(r => r.v > 0)
-            .sort((a, b) => cfg.lowerIsBetter ? a.v - b.v : b.v - a.v);
+        const ranked = lbRanked(game, mode);
 
         const rows = ranked.map((r, i) => {
             const rank = i + 1;
-            const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+            const medal = rank <= 3 ? attIcon(['gold', 'silver', 'bronze'][rank - 1], '1.4em') : `#${rank}`;
             const isMe = r.p.clientId === lbClientId;
             const nameHtml = escapeHtml(r.p.displayName);
             const nameAttr = nameHtml.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -1490,6 +1551,8 @@
 
     // Tab strip — Ludo's four tiers are otherwise only reachable through settings. Generic, so
     // Snake, RefleX and Pool get it too.
+    // A board tab's icon: the CPU tier, or what the board counts.
+    const LB_MODE_ICON = { pro: 'pro', hard: 'hard', normal: 'normal', easy: 'easy', cpu: 'book', pvp: 'people', highBreak: 'star', endless: 'endless', walled: 'walled', levels: 'levels', screen: 'g-reflex', target: 'pro' };
     function gameLbTabsHtml(game, active) {
         const cfg = LB_BOARDS[game];
         if (!cfg || !cfg.modes) return '';
@@ -1499,7 +1562,7 @@
             // Mark the mode being played, so switching tabs cannot leave the next win's board ambiguous.
             ' title="' + escapeHtml(cfg.modes[m] + (m === live ? ' — playing now' : '')) + '"' +
             ' onclick="window.setGameLeaderboardMode(\'' + m + '\')">' +
-            escapeHtml(cfg.modes[m]) + (m === live ? '<span class="game-lb-live">•</span>' : '') +
+            (LB_MODE_ICON[m] ? attIcon(LB_MODE_ICON[m]) + ' ' : '') + escapeHtml(cfg.modes[m]) + (m === live ? '<span class="game-lb-live">•</span>' : '') +
             '</button>').join('') + '</div>';
     }
 
@@ -1510,7 +1573,7 @@
         const mode = gameLbActiveMode(game);
         box.innerHTML =
             '<div class="game-lb-head">' +
-                '<span>🏆 ' + cfg.icon + ' ' + escapeHtml(cfg.label) + '</span>' +
+                '<span>' + attIcon(cfg.icon) + ' ' + escapeHtml(cfg.label) + '</span>' +
                 (cfg.lowerIsBetter ? '<span class="game-lb-note">lower is better</span>' : '') +
                 '<button class="game-lb-close" onclick="window.closeGameLeaderboard()">✕</button>' +
             '</div>' +
@@ -1626,7 +1689,7 @@
                 '</div><span class="lb-ach-pop-foot">Rarest first · Legendary, Epic, Rare, Common</span>'
                 : '<span class="lb-ach-pop-foot">No achievements yet</span>');
         pop.style.display = 'flex';
-        document.querySelectorAll('.lb-row[aria-expanded="true"]').forEach(r => { if (r !== badge) r.setAttribute('aria-expanded', 'false'); });
+        document.querySelectorAll('.ws-row[aria-expanded="true"]').forEach(r => { if (r !== badge) r.setAttribute('aria-expanded', 'false'); });
         badge.setAttribute('aria-expanded', 'true');
 
         // As AchPopover: 8 px in from the row's right, under the top three rows and over the rest,
@@ -1646,13 +1709,13 @@
     function hideLbAchPopover() {
         const pop = document.getElementById('lb-ach-popover');
         if (pop) pop.style.display = 'none';
-        document.querySelectorAll('.lb-row[aria-expanded="true"]').forEach(r => r.setAttribute('aria-expanded', 'false'));
+        document.querySelectorAll('.ws-row[aria-expanded="true"]').forEach(r => r.setAttribute('aria-expanded', 'false'));
     }
 
     function initLbAchPopoverDelegation() {
         if (lbAchPopoverInit) return;
         lbAchPopoverInit = true;
-        const rowOf = e => e.target.closest && e.target.closest('.lb-row');
+        const rowOf = e => e.target.closest && e.target.closest('.ws-row[data-ach-name]');
         document.addEventListener('mouseover', (e) => { const row = rowOf(e); if (row) showLbAchPopover(row); });
         document.addEventListener('mouseout', (e) => {
             const row = rowOf(e);
@@ -1666,17 +1729,12 @@
         window.addEventListener('resize', hideLbAchPopover);
     }
 
+    // Runs once at start: the board then refreshes itself every five minutes while the tab is visible.
     function initLeaderboard() {
         initLbAchPopoverDelegation();
         loadLeaderboardProfile();
-        if (lbRegistered) {
-            fetchLeaderboard().then(() => {
-                renderLeaderboardPanel();
-                checkBuildVersion();
-            });
-        } else {
-            renderLeaderboardPanel();
-        }
+        if (lbRegistered) fetchLeaderboard().then(() => { renderMiniBoard(); checkBuildVersion(); });
+        setInterval(() => { if (lbRegistered && !document.hidden) fetchLeaderboard().then(renderMiniBoard); }, 300000);
     }
 
     // UX only: compares local BUILD_LABEL against the gist's latestBuild (workflow-written).
@@ -1706,11 +1764,11 @@
             display: flex; align-items: center; justify-content: center; gap: 12px;
         `;
         banner.innerHTML = `
-            <span>⚠️ Script outdated (${BUILD_LABEL} → ${latestBuild}). Sync is disabled.</span>
+            <span>${attIcon('warn')} Script outdated (${BUILD_LABEL} → ${latestBuild}). Sync is disabled.</span>
             <button id="atc-update-refresh-btn" style="
                 background: #fff; color: #f72585; border: none; border-radius: 6px;
                 padding: 6px 14px; font-weight: 700; cursor: pointer; font-size: 13px;
-            ">🔄 Refresh Now</button>
+            ">${attIcon('reset')} Refresh Now</button>
             <button id="atc-update-dismiss-btn" style="
                 background: transparent; color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.4);
                 border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px;
@@ -1770,19 +1828,19 @@
     const BRK_BRICK_HP  = [3, 2, 2, 1, 1, 1];
     const BRK_BRICK_PTS = [30, 20, 20, 10, 10, 10];
 
-    // Powerup definitions: id, emoji, label, color, duration(frames), drop-weight
+    // Powerup definitions: id, icon, label, color, duration(frames), drop-weight
     const BRK_POWERUPS = [
-        { id:'expand',   icon:'↔',  label:'Big Paddle',   color:'#2ed573', dur:420, w:10, good:true  },
-        { id:'shrink',   icon:'↕',  label:'Tiny Paddle',  color:'#ff4757', dur:300, w:5,  good:false },
-        { id:'multiball',icon:'⊕',  label:'Multi-Ball',   color:'#ffd700', dur:0,   w:8,  good:true  },
-        { id:'slow',     icon:'❄',  label:'Slow Ball',    color:'#74b9ff', dur:360, w:8,  good:true  },
-        { id:'fast',     icon:'⚡', label:'Fast Ball',    color:'#fd79a8', dur:240, w:5,  good:false },
-        { id:'life',     icon:'♥',  label:'+1 Life',      color:'#00b894', dur:0,   w:6,  good:true  },
-        { id:'sticky',   icon:'●',  label:'Sticky',       color:'#a29bfe', dur:480, w:7,  good:true  },
-        { id:'laser',    icon:'|',  label:'Laser',        color:'#fd79a8', dur:600, w:7,  good:true  },
-        { id:'fireball', icon:'🔥', label:'Fireball',     color:'#e17055', dur:360, w:5,  good:true  },
-        { id:'through',  icon:'◉',  label:'Through',      color:'#00cec9', dur:300, w:5,  good:true  },
-        { id:'explode',  icon:'💥', label:'Explosive',    color:'#fdcb6e', dur:360, w:5,  good:true  },
+        { id:'expand',   icon:'widen', label:'Big Paddle',   color:'#2ed573', dur:420, w:10, good:true  },
+        { id:'shrink',   icon:'narrow', label:'Tiny Paddle',  color:'#ff4757', dur:300, w:5,  good:false },
+        { id:'multiball',icon:'multiball', label:'Multi-Ball',   color:'#ffd700', dur:0,   w:8,  good:true  },
+        { id:'slow',     icon:'snow', label:'Slow Ball',    color:'#74b9ff', dur:360, w:8,  good:true  },
+        { id:'fast',     icon:'bolt', label:'Fast Ball',    color:'#fd79a8', dur:240, w:5,  good:false },
+        { id:'life',     icon:'heart', label:'+1 Life',      color:'#00b894', dur:0,   w:6,  good:true  },
+        { id:'sticky',   icon:'sticky', label:'Sticky',       color:'#a29bfe', dur:480, w:7,  good:true  },
+        { id:'laser',    icon:'laser', label:'Laser',        color:'#fd79a8', dur:600, w:7,  good:true  },
+        { id:'fireball', icon:'hard', label:'Fireball',     color:'#e17055', dur:360, w:5,  good:true  },
+        { id:'through',  icon:'through', label:'Through',      color:'#00cec9', dur:300, w:5,  good:true  },
+        { id:'explode',  icon:'burst', label:'Explosive',    color:'#fdcb6e', dur:360, w:5,  good:true  },
     ];
     const BRK_PU_TOTAL_W = BRK_POWERUPS.reduce((s,p) => s+p.w, 0);
 
@@ -2234,11 +2292,7 @@
             ctx.fillStyle = d.pu.color + 'cc';
             ctx.beginPath(); ctx.roundRect(d.x-14, d.y-9, 28, 18, 9); ctx.fill();
             ctx.shadowBlur=0;
-            ctx.fillStyle='#fff';
-            ctx.font = d.pu.icon.length===1 ? 'bold 11px sans-serif' : '12px sans-serif';
-            ctx.textAlign='center'; ctx.textBaseline='middle';
-            ctx.fillText(d.pu.icon, d.x, d.y);
-            ctx.textBaseline='alphabetic';
+            attDrawIcon(ctx, d.pu.icon, d.x, d.y, 14);
         });
 
         breakoutLasers.forEach(l => {
@@ -2303,15 +2357,15 @@
 
         // Active powerup HUD (bottom-left row of icons with timers)
         const activePUs = [];
-        if (brkPU.expandTimer>0)    activePUs.push({icon:'↔', color:'#2ed573', t:brkPU.expandTimer,    max:420});
-        if (brkPU.shrinkTimer>0)    activePUs.push({icon:'↕', color:'#ff4757', t:brkPU.shrinkTimer,    max:300});
-        if (brkPU.slowTimer>0)      activePUs.push({icon:'❄', color:'#74b9ff', t:brkPU.slowTimer,      max:360});
-        if (brkPU.fastTimer>0)      activePUs.push({icon:'⚡',color:'#fd79a8', t:brkPU.fastTimer,      max:240});
-        if (brkPU.stickyTimer>0)    activePUs.push({icon:'●', color:'#a29bfe', t:brkPU.stickyTimer,    max:480});
-        if (brkPU.laserTimer>0)     activePUs.push({icon:'|', color:'#fd79a8', t:brkPU.laserTimer,     max:600});
-        if (brkPU.fireballTimer>0)  activePUs.push({icon:'🔥',color:'#e17055', t:brkPU.fireballTimer,  max:360});
-        if (brkPU.throughTimer>0)   activePUs.push({icon:'◉', color:'#00cec9', t:brkPU.throughTimer,   max:300});
-        if (brkPU.explodeTimer>0)   activePUs.push({icon:'💥',color:'#fdcb6e', t:brkPU.explodeTimer,   max:360});
+        if (brkPU.expandTimer>0)    activePUs.push({icon:'widen', color:'#2ed573', t:brkPU.expandTimer,    max:420});
+        if (brkPU.shrinkTimer>0)    activePUs.push({icon:'narrow', color:'#ff4757', t:brkPU.shrinkTimer,    max:300});
+        if (brkPU.slowTimer>0)      activePUs.push({icon:'snow', color:'#74b9ff', t:brkPU.slowTimer,      max:360});
+        if (brkPU.fastTimer>0)      activePUs.push({icon:'bolt',color:'#fd79a8', t:brkPU.fastTimer,      max:240});
+        if (brkPU.stickyTimer>0)    activePUs.push({icon:'sticky', color:'#a29bfe', t:brkPU.stickyTimer,    max:480});
+        if (brkPU.laserTimer>0)     activePUs.push({icon:'laser', color:'#fd79a8', t:brkPU.laserTimer,     max:600});
+        if (brkPU.fireballTimer>0)  activePUs.push({icon:'hard',color:'#e17055', t:brkPU.fireballTimer,  max:360});
+        if (brkPU.throughTimer>0)   activePUs.push({icon:'through', color:'#00cec9', t:brkPU.throughTimer,   max:300});
+        if (brkPU.explodeTimer>0)   activePUs.push({icon:'burst',color:'#fdcb6e', t:brkPU.explodeTimer,   max:360});
         activePUs.forEach((ap,i) => {
             const bx = 6 + i*28, by = H - 30;
             ctx.fillStyle='rgba(0,0,0,0.5)';
@@ -2320,9 +2374,7 @@
             ctx.beginPath();
             ctx.arc(bx+11,by+11,9,-Math.PI/2,-Math.PI/2+Math.PI*2*(ap.t/ap.max));
             ctx.stroke();
-            ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-            ctx.fillStyle='#fff'; ctx.fillText(ap.icon,bx+11,by+11);
-            ctx.textBaseline='alphabetic';
+            attDrawIcon(ctx, ap.icon, bx + 11, by + 11, 12);
         });
 
         if (breakoutCombo>1 && breakoutGameRunning) {
@@ -2358,7 +2410,7 @@
         const lv = document.getElementById('breakout-level');
         const li = document.getElementById('breakout-lives');
         if (lv) lv.textContent = breakoutLevel;
-        if (li) li.textContent = '❤️'.repeat(Math.max(0, breakoutLives));
+        if (li) li.innerHTML = Array.from({ length: Math.max(0, breakoutLives) }, () => attIcon('heart')).join('');
         updateGameScoreBtn('breakout', breakoutScore, breakoutHighScore);
     }
 
@@ -4510,7 +4562,7 @@
     // need: [game, tier, wins for levels 2, 3, 4 and 5]: the better the cue, the harder its wins
     // and the longer its climb (the user, 2026-10-05). See pqCounts.
     const PQ_SET = [
-        { id: 'standard', name: 'Standard', cond: 'Always yours · the house cue', blurb: 'Maple shaft · black linen wrap', bars: [[4, 4, 4, 4], [4, 4, 4, 4]], need: ['pool', 'easy', [5, 7, 10, 15]],
+        { id: 'standard', name: 'Standard', cond: 'Always yours · the house cue', blurb: 'Maple shaft · black linen wrap', bars: [[4, 4, 4, 4], [5, 5, 5, 5]], need: ['pool', 'easy', [5, 7, 10, 15]],
             sections: pqStd('maple', 'brass', 'lacquer', 'linenBlack', 'walnut') },
         { id: 'tulipwood', name: 'Tulipwood', cond: 'Team Player · join the leaderboard', ach: 'teamPlayer', blurb: 'Tulipwood forearm · navy linen', bars: [[5, 5, 4, 4], [6, 6, 5, 5]], need: ['pool', 'easy', [5, 7, 11, 16]],
             sections: pqStd('maple', 'silver', 'tulipwood', 'linenNavy', 'tulipwood'), rings: [[72, 0.8, 'silver'], [90, 0.8, 'silver']] },
@@ -4570,9 +4622,15 @@
     }
     // Each bar above or below 4 moves its stat a step: Standard (4/4/4/4) is the game as it was.
     const PQ_STEP = [0.025, 0.125, 0.05, 0.05];
+    // Every level-up adds at least one bar point. (Rounding the straight line from level 1 to 5
+    // lost some: a bar gaining 1 moved only at level 3.) The cue's gains are dealt out one at a
+    // time, round-robin, its biggest first; level n has round(total × (n − 1) / 4) of them.
     function pqStats(id, wins, level) {
-        const q = pqById(id), lv = level || pqLevel(wins, q);
-        const bars = q.bars[0].map((v, i) => Math.round(v + (q.bars[1][i] - v) * (lv - 1) / 4));
+        const q = pqById(id), lv = level || pqLevel(wins, q), bars = q.bars[0].slice();
+        const left = q.bars[1].map((v, i) => Math.max(0, v - bars[i])), total = left.reduce((a, b) => a + b, 0);
+        const order = [0, 1, 2, 3].sort((a, b) => left[b] - left[a] || a - b), steps = [];
+        while (steps.length < total) order.forEach(i => { if (left[i] > 0) { left[i]--; steps.push(i); } });
+        steps.slice(0, Math.round(total * (lv - 1) / 4)).forEach(i => { bars[i]++; });
         const m = bars.map((b, i) => 1 + PQ_STEP[i] * (b - 4));
         return { id: q.id, level: lv, bars, power: m[0], aim: m[1], spin: m[2], time: m[3] };
     }
@@ -5758,17 +5816,17 @@
 
         let hint = null;
         if (bih) {
-            if (g.bih && g.bih.placed) hint = { text: 'Placed · aim when ready', tone: '' };
-            else if (g.bih && g.bih.valid === false) hint = { text: 'Release on open felt', tone: 'hot' };
-            else hint = { text: g.frame.ballInHand === 'kitchen' ? 'Place behind the head string' : 'Drag the cue ball to place it', tone: '' };
+            if (g.bih && g.bih.placed) hint = { text: 'Placed · aim', tone: '' };
+            else if (g.bih && g.bih.valid === false) hint = { text: 'Drop on open felt', tone: 'hot' };
+            else hint = { text: g.frame.ballInHand === 'kitchen' ? 'Place in kitchen' : 'Drag to place', tone: '' };
         } else if (aiming && g.cpuTurn) {
-            hint = { text: (g.names[g.frame.turn] || 'CPU') + ' is lining up', tone: '' };
+            hint = { text: (g.names[g.frame.turn] || 'CPU') + ' is aiming', tone: '' };
         } else if (aiming) {
             const pw = Math.round(g.power || 0);
-            if (g.dragging) hint = { text: 'Release to shoot · ' + pw + '%', tone: pw >= PH_POWER_HOT ? 'hot' : 'power' };
-            else if (callNeeded) hint = { text: 'Tap a pocket to call it', tone: 'call' };
-            else if (st.callRequired && g.called >= 0) hint = { text: PH_POCKETS[g.called] + ' called · drag to shoot', tone: '' };
-            else hint = { text: 'Press and drag for power', tone: '' };
+            if (g.dragging) hint = { text: 'Release · ' + pw + '%', tone: pw >= PH_POWER_HOT ? 'hot' : 'power' };
+            else if (callNeeded) hint = { text: 'Tap a pocket', tone: 'call' };
+            else if (st.callRequired && g.called >= 0) hint = { text: PH_POCKETS[g.called] + ' called', tone: '' };
+            else hint = { text: 'Drag for power', tone: '' };
         }
 
         // The call card (3D): pocket map and hint in one, bottom right; the lit pocket names the
@@ -5917,7 +5975,7 @@
         // The chips hold the corner, and the call with them: no call card beside them.
         if (chips) vm.mini = Object.assign({}, vm.mini, { show: false });
         // The hint: the D, and none while the chips carry the caption.
-        if (bih && !(g.bih && (g.bih.placed || g.bih.valid === false))) vm.hint = Object.assign({}, vm.hint, { text: 'Place the cue ball in the D', tone: '' });
+        if (bih && !(g.bih && (g.bih.placed || g.bih.valid === false))) vm.hint = Object.assign({}, vm.hint, { text: 'Place in the D', tone: '' });
         if (chips) vm.hint = Object.assign({}, vm.hint, { show: false });
         // The choice after a foul: its buttons for a human chooser, once the seat is taken.
         if (vm.toast.show && ch) {
@@ -5977,12 +6035,13 @@
     const phSvg = (d, n, w) => '<svg width="' + n + '" height="' + n + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (w || 1.8) + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"></path></svg>';
     const PH_BARS = ['Power', 'Aim', 'Spin', 'Time'];
     // m: poolCueModel(). The equipped cue up top (a close-up of its forearm, then all of it), then
-    // every cue: its look, how it is earned, its four bars (filled to its level, outlined to 5).
+    // every cue: its look, how it is earned, its four bars (filled to its level, outlined: what
+    // the next level adds).
     function phCuesHTML(m) {
         const eq = m.list.find(c => c.eq) || m.list[0];
         const tick = phSvg(PH_CUE_ICON.standard, 13, 2.4);
         const bars = c => '<div class="ph-cue-bars">' + PH_BARS.map((b, i) => '<span class="ph-cue-bar" role="img" aria-label="' + b + ' ' + c.bars[i] + ' of 10' +
-            (c.top[i] !== c.bars[i] ? ', ' + c.top[i] + ' at level 5' : '') + '"><span class="ph-label">' + b + '</span><span class="ph-cue-segs">' +
+            (c.top[i] !== c.bars[i] ? ', ' + c.top[i] + ' at level ' + (c.level + 1) : '') + '"><span class="ph-label">' + b + '</span><span class="ph-cue-segs">' +
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(k => '<i' + (k < c.bars[i] ? ' class="on"' : k < c.top[i] ? ' class="up"' : '') + '></i>').join('') +
             '</span><span class="ph-num">' + c.bars[i] + '</span></span>').join('') + '</div>';
         const level = c => '<span class="ph-cue-lv">' + (c.level >= 5 ? 'Level 5 · mastered · ' + c.wins + ' wins' : 'Level ' + c.level + ' · ' + c.have + ' of ' + c.need + ' ' + c.counts + ' to level ' + (c.level + 1)) + '</span>';
@@ -8089,7 +8148,7 @@
     // rules, CPU or storage directly (pool-verify.js checks it).
     const POOL_GAMES = {
         pool: {
-            id: 'pool', title: '8-Ball Pool', icon: '🎱', lb: 'pool', xpType: 'pool', diffPref: 'poolDifficulty', diffs: PH_DIFFS,
+            id: 'pool', title: '8-Ball Pool', icon: 'g-pool', lb: 'pool', xpType: 'pool', diffPref: 'poolDifficulty', diffs: PH_DIFFS,
             keys: { cpuRec: 'poolCpuRecord', byTier: 'poolWinsByTier', tour: 'poolTournament', cab: 'poolTrophyCabinet' },
             clock: POOL_CLOCK_S,
             // ⚙️ Shot Clock choices for a quick frame (0 is off).
@@ -8160,7 +8219,7 @@
         // Snooker (pool-snooker.js; CPU pool-snooker-ai.js): 147 rules, a nominated colour, the
         // choice after a foul, and a quick frame that survives a reload.
         snooker: {
-            id: 'snooker', title: 'Snooker', icon: '🔴', lb: 'snooker', xpType: 'snooker', diffPref: 'snookerDifficulty', diffs: PH_SNK_DIFFS,
+            id: 'snooker', title: 'Snooker', icon: 'snooker', lb: 'snooker', xpType: 'snooker', diffPref: 'snookerDifficulty', diffs: PH_SNK_DIFFS,
             keys: { cpuRec: 'snookerCpuRecord', byTier: 'snookerWinsByTier', tour: 'snookerTournament', cab: 'snookerTrophyCabinet', frame: 'snookerFrame' },
             // True scale: aiming is slower, so a longer clock and finer aim steps.
             clock: 45, aimKey: 0.025, aimFine: 0.0125,
@@ -8421,7 +8480,7 @@
         const had = pqMastered(rec);
         rec[id] = (rec[id] || 0) + 1;
         poolStoreWrite(POOL_CUE_KEY, rec);
-        S.cueRec = rec;
+        S.cueRec = rec; S.cueView = null;
         if (had < 5 && pqMastered(rec) >= 5) poolCueUnlocked('collector');
         const lv = pqLevel(rec[id], q), steps = pqSteps(q);
         if (lv > was) return lv >= 5 ? q.name + ' mastered' : q.name + ' reached level ' + lv;
@@ -8475,7 +8534,7 @@
             const cond = q.id === 'collector' ? q.cond + ' · ' + Math.min(5, pqMastered(rec)) + ' of 5' : q.cond;
             // Progress within the level: "4 of 7 Hard+ wins to level 3".
             return { id: q.id, name: q.name, blurb: q.blurb, cond, open, eq: q.id === eq, isNew: q.id === S.cueNew, level: st.level, wins,
-                have: wins - steps[st.level - 1], need: q.need[2][st.level - 1], counts: pqNeedText(q), bars: st.bars, top: pqStats(q.id, 0, 5).bars };
+                have: wins - steps[st.level - 1], need: q.need[2][st.level - 1], counts: pqNeedText(q), bars: st.bars, top: pqStats(q.id, 0, Math.min(5, st.level + 1)).bars };
         });
         return { eq, who, just: S.cueJust, game: S.game, open: list.filter(c => c.open).length, list };
     }
@@ -8552,7 +8611,7 @@
         userXP.totalXP += xpGained;
         checkLevelUp();
         saveUserXP(userXP);
-        showXPNotification(poolRules().icon + ' +' + xpGained + ' XP (' + (n === 1 ? '1 pot' : n + ' pots') + ')', 'game');
+        showXPNotification('+' + xpGained + ' XP (' + (n === 1 ? '1 pot' : n + ' pots') + ')', 'game', poolRules().icon);
         updateXPDisplay();
     }
 
@@ -9366,7 +9425,7 @@
     function poolRenderTitle(el) {
         const S = poolS, next = POOL_GAMES[S.game === 'snooker' ? 'pool' : 'snooker'].title;
         el.innerHTML = '<button type="button" class="pool-cue-switch" data-game="' + S.game + '" aria-label="Switch to ' + next + '" title="Switch to ' + next + '">' +
-            Object.keys(POOL_GAMES).map(g => '<span class="pool-cue-opt' + (g === S.game ? ' is-on' : '') + '">' + POOL_GAMES[g].icon + '</span>').join('') +
+            Object.keys(POOL_GAMES).map(g => '<span class="pool-cue-opt' + (g === S.game ? ' is-on' : '') + '">' + (typeof attIcon === 'function' ? attIcon(POOL_GAMES[g].icon) : '') + '</span>').join('') +
             '</button><span class="pool-cue-name">' + poolRules().title + '</span>';
         el.firstChild.addEventListener('click', poolToggleVariant);
     }
@@ -9844,7 +9903,7 @@
             header.className = 'pool-modal-header';
             const titleEl = document.createElement('span');
             titleEl.className = 'pool-modal-title';
-            titleEl.textContent = cfg.title;
+            titleEl.innerHTML = (cfg.icon ? attIcon(cfg.icon) + ' ' : '') + escapeHtml(cfg.title);
             header.appendChild(titleEl);
             const closeBtn = document.createElement('button');
             closeBtn.className = 'pool-modal-close';
@@ -9969,6 +10028,7 @@
     let snakeSkinTime  = 0;         // seconds, drives the legendary hue flow
     let snakeBannerT   = 0;
     let snakeBannerText = '';
+    let snakeBannerIcon = '';
 
     let snakeMode      = 'walled';
     let snakeStageIdx  = 0;
@@ -10008,10 +10068,14 @@
     // ── Modes ──────────────────────────────────────────────────────────
     const SNAKE_MODES = ['endless', 'walled', 'levels'];
     const SNAKE_MODE_META = {
-        endless: { icon: '♾️', label: 'Endless', desc: 'Edges wrap around' },
-        walled:  { icon: '🧱', label: 'Walled',  desc: 'Walls are lethal' },
-        levels:  { icon: '🎯', label: 'Levels',  desc: '12 designed stages' }
+        endless: { icon: 'endless', label: 'Endless', desc: 'Edges wrap around' },
+        walled:  { icon: 'walled',  label: 'Walled',  desc: 'Walls are lethal' },
+        levels:  { icon: 'levels',  label: 'Levels',  desc: '12 designed stages' }
     };
+    // A mode's icon and label as markup: the host's colour icon (attIcon), or the label alone in the
+    // standalone harness, which has none.
+    const snakeIco = id => typeof attIcon === 'function' ? attIcon(id) + ' ' : '';
+    const snakeModeHtml = (meta, text) => snakeIco(meta.icon) + text;
 
     // 'all' | 'lr' | 'tb' | 'none' → which edges teleport rather than kill.
     function snakeWrapFlags(spec) {
@@ -10450,7 +10514,8 @@
         snakeSaveLevelsBest(snakeStageIdx + 1);
 
         if (snakeStageIdx >= SNAKE_STAGES.length - 1) {
-            snakeBannerText = '🏆 All ' + SNAKE_STAGES.length + ' stages cleared!';
+            snakeBannerText = 'All ' + SNAKE_STAGES.length + ' stages cleared!';
+            snakeBannerIcon = 'trophy';
             snakeBannerT = SNAKE_BANNER_MS;
             snakeGameOver('conquered');
             return;
@@ -10459,6 +10524,7 @@
         snakeStageIdx++;
         snakeStageEaten = 0;
         snakeBannerText = 'Stage ' + (snakeStageIdx + 1) + ' — ' + SNAKE_STAGES[snakeStageIdx].name;
+        snakeBannerIcon = 'levels';
         snakeBannerT = SNAKE_BANNER_MS;
 
         // New layout, fresh snake, score carries over.
@@ -11126,6 +11192,8 @@
     }
 
     // ── Overlays ───────────────────────────────────────────────────────
+    // An icon and its text centred on x: the host's attIconText, or the text alone standalone.
+    const snakeIconText = (ctx, id, text, x, y, n) => typeof attIconText === 'function' && id ? attIconText(ctx, id, text, x, y, n) : ctx.fillText(text, x, y);
     function snakeDrawBanner(m) {
         if (snakeBannerT <= 0 || !snakeBannerText) return;
         const ctx = snakeCtx;
@@ -11138,7 +11206,7 @@
         ctx.fillStyle = '#ffeaa7';
         ctx.font = 'bold 15px system-ui, sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(snakeBannerText, m.W / 2, m.H * 0.5);
+        snakeIconText(ctx, snakeBannerIcon, snakeBannerText, m.W / 2, m.H * 0.5, 18);
         ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
         ctx.restore();
     }
@@ -11152,10 +11220,10 @@
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 20px system-ui, sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('⏸ Paused', m.W / 2, m.H / 2 - 8);
+        snakeIconText(ctx, 'pause', 'Paused', m.W / 2, m.H / 2 - 8, 22);
         ctx.font = '12px system-ui, sans-serif';
         ctx.fillStyle = 'rgba(255,255,255,0.7)';
-        ctx.fillText('press P or ▶ to resume', m.W / 2, m.H / 2 + 16);
+        ctx.fillText('Press P or Play to resume', m.W / 2, m.H / 2 + 16);
         ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
         ctx.restore();
     }
@@ -11258,11 +11326,11 @@
         if (score) score.textContent = snakeScore;
         const sub = el.querySelector('.snake-go-sub');
         if (sub) {
-            sub.textContent = snakeMode === 'levels'
+            sub.innerHTML = snakeMode === 'levels'
                 ? 'Stage ' + (snakeStageIdx + 1) + '/' + SNAKE_STAGES.length +
                   ' · ' + snakeStagesCleared + ' cleared'
-                : SNAKE_MODE_META[snakeMode].icon + ' ' + SNAKE_MODE_META[snakeMode].label +
-                  ' · best ' + snakeModeBest(snakeMode);
+                : snakeModeHtml(SNAKE_MODE_META[snakeMode], SNAKE_MODE_META[snakeMode].label +
+                  ' · best ' + snakeModeBest(snakeMode));
         }
     }
 
@@ -11281,13 +11349,13 @@
             const meta = SNAKE_MODE_META[snakeMode];
             if (snakeMode === 'levels') {
                 const stage = SNAKE_STAGES[snakeStageIdx];
-                mode.textContent = meta.icon + ' Stage ' + (snakeStageIdx + 1) + '/' + SNAKE_STAGES.length;
+                mode.innerHTML = snakeModeHtml(meta, 'Stage ' + (snakeStageIdx + 1) + '/' + SNAKE_STAGES.length);
                 mode.title = stage
                     ? 'Stage ' + (snakeStageIdx + 1) + ' — ' + stage.name +
                       ' · ' + snakeStageEaten + '/' + stage.goal + ' eaten'
                     : meta.desc;
             } else {
-                mode.textContent = meta.icon + ' ' + meta.label;
+                mode.innerHTML = snakeModeHtml(meta, meta.label);
                 mode.title = meta.desc;
             }
         }
@@ -11309,13 +11377,13 @@
     function updateSnakePlayButton() {
         const btn = document.getElementById('snake-play-btn');
         if (!btn) return;
-        btn.textContent = (!snakeGameRunning || snakeGamePaused) ? '▶ Play' : '⏸ Pause';
+        btn.innerHTML = (!snakeGameRunning || snakeGamePaused) ? snakeIco('play') + 'Play' : snakeIco('pause') + 'Pause';
     }
 
     function updateSnakeModeButton() {
         const btn = document.getElementById('snake-mode-btn');
         if (btn) {
-            btn.textContent = SNAKE_MODE_META[snakeMode].icon + ' ' + SNAKE_MODE_META[snakeMode].label;
+            btn.innerHTML = snakeModeHtml(SNAKE_MODE_META[snakeMode], SNAKE_MODE_META[snakeMode].label);
             btn.title = SNAKE_MODE_META[snakeMode].desc;
         }
         updateSnakeScoreDisplay();
@@ -11349,7 +11417,7 @@
         if (!tray) return;
         const activeId = snakeActiveSkinId();
         tray.innerHTML =
-            '<div class="snake-skin-title">🎨 Snake Skins</div>' +
+            '<div class="snake-skin-title">' + snakeIco('f-skins') + 'Snake Skins</div>' +
             '<div class="snake-skin-grid">' +
             Object.keys(SNAKE_SKINS).map(id => {
                 const skin = SNAKE_SKINS[id];
@@ -11363,7 +11431,7 @@
                     '" data-snake-skin="' + id + '"' + (unlocked ? '' : ' disabled') +
                     ' title="' + escapeHtml(skin.name + ' — ' + hint) + '">' +
                     '<span class="snake-skin-swatch" style="' + snakeSwatchStyle(id) + '">' +
-                    (unlocked ? '' : '🔒') + '</span>' +
+                    (unlocked ? '' : snakeIco('lock')) + '</span>' +
                     '<span class="snake-skin-name">' + escapeHtml(skin.name) + '</span>' +
                     '<span class="snake-skin-hint">' + escapeHtml(hint) + '</span>' +
                     '</button>';
@@ -11769,7 +11837,7 @@
         const chip = document.getElementById('reflex-mode-chip');
         if (chip) {
             const meta = reflexGameModes[reflexMode];
-            chip.textContent = (meta ? meta.icon + ' ' + meta.name : reflexMode);
+            chip.innerHTML = meta ? attIcon(meta.icon) + ' ' + meta.name : reflexMode;
         }
         const scores = loadReflexHighScores();
         const b = scores[reflexMode] && scores[reflexMode].best;
@@ -11786,7 +11854,7 @@
 
         resultsElement.innerHTML = `
             <div style="text-align: center;">
-                <h3 style="margin-bottom: 16px; color: #10b981;">${isNewHighScore ? '🎉 New High Score!' : 'Game Complete!'}</h3>
+                <h3 style="margin-bottom: 16px; color: #10b981;">${isNewHighScore ? attIcon('party') + ' New High Score!' : 'Game Complete!'}</h3>
                 <div style="margin-bottom: 12px;">
                     <div style="font-size: 1.2rem; font-weight: 700;">Average: ${avgTime}ms</div>
                     <div style="font-size: 1.2rem; font-weight: 700;">Best: ${bestTime}ms</div>
@@ -12177,7 +12245,7 @@
 
         resultsElement.innerHTML = `
             <div style="text-align: center;">
-                <h3 style="margin-bottom: 16px; color: #ef4444;">${isNewHighScore ? '🎉 New High Score!' : 'Game Complete!'}</h3>
+                <h3 style="margin-bottom: 16px; color: #ef4444;">${isNewHighScore ? attIcon('party') + ' New High Score!' : 'Game Complete!'}</h3>
                 <div style="margin-bottom: 12px;">
                     <div style="font-size: 1.5rem; font-weight: 700; color: #f59e0b;">Score: ${aimScore}</div>
                     <div style="font-size: 1.2rem; margin-top: 8px;">Accuracy: ${aimAccuracy}%</div>
@@ -14314,11 +14382,11 @@
         ctx.font = 'bold 15px system-ui, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('🎲  ' + LUDO_MODE_LABEL[ludoMode],
-                     LUDO_CANVAS_W / 2, LUDO_BOARD_Y + LUDO_BOARD / 2 - 10);
+        ludoIconText(ctx, 'g-ludo', LUDO_MODE_LABEL[ludoMode],
+                     LUDO_CANVAS_W / 2, LUDO_BOARD_Y + LUDO_BOARD / 2 - 10, 20);
         ctx.font = '11px system-ui, sans-serif';
         ctx.fillStyle = 'rgba(255,255,255,0.70)';
-        ctx.fillText('Press ▶ Play to start',
+        ctx.fillText('Press Play to start',
                      LUDO_CANVAS_W / 2, LUDO_BOARD_Y + LUDO_BOARD / 2 + 12);
         ctx.restore();
     }
@@ -14344,7 +14412,7 @@
         ctx.textBaseline = 'middle';
         ctx.font = 'bold 14px system-ui, sans-serif';
         ctx.fillStyle = '#ffd166';
-        ctx.fillText('🏆  ' + LUDO_COLORS[order[0]].label + ' wins', x + w / 2, y + 20);
+        ludoIconText(ctx, 'trophy', LUDO_COLORS[order[0]].label + ' wins', x + w / 2, y + 20, 18);
 
         order.forEach((ci, k) => {
             const ry = y + 44 + k * 20;
@@ -14364,7 +14432,7 @@
         ctx.textAlign = 'center';
         ctx.font = '10px system-ui, sans-serif';
         ctx.fillStyle = 'rgba(255,255,255,0.55)';
-        ctx.fillText('▶ Play for a new match', x + w / 2, y + h - 14);
+        ctx.fillText('Press Play for a new match', x + w / 2, y + h - 14);
         ctx.restore();
     }
 
@@ -14644,7 +14712,12 @@
     // canvas chip. Icons are duplicated in the host's LB_BOARDS labels; the
     // engine can't reach the host's tables, and two emoji is a cheaper coupling
     // than a lookup that has to exist in the standalone harness too.
-    const LUDO_TIER_ICON = { easy: '🌱', normal: '⚔️', hard: '🔥' };
+    const LUDO_TIER_ICON = { easy: 'easy', normal: 'normal', hard: 'hard' };
+    // The host's colour icons (attIcon / attIconText); the standalone harness has none and shows text.
+    const ludoIco = id => typeof attIcon === 'function' ? attIcon(id) + ' ' : '';
+    function ludoIconText(ctx, id, text, x, y, n) {
+        if (typeof attIconText === 'function') attIconText(ctx, id, text, x, y, n); else ctx.fillText(text, x, y);
+    }
 
     function updateLudoScoreboard() {
         const modeEl = document.getElementById('ludo-mode-label');
@@ -14659,10 +14732,10 @@
             tierEl.style.display = vsCPU ? '' : 'none';
             if (vsCPU) {
                 const tier = LUDO_TIER_ICON[ludoCpuTier] ? ludoCpuTier : 'normal';
-                tierEl.textContent = LUDO_TIER_ICON[tier] + ' ' + tier;
+                tierEl.innerHTML = ludoIco(LUDO_TIER_ICON[tier]) + tier;
             }
         }
-        if (homeEl) homeEl.textContent = '🏠 ' + ludoTokensHome(LUDO_HUMAN_CI) + '/4';
+        if (homeEl) homeEl.innerHTML = ludoIco('home') + ludoTokensHome(LUDO_HUMAN_CI) + '/4';
         if (!turnEl) return;
         if (ludoPhase === 'over') {
             const winner = ludoStandings()[0];
@@ -14684,7 +14757,8 @@
         if (typeof toggleGameMaxModal !== 'function') return;
         ludoMaximized = toggleGameMaxModal({
             canvasId: 'ludo-canvas',
-            title: '🎲 Ludo',
+            title: 'Ludo',
+            icon: 'g-ludo',
             bufferW: LUDO_CANVAS_W,
             bufferH: LUDO_CANVAS_H,
         });
@@ -15011,21 +15085,19 @@
                 break;
             case 'prayer':
                 break;
-            case 'leaderboard':
-                break;
         }
     }
 
     // Each panel: the element it shows (and how), its stats box if it has one, its title, and what
     // starts it. Its controls row and scoreboard are '<key>-controls' and '<key>-scoreboard'.
     const GAME_PANELS = {
-        snake: { el: 'snake-canvas', title: '🐍 Snake', start: () => initSnakeGame() },
-        reflex: { el: 'multi-game-area', stats: 'reflex-stats', title: () => '⚡ RefleX - ' + reflexGameModes[reflexMode].name,
+        snake: { el: 'snake-canvas', icon: 'g-snake', title: 'Snake', start: () => initSnakeGame() },
+        reflex: { el: 'multi-game-area', stats: 'reflex-stats', icon: 'g-reflex', title: 'RefleX',
             start: () => { initReflexGame(); updateReflexDisplay(); } },
-        aim: { el: 'multi-game-area', stats: 'aim-stats', title: '💥 Chaos Aim Trainer', start: () => { initAimTrainerGame(); renderAimGame(); } },
-        flappy: { el: 'flappy-canvas', title: '🐦 Flappy Bird', start: () => initFlappyGame() },
-        tetris: { el: 'tetris-canvas', title: '🧱 Tetris', start: () => initTetrisGame() },
-        breakout: { el: 'breakout-canvas', title: '🏓 Breakout', start: () => {
+        aim: { el: 'multi-game-area', stats: 'aim-stats', icon: 'g-aim', title: 'Chaos Aim Trainer', start: () => { initAimTrainerGame(); renderAimGame(); } },
+        flappy: { el: 'flappy-canvas', icon: 'g-flappy', title: 'Flappy Bird', start: () => initFlappyGame() },
+        tetris: { el: 'tetris-canvas', icon: 'g-tetris', title: 'Tetris', start: () => initTetrisGame() },
+        breakout: { el: 'breakout-canvas', icon: 'g-breakout', title: 'Breakout', start: () => {
             initBreakoutGame();
             if (breakoutCanvas) {
                 breakoutCanvas.addEventListener('mousemove', handleBreakoutMouseMove);
@@ -15035,10 +15107,9 @@
         // Pool has no controls row (its panel has its own footer), and its title is the switch
         // between 8-Ball Pool and Snooker (poolRenderTitle). initPoolGame builds the panel once,
         // binds its own input and starts the loop; initLudoGame does the same for Ludo.
-        pool: { el: 'pool-root', noControls: true, title: '🎱 8-Ball Pool', start: () => initPoolGame() },
-        ludo: { el: 'ludo-canvas', title: '🎲 Ludo', start: () => initLudoGame(), shown: () => { updateLudoScoreboard(); refreshGameScoreBtn('ludo'); } },
-        prayer: { el: 'prayer-panel', show: 'flex', title: '📿 Prayer Counter', start: () => initPrayerCounter() },
-        leaderboard: { el: 'leaderboard-panel', show: 'flex', title: '🏆 Leaderboard', start: () => initLeaderboard() }
+        pool: { el: 'pool-root', noControls: true, icon: 'g-pool', title: '8-Ball Pool', start: () => initPoolGame() },
+        ludo: { el: 'ludo-canvas', icon: 'g-ludo', title: 'Ludo', start: () => initLudoGame(), shown: () => { updateLudoScoreboard(); refreshGameScoreBtn('ludo'); } },
+        prayer: { el: 'prayer-panel', show: 'flex', icon: 'g-tasbih', title: 'Prayer Counter', start: () => initPrayerCounter() }
     };
     const showById = (id, display) => { const el = document.getElementById(id); if (el) el.style.display = display; };
 
@@ -15067,81 +15138,6 @@
         if (g.shown) g.shown();
     }
 
-    function initQuotesSystem() {
-        // Prevent re-initialization to avoid resetting animations
-        if (quotesInitialized) return;
-
-        quotesArray = loadQuotes();
-        displayCurrentQuote(true); // Skip animation on first load
-        startQuoteCycling();
-
-        quotesInitialized = true;
-    }
-
-    function displayCurrentQuote(skipAnimation = false) {
-        const quoteTextElement = document.getElementById('quote-text');
-        const quoteAuthorElement = document.getElementById('quote-author');
-
-        if (!quoteTextElement || quotesArray.length === 0) return;
-
-        const quote = quotesArray[currentQuoteIndex];
-
-        if (!skipAnimation) {
-            // Use CSS class for smooth transition without resetting animations
-            quoteTextElement.classList.add('fade-out');
-
-            setTimeout(() => {
-                quoteTextElement.textContent = `"${quote.text}"`;
-                if (quoteAuthorElement) {
-                    quoteAuthorElement.textContent = `— ${quote.author}`;
-                }
-
-                // Remove fade-out class to trigger fade-in via CSS
-                quoteTextElement.classList.remove('fade-out');
-            }, 300); // Reduced from 600ms for snappier transitions
-        } else {
-            // Direct update without animation (for initial load)
-            quoteTextElement.textContent = `"${quote.text}"`;
-            if (quoteAuthorElement) {
-                quoteAuthorElement.textContent = `— ${quote.author}`;
-            }
-            quoteTextElement.style.opacity = '1';
-        }
-    }
-
-    function startQuoteCycling() {
-        if (quoteInterval) clearInterval(quoteInterval);
-
-        quoteInterval = setInterval(() => {
-            currentQuoteIndex = (currentQuoteIndex + 1) % quotesArray.length;
-            displayCurrentQuote();
-        }, 6000);
-    }
-
-    function addCustomQuote() {
-        const quoteText = prompt('Enter your motivational quote:');
-        if (!quoteText || quoteText.trim() === '') return;
-
-        const quoteAuthor = prompt('Enter the author name (or leave blank):');
-
-        const newQuote = {
-            text: quoteText.trim(),
-            author: quoteAuthor && quoteAuthor.trim() !== '' ? quoteAuthor.trim() : 'Anonymous'
-        };
-
-        quotesArray.push(newQuote);
-        saveQuotes(quotesArray);
-
-        currentQuoteIndex = quotesArray.length - 1;
-        displayCurrentQuote();
-
-        startQuoteCycling();
-
-        if (xpSystemReady && !userXP.achievements.includes('curator')) {
-            unlockAchievement('curator');
-        }
-    }
-
     function initXPSystem() {
         userXP = loadUserXP();
         xpSystemReady = true; // Must be set AFTER loadUserXP() so awardXP never runs on default values
@@ -15159,7 +15155,7 @@
         if (lbRegistered && lbClientId && (userXP.level || 1) <= 1 && (userXP.totalXP || 0) === 0) {
             restoreFromGist().then(ok => {
                 if (ok) {
-                    showXPNotification(`🛟 Restored Level ${userXP.level} from cloud`, 'achievement');
+                    showXPNotification(`Restored Level ${userXP.level} from cloud`, 'achievement', 'f-cloud');
                 }
                 // Revalidate after restore completes (or if restore skipped)
                 try { revalidateAchievements(); } catch (_) {}
@@ -15213,7 +15209,7 @@
         // Only surface a toast when the visible level actually moved — a
         // currentXP-only correction isn't worth interrupting anyone for.
         if (derived.level !== storedLevel) {
-            showXPNotification(`🔧 Level corrected to ${derived.level} (${userXP.totalXP.toLocaleString()} total XP)`, 'achievement');
+            showXPNotification(`Level corrected to ${derived.level} (${userXP.totalXP.toLocaleString()} total XP)`, 'achievement', 'u-settings');
         }
         return true;
     }
@@ -15268,7 +15264,7 @@
                 userXP.currentXP += streakBonus;
                 userXP.totalXP += streakBonus;
                 const capNote = userXP.consecutiveDays > STREAK_BONUS_MAX_DAYS ? ` (max ${STREAK_BONUS_MAX_DAYS}-day rate)` : '';
-                showXPNotification(`🔥 ${userXP.consecutiveDays}-Day Streak! +${streakBonus} Bonus XP!${capNote}`, 'streak');
+                showXPNotification(`${userXP.consecutiveDays}-Day Streak! +${streakBonus} Bonus XP!${capNote}`, 'streak', 'hard');
             }
 
             checkLevelUp();
@@ -15356,7 +15352,7 @@
             userXP.currentXP += milestone.xp;
             userXP.totalXP += milestone.xp;
             userXP.milestonesReached.push(currentHour);
-            showXPNotification(`🎯 ${milestone.label}! +${milestone.xp} Bonus XP!`, 'milestone');
+            showXPNotification(`${milestone.label}! +${milestone.xp} Bonus XP!`, 'milestone', 'f-ach');
         }
     }
 
@@ -15517,7 +15513,7 @@
             showAchievementToast(achievementKey, xpReward);
             // The cue it earns (pool-cues.js), noticed here and on the table.
             const cue = typeof poolCueUnlocked === 'function' ? poolCueUnlocked(achievementKey) : null;
-            if (cue) showXPNotification(`🎱 New cue · ${cue.name}`, 'achievement');
+            if (cue) showXPNotification(`New cue · ${cue.name}`, 'achievement', 'g-pool');
         } else {
             // Silent mode: still show notification but no XP (already-earned achievements restored)
             showAchievementToast(achievementKey, 0);
@@ -15606,44 +15602,35 @@
             userXP.currentXP -= xpNeeded;
             userXP.level++;
 
-            showXPNotification(`🎊 Level Up! You're now Level ${userXP.level}!`, 'levelup');
+            showXPNotification(`Level Up! You're now Level ${userXP.level}!`, 'levelup', 'party');
 
             xpNeeded = calculateXPForNextLevel(userXP.level);
         }
     }
 
+    // Work Rewards. Called every tick through awardXP(), so each value is written only when it changed.
     function updateXPDisplay() {
-        const levelElement = document.getElementById('xp-level');
-        const currentXPElement = document.getElementById('xp-current');
-        const neededXPElement = document.getElementById('xp-needed');
-        const progressBar = document.getElementById('xp-progress-fill');
-        const totalXPElement = document.getElementById('xp-total');
-        const todayHoursElement = document.getElementById('xp-today-hours');
-        const streakElement = document.getElementById('xp-streak');
-        const longestStreakElement = document.getElementById('xp-longest-streak');
-        const achievementsContainer = document.getElementById('xp-achievements');
-        const nextMilestoneElement = document.getElementById('xp-next-milestone');
-
+        const $ = id => document.getElementById(id), put = (id, v, p = 'textContent') => { const el = $(id); if (el && el[p] !== String(v)) el[p] = v; };
         const xpNeeded = calculateXPForNextLevel(userXP.level);
-        const progress = (userXP.currentXP / xpNeeded) * 100;
-
-        if (levelElement) levelElement.textContent = userXP.level;
-        if (currentXPElement) currentXPElement.textContent = userXP.currentXP;
+        put('xp-level', userXP.level);
+        put('xp-current', userXP.currentXP);
         // What is left to the next level, as the artboard reads: "3351 XP · 11548 XP to next level".
-        if (neededXPElement) neededXPElement.textContent = Math.max(0, xpNeeded - userXP.currentXP);
-        if (progressBar) progressBar.style.width = `${progress}%`;
-        const bar = document.getElementById('xp-progress-bar');
-        if (bar) { bar.setAttribute('aria-valuemax', xpNeeded); bar.setAttribute('aria-valuenow', userXP.currentXP); }
-        if (totalXPElement) totalXPElement.textContent = userXP.totalXP;
-        if (todayHoursElement) todayHoursElement.textContent = userXP.todayHours;
-        if (streakElement) streakElement.textContent = userXP.consecutiveDays;
-        if (longestStreakElement) longestStreakElement.textContent = userXP.longestStreak;
+        put('xp-needed', Math.max(0, xpNeeded - userXP.currentXP));
+        const fill = $('xp-progress-fill'), w = (userXP.currentXP / xpNeeded * 100) + '%';
+        if (fill && fill.style.width !== w) fill.style.width = w;
+        const bar = $('xp-progress-bar');
+        if (bar && bar.getAttribute('aria-valuenow') !== String(userXP.currentXP)) { bar.setAttribute('aria-valuemax', xpNeeded); bar.setAttribute('aria-valuenow', userXP.currentXP); }
+        put('xp-total', userXP.totalXP);
+        put('xp-today-hours', userXP.todayHours);
+        put('xp-streak', userXP.consecutiveDays);
+        put('xp-longest-streak', userXP.longestStreak);
 
-        // The earned row (AchEarned): 36 px medallions, rarest first, then View all. Any of them opens the modal.
-        if (achievementsContainer) {
-            const earned = achRarestFirst(userXP.achievements);
-            const total = Object.keys(ACHIEVEMENTS).length;
-            achievementsContainer.innerHTML =
+        // The earned row (AchEarned): 36 px medallions, rarest first, then View all. Any of them opens
+        // the modal. Rebuilt only when what is earned changes.
+        const box = $('xp-achievements'), earned = achRarestFirst(userXP.achievements), total = Object.keys(ACHIEVEMENTS).length;
+        if (box && box.dataset.k !== earned.join()) {
+            box.dataset.k = earned.join();
+            box.innerHTML =
                 '<div class="xp-ach-head"><span>Achievements</span><span class="xp-ach-count">' + earned.length + ' of ' + total + ' earned</span></div>' +
                 '<div class="xp-ach-row" aria-label="Earned achievements">' +
                 (earned.length ? earned.map(k => {
@@ -15651,21 +15638,16 @@
                     return '<button type="button" class="xp-ach-btn" title="' + a.name + ' · ' + tier + '" aria-label="' + a.name + ', ' + tier + ', earned">' + achMedal(k, 36) + '</button>';
                 }).join('') : '<span class="xp-achievements-empty">No achievements yet. Finish a full shift for Day One.</span>') +
                 '<button type="button" class="xp-achievements-view-all">View all<span>' + earned.length + '/' + total + '</span></button></div>';
-            achievementsContainer.querySelectorAll('button').forEach(b => { b.onclick = () => openAchievementsModal(); });
+            box.querySelectorAll('button').forEach(b => { b.onclick = () => openAchievementsModal(); });
         }
 
-        if (nextMilestoneElement) {
-            const milestoneHours = [2, 4, 6, 8];
-            const nextMilestone = milestoneHours.find(h => h > userXP.todayHours);
-
-            if (nextMilestone) {
-                const hoursRemaining = nextMilestone - userXP.todayHours;
-                // "6-Hour Almost There" reads as "6-Hour · Almost There".
-                nextMilestoneElement.textContent = `${hoursRemaining}h to ${MILESTONE_BONUSES[nextMilestone].label.replace(' ', ' · ')}`;
-                nextMilestoneElement.style.display = 'flex';
-            } else {
-                nextMilestoneElement.style.display = 'none';
-            }
+        const ms = $('xp-next-milestone');
+        if (ms) {
+            const next = [2, 4, 6, 8].find(h => h > userXP.todayHours);
+            // "6-Hour Almost There" reads as "6-Hour · Almost There".
+            if (next) put('xp-next-milestone', `${next - userXP.todayHours}h to ${MILESTONE_BONUSES[next].label.replace(' ', ' · ')}`);
+            const d = next ? 'flex' : 'none';
+            if (ms.style.display !== d) ms.style.display = d;
         }
     }
 
@@ -15674,15 +15656,11 @@
     const xpToastTop = () => Array.prototype.reduce.call(document.querySelectorAll('.xp-milestone-notification, .ach-toast'),
         (top, n) => Math.max(top, (parseFloat(n.style.top) || 20) + n.offsetHeight + 10), 20);
 
-    function showXPNotification(message, type = 'hourly') {
+    function showXPNotification(message, type = 'hourly', icon = 'f-xp') {
         const notification = document.createElement('div');
         notification.className = `xp-milestone-notification xp-notif-${type}`;
-        notification.textContent = message;
+        notification.innerHTML = attIcon(icon) + ' ' + escapeHtml(message);
         notification.style.top = `${xpToastTop()}px`;
-
-        // Fresh element per call — a one-shot sweep, not cyberWatchEmoji: the node is gone in 3s and
-        // an observer with nothing left to watch would leak.
-        cyberSweepEmoji(notification);
         document.body.appendChild(notification);
 
         setTimeout(() => {
@@ -15736,7 +15714,7 @@
                                         SNAKE_MODE_META[performance.mode])
                     ? SNAKE_MODE_META[performance.mode].label : 'Snake';
                 const snakeExtra = snakeStages > 0 ? `, ${snakeStages} stage${snakeStages > 1 ? 's' : ''}` : '';
-                message = `🐍 +${xpGained} XP (${snakeModeLabel}: ${snakeScoreVal} pts${snakeExtra}${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
+                message = `+${xpGained} XP (${snakeModeLabel}: ${snakeScoreVal} pts${snakeExtra}${performance.isHighScore ? ' · New Record!' : ''})`;
                 break;
             }
 
@@ -15745,7 +15723,7 @@
                 const flappyScoreVal = performance.score || 0;
                 xpGained = xpTier(flappyScoreVal, [[20, 70], [10, 45], [5, 25], [1, 10]], 3);
                 if (performance.isHighScore) xpGained += 20;
-                message = `🐦 +${xpGained} XP (Flappy: ${flappyScoreVal} pipes${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
+                message = `+${xpGained} XP (Flappy: ${flappyScoreVal} pipes${performance.isHighScore ? ' · New Record!' : ''})`;
                 break;
             }
 
@@ -15756,7 +15734,7 @@
                 xpGained = xpTier(tetrisLinesVal, [[40, 100], [20, 65], [10, 40], [4, 20], [1, 10]], 3);
                 xpGained += Math.min(tetrisLevelVal * 5, 25); // Level bonus
                 if (performance.isHighScore) xpGained += 25;
-                message = `🧱 +${xpGained} XP (Tetris: ${tetrisLinesVal} lines, Lvl ${tetrisLevelVal}${performance.isHighScore ? ' 🏆!' : ''})`;
+                message = `+${xpGained} XP (Tetris: ${tetrisLinesVal} lines, Lvl ${tetrisLevelVal}${performance.isHighScore ? ' · New Record!' : ''})`;
                 break;
             }
 
@@ -15768,7 +15746,7 @@
                 if (performance.falseStarts === 0) xpGained += 15;
                 else xpGained = Math.max(8, xpGained - (performance.falseStarts * 5));
                 if (performance.isHighScore) xpGained += 20;
-                message = `⚡ +${xpGained} XP (ReflexX: ${avgTime}ms avg${performance.falseStarts === 0 ? ' 🎯 Perfect!' : ''}${performance.isHighScore ? ' 🏆!' : ''})`;
+                message = `+${xpGained} XP (ReflexX: ${avgTime}ms avg${performance.falseStarts === 0 ? ' · Perfect!' : ''}${performance.isHighScore ? ' · New Record!' : ''})`;
                 break;
             }
 
@@ -15779,12 +15757,12 @@
                 xpGained = xpTier(aimScoreVal, [[400, 100], [300, 80], [250, 65], [200, 50], [150, 38], [100, 25]], 12);
                 if (aimAcc >= 90) {
                     xpGained += 25;
-                    message = `🎯 +${xpGained} XP (Aim: ${aimScoreVal} pts + ${Math.round(aimAcc)}% accuracy 🔥)!`;
+                    message = `+${xpGained} XP (Aim: ${aimScoreVal} pts + ${Math.round(aimAcc)}% accuracy)!`;
                 } else if (aimAcc >= 75) {
                     xpGained += 15;
-                    message = `🎯 +${xpGained} XP (Aim: ${aimScoreVal} pts + accuracy bonus)!`;
+                    message = `+${xpGained} XP (Aim: ${aimScoreVal} pts + accuracy bonus)!`;
                 } else {
-                    message = `🎯 +${xpGained} XP (Aim: ${aimScoreVal} pts, ${Math.round(aimAcc)}% accuracy)`;
+                    message = `+${xpGained} XP (Aim: ${aimScoreVal} pts, ${Math.round(aimAcc)}% accuracy)`;
                 }
                 if (performance.isHighScore) xpGained += 20;
                 break;
@@ -15796,7 +15774,7 @@
                 xpGained = xpTier(brkScore, [[1500, 120], [800, 85], [400, 55], [200, 35], [100, 25]], 12);
                 xpGained += Math.min(brkLevel * 8, 50); // level bonus
                 if (performance.isHighScore) xpGained += 30;
-                message = `🧱 +${xpGained} XP (Breakout: ${brkScore} pts, Lvl ${brkLevel}${performance.isHighScore ? ' 🏆 New Record!' : ''})`;
+                message = `+${xpGained} XP (Breakout: ${brkScore} pts, Lvl ${brkLevel}${performance.isHighScore ? ' · New Record!' : ''})`;
                 break;
             }
 
@@ -15808,10 +15786,10 @@
                 const snk = gameType === 'snooker', p = performance;
                 const tier = { easy: 'Easy', normal: 'Normal', hard: 'Hard', pro: 'Pro' }[p.tier] || '';
                 const brk = snk && p.vsCPU && (p.highBreak || 0) >= 50 ? `, a ${p.highBreak} break` : '';
-                const what = p.tour ? (p.won ? `${p.round} won! 🏆` : `${p.round}, good game`)
-                    : p.vsCPU ? (p.won ? `beat the ${tier} CPU${brk}! 🏆` : `good ${snk ? 'frame' : 'game'} vs the ${tier} CPU${brk}`)
-                    : p.won ? 'Player 1 wins 🏆' : 'good game';
-                message = `${snk ? '🔴' : '🎱'} +${xpGained} XP (${snk ? 'Snooker' : 'Pool'}: ${what})`;
+                const what = p.tour ? (p.won ? `${p.round} won!` : `${p.round}, good game`)
+                    : p.vsCPU ? (p.won ? `beat the ${tier} CPU${brk}!` : `good ${snk ? 'frame' : 'game'} vs the ${tier} CPU${brk}`)
+                    : p.won ? 'Player 1 wins' : 'good game';
+                message = `+${xpGained} XP (${snk ? 'Snooker' : 'Pool'}: ${what})`;
                 break;
             }
 
@@ -15822,11 +15800,11 @@
                 xpGained = Math.max(0, Math.min(AC_MAX_XP_PER_GAME, Math.round(performance.xp || 0)));
                 const ludoSeats = performance.players || 2;
                 if (!performance.vsCPU) {
-                    message = `🎲 +${xpGained} XP (Ludo: ${ludoSeats}P hot-seat)`;
+                    message = `+${xpGained} XP (Ludo: ${ludoSeats}P hot-seat)`;
                 } else if (performance.won) {
-                    message = `🎲 +${xpGained} XP (Ludo: beat the ${performance.tier} CPU! 🏆)`;
+                    message = `+${xpGained} XP (Ludo: beat the ${performance.tier} CPU!)`;
                 } else {
-                    message = `🎲 +${xpGained} XP (Ludo: ${performance.tokensHome}/4 home vs ${performance.tier} CPU)`;
+                    message = `+${xpGained} XP (Ludo: ${performance.tokensHome}/4 home vs ${performance.tier} CPU)`;
                 }
                 break;
             }
@@ -15848,7 +15826,7 @@
             // per-frame scoreboard function redraws.
             refreshGameScoreBtn(gameType);
             updateXPDisplay();
-            showXPNotification(message, 'game');
+            showXPNotification(message, 'game', LB_BOARDS[gameType] ? LB_BOARDS[gameType].icon : 'f-xp');
             // Every game writes its record to localStorage before calling this, so this is the one point
             // that knows a personal best just landed and has the storage to prove it. Without it a record
             // reached the gist only if the player happened to press the refresh button.
@@ -15859,90 +15837,159 @@
     // IMAGE BOX — the image fills the card; everything else lives in a menu opened by
     // right-clicking the image or its hover kebab. Every handler is delegated from document,
     // because renderFullContent() can rebuild the right panel and drop per-node listeners.
-    const IB_ICONS = {
-        kebab:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="0.6"/><circle cx="12" cy="12" r="0.6"/><circle cx="19" cy="12" r="0.6"/></svg>',
-        upload: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>',
-        image:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-9 9"/></svg>',
-        link:   '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>',
-        fit:    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg>',
-        trash:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M9 7V4h6v3"/></svg>'
+    // DESK CARD (design: Desk card · image and quote, one menu): the right column's last card. A picture,
+    // a quote over it or on its own, and one menu for both, from the kebab or a right-click.
+    const DESK_D = {
+        image: 'M4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11A1.5 1.5 0 0 1 4.5 5zM3 15.5l5-5 4 4 2.5-2.5 6.5 6.5M15.5 10a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3z',
+        link: 'M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1',
+        fit: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+        trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3',
+        edit: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+        quote: 'M4.5 18c2.4-.6 4-2.6 4-5.2V7H4v5.5h4.5M14.5 18c2.4-.6 4-2.6 4-5.2V7H14v5.5h4.5'
     };
+    const DESK_KEBAB = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="0.6"/><circle cx="12" cy="12" r="0.6"/><circle cx="19" cy="12" r="0.6"/></svg>';
+    const DESK_HTML = `
+                <section class="desk" aria-label="Desk card: your image and quote">
+                    <div class="desk-body"></div>
+                    <input type="file" accept="image/*" class="desk-file" hidden tabindex="-1" aria-hidden="true">
+                    <div class="desk-menu" role="menu" aria-label="Desk options" hidden></div>
+                    <div class="desk-toast" role="status" hidden><span></span><button type="button" data-desk="undo">Undo</button></div>
+                </section>`;
+    let deskQuoteIdx = 0, deskMenu = false, deskEditing = false, deskUndo = null, deskToastTimer = 0, deskBound = false;
+    const deskEl = () => document.querySelector('#total-time-summary .desk');
+    const deskHasImg = () => imageBoxReady && !!imageBoxSrc && !imageBoxFailed;
+    const deskQuote = () => quotesArray[Math.min(deskQuoteIdx, quotesArray.length - 1)] || null;
+    const deskAttr = v => escapeHtml(v).replace(/"/g, '&quot;');
+    function deskSaveIdx() { localStorage.setItem('deskQuote', JSON.stringify({ i: deskQuoteIdx })); }
 
-    const IMAGE_BOX_STAGE_HTML = `
-        <div class="ib-stage">
-            <img class="image-box-img" alt="Your widget image" draggable="false">
-            <button type="button" class="ib-kebab" data-ib="kebab" aria-label="Image options" aria-haspopup="menu" aria-expanded="false">${IB_ICONS.kebab}</button>
-            <div class="ib-hint" aria-hidden="true">Right-click for options</div>
-        </div>`;
-
-    function imageBoxDropHTML(failed) {
-        return `
-        <div class="ib-drop">
-            <div class="ib-drop-icon">${IB_ICONS.upload}</div>
-            <div class="ib-drop-title">${failed ? 'That image didn’t load' : 'Drop an image here'}</div>
-            <button type="button" class="ib-browse" data-ib="browse">Browse files</button>
-            <div class="ib-drop-note">PNG, JPG, GIF or WebP · <button type="button" class="ib-link-btn" data-ib="link">paste a link</button>${failed ? ' · <button type="button" class="ib-link-btn" data-ib="remove">remove it</button>' : ''}</div>
-        </div>`;
+    // Every DESK_QUOTE_MS the quote fades out (DESK_FADE_MS) and the next fades in, without pausing.
+    // The editor replaces the quote while it is open, so a quote is never moved on mid-edit.
+    const DESK_QUOTE_MS = 10000, DESK_FADE_MS = 450;
+    function deskNextQuote() {
+        const el = deskEl(), fig = el && el.querySelector('.desk-q');
+        if (!fig || quotesArray.length < 2) return;
+        fig.classList.add('is-fading');
+        setTimeout(() => {
+            deskQuoteIdx = (deskQuoteIdx + 1) % quotesArray.length;
+            deskSaveIdx();
+            const q = deskQuote();
+            if (!fig.isConnected || !q) return;
+            fig.querySelector('blockquote').textContent = q.text;
+            fig.querySelector('figcaption').textContent = '— ' + q.author;
+            fig.classList.remove('is-fading');
+        }, DESK_FADE_MS);
     }
 
-    // The container's static parts; the frame's contents come from updateImageDisplay().
-    function imageBoxHTML() {
-        const ratioButtons = Object.keys(aspectRatios).map(key => {
-            const r = aspectRatios[key];
-            return `<button type="button" class="ib-ratio" data-ib="ratio" data-ratio="${key}" aria-label="${r.name}" aria-pressed="false">
-                            <span class="ib-ratio-icon" style="width: ${r.iw}px; height: ${r.ih}px"></span>
-                            <span>${key}</span>
-                        </button>`;
-        }).join('');
-        return `
-                <div class="image-box-container">
-                    <div id="image-display" class="image-display"></div>
-                    <input type="file" accept="image/*" class="ib-file" hidden tabindex="-1" aria-hidden="true">
-                    <div class="ib-menu" role="menu" aria-label="Image options" hidden>
-                        <div class="ib-menu-label">Aspect ratio</div>
-                        <div class="ib-ratios">${ratioButtons}</div>
-                        <div class="ib-sep"></div>
-                        <button type="button" class="ib-mi" role="menuitem" data-ib="browse">${IB_ICONS.image}<span class="ib-mi-text">Replace image…</span></button>
-                        <button type="button" class="ib-mi" role="menuitem" data-ib="link">${IB_ICONS.link}<span class="ib-mi-text">Use an image link…</span></button>
-                        <button type="button" class="ib-mi" role="menuitem" data-ib="fit">${IB_ICONS.fit}<span class="ib-mi-text ib-fit-label">Fit whole image</span><span class="ib-mi-state ib-fit-state">Filling</span></button>
-                        <div class="ib-sep"></div>
-                        <button type="button" class="ib-mi ib-mi-danger" role="menuitem" data-ib="remove">${IB_ICONS.trash}<span class="ib-mi-text">Remove image</span></button>
-                    </div>
-                    <div class="ib-toast" role="status" hidden>
-                        <span class="ib-toast-text"></span>
-                        <button type="button" class="ib-undo" data-ib="undo">Undo</button>
-                    </div>
-                </div>`;
-    }
-
-    function initImageBox() {
+    function initDesk() {
+        // The quotes cycle on their own (deskNextQuote); a reload picks up where they were.
+        quotesArray = loadQuotes();
+        deskQuoteIdx = (lsJSON('deskQuote', { i: 0 }).i || 0) % Math.max(1, quotesArray.length);
         currentImageURL = loadImageURL();
-        currentAspectRatio = loadAspectRatio();
         currentImageFit = loadImageFit();
-        initImageBoxEvents();
-
+        initDeskEvents();
         if (currentImageURL === IMAGE_BOX_IDB_REF) {
             loadImageBlob().then((blob) => {
                 // A new image may have landed while this was reading.
                 if (currentImageURL !== IMAGE_BOX_IDB_REF || imageBoxBlob) return;
-                if (blob) {
-                    imageBoxBlob = blob;
-                    setImageBoxSrc(URL.createObjectURL(blob));
-                } else {
-                    currentImageURL = '';
-                    saveImageURL('');
-                }
-            }).catch(() => {
-                imageBoxFailed = true;
-            }).then(() => {
-                imageBoxReady = true;
-                updateImageDisplay();
-            });
+                if (blob) { imageBoxBlob = blob; setImageBoxSrc(URL.createObjectURL(blob)); }
+                else { currentImageURL = ''; saveImageURL(''); }
+            }).catch(() => { imageBoxFailed = true; }).then(() => { imageBoxReady = true; renderDesk(); });
         } else {
             setImageBoxSrc(currentImageURL);
             imageBoxReady = true;
         }
-        updateImageDisplay();
+        renderDesk();
+    }
+
+    function renderDesk() {
+        const el = deskEl();
+        if (!el) return;
+        const body = el.querySelector('.desk-body'), img = deskHasImg(), q = deskQuote();
+        el.classList.toggle('has-img', img);
+        if (deskEditing) {
+            const e = deskEditing === 'edit' && q, title = e ? 'Edit quote' : 'Add a quote';
+            body.innerHTML = `<form class="desk-edit" aria-label="${title}"><b>${title}</b>
+                <label for="desk-q-text">Quote</label><textarea id="desk-q-text" rows="4" placeholder="Type the line that keeps you going">${e ? escapeHtml(q.text) : ''}</textarea>
+                <label for="desk-q-author">Said by</label><input id="desk-q-author" type="text" maxlength="60" placeholder="Optional" value="${e ? deskAttr(q.author) : ''}">
+                <div><button type="button" class="desk-ghost" data-desk="cancel">Cancel</button><button type="submit" class="desk-primary">Save quote</button></div></form>`;
+            body.querySelector('textarea').focus();
+            return;
+        }
+        const quote = q ? `<figure class="desk-q">${achSvg(DESK_D.quote, 18)}<blockquote>${escapeHtml(q.text)}</blockquote><figcaption>— ${escapeHtml(q.author)}</figcaption></figure>` : '';
+        body.innerHTML = img || q
+            ? (img ? `<img class="desk-img" alt="Your desk image" draggable="false" style="object-fit: ${currentImageFit}">` + (q ? '<span class="desk-scrim"></span>' : '') : '<span class="desk-qbg"></span>') + quote +
+              `<button type="button" class="desk-kebab" data-desk="kebab" aria-label="Desk options: image and quote" aria-haspopup="menu" aria-expanded="${deskMenu}">${DESK_KEBAB}</button>` +
+              (img && !q && localStorage.getItem('imageBoxHintSeen') !== '1' ? '<span class="desk-hint">Right-click for options</span>' : '')
+            : `<div class="desk-empty"><b>${imageBoxFailed ? 'That image didn’t load' : 'Make this corner yours'}</b><span>A picture, a line that keeps you going, or both.</span>
+               <div><button type="button" class="desk-primary" data-desk="browse">${achSvg(DESK_D.image, 16)}Add image</button><button type="button" class="desk-ghost" data-desk="edit">${achSvg(DESK_D.quote, 16)}Add quote</button></div>
+               <button type="button" class="desk-link" data-desk="${imageBoxFailed ? 'remove-img">Remove the broken image' : 'link">or paste an image link'}</button></div>`;
+        const im = body.querySelector('.desk-img');
+        if (!im) return;
+        im.addEventListener('error', () => { if (!im.isConnected) return; imageBoxFailed = true; closeDeskMenu(); renderDesk(); });
+        im.src = imageBoxSrc;
+    }
+
+    // x, y: the menu's corner inside the card; none puts it under the kebab.
+    function openDeskMenu(x, y) {
+        const el = deskEl(), menu = el && el.querySelector('.desk-menu');
+        if (!menu || deskEditing) return;
+        const img = deskHasImg(), q = deskQuote();
+        const mi = (act, d, label, danger) => `<button type="button" class="desk-mi${danger ? ' is-danger' : ''}" role="menuitem" data-desk="${act}">${achSvg(d, 16)}<span>${label}</span></button>`;
+        menu.innerHTML = '<span class="desk-ml">Image</span>' + mi('browse', DESK_D.image, (img ? 'Replace' : 'Add') + ' image…') + mi('link', DESK_D.link, 'Use an image link…') +
+            (img ? mi('fit', DESK_D.fit, currentImageFit === 'cover' ? 'Fit whole image' : 'Fill the card') : '') + (currentImageURL ? mi('remove-img', DESK_D.trash, 'Remove image', 1) : '') +
+            '<span class="desk-sep"></span><span class="desk-ml">Quote</span>' + mi('edit', DESK_D.edit, q ? 'Edit quote…' : 'Add quote…') +
+            (q ? mi('remove-quote', DESK_D.trash, 'Remove quote', 1) : '');
+        menu.hidden = false;
+        const W = el.clientWidth, H = el.clientHeight, w = menu.offsetWidth, h = menu.offsetHeight, top = Math.min(y === undefined ? 58 : y, H - h - 8);
+        menu.style.left = Math.max(8, Math.min(x === undefined ? W - w - 10 : x, W - w - 8)) + 'px';
+        menu.style.top = (h + 16 > H ? top : Math.max(8, top)) + 'px';   // taller than the card: it overhangs upwards
+        localStorage.setItem('imageBoxHintSeen', '1');
+        el.querySelector('.desk-hint')?.remove();
+        deskMenu = true;
+        el.querySelector('.desk-kebab')?.setAttribute('aria-expanded', 'true');
+        menu.querySelector('button').focus({ preventScroll: true });
+    }
+
+    function closeDeskMenu(focus) {
+        const el = deskEl(), menu = el && el.querySelector('.desk-menu');
+        if (!menu || menu.hidden) return;
+        menu.hidden = true;
+        deskMenu = false;
+        const k = el.querySelector('.desk-kebab');
+        if (k) { k.setAttribute('aria-expanded', 'false'); if (focus) k.focus({ preventScroll: true }); }
+    }
+
+    // A line at the card's foot for five seconds, with Undo when there is something to undo.
+    function deskToast(text, undo) {
+        clearTimeout(deskToastTimer);
+        deskUndo = undo || null;
+        const t = deskEl() && deskEl().querySelector('.desk-toast');
+        if (!t) return;
+        t.hidden = !text;
+        if (!text) return;
+        t.firstElementChild.textContent = text;
+        t.lastElementChild.hidden = !undo;
+        deskToastTimer = setTimeout(() => deskToast(null), 5000);
+    }
+
+    function deskSaveQuote(form) {
+        const text = form.querySelector('textarea').value.trim(), author = form.querySelector('input').value.trim() || 'You', q = deskQuote();
+        const add = deskEditing !== 'edit' || !q;
+        deskEditing = false;
+        if (text && add) {
+            quotesArray.push({ text, author });
+            deskQuoteIdx = quotesArray.length - 1;
+            if (xpSystemReady && !userXP.achievements.includes('curator')) unlockAchievement('curator');
+        } else if (text) Object.assign(q, { text, author });
+        if (text) { saveQuotes(quotesArray); deskSaveIdx(); }
+        renderDesk();
+    }
+
+    function deskRemoveQuote() {
+        const i = Math.min(deskQuoteIdx, quotesArray.length - 1), q = quotesArray.splice(i, 1)[0];
+        deskQuoteIdx = Math.max(0, Math.min(i, quotesArray.length - 1));
+        saveQuotes(quotesArray); deskSaveIdx(); renderDesk();
+        deskToast('Quote removed', () => { quotesArray.splice(i, 0, q); deskQuoteIdx = i; saveQuotes(quotesArray); deskSaveIdx(); renderDesk(); });
     }
 
     function setImageBoxSrc(src) {
@@ -15953,98 +16000,48 @@
 
     // ref is what localStorage keeps: a link, or IMAGE_BOX_IDB_REF with blob already stored.
     function applyImage(ref, blob) {
-        if (ref !== IMAGE_BOX_IDB_REF && currentImageURL === IMAGE_BOX_IDB_REF) {
-            clearImageBlob().catch(() => {});
-        }
+        if (ref !== IMAGE_BOX_IDB_REF && currentImageURL === IMAGE_BOX_IDB_REF) clearImageBlob().catch(() => {});
         currentImageURL = ref;
         saveImageURL(ref);
         imageBoxBlob = blob || null;
         setImageBoxSrc(blob ? URL.createObjectURL(blob) : ref);
         imageBoxReady = true;
-        hideImageBoxToast();
-        closeImageBoxMenu();
-        updateImageDisplay();
-
-        if (xpSystemReady && !userXP.achievements.includes('picturePerfect')) {
-            unlockAchievement('picturePerfect');
-        }
+        deskToast(null);
+        closeDeskMenu();
+        renderDesk();
+        if (xpSystemReady && !userXP.achievements.includes('picturePerfect')) unlockAchievement('picturePerfect');
     }
 
     function setImageFromFile(file) {
-        if (!file || !/^image\//.test(file.type)) {
-            showImageBoxToast('That file isn’t an image');
-            return;
-        }
-        saveImageBlob(file)
-            .then(() => applyImage(IMAGE_BOX_IDB_REF, file))
-            .catch(() => showImageBoxToast('Couldn’t save that image'));
+        if (!file || !/^image\//.test(file.type)) { deskToast('That file isn’t an image'); return; }
+        saveImageBlob(file).then(() => applyImage(IMAGE_BOX_IDB_REF, file)).catch(() => deskToast('Couldn’t save that image'));
     }
 
     function changeImage() {
-        closeImageBoxMenu();
-        const current = currentImageURL === IMAGE_BOX_IDB_REF ? '' : currentImageURL;
-        const newURL = prompt('Paste an image link:', current);
-        if (newURL !== null && newURL.trim() !== '') {
-            applyImage(newURL.trim(), null);
-        }
-    }
-
-    function openImageBoxFilePicker() {
-        closeImageBoxMenu();
-        const input = document.querySelector('.image-box-container .ib-file');
-        if (input) input.click();
+        closeDeskMenu();
+        const newURL = prompt('Paste an image link:', currentImageURL === IMAGE_BOX_IDB_REF ? '' : currentImageURL);
+        if (newURL !== null && newURL.trim() !== '') applyImage(newURL.trim(), null);
     }
 
     function removeImage() {
         if (!currentImageURL) return;
-        const hadFocus = !!document.activeElement && !!document.activeElement.closest('.ib-menu');
-        imageBoxUndo = { ref: currentImageURL, blob: imageBoxBlob };
+        const undo = { ref: currentImageURL, blob: imageBoxBlob };
         if (currentImageURL === IMAGE_BOX_IDB_REF) clearImageBlob().catch(() => {});
         currentImageURL = '';
         saveImageURL('');
         imageBoxBlob = null;
         setImageBoxSrc('');
-        closeImageBoxMenu();
-        updateImageDisplay();
-        showImageBoxToast('Image removed', true);
-        const undo = document.querySelector('.image-box-container .ib-undo');
-        if (hadFocus && undo) undo.focus({ preventScroll: true });
-    }
-
-    function undoRemoveImage() {
-        const undo = imageBoxUndo;
-        if (!undo) return;
-        if (undo.blob) {
-            saveImageBlob(undo.blob)
-                .then(() => applyImage(IMAGE_BOX_IDB_REF, undo.blob))
-                .catch(() => showImageBoxToast('Couldn’t restore the image'));
-        } else {
-            applyImage(undo.ref, null);
-        }
+        closeDeskMenu();
+        renderDesk();
+        deskToast('Image removed', () => undo.blob
+            ? saveImageBlob(undo.blob).then(() => applyImage(IMAGE_BOX_IDB_REF, undo.blob)).catch(() => deskToast('Couldn’t restore the image'))
+            : applyImage(undo.ref, null));
     }
 
     function toggleImageFit() {
         currentImageFit = currentImageFit === 'cover' ? 'contain' : 'cover';
         saveImageFit(currentImageFit);
-        closeImageBoxMenu(true);
-        updateImageDisplay();
-    }
-
-    function showImageBoxToast(text, withUndo) {
-        const toast = document.querySelector('.image-box-container .ib-toast');
-        if (!toast) return;
-        clearTimeout(imageBoxToastTimer);
-        toast.querySelector('.ib-toast-text').textContent = text;
-        toast.querySelector('.ib-undo').hidden = !withUndo;
-        toast.hidden = false;
-        imageBoxToastTimer = setTimeout(hideImageBoxToast, 5000);
-    }
-
-    function hideImageBoxToast() {
-        clearTimeout(imageBoxToastTimer);
-        imageBoxUndo = null;
-        const toast = document.querySelector('.image-box-container .ib-toast');
-        if (toast) toast.hidden = true;
+        renderDesk();
     }
 
     function handleImageBoxDrop(dt) {
@@ -16055,246 +16052,85 @@
         const link = (dt.getData('text/uri-list') || dt.getData('text/plain') || '')
             .split(/\r?\n/).map(l => l.trim()).find(l => /^https?:\/\//i.test(l));
         if (link) applyImage(link, null);
-        else if (dt.files && dt.files.length) showImageBoxToast('That file isn’t an image');
+        else if (dt.files && dt.files.length) deskToast('That file isn’t an image');
     }
 
-    function getOpenImageBoxMenu() {
-        return document.querySelector('.image-box-container .ib-menu:not([hidden])');
-    }
-
-    function syncImageBoxMenu(menu) {
-        menu.querySelectorAll('.ib-ratio').forEach(btn => {
-            btn.setAttribute('aria-pressed', btn.dataset.ratio === currentAspectRatio ? 'true' : 'false');
-        });
-        menu.querySelector('.ib-fit-label').textContent = currentImageFit === 'cover' ? 'Fit whole image' : 'Fill frame';
-        menu.querySelector('.ib-fit-state').textContent = currentImageFit === 'cover' ? 'Filling' : 'Fitting';
-    }
-
-    // (clientX, clientY) is the menu's top-left, or its top-right with alignRight. It is
-    // placed inside the container, which it may overhang upwards onto the XP panel but never
-    // past the right panel: .attendance-summary clips.
-    function openImageBoxMenu(clientX, clientY, alignRight) {
-        const box = document.querySelector('.image-box-container');
-        const menu = box && box.querySelector('.ib-menu');
-        const frame = document.getElementById('image-display');
-        if (!menu || !frame || !imageBoxSrc || imageBoxFailed) return;
-
-        syncImageBoxMenu(menu);
-        menu.hidden = false;
-        const boxRect = box.getBoundingClientRect();
-        const panel = box.closest('.right-panel');
-        const minTop = panel ? panel.getBoundingClientRect().top - boxRect.top : 8;
-        const w = menu.offsetWidth, h = menu.offsetHeight;
-        let x = clientX - boxRect.left - (alignRight ? w : 0);
-        let y = clientY - boxRect.top;
-        x = Math.max(8, Math.min(x, boxRect.width - w - 8));
-        y = Math.max(minTop, Math.min(y, boxRect.height - h - 8));
-        menu.style.left = x + 'px';
-        menu.style.top = y + 'px';
-
-        frame.classList.add('ib-menu-open', 'ib-hint-seen');
-        localStorage.setItem('imageBoxHintSeen', '1');
-        const kebab = frame.querySelector('.ib-kebab');
-        if (kebab) kebab.setAttribute('aria-expanded', 'true');
-        const first = menu.querySelector('.ib-ratio[aria-pressed="true"]') || menu.querySelector('button');
-        if (first) first.focus({ preventScroll: true });
-    }
-
-    function closeImageBoxMenu(returnFocus) {
-        const menu = getOpenImageBoxMenu();
-        if (!menu) return;
-        const hadFocus = menu.contains(document.activeElement);
-        menu.hidden = true;
-        const frame = document.getElementById('image-display');
-        if (frame) frame.classList.remove('ib-menu-open');
-        const kebab = frame && frame.querySelector('.ib-kebab');
-        if (kebab) kebab.setAttribute('aria-expanded', 'false');
-        if (returnFocus && hadFocus && kebab) kebab.focus({ preventScroll: true });
-    }
-
-    function initImageBoxEvents() {
-        if (imageBoxEventsBound) return;
-        imageBoxEventsBound = true;
-
+    function initDeskEvents() {
+        if (deskBound) return;
+        deskBound = true;
+        setInterval(deskNextQuote, DESK_QUOTE_MS);
+        const inDesk = t => t && t.closest && t.closest('#total-time-summary .desk');
+        const ACT = {
+            kebab: () => deskMenu ? closeDeskMenu(true) : openDeskMenu(),
+            browse: () => deskEl().querySelector('.desk-file').click(),
+            link: changeImage, fit: toggleImageFit, 'remove-img': removeImage, 'remove-quote': deskRemoveQuote,
+            undo: () => { const u = deskUndo; deskToast(null); if (u) u(); },
+            edit: () => { deskEditing = deskQuote() ? 'edit' : 'add'; renderDesk(); },
+            cancel: () => { deskEditing = false; renderDesk(); }
+        };
         document.addEventListener('click', (e) => {
-            const t = e.target;
-            if (!t || !t.closest) return;
-            const act = t.closest('.image-box-container [data-ib]');
-            const menuOpen = !!getOpenImageBoxMenu();
-            if (menuOpen && !t.closest('.ib-menu') && !(act && act.dataset.ib === 'kebab')) closeImageBoxMenu();
-            if (!act) return;
-
-            switch (act.dataset.ib) {
-                case 'kebab': {
-                    if (menuOpen) { closeImageBoxMenu(true); break; }
-                    const r = act.getBoundingClientRect();
-                    openImageBoxMenu(r.right, r.bottom + 6, true);
-                    break;
-                }
-                case 'browse': openImageBoxFilePicker(); break;
-                case 'link':   changeImage(); break;
-                case 'ratio':  changeAspectRatio(act.dataset.ratio); break;
-                case 'fit':    toggleImageFit(); break;
-                case 'remove': removeImage(); break;
-                case 'undo':   undoRemoveImage(); break;
-            }
+            const act = inDesk(e.target) && e.target.closest('[data-desk]'), a = act && act.dataset.desk;
+            if (deskMenu && a !== 'kebab' && !(inDesk(e.target) && e.target.closest('.desk-menu') && !a)) closeDeskMenu();
+            if (a) ACT[a]();
         });
-
+        document.addEventListener('submit', (e) => {
+            if (!inDesk(e.target)) return;
+            e.preventDefault();
+            deskSaveQuote(e.target);
+        });
         document.addEventListener('contextmenu', (e) => {
-            const t = e.target;
-            if (!t || !t.closest) return;
-            if (t.closest('.image-box-container .ib-stage')) {
+            const el = inDesk(e.target);
+            if (el && !deskEditing && e.target.closest('.desk-body') && (deskHasImg() || deskQuote())) {
                 e.preventDefault();
-                openImageBoxMenu(e.clientX, e.clientY);
-            } else if (getOpenImageBoxMenu() && !t.closest('.ib-menu')) {
-                closeImageBoxMenu();
-            }
+                const r = el.getBoundingClientRect();
+                openDeskMenu(e.clientX - r.left, e.clientY - r.top);
+            } else if (deskMenu && !(el && e.target.closest('.desk-menu'))) closeDeskMenu();
         });
-
         document.addEventListener('change', (e) => {
-            const input = e.target;
-            if (!input || !input.classList || !input.classList.contains('ib-file')) return;
-            const file = input.files && input.files[0];
-            input.value = '';
+            if (!e.target.classList || !e.target.classList.contains('desk-file')) return;
+            const file = e.target.files && e.target.files[0];
+            e.target.value = '';
             if (file) setImageFromFile(file);
         });
-
-        const frameOf = (e) => e.target && e.target.closest && e.target.closest('.image-box-container .image-display');
+        const bodyOf = (e) => inDesk(e.target) && e.target.closest('.desk-body');
         document.addEventListener('dragover', (e) => {
-            const frame = frameOf(e);
-            if (!frame) return;
+            const b = bodyOf(e);
+            if (!b) return;
             e.preventDefault();
             if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-            frame.classList.add('ib-drag');
+            b.classList.add('is-drag');
         });
-        document.addEventListener('dragleave', (e) => {
-            const frame = frameOf(e);
-            if (frame && !frame.contains(e.relatedTarget)) frame.classList.remove('ib-drag');
-        });
+        document.addEventListener('dragleave', (e) => { const b = bodyOf(e); if (b && !b.contains(e.relatedTarget)) b.classList.remove('is-drag'); });
         document.addEventListener('drop', (e) => {
-            const frame = frameOf(e);
-            if (!frame) return;
+            const b = bodyOf(e);
+            if (!b) return;
             e.preventDefault();
-            frame.classList.remove('ib-drag');
+            b.classList.remove('is-drag');
             handleImageBoxDrop(e.dataTransfer);
         });
-
-        // Capture on window so this runs before the document-level game shortcuts: Escape
-        // there resets the running game, and 1–9 switch games.
+        // Capture on window, before the document-level game shortcuts: Escape there resets the
+        // running game, and 1–9 switch games.
         window.addEventListener('keydown', (e) => {
-            const menu = getOpenImageBoxMenu();
-            if (!menu) return;
+            const el = deskEl();
+            if (!el || !(deskMenu || (deskEditing && el.contains(document.activeElement)))) return;
             if (e.key === 'Escape') {
                 e.preventDefault();
                 e.stopPropagation();
-                closeImageBoxMenu(true);
+                if (deskMenu) closeDeskMenu(true); else { deskEditing = false; renderDesk(); }
                 return;
             }
-            if (!menu.contains(document.activeElement)) return;
-            if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+            const menu = el.querySelector('.desk-menu');
+            if (deskMenu && menu.contains(document.activeElement) && /^(ArrowDown|ArrowUp|Home|End)$/.test(e.key)) {
                 const items = Array.from(menu.querySelectorAll('button'));
                 let i = items.indexOf(document.activeElement);
-                if (e.key === 'Home') i = 0;
-                else if (e.key === 'End') i = items.length - 1;
-                else i = (i + (e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length;
+                i = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
                 items[i].focus();
                 e.preventDefault();
             }
             if (e.key !== 'Tab') e.stopPropagation();
         }, true);
-
-        window.addEventListener('resize', () => closeImageBoxMenu());
+        window.addEventListener('resize', () => closeDeskMenu());
     }
-
-    function updateImageDisplay() {
-        const frame = document.getElementById('image-display');
-        if (!frame) return;
-
-        const ratio = aspectRatios[currentAspectRatio] || aspectRatios['16:9'];
-        frame.style.setProperty('--ib-ratio', ratio.css);
-        frame.classList.toggle('ib-portrait', currentAspectRatio === '3:4');
-        frame.classList.toggle('ib-contain', currentImageFit === 'contain');
-        frame.classList.toggle('ib-hint-seen', localStorage.getItem('imageBoxHintSeen') === '1');
-
-        if (!imageBoxReady) {
-            frame.classList.remove('ib-empty');
-            frame.innerHTML = '';
-            return;
-        }
-
-        const showImage = !!imageBoxSrc && !imageBoxFailed;
-        frame.classList.toggle('ib-empty', !showImage);
-        if (showImage) {
-            let img = frame.querySelector('.image-box-img');
-            if (!img) {
-                frame.innerHTML = IMAGE_BOX_STAGE_HTML;
-                img = frame.querySelector('.image-box-img');
-                img.addEventListener('error', () => {
-                    if (!img.isConnected) return;
-                    imageBoxFailed = true;
-                    closeImageBoxMenu();
-                    updateImageDisplay();
-                });
-            }
-            if (img.getAttribute('src') !== imageBoxSrc) img.setAttribute('src', imageBoxSrc);
-        } else if (!frame.querySelector('.ib-drop') || frame.dataset.failed !== String(imageBoxFailed)) {
-            frame.innerHTML = imageBoxDropHTML(imageBoxFailed);
-            frame.dataset.failed = String(imageBoxFailed);
-        }
-    }
-
-    // aspect-ratio doesn't transition, so pin the old size, apply, then animate to the new one.
-    function animateImageFrame(frame, apply) {
-        if (!frame) { apply(); return; }
-        const from = frame.getBoundingClientRect();
-        // Drop a running animation's pinned size, or it would be measured as the new one.
-        clearTimeout(frame._ibAnim);
-        frame.style.transition = 'none';
-        frame.style.width = frame.style.height = '';
-        apply();
-        if (!from.height || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-            frame.style.transition = '';
-            return;
-        }
-        const to = frame.getBoundingClientRect();
-        if (!to.height) { frame.style.transition = ''; return; }
-        frame.style.width = from.width + 'px';
-        frame.style.height = from.height + 'px';
-        void frame.offsetWidth;
-        frame.style.transition = 'width 0.25s ease, height 0.25s ease';
-        frame.style.width = to.width + 'px';
-        frame.style.height = to.height + 'px';
-        frame._ibAnim = setTimeout(() => {
-            frame.style.transition = frame.style.width = frame.style.height = '';
-        }, 270);
-    }
-
-    function changeAspectRatio(ratio) {
-        if (!aspectRatios[ratio] || ratio === currentAspectRatio) return;
-        currentAspectRatio = ratio;
-        saveAspectRatio(ratio);
-        animateImageFrame(document.getElementById('image-display'), updateImageDisplay);
-        const menu = getOpenImageBoxMenu();
-        if (menu) syncImageBoxMenu(menu);
-    }
-
-    let cachedValues = {
-        totalWorked: '',
-        remaining: '',
-        completion: '',
-        emoji: '',
-        progress: -1
-    };
-
-    // Cache DOM elements to avoid repeated queries (prevents animation resets)
-    let cachedElements = {
-        totalWorkedTime: null,
-        remainingTime: null,
-        completionTime: null,
-        emojiDisplay: null,
-        progressFill: null,
-        currentWorkedTime: null
-    };
 
     let mouseX = 0;
     let mouseY = 0;
@@ -16554,148 +16390,6 @@
                 animation: warningPulse 1s ease-in-out infinite;
             }
 
-            .time-stats {
-                display: grid;
-                grid-template-columns: 1fr 1fr 1fr;
-                grid-template-rows: auto;
-                gap: 20px;
-                margin: 32px 0;
-            }
-
-            .stat-card {
-                background: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 20px;
-                padding: 24px;
-                text-align: center;
-                transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-                position: relative;
-                overflow: hidden;
-                cursor: pointer;
-                box-shadow:
-                    inset 5px 5px 10px rgba(0, 0, 0, 0.05),
-                    inset -5px -5px 10px rgba(255, 255, 255, 0.05),
-                    5px 5px 15px rgba(0, 0, 0, 0.1),
-                    -2px -2px 10px rgba(255, 255, 255, 0.05);
-                /* Isolate content updates from affecting this element's animations */
-                contain: layout style;
-                will-change: transform;
-            }
-
-            .stat-card.worked-time-card {
-                background: linear-gradient(135deg, rgba(0, 184, 148, 0.25), rgba(0, 184, 148, 0.1));
-                border-color: rgba(0, 184, 148, 0.35);
-            }
-
-            .stat-card.remaining-time-card {
-                background: linear-gradient(135deg, rgba(225, 112, 85, 0.25), rgba(225, 112, 85, 0.1));
-                border-color: rgba(225, 112, 85, 0.35);
-            }
-
-            .stat-card.completion-time-card {
-                background: linear-gradient(135deg, rgba(108, 92, 231, 0.25), rgba(108, 92, 231, 0.1));
-                border-color: rgba(108, 92, 231, 0.35);
-            }
-
-            .stat-card::before {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: -100%;
-                width: 100%;
-                height: 3px;
-                background: linear-gradient(
-                    90deg,
-                    transparent,
-                    var(--aurora-1),
-                    var(--aurora-2),
-                    var(--aurora-3),
-                    transparent
-                );
-                animation: cardShimmer 2s ease-in-out infinite;
-                opacity: 0;
-                transition: opacity 0.3s ease;
-            }
-            /* .retro-theme .stat-card::before now lives in the CYBERPUNK HUD
-               THEME block, with the rest of the theme. */
-
-            .stat-card:hover::before {
-                opacity: 1;
-            }
-
-            .stat-card:hover {
-                transform: translateY(-6px) scale(1.03) translateZ(20px);
-                box-shadow:
-                    inset 8px 8px 15px rgba(0, 0, 0, 0.08),
-                    inset -8px -8px 15px rgba(255, 255, 255, 0.08),
-                    0 12px 32px rgba(0, 0, 0, 0.2),
-                    0 4px 12px rgba(0, 0, 0, 0.15);
-            }
-
-            .stat-card:active {
-                transform: translateY(-2px) scale(0.98);
-            }
-
-            .stat-label {
-                font-size: 0.875rem;
-                font-weight: 500;
-                font-variation-settings: 'wght' 500;
-                color: rgba(255, 255, 255, 0.7);
-                margin-bottom: 8px;
-                text-transform: uppercase;
-                letter-spacing: 0.08em;
-                transition: color 0.5s ease;
-            }
-
-            .stat-value {
-                font-size: 1.75rem;
-                font-weight: 700;
-                font-variation-settings: 'wght' 700;
-                margin-bottom: 4px;
-                transition: font-variation-settings 0.3s ease;
-                text-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-                /* Isolate text updates to prevent animation resets */
-                contain: layout style paint;
-                display: block;
-            }
-
-            .stat-card:hover .stat-value {
-                font-variation-settings: 'wght' 800;
-            }
-
-            .worked-time {
-                color: #00b894;
-                text-shadow: 0 2px 12px rgba(0, 184, 148, 0.4);
-            }
-            .remaining-time {
-                color: #e17055;
-                text-shadow: 0 2px 12px rgba(225, 112, 85, 0.4);
-            }
-            .completion-time {
-                color: #6c5ce7;
-                text-shadow: 0 2px 12px rgba(108, 92, 231, 0.4);
-            }
-
-            .remaining-desc {
-                font-size: 0.75rem;
-                opacity: 0.8;
-                margin-top: 4px;
-                font-style: italic;
-            }
-
-            .completion-message {
-                background: linear-gradient(135deg, #00b894, #00cec9);
-                color: white;
-                padding: 20px;
-                border-radius: 16px;
-                font-size: 1.25rem;
-                font-weight: 600;
-                text-align: center;
-                margin-top: 24px;
-                animation: celebrationPulse 1.5s ease-in-out infinite;
-                box-shadow: 0 8px 24px rgba(0, 184, 148, 0.3);
-            }
-
             /* Developer Info & Settings - Bottom Control Bar */
             /* Bottom Control Bar — sits as normal flex child inside main-attendance-content */
             .bottom-control-bar {
@@ -16750,45 +16444,6 @@
                 box-shadow: 0 8px 16px rgba(118, 75, 162, 0.3);
             }
 
-            .developer-tooltip {
-                position: absolute;
-                bottom: calc(100% + 8px);
-                left: 50%;
-                transform: translateX(-50%) translateY(10px);
-                background: linear-gradient(145deg, rgba(15, 15, 30, 0.96), rgba(25, 20, 50, 0.96));
-                color: white;
-                padding: 14px 16px;
-                border-radius: 14px;
-                font-size: 0.72rem;
-                font-weight: 500;
-                white-space: nowrap;
-                opacity: 0;
-                visibility: hidden;
-                transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(102, 126, 234, 0.15);
-                min-width: 340px;
-                text-align: center;
-                z-index: 1001;
-                backdrop-filter: blur(50px);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-            }
-
-            .developer-info:hover .developer-tooltip {
-                opacity: 1;
-                visibility: visible;
-                transform: translateX(-50%) translateY(0);
-            }
-
-            .developer-tooltip::before {
-                content: '';
-                position: absolute;
-                top: 100%;
-                left: 50%;
-                transform: translateX(-50%);
-                border: 5px solid transparent;
-                border-top-color: rgba(25, 20, 50, 0.96);
-            }
-
             /* Picture-in-Picture Button Styles - Material Design 3 FAB */
             .pip-button {
                 background: linear-gradient(135deg, #667eea, #764ba2);
@@ -16818,16 +16473,6 @@
                 transform: scale(0.98);
             }
 
-            .pip-button.active {
-                background: linear-gradient(135deg, #e17055, #fab1a0);
-                box-shadow: 0 12px 24px rgba(225, 112, 85, 0.4), 0 6px 12px rgba(0, 0, 0, 0.2);
-            }
-
-            .pip-button.active:hover {
-                transform: scale(1.05) translateY(-4px);
-                background: linear-gradient(135deg, #fab1a0, #e17055);
-            }
-
             .pip-icon {
                 display: inline-block;
                 margin-right: 6px;
@@ -16851,459 +16496,300 @@
                 outline-offset: 2px;
             }
 
-            /* PiP Active State Styles */
-            .attendance-summary.pip-active {
-                background: linear-gradient(135deg, rgba(225, 112, 85, 0.1), rgba(225, 112, 85, 0.05));
-                border-color: rgba(225, 112, 85, 0.3);
+            /* ATTENDANCE TOKENS (design: Attendance widget · revamped). Glass dark by default, Glass light
+               under a light scheme, Cyberpunk from its own --rt-* colours. The About dialog and the float
+               placeholder read them here; the float window copies them every tick. */
+            .attendance-summary {
+                --att-panel: #24202F; --att-border: rgba(255, 255, 255, 0.09); --att-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+                --att-text: #EEEAF6; --att-muted: #A8A2B8; --att-accent: #8B78F0; --att-on-accent: #14111F; --att-ink: #B3A6FF;
+                --att-track: #2E2A3B; --att-inner: rgba(255, 255, 255, 0.045); --att-inner-b: rgba(255, 255, 255, 0.07);
+                --att-display: 'Sora', system-ui, sans-serif; --att-scheme: dark;
+                --att-card: rgba(36, 32, 48, 0.72); --att-ok: #5FD3A1; --att-danger: #FF8A95;
+                --att-low: #7CB8FF; --att-tense: #FFB86B; --att-void: #B9A8FF; --att-up: #5FD3A1; --att-run: #FFC857; --att-home: #FF8FA3;
             }
-
-            .pip-placeholder {
-                display: none;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                min-height: 200px;
-                text-align: center;
-                color: rgba(255, 255, 255, 0.7);
-            }
-
-            .pip-placeholder.active {
-                display: flex;
-            }
-
-            .pip-placeholder-icon {
-                font-size: 3rem;
-                margin-bottom: 12px;
-                opacity: 0.6;
-            }
-
-            .pip-placeholder-text {
-                font-size: 1.1rem;
-                font-weight: 600;
-                margin-bottom: 6px;
-            }
-
-            .pip-placeholder-desc {
-                font-size: 0.8rem;
-                opacity: 0.7;
-            }
-
-            /* PiP Window Specific Styles */
-            .pip-window-content {
-                padding: 16px !important;
-                margin: 0 !important;
-                max-width: none !important;
-                border-radius: 0 !important;
-                box-shadow: none !important;
-                border: none !important;
-                background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05)) !important;
-                backdrop-filter: blur(20px) !important;
-                -webkit-backdrop-filter: blur(20px) !important;
-                min-height: auto !important;
-                height: auto !important;
-                overflow: visible !important;
-                transition: all 0.3s ease !important;
-            }
-
-            /* PiP Window Dark Mode - Theme Aware */
-            @media (prefers-color-scheme: dark) {
-                /* Glassmorphic Theme for PiP */
-                .pip-window-content:not(.retro-theme) {
-                    background: linear-gradient(135deg, rgba(30, 30, 30, 0.95), rgba(20, 20, 20, 0.9)) !important;
-                    color: rgba(255, 255, 255, 0.95) !important;
-                    position: relative !important;
-                    overflow: hidden !important;
-                }
-
-                .pip-window-content:not(.retro-theme) .modern-table {
-                    background: rgba(0, 0, 0, 0.3) !important;
-                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
-                    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-                    position: relative !important;
-                    z-index: 1 !important;
-                }
-
-                .pip-window-content:not(.retro-theme) .modern-table td {
-                    color: rgba(255, 255, 255, 0.85) !important;
-                    font-family: 'Inter', sans-serif !important;
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
-                }
-
-                .pip-window-content:not(.retro-theme) .stat-card {
-                    background: rgba(0, 0, 0, 0.4) !important;
-                    border: 1px solid rgba(255, 255, 255, 0.15) !important;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
-                    position: relative !important;
-                    z-index: 1 !important;
-                }
-
-                .pip-window-content:not(.retro-theme) .stat-label {
-                    color: rgba(255, 255, 255, 0.7) !important;
-                    font-family: 'Inter', sans-serif !important;
-                }
-
-                .pip-window-content:not(.retro-theme) .stat-value {
-                    font-family: 'Inter', sans-serif !important;
-                }
-
-                .pip-window-content:not(.retro-theme) .progress-bar {
-                    background: rgba(255, 255, 255, 0.15) !important;
-                    border: none !important;
-                }
-
-                .pip-window-content:not(.retro-theme) .pip-compact-button {
-                    background: rgba(255, 255, 255, 0.2) !important;
-                    color: rgba(255, 255, 255, 0.9) !important;
-                    border: 1px solid rgba(255, 255, 255, 0.2) !important;
-                    font-family: 'Inter', sans-serif !important;
-                }
-
-                .pip-window-content:not(.retro-theme) .pip-compact-button:hover {
-                    background: rgba(108, 92, 231, 0.8) !important;
-                    color: white !important;
-                }
-
-                .pip-window-content:not(.retro-theme) .summary-title {
-                    font-family: 'Inter', sans-serif !important;
-                    background: linear-gradient(135deg, #667eea, #764ba2) !important;
-                    -webkit-background-clip: text !important;
-                    -webkit-text-fill-color: transparent !important;
-                }
-
-                /* Retro-Futuristic Theme for PiP — inherits tokens from main .retro-theme rules.
-                   Only PiP-specific overrides (compact button, sizing) needed here. */
-                .pip-window-content.retro-theme {
-                    background: linear-gradient(135deg, var(--rt-bg-1) 0%, var(--rt-bg-2) 100%) !important;
-                    color: var(--rt-text) !important;
-                    position: relative !important;
-                    overflow: hidden !important;
-                }
-
-                .pip-window-content.retro-theme .pip-compact-button {
-                    background: var(--rt-panel-strong) !important;
-                    color: var(--rt-accent) !important;
-                    border: 1px solid var(--rt-border-strong) !important;
-                    box-shadow: inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.2) !important;
-                    font-family: 'Orbitron', sans-serif !important;
-                    font-weight: 700 !important;
-                }
-
-                .pip-window-content.retro-theme .pip-compact-button:hover {
-                    background: rgba(var(--rt-accent-rgb), 0.2) !important;
-                    color: var(--rt-text) !important;
-                    box-shadow:
-                        inset 0 0 0 1px var(--rt-accent),
-                        0 0 12px rgba(var(--rt-accent-rgb), 0.45) !important;
-                }
-            }
-
-            /* PiP Window Light Mode - Theme Aware */
             @media (prefers-color-scheme: light) {
-                /* Glassmorphic Theme for PiP */
-                .pip-window-content:not(.retro-theme) {
-                    background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 248, 248, 0.95)) !important;
-                    color: rgba(0, 0, 0, 0.9) !important;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15) !important;
-                    position: relative !important;
-                    overflow: hidden !important;
+                .attendance-summary:not(.retro-theme) {
+                    --att-panel: #F6F4FC; --att-border: rgba(255, 255, 255, 0.85); --att-shadow: 0 12px 32px rgba(60, 40, 120, 0.14);
+                    --att-text: #1E1B2E; --att-muted: #5B5670; --att-accent: #6D5BD0; --att-on-accent: #FFFFFF; --att-ink: #5A47BF;
+                    --att-track: #D9D5E8; --att-inner: rgba(255, 255, 255, 0.6); --att-inner-b: rgba(109, 91, 208, 0.14); --att-scheme: light;
+                    --att-card: rgba(255, 255, 255, 0.62); --att-ok: #1E8A5A; --att-danger: #B3261E;
+                    --att-low: #1F5FBF; --att-tense: #9A5200; --att-void: #5B3FB8; --att-up: #1E7A50; --att-run: #8A5300; --att-home: #B0164E;
                 }
-
-                .pip-window-content:not(.retro-theme) .modern-table {
-                    background: rgba(255, 255, 255, 0.9) !important;
-                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1) !important;
-                    border: 1px solid rgba(0, 0, 0, 0.1) !important;
-                    position: relative !important;
-                    z-index: 1 !important;
-                }
-
-                .pip-window-content:not(.retro-theme) .modern-table td {
-                    color: rgba(0, 0, 0, 0.8) !important;
-                    font-family: 'Inter', sans-serif !important;
-                    border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
-                }
-
-                .pip-window-content:not(.retro-theme) .stat-card {
-                    background: rgba(255, 255, 255, 0.8) !important;
-                    border: 1px solid rgba(0, 0, 0, 0.1) !important;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
-                    position: relative !important;
-                    z-index: 1 !important;
-                }\n                \n                .pip-window-content:not(.retro-theme) .stat-card.worked-time-card {\n                    background: linear-gradient(135deg, rgba(0, 184, 148, 0.15), rgba(0, 184, 148, 0.08)) !important;\n                    border-color: rgba(0, 184, 148, 0.3) !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-card.remaining-time-card {\n                    background: linear-gradient(135deg, rgba(225, 112, 85, 0.15), rgba(225, 112, 85, 0.08)) !important;\n                    border-color: rgba(225, 112, 85, 0.3) !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-card.completion-time-card {\n                    background: linear-gradient(135deg, rgba(108, 92, 231, 0.15), rgba(108, 92, 231, 0.08)) !important;\n                    border-color: rgba(108, 92, 231, 0.3) !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-label {\n                    color: rgba(0, 0, 0, 0.6) !important;\n                    font-family: 'Inter', sans-serif !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .stat-value {\n                    font-family: 'Inter', sans-serif !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .progress-bar {\n                    background: rgba(0, 0, 0, 0.1) !important;\n                    border: none !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .pip-compact-button {\n                    background: rgba(0, 0, 0, 0.1) !important;\n                    color: rgba(0, 0, 0, 0.7) !important;\n                    border: 1px solid rgba(0, 0, 0, 0.1) !important;\n                    font-family: 'Inter', sans-serif !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .pip-compact-button:hover {\n                    background: rgba(108, 92, 231, 0.8) !important;\n                    color: white !important;\n                }\n                \n                .pip-window-content:not(.retro-theme) .summary-title {\n                    font-family: 'Inter', sans-serif !important;\n                    background: linear-gradient(135deg, #667eea, #764ba2) !important;\n                    -webkit-background-clip: text !important;\n                    -webkit-text-fill-color: transparent !important;\n                }\n                \n                /* Retro-Futuristic Theme for PiP (light mode) — inherits tokens from main .retro-theme */\n                .pip-window-content.retro-theme {\n                    background: linear-gradient(135deg, var(--rt-bg-1) 0%, var(--rt-bg-2) 100%) !important;\n                    color: var(--rt-text) !important;\n                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12) !important;\n                    position: relative !important;\n                    overflow: hidden !important;\n                }\n                \n                .pip-window-content.retro-theme .pip-compact-button {\n                    background: var(--rt-panel-strong) !important;\n                    color: var(--rt-accent) !important;\n                    border: 1px solid var(--rt-border-strong) !important;\n                    box-shadow: inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.2) !important;\n                    font-family: 'Orbitron', sans-serif !important;\n                    font-weight: 700 !important;\n                }\n                \n                .pip-window-content.retro-theme .pip-compact-button:hover {\n                    background: rgba(var(--rt-accent-rgb), 0.18) !important;\n                    color: var(--rt-text) !important;\n                    box-shadow:\n                        inset 0 0 0 1px var(--rt-accent),\n                        0 0 12px rgba(var(--rt-accent-rgb), 0.4) !important;\n                }\n                \n                .pip-window-content .gap-warning {\n                    background: linear-gradient(135deg, #ffeaa7, #fab1a0) !important;\n                    color: #2d3436 !important;\n                }\n            }
-
-            .pip-window-content .summary-header {
-                margin-bottom: 20px;
-                gap: 12px;
+            }
+            .attendance-summary.retro-theme {
+                --att-panel: var(--rt-panel-strong); --att-border: var(--rt-border); --att-shadow: 0 0 0 1px rgba(var(--rt-accent-rgb), 0.08);
+                --att-text: var(--rt-text); --att-muted: var(--rt-text-dim); --att-accent: var(--rt-accent); --att-on-accent: var(--rt-bg-1); --att-ink: var(--rt-accent);
+                --att-track: rgba(var(--rt-accent-rgb), 0.16); --att-inner: rgba(var(--rt-accent-rgb), 0.05); --att-inner-b: var(--rt-border);
+                --att-display: 'Chakra Petch', 'Sora', sans-serif; --att-scheme: dark;
+                --att-card: var(--rt-panel); --att-ok: #00F0A8; --att-danger: #FF5A6E;
+                --att-low: #00E5FF; --att-tense: #F8E71C; --att-void: #B388FF; --att-up: #00F0A8; --att-run: #F8E71C; --att-home: #FF2BD6;
             }
 
-            .pip-window-content .emoji-display {
-                font-size: 2.5rem;
-            }
+            /* FLOAT PLACEHOLDER: the widget while its timer floats. */
+            .pip-placeholder { flex: 1; min-height: 300px; box-sizing: border-box; padding: 28px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; color: var(--att-text); font-family: 'Sora', system-ui, sans-serif; }
+            .pip-ph-disc { width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--att-inner); border: 1px solid var(--att-inner-b); }
+            .pip-ph-title { font: 700 20px var(--att-display); }
+            .pip-ph-desc { max-width: 300px; font-size: 13px; line-height: 1.5; color: var(--att-muted); }
+            .pip-ph-back { margin-top: 6px; height: 44px; padding: 0 18px; border: 0; border-radius: 12px; display: flex; align-items: center; gap: 8px; background: var(--att-accent); color: var(--att-on-accent); font: 600 13px 'Sora', system-ui, sans-serif; cursor: pointer; transition: transform 0.12s ease; }
+            .pip-ph-back:hover { transform: translateY(-1px); }
+            .pip-ph-back:focus-visible, .att-about-x:focus-visible { outline: 2px solid var(--att-ink); outline-offset: 2px; }
+            /* Cyberpunk never fills a button with its accent under text: outlined instead. */
+            .retro-theme .pip-ph-back { border-radius: 0; background: transparent; box-shadow: inset 0 0 0 1px var(--rt-accent); color: var(--rt-accent); }
 
-            .pip-window-content .summary-title {
-                font-size: 1.5rem;
-            }
+            /* ABOUT (design: B1 About): a dialog over the control bar, opened by its (i) button. */
+            .bottom-control-bar { position: relative; }
+            .developer-info, .settings-button { display: inline-flex; align-items: center; justify-content: center; font: inherit; line-height: 1; }
+            .pip-icon svg { display: block; }
+            .att-about { position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translateX(-50%); z-index: 1001; width: 720px; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 20px 22px; display: flex; flex-direction: column; gap: 16px; border-radius: 20px; background: var(--att-panel); border: 1px solid var(--att-border); box-shadow: var(--att-shadow), 0 24px 60px rgba(0, 0, 0, 0.3); color: var(--att-text); font: 400 13px 'Sora', system-ui, sans-serif; text-align: left; animation: attPop 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+            .att-about[hidden] { display: none; }
+            @keyframes attPop { from { opacity: 0; translate: 0 8px; } }
+            .att-about-head, .att-about-foot, .att-about-foot span { display: flex; align-items: center; }
+            .att-about-head { gap: 14px; }
+            .att-about-app, .att-about-x, .att-about-ver, .att-about-tile, .att-about-chips span { display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-sizing: border-box; background: var(--att-inner); border: 1px solid var(--att-inner-b); }
+            .att-about-app, .att-about-x { width: 44px; height: 44px; border-radius: 12px; }
+            .att-about-x { padding: 0; color: inherit; cursor: pointer; }
+            .att-about-x:hover { border-color: var(--att-ink); }
+            .att-about-name { flex-grow: 1; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--att-muted); }
+            .att-about-name b { font: 700 18px var(--att-display); color: var(--att-text); }
+            .att-about-ver { height: 26px; padding: 0 10px; border-radius: 13px; color: var(--att-ink); font-size: 12px; font-weight: 700; }
+            .att-about-games { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 18px; }
+            .att-about-games li { height: 36px; display: flex; align-items: center; gap: 10px; min-width: 0; }
+            .att-about-games li > span + span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--att-muted); }
+            .att-about-games b { color: var(--att-text); }
+            .att-about-tile { width: 30px; height: 30px; border-radius: 9px; }
+            .att-about-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+            .att-about-chips span { height: 30px; padding: 0 12px 0 10px; gap: 7px; border-radius: 15px; font-size: 12px; font-weight: 600; }
+            .att-about-foot { justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid var(--att-inner-b); font-size: 12px; color: var(--att-muted); }
+            .att-about-foot span { gap: 6px; }
 
-            .pip-window-content .modern-table {
-                margin: 16px 0;
-                font-size: 0.8rem;
-            }
+            /* COLOUR ICONS (attIcon) sit in a line of text where the emoji sat. */
+            .att-ico { display: inline-block; vertical-align: -0.25em; flex-shrink: 0; }
+            .emoji-display .att-ico { display: block; }
 
-            .pip-window-content .modern-table th,
-            .pip-window-content .modern-table td {
-                padding: 10px 12px;
-                font-size: 0.75rem;
-            }
+            /* WORKSPACE (design: Attendance widget · workspace layout): the day in the middle; games and
+               the team's board on the left; rewards and the desk card on the right. */
+            #total-time-summary { display: grid; grid-template-columns: 320px minmax(0, 1fr) 320px; gap: 16px; padding: 20px; max-width: 1296px; align-items: stretch; }
+            #total-time-summary > .left-panel, #total-time-summary > .right-panel, #total-time-summary > .ws-center { width: auto; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+            #total-time-summary > .game-mode-hidden { display: none !important; }
+            #total-time-summary > .pip-placeholder { grid-column: 1 / -1; }
+            #total-time-summary > .pip-hidden { display: none !important; }
+            #total-time-summary .left-panel .snake-game-container { padding: 12px; border-radius: 22px; }
+            .ws-card { position: relative; box-sizing: border-box; padding: 18px 22px; border-radius: 22px; background: var(--att-card); border: 1px solid var(--att-border); box-shadow: var(--att-shadow); backdrop-filter: blur(18px); color: var(--att-text); font-family: 'Sora', system-ui, sans-serif; }
 
-            .pip-window-content .time-stats {
-                grid-template-columns: 1fr;
-                gap: 12px;
-                margin: 20px 0;
-            }
+            /* The header: mood, title and the day's one line, then Settings, About and Float. */
+            #total-time-summary .ws-head { height: 76px; flex-shrink: 0; margin: 0; padding: 0 4px; display: flex; align-items: center; justify-content: flex-start; gap: 16px; text-align: left; position: relative; z-index: 3; }
+            #total-time-summary .ws-head .emoji-display { width: 68px; height: 68px; flex-shrink: 0; box-sizing: border-box; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 46px; animation: none; background: color-mix(in srgb, var(--ws-tone) 12%, transparent); border: 2px solid color-mix(in srgb, var(--ws-tone) 50%, transparent); }
+            #total-time-summary .ws-head .emoji-display:hover { transform: scale(1.06); }
+            #total-time-summary .ws-head .emoji-display:focus-visible { outline: 2px solid var(--att-ink); outline-offset: 3px; }
+            .ws-title { flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+            #total-time-summary .ws-head .summary-title { margin: 0; font: 700 26px/1.1 var(--att-display); }
+            /* Plain text in every glass setting: !important beats Fluid Gradients off (.no-fluid), which clips the old title to #667eea. */
+            .attendance-summary:not(.retro-theme) .ws-head .summary-title { background: none !important; color: var(--att-text); -webkit-text-fill-color: var(--att-text) !important; animation: none !important; }
+            .ws-sub { font-size: 12px; color: var(--att-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            #total-time-summary .ws-head .bottom-control-bar { width: auto; margin: 0; padding: 0; gap: 8px; flex-shrink: 0; }
+            #total-time-summary .ws-head .settings-button, #total-time-summary .ws-head .developer-info { width: 44px; height: 44px; padding: 0; border-radius: 12px; background: var(--att-inner); border: 1px solid var(--att-inner-b); box-shadow: none; transform: none; }
+            #total-time-summary .ws-head .pip-button { height: 44px; padding: 0 16px 0 12px; gap: 8px; border: 0; border-radius: 12px; background: var(--att-accent); color: var(--att-on-accent); box-shadow: none; transform: none; font: 600 13px 'Sora', system-ui, sans-serif; letter-spacing: 0; }
+            #total-time-summary .ws-head .pip-icon { margin: 0; }
+            #total-time-summary .ws-head .att-about { top: calc(100% + 10px); bottom: auto; left: auto; right: 0; transform: none; }
 
-            .pip-window-content .stat-card {
-                padding: 16px;
-                border-radius: 12px;
-            }
+            /* The time card: the countdown, when it ends, and the mood path over the progress bar. */
+            .ws-time { display: flex; flex-direction: column; gap: 14px; }
+            .ws-time-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+            .ws-free { display: flex; flex-direction: column; gap: 2px; }
+            .ws-k { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--ws-tone); }
+            .ws-big { font: 700 52px/1 var(--att-display); font-variant-numeric: tabular-nums; color: var(--att-text); }
+            .ws-at { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; padding-bottom: 4px; font-size: 11px; color: var(--att-muted); }
+            .ws-at b { font: 700 22px var(--att-display); color: var(--att-ink); font-variant-numeric: tabular-nums; }
+            .ws-path { height: 32px; display: flex; justify-content: space-between; align-items: center; }
+            .ws-path:empty { display: none; }
+            .ws-slot { width: 24px; height: 24px; box-sizing: border-box; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid transparent; }
+            .ws-slot .att-ico { opacity: .4; }
+            .ws-slot.is-past .att-ico { opacity: .85; }
+            .ws-slot.is-now { width: 32px; height: 32px; background: color-mix(in srgb, var(--ws-tone) 14%, transparent); border: 1.5px solid var(--ws-tone); }
+            .ws-slot.is-now .att-ico { opacity: 1; }
+            .attendance-summary:not(.retro-theme) .ws-time .progress-bar { height: 8px; margin: 0; border-radius: 4px; background: var(--att-track); box-shadow: none; transform: none; }
+            .attendance-summary:not(.retro-theme) .ws-time .progress-fill { border-radius: 4px; background: var(--ws-fill) !important; animation: none !important; box-shadow: none; }
 
-            .pip-window-content .stat-label {
-                font-size: 0.75rem;
-                margin-bottom: 6px;
-            }
+            /* Today's attendance: status, the day on a timeline, the punch log, the totals. */
+            .ws-day { flex-grow: 1; display: flex; flex-direction: column; gap: 16px; }
+            .ws-day-head { display: flex; align-items: center; justify-content: space-between; font-size: 16px; font-weight: 700; }
+            .ws-pill { height: 28px; padding: 0 12px; border-radius: 14px; display: flex; align-items: center; gap: 8px; background: var(--att-inner); border: 1px solid var(--att-inner-b); font-size: 12px; font-weight: 600; }
+            .ws-pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--ws-dot); }
+            .ws-tl { display: flex; flex-direction: column; gap: 6px; }
+            .ws-tl-bar { position: relative; height: 30px; border-radius: 8px; background: var(--att-inner); border: 1px solid var(--att-inner-b); overflow: hidden; }
+            .ws-tl-shift { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--att-accent) 13%, transparent); border-left: 1px dashed var(--att-accent); border-right: 1px dashed var(--att-accent); }
+            .ws-tl-work { position: absolute; top: 6px; bottom: 6px; border-radius: 6px; background-color: var(--ws-fill); background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, .28) 0 4px, transparent 4px 8px); animation: wsStripeCrawl 1.23s linear infinite; }
+            /* One horizontal repeat of the 45° stripes (8 × √2 px) per cycle: the Punch Log chevrons' speed. */
+            @keyframes wsStripeCrawl { to { background-position: 11.314px 0; } }
+            @media (prefers-reduced-motion: reduce) { .ws-tl-work { animation: none; } }
+            .ws-tl-now { position: absolute; top: 2px; bottom: 2px; width: 2px; border-radius: 1px; background: var(--att-text); }
+            .ws-tl-ticks { position: relative; height: 14px; }
+            .ws-tl-ticks span { position: absolute; transform: translateX(-50%); font-size: 10px; color: var(--att-muted); font-variant-numeric: tabular-nums; }
+            .attendance-summary:not(.retro-theme) .ws-day .modern-table { margin: 0; table-layout: fixed; background: none; backdrop-filter: none; border: 1px solid var(--att-inner-b); border-radius: 14px; box-shadow: none; }
+            .attendance-summary:not(.retro-theme) .ws-day .modern-table thead { background: var(--att-inner); }
+            .attendance-summary:not(.retro-theme) .ws-day .modern-table th { height: 36px; padding: 0 14px; background: none; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; text-align: left; color: var(--att-muted); }
+            .attendance-summary:not(.retro-theme) .ws-day .modern-table th:first-child { width: 40px; }
+            .attendance-summary:not(.retro-theme) .ws-day .modern-table td { height: 48px; padding: 0 14px; font-size: 14px; text-align: left; color: var(--att-text); border-top: 1px solid var(--att-inner-b); font-variant-numeric: tabular-nums; }
+            .attendance-summary:not(.retro-theme) .ws-day .modern-table td:first-child, .attendance-summary:not(.retro-theme) .ws-day .modern-table td:last-child { color: var(--att-muted); }
+            .ws-totals { margin-top: auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+            .ws-tot { height: 64px; box-sizing: border-box; padding: 0 16px; border-radius: 14px; background: var(--att-inner); border: 1px solid var(--att-inner-b); display: flex; flex-direction: column; justify-content: center; gap: 3px; font-size: 11px; color: var(--att-muted); }
+            .ws-tot b { font: 700 18px var(--att-display); color: var(--att-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+            .ws-tot.is-target b { color: var(--att-ink); }
 
-            .pip-window-content .stat-value {
-                font-size: 1.2rem;
-                margin-bottom: 2px;
-            }
+            /* GAME MODE OFF (design: Attendance summary · Game Mode off): the centre alone, as one 640px
+               panel. The cards flatten into it and Today's attendance sits under a rule. */
+            #total-time-summary.game-mode-off { width: 640px; max-width: 100%; box-sizing: border-box; grid-template-columns: minmax(0, 1fr); transform: none; }
+            #total-time-summary.game-mode-off > .ws-center { gap: 18px; padding: 20px 22px; border-radius: 24px; background: var(--att-card); border: 1px solid var(--att-border); box-shadow: var(--att-shadow); backdrop-filter: blur(18px); }
+            #total-time-summary.game-mode-off .ws-card { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; backdrop-filter: none; }
+            #total-time-summary.game-mode-off .ws-head { height: auto; padding: 0; gap: 14px; }
+            #total-time-summary.game-mode-off .ws-head .emoji-display { width: 60px; height: 60px; font-size: 40px; }
+            #total-time-summary.game-mode-off .ws-head .summary-title { font-size: 22px; }
+            #total-time-summary.game-mode-off .ws-head .pip-button { padding: 0 14px 0 10px; }
+            #total-time-summary.game-mode-off .ws-big { font-size: 46px; }
+            #total-time-summary.game-mode-off .ws-at b { font-size: 20px; }
+            #total-time-summary.game-mode-off .ws-day { flex-grow: 0; gap: 12px; padding-top: 16px; border-top: 1px solid var(--att-inner-b); }
+            #total-time-summary.game-mode-off .ws-day-head { align-items: baseline; }
+            #total-time-summary.game-mode-off .ws-tl-bar { height: 26px; }
+            /* What only Game Mode off shows (the check-in line, faces on the time axis over the timeline,
+               the sessions count, "On shift", the day total, the hint, the rewards strip), and what it hides. */
+            .ws-line-off, .ws-sessions, .ws-hint, .ws-rewards, .ws-tl.is-time, .ws-total-row, .ws-out-live b { display: none; }
+            #total-time-summary.game-mode-off :is(.ws-line-on, .ws-pill, .ws-bar, .ws-tl.is-day, .ws-totals, .ws-out-live span) { display: none; }
+            #total-time-summary.game-mode-off :is(.ws-line-off, .ws-sessions) { display: inline; }
+            #total-time-summary.game-mode-off :is(.ws-hint, .ws-tl.is-time, .ws-rewards, .ws-out-live b) { display: flex; }
+            #total-time-summary.game-mode-off .ws-total-row.is-multi { display: table-row; }
+            #total-time-summary.retro-theme .ws-total-row { display: none; }   /* Cyberpunk has its own DAY TOTAL footer */
+            #total-time-summary.game-mode-off .ws-path { position: relative; display: block; margin-bottom: -8px; }
+            #total-time-summary.game-mode-off .ws-slot { position: absolute; top: 50%; left: var(--x); transform: translate(-50%, -50%); }
+            .ws-out-live b { align-items: center; gap: 6px; color: var(--att-ok); font-weight: 600; }
+            .ws-out-live b::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--att-ok); }
+            .attendance-summary:not(.retro-theme) .ws-total-row td { height: 44px; background: var(--att-inner); font-size: 13px; font-weight: 700; color: var(--att-text); }
+            .ws-sessions { font-size: 12px; font-weight: 400; color: var(--att-muted); }
+            .ws-hint { min-height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: 12px; border: 1px dashed var(--att-inner-b); align-items: center; justify-content: center; text-align: center; font-size: 12px; color: var(--att-muted); }
+            .ws-rewards { margin-top: auto; height: 50px; box-sizing: border-box; padding-top: 14px; border-top: 1px solid var(--att-inner-b); align-items: center; gap: 16px; font-size: 12px; color: var(--att-muted); }
+            .ws-rw-streak { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--att-text); white-space: nowrap; }
+            .ws-rw-xp { flex-grow: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
+            .ws-rw-xp b { height: 28px; padding: 0 12px; border-radius: 14px; display: flex; align-items: center; background: var(--att-accent); color: var(--att-on-accent); white-space: nowrap; }
+            .ws-rw-xp > span { flex-grow: 1; height: 6px; border-radius: 3px; background: var(--att-track); overflow: hidden; }
+            .ws-rw-xp i { display: block; height: 100%; border-radius: 3px; background: var(--att-accent); }
+            .ws-rw-xp em { font-style: normal; font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+            .ws-rw-ach { white-space: nowrap; }
 
-            .pip-window-content .remaining-desc {
-                font-size: 0.7rem;
-                opacity: 0.8;
-            }
+            /* GAMES (design: the workspace's left card). Colours are tokens, so Cyberpunk's !important look stays. */
+            #total-time-summary .snake-game-container { padding: 12px; display: flex; flex-direction: column; gap: 10px; border-radius: 22px; background: var(--att-card); border: 1px solid var(--att-border); box-shadow: var(--att-shadow); backdrop-filter: blur(18px); color: var(--att-text); font-family: 'Sora', system-ui, sans-serif; }
+            /* A slim scrollbar under the tiles, as the board's: no track, a rounded thumb. (No scrollbar-width:
+               set, Chrome would ignore these rules and draw its own bar with arrows.) */
+            #total-time-summary .game-switcher { flex-shrink: 0; box-sizing: border-box; margin: 0; padding: 6px 6px 4px; gap: 6px; border-radius: 14px; background: var(--att-inner); scrollbar-width: auto; scrollbar-color: auto; }
+            #total-time-summary .game-switcher::-webkit-scrollbar { height: 4px; }
+            #total-time-summary .game-switcher::-webkit-scrollbar-track { background: transparent; margin: 0 10px; }
+            #total-time-summary .game-switcher::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in srgb, var(--att-text) 22%, transparent); }
+            #total-time-summary .game-switcher::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--att-text) 40%, transparent); }
+            #total-time-summary .game-switch-btn { width: 44px; min-width: 44px; height: 44px; flex-shrink: 0; padding: 0; border-radius: 10px; background: transparent; border: 1.5px solid transparent; box-shadow: none; transform: none; font-size: 26px; transition: transform .12s ease, background .15s ease; }
+            #total-time-summary .game-switch-btn:hover { transform: translateY(-1px); background: transparent; border-color: transparent; }
+            #total-time-summary .game-switch-btn.active { background: var(--att-panel); border-color: var(--att-accent); box-shadow: none; color: inherit; }
+            #total-time-summary .snake-game-header { height: 28px; margin: 0; gap: 8px; }
+            #total-time-summary .snake-game-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; color: var(--att-text); }
+            #total-time-summary .snake-scoreboard { gap: 6px; }
+            #total-time-summary .snake-score { font-size: 11px; color: var(--att-muted); }
+            #total-time-summary :is(.snake-mode-chip, .game-score-btn) { height: 26px; box-sizing: border-box; padding: 0 10px; border-radius: 13px; display: inline-flex; align-items: center; gap: 2px; background: var(--att-inner); border: 1px solid var(--att-inner-b); color: var(--att-text); font: 600 11px 'Sora', system-ui, sans-serif; }
+            #total-time-summary .game-score-btn:hover { border-color: var(--att-accent); background: var(--att-inner); }
+            #total-time-summary .game-score-btn :is(.gsb-score, .gsb-best) { font-size: 11px; opacity: 1; }
+            #total-time-summary .game-score-btn .gsb-sep { margin: 0 2px; font-size: 11px; opacity: .5; }
+            #total-time-summary :is(.snake-mode-chip .att-ico, .gsb-trophy) { display: none; }
+            #total-time-summary .snake-canvas, #total-time-summary .multi-game-area, #total-time-summary .prayer-panel { border-radius: 12px; }
+            /* Square like the canvases (368 x 368, scaled to the column), not a fixed 368 px tall. */
+            #total-time-summary :is(.multi-game-area, .prayer-panel) { height: auto; aspect-ratio: 1 / 1; }
+            /* RefleX and Aim give their stats row (and its gap) back, so the card is as tall as Snake's. */
+            #total-time-summary .snake-game-container { container-type: inline-size; }
+            #total-time-summary .multi-game-area { aspect-ratio: auto; height: calc(100cqw - 53px); }
+            #total-time-summary .snake-game-title { flex-shrink: 1; min-width: 0; white-space: nowrap; overflow: hidden; }
+            #total-time-summary .snake-scoreboard { flex-shrink: 0; }
+            #total-time-summary .snake-controls { margin: 0; gap: 6px; }
+            #total-time-summary .snake-btn { flex: 1 1 0; min-width: 0; height: 44px; padding: 0 8px; border-radius: 12px; background: var(--att-inner); color: var(--att-text); border: 1px solid var(--att-inner-b); box-shadow: none; font: 600 12px 'Sora', system-ui, sans-serif; white-space: nowrap; transition: transform .12s ease, background .15s ease; }
+            #total-time-summary .snake-btn:hover { transform: translateY(-1px); box-shadow: none; border-color: var(--att-accent); }
+            #total-time-summary .snake-btn:active { transform: none; }
+            #total-time-summary .snake-btn.is-primary { background: var(--att-accent); border-color: var(--att-accent); color: var(--att-on-accent); }
+            #total-time-summary .snake-btn.is-icon { flex: 0 0 44px; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+            #total-time-summary .snake-btn:not(.is-icon) .att-ico { display: none; }
+            #total-time-summary :is(.snake-btn, .game-switch-btn, .game-score-btn):focus-visible { outline: 2px solid var(--att-ink); outline-offset: 2px; }
 
-            .pip-window-content .progress-bar {
-                height: 6px;
-                margin: 16px 0;
-            }
+            /* The left column's board: the top five where the open game files its scores. */
+            .ws-board { flex-grow: 1; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+            .ws-board-head { height: 28px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; font-weight: 700; }
+            .ws-board-head > span { display: flex; align-items: center; gap: 8px; }
+            .ws-board-sub { font-size: 11px; font-weight: 400; color: var(--att-muted); }
+            .ws-row { height: 40px; box-sizing: border-box; padding: 0 8px; border-radius: 10px; display: flex; align-items: center; gap: 10px; border: 1px solid transparent; font-size: 13px; font-weight: 600; }
+            .ws-row.is-me { background: var(--att-inner); border-color: var(--att-accent); }
+            .ws-row i { width: 16px; font-style: normal; font-size: 12px; font-weight: 700; color: var(--att-muted); font-variant-numeric: tabular-nums; }
+            .ws-row em { width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--att-track); font-style: normal; font-size: 10px; font-weight: 700; }
+            .ws-row span { flex-grow: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .ws-row b { font-size: 12px; font-variant-numeric: tabular-nums; }
+            .ws-board-tools { display: flex; align-items: center; gap: 4px; }
+            .ws-board-sync { width: 28px; height: 28px; padding: 0; border-radius: 8px; border: 1px solid var(--att-inner-b); background: none; display: flex; align-items: center; justify-content: center; font: 400 11px 'Sora', system-ui, sans-serif; color: var(--att-muted); cursor: pointer; }
+            .ws-board-sync:hover { background: var(--att-inner); color: var(--att-text); }
+            .ws-board-sync[hidden] { display: none; }
+            .ws-board-rows { min-height: 0; max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-right: 2px; }
+            .ws-board-rows::-webkit-scrollbar { width: 6px; }
+            .ws-board-rows::-webkit-scrollbar-track { background: transparent; }
+            .ws-board-rows::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in srgb, var(--att-text) 22%, transparent); }
+            .ws-board-rows::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--att-text) 40%, transparent); }
+            button.ws-row { width: 100%; flex-shrink: 0; background: none; font: inherit; font-size: 13px; font-weight: 600; color: inherit; text-align: left; cursor: default; }
+            button.ws-row:hover, button.ws-row[aria-expanded="true"] { background: var(--att-inner); }
+            button.ws-row.is-me { position: sticky; top: 0; bottom: 0; z-index: 1; background: linear-gradient(var(--att-inner), var(--att-inner)), var(--att-panel); }
+            button.ws-row:focus-visible { outline: 2px solid var(--att-ink); outline-offset: -2px; }
+            .ws-join { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; font-size: 12px; line-height: 1.5; color: var(--att-muted); }
+            .ws-join-in { height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 12px; border: 1px solid var(--att-inner-b); background: var(--att-inner); color: var(--att-text); font: 13px 'Sora', system-ui, sans-serif; }
+            .ws-join .desk-primary { justify-content: center; }
+            .ws-board-empty { padding: 8px; font-size: 12px; font-weight: 400; color: var(--att-muted); }
 
-            .pip-window-content .completion-message {
-                padding: 16px;
-                font-size: 1rem;
-                margin-top: 16px;
-            }
-
-            .pip-compact-button {
-                position: absolute !important;
-                top: 8px !important;
-                right: 8px !important;
-                background: rgba(255, 255, 255, 0.2) !important;
-                border: none !important;
-                border-radius: 6px !important;
-                width: 32px !important;
-                height: 24px !important;
-                cursor: pointer !important;
-                font-size: 12px !important;
-                z-index: 1000 !important;
-                transition: all 0.3s ease !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                color: white !important;
-            }
-
-            .pip-compact-button:hover {
-                background: rgba(108, 92, 231, 0.8) !important;
-                transform: scale(1.05) !important;
-            }
-
-            /* Compact Mode Styles */
-            .pip-window-content.compact-mode {
-                padding: 0px !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                min-height: auto !important;
-                height: auto !important;
-                max-height: 70px !important;
-                overflow: hidden !important;
-            }
-
-            /* Compact mode - Glassmorphic Aurora theme */
-            .compact-mode:not(.retro-theme) .pip-compact-display {
-                text-align: center !important;
-                background: rgba(255, 255, 255, 0.15) !important;
-                border: 1px solid rgba(255, 255, 255, 0.2) !important;
-                border-radius: 0px 0px 5px 5px !important;
-                padding: 8px 16px !important;
-                backdrop-filter: blur(5px) saturate(180%) !important;
-                -webkit-backdrop-filter: blur(5px) saturate(180%) !important;
-                box-shadow:
-                    0 0 20px rgba(102, 126, 234, 0.3),
-                    0 0 40px rgba(118, 75, 162, 0.25),
-                    0 0 60px rgba(240, 147, 251, 0.3),
-                    0 8px 32px rgba(102, 126, 234, 0.2),
-                    inset 0 0 30px rgba(102, 126, 234, 0.15),
-                    inset 0 1px 1px rgba(255, 255, 255, 0.3) !important;
-                transition: all 0.3s ease !important;
-                cursor: pointer !important;
-                position: relative !important;
-                overflow: hidden !important;
-                animation: auroraGlow 4s ease-in-out infinite !important;
-            }
-
-            .compact-mode:not(.retro-theme) .pip-compact-display::before {
-                content: '' !important;
-                position: absolute !important;
-                top: -50% !important;
-                left: -50% !important;
-                width: 200% !important;
-                height: 200% !important;
-                background: linear-gradient(
-                    135deg,
-                    rgba(102, 126, 234, 0.4),
-                    rgba(118, 75, 162, 0.35),
-                    rgba(240, 147, 251, 0.4)
-                ) !important;
-                animation: gradientFlow 8s ease infinite !important;
-                pointer-events: none !important;
-                z-index: 0 !important;
-                opacity: 1 !important;
-                mix-blend-mode: screen !important;
-            }
-
-            .compact-mode:not(.retro-theme) .pip-compact-display:hover {
-                transform: translateY(-2px) !important;
-                box-shadow:
-                    0 12px 40px rgba(102, 126, 234, 0.3),
-                    0 4px 12px rgba(118, 75, 162, 0.25),
-                    inset 0 1px 1px rgba(255, 255, 255, 0.4) !important;
-            }
-
-            .compact-mode:not(.retro-theme) .pip-compact-time {
-                font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
-                font-size: 1.2rem !important;
-                font-weight: 700 !important;
-                color: #667eea !important;
-                margin: 0 !important;
-                letter-spacing: -0.02em !important;
-                position: relative !important;
-                z-index: 1 !important;
-                text-shadow: 0 2px 8px rgba(102, 126, 234, 0.3) !important;
-            }
-
-            .compact-mode:not(.retro-theme) .pip-compact-label {
-                font-family: 'Inter', sans-serif !important;
-                font-size: 0.6rem !important;
-                font-weight: 500 !important;
-                color: rgba(102, 126, 234, 0.8) !important;
-                text-transform: uppercase !important;
-                letter-spacing: 0.1em !important;
-                position: relative !important;
-                z-index: 1 !important;
-            }
-
-            .compact-mode:not(.retro-theme) .pip-compact-emoji {
-                font-size: 1.1rem !important;
-                margin-left: 8px !important;
-                display: inline-block !important;
-                filter: drop-shadow(0 2px 4px rgba(102, 126, 234, 0.3)) !important;
-                animation: emojiPulse 2s ease-in-out infinite !important;
-                position: relative !important;
-                z-index: 1 !important;
-            }
-
-            /* Compact mode — Cyberpunk HUD (light/dark adaptive via .retro-theme tokens) */
-            .compact-mode.retro-theme .pip-compact-display {
-                text-align: center !important;
-                background: linear-gradient(135deg, var(--rt-bg-1) 0%, var(--rt-bg-2) 100%) !important;
-                border: 1px solid var(--rt-border-strong) !important;
-                border-radius: var(--rt-radius-sm, 2px) !important;
-                clip-path: var(--rt-clip);
-                padding: 8px 16px !important;
-                backdrop-filter: none !important;
-                -webkit-backdrop-filter: none !important;
-                box-shadow:
-                    inset 0 0 0 1px rgba(var(--rt-accent-rgb), 0.18),
-                    0 6px 20px rgba(0, 0, 0, 0.18),
-                    var(--rt-glow) !important;
-                transition: all 0.3s ease !important;
-                cursor: pointer !important;
-                position: relative !important;
-                overflow: hidden !important;
-                /* rtGlowBreathe animates filter only, so it composites over the declared box-shadow and
-                                   follows the Glow tokens. (neonGlowPulse animated box-shadow from hardcoded hues.) */
-                animation: rtGlowBreathe 4s ease-in-out infinite !important;
-            }
-
-            .compact-mode.retro-theme .pip-compact-display::before {
-                content: '' !important;
-                position: absolute !important;
-                top: 0 !important;
-                left: 0 !important;
-                right: 0 !important;
-                height: 2px !important;
-                background: linear-gradient(
-                    90deg,
-                    transparent,
-                    var(--rt-cyber-hl),
-                    var(--rt-accent),
-                    var(--rt-cyber-panel),
-                    transparent
-                ) !important;
-                background-size: 300% 100% !important;
-                animation: rgbFlowBacklight 4s linear infinite !important;
-                pointer-events: none !important;
-                z-index: 2 !important;
-                opacity: 0.95 !important;
-            }
-
-            .compact-mode.retro-theme .pip-compact-display:hover {
-                transform: translateY(-1px) !important;
-                box-shadow:
-                    inset 0 0 0 1px var(--rt-accent),
-                    0 8px 24px rgba(0, 0, 0, 0.22),
-                    0 0 18px rgba(var(--rt-accent-rgb), 0.4) !important;
-            }
-
-            .compact-mode.retro-theme .pip-compact-time {
-                font-family: 'Share Tech Mono', 'Orbitron', monospace !important;
-                font-size: 1.2rem !important;
-                font-weight: 700 !important;
-                color: var(--rt-text) !important;
-                margin: 2px 0 0 0 !important;
-                line-height: 1.1 !important;
-                text-shadow:
-                    0 1px 0 rgba(0, 0, 0, 0.15),
-                    var(--rt-glow) !important;
-                letter-spacing: 0.08em !important;
-                position: relative !important;
-                z-index: 1 !important;
-            }
-
-            .compact-mode.retro-theme .pip-compact-label {
-                font-family: 'Orbitron', sans-serif !important;
-                font-size: 0.65rem !important;
-                font-weight: 700 !important;
-                color: var(--rt-text-dim) !important;
-                margin: 0 0 0 0 !important;
-                text-transform: uppercase !important;
-                letter-spacing: 0.22em !important;
-                text-shadow: none !important;
-                position: relative !important;
-                z-index: 1 !important;
-            }
-
-            .compact-mode.retro-theme .pip-compact-emoji {
-                font-size: 1rem !important;
-                margin-left: 10px !important;
-                display: inline-block !important;
-                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25)) drop-shadow(0 0 6px rgba(var(--rt-accent-rgb), 0.45)) !important;
-                animation: emojiPulse 2s ease-in-out infinite !important;
-                position: relative !important;
-                z-index: 1 !important;
-            }
+            /* DESK CARD (design: Desk card · image and quote, one menu). The body clips the picture; the
+               menu sits outside it, so a long menu may overhang the card. */
+            .desk { position: relative; flex-grow: 1; min-height: 300px; font-family: 'Sora', system-ui, sans-serif; color: var(--att-text); }
+            .desk-body { position: absolute; inset: 0; overflow: hidden; border-radius: 22px; border: 1px solid var(--att-border); background: var(--att-card); box-shadow: var(--att-shadow); }
+            .desk-body.is-drag { outline: 2px dashed var(--att-accent); outline-offset: -6px; }
+            .desk-img { position: absolute; inset: 0; width: 100%; height: 100%; background: #0A0912; }
+            .desk-scrim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(10, 8, 18, 0) 35%, rgba(10, 8, 18, .85) 100%); }
+            .desk-qbg { position: absolute; inset: 0; background: radial-gradient(circle at 20% 15%, color-mix(in srgb, var(--att-accent) 33%, transparent) 0%, transparent 55%), radial-gradient(circle at 90% 90%, color-mix(in srgb, var(--att-ink) 20%, transparent) 0%, transparent 50%), var(--att-panel); }
+            .desk-q { position: absolute; left: 18px; right: 18px; top: 50%; margin: 0; transform: translateY(-50%); display: flex; flex-direction: column; gap: 6px; }
+            .desk.has-img .desk-q { top: auto; bottom: 16px; transform: none; color: #FFFFFF; }
+            .desk-q { transition: opacity .45s ease, translate .45s ease; }
+            .desk-q.is-fading { opacity: 0; translate: 0 6px; }
+            @media (prefers-reduced-motion: reduce) { .desk-q { transition: opacity .2s linear; } .desk-q.is-fading { translate: none; } }
+            .desk-q svg { opacity: .9; }
+            .desk-q blockquote { margin: 0; font-size: 18px; font-style: italic; font-weight: 600; line-height: 1.45; }
+            .desk.has-img .desk-q blockquote { font-size: 14px; }
+            .desk-q figcaption { font-size: 11px; color: var(--att-muted); }
+            .desk.has-img .desk-q figcaption { color: #E2DCEE; }
+            .desk-kebab { position: absolute; top: 10px; right: 10px; z-index: 2; width: 44px; height: 44px; padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(20, 18, 26, .55); border: 1px solid rgba(255, 255, 255, .16); backdrop-filter: blur(10px); color: #FFFFFF; cursor: pointer; opacity: 0; transition: opacity .16s ease; }
+            .desk:hover .desk-kebab, .desk:focus-within .desk-kebab, .desk-kebab[aria-expanded="true"] { opacity: 1; }
+            .desk-hint { position: absolute; left: 12px; top: 18px; padding: 4px 10px; border-radius: 999px; background: rgba(20, 18, 26, .6); color: #E9E4F5; font-size: 11px; pointer-events: none; }
+            .desk-empty { position: absolute; inset: 0; box-sizing: border-box; padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; border: 2px dashed var(--att-inner-b); border-radius: 22px; font-size: 12px; color: var(--att-muted); }
+            .desk-empty b { font-size: 14px; color: var(--att-text); }
+            .desk-empty > span { max-width: 220px; }
+            .desk-empty div, .desk-edit div { display: flex; gap: 8px; }
+            .desk-primary, .desk-ghost { height: 44px; padding: 0 14px; border-radius: 12px; display: flex; align-items: center; gap: 8px; font: 600 13px 'Sora', system-ui, sans-serif; cursor: pointer; }
+            .desk-primary { border: 0; background: var(--att-accent); color: var(--att-on-accent); }
+            .desk-ghost { background: var(--att-inner); border: 1px solid var(--att-inner-b); color: var(--att-text); }
+            .desk-link { padding: 4px; border: 0; background: none; font: inherit; color: var(--att-ink); text-decoration: underline; cursor: pointer; }
+            .desk-menu { position: absolute; z-index: 1002; width: 228px; box-sizing: border-box; padding: 6px; display: flex; flex-direction: column; border-radius: 14px; background: var(--att-panel); border: 1px solid var(--att-border); box-shadow: 0 18px 40px rgba(0, 0, 0, .45); }
+            .desk-menu[hidden], .desk-toast[hidden] { display: none; }
+            .desk-ml { padding: 6px 10px 2px; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--att-muted); }
+            .desk-sep { height: 1px; margin: 4px 6px; background: var(--att-inner-b); }
+            .desk-mi { width: 100%; height: 40px; box-sizing: border-box; padding: 0 10px; display: flex; align-items: center; gap: 10px; border: 0; border-radius: 8px; background: transparent; font: 13px 'Sora', system-ui, sans-serif; color: var(--att-text); text-align: left; cursor: pointer; }
+            .desk-mi:hover, .desk-mi:focus-visible { background: rgba(127, 120, 160, .18); outline: none; }
+            .desk-mi.is-danger { color: var(--att-danger); }
+            .desk-mi.is-danger:hover, .desk-mi.is-danger:focus-visible { background: rgba(255, 90, 110, .16); }
+            .desk-edit { position: absolute; inset: 0; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 10px; background: var(--att-panel); font-size: 14px; }
+            .desk-edit label { font-size: 11px; font-weight: 600; color: var(--att-muted); }
+            .desk-edit textarea, .desk-edit input { box-sizing: border-box; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--att-inner-b); background: var(--att-inner); color: var(--att-text); font: 13px/1.5 'Sora', system-ui, sans-serif; }
+            .desk-edit textarea { flex-grow: 1; min-height: 0; resize: none; }
+            .desk-edit input { height: 44px; }
+            .desk-edit div { justify-content: flex-end; }
+            .desk-edit textarea:focus-visible, .desk-edit input:focus-visible, .desk-kebab:focus-visible, .desk-primary:focus-visible, .desk-ghost:focus-visible { outline: 2px solid var(--att-ink); outline-offset: 1px; }
+            .desk-toast { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 5; height: 48px; box-sizing: border-box; padding: 0 6px 0 14px; display: flex; align-items: center; justify-content: space-between; border-radius: 12px; background: var(--att-panel); border: 1px solid var(--att-border); box-shadow: 0 10px 24px rgba(0, 0, 0, .3); font-size: 13px; }
+            .desk-toast button { height: 36px; padding: 0 12px; border-radius: 8px; border: 0; background: var(--att-inner); color: var(--att-ink); font: 700 13px 'Sora', system-ui, sans-serif; cursor: pointer; }
 
             /* Performance optimization for dynamic elements */
-            .stat-value, .emoji-display, .progress-fill {
+            .emoji-display, .progress-fill {
                 will-change: transform;
             }
 
@@ -17845,17 +17331,6 @@
                     font-size: 0.875rem;
                 }
 
-                .time-stats {
-                    grid-template-columns: 1fr;
-                    grid-template-rows: auto;
-                    gap: 16px;
-                }
-
-                .stat-card.worked-time-card {
-                    grid-column: 1;
-                    grid-row: auto;
-                }
-
                 .pip-button {
                     bottom: 16px;
                     padding: 12px 20px;
@@ -17893,61 +17368,6 @@
 
             /* Extra small screens (mobile) */
             @media (max-width: 480px) {
-                .pip-window-content {
-                    padding: 12px !important;
-                }
-
-                .pip-window-content .summary-header {
-                    margin-bottom: 16px;
-                    gap: 8px;
-                }
-
-                .pip-window-content .emoji-display {
-                    font-size: 2rem;
-                }
-
-                .pip-window-content .summary-title {
-                    font-size: 1rem;
-                }
-
-                .pip-window-content .modern-table {
-                    font-size: 0.7rem;
-                    margin: 12px 0;
-                }
-
-                .pip-window-content .modern-table th,
-                .pip-window-content .modern-table td {
-                    padding: 8px 6px;
-                    font-size: 0.65rem;
-                }
-
-                .pip-window-content .time-stats {
-                    gap: 8px;
-                    margin: 16px 0;
-                }
-
-                .pip-window-content .stat-card {
-                    padding: 12px;
-                }
-
-                .pip-window-content .stat-label {
-                    font-size: 0.7rem;
-                    margin-bottom: 4px;
-                }
-
-                .pip-window-content .stat-value {
-                    font-size: 1rem;
-                }
-
-                .pip-window-content .remaining-desc {
-                    font-size: 0.65rem;
-                }
-
-                .pip-window-content .progress-bar {
-                    height: 5px;
-                    margin: 12px 0;
-                }
-
                 /* Make buttons more compact on small screens */
                 .settings-button {
                     transform: translateX(-70px);
@@ -17991,24 +17411,8 @@
                     border: 1px solid rgba(255, 255, 255, 0.08);
                 }
 
-                .stat-card {
-                    background: rgba(255, 255, 255, 0.04);
-                    border-color: rgba(255, 255, 255, 0.1);
-                    backdrop-filter: blur(6px);
-                    -webkit-backdrop-filter: blur(6px);
-                }
-
                 .modern-table td {
                     color: rgba(255, 255, 255, 0.75);
-                }
-
-                .stat-label {
-                    color: rgba(255, 255, 255, 0.7);
-                }
-
-                .stat-card:hover {
-                    background: rgba(255, 255, 255, 0.1);
-                    border-color: rgba(255, 255, 255, 0.2);
                 }
 
                 .attendance-summary:hover {
@@ -18016,10 +17420,6 @@
                         0 16px 48px rgba(0, 0, 0, 0.25),
                         0 4px 12px rgba(0, 0, 0, 0.18),
                         inset 0 1px 0 rgba(255, 255, 255, 0.15);
-                }
-
-                .pip-placeholder {
-                    color: rgba(255, 255, 255, 0.7);
                 }
 
                 .pip-button {
@@ -18030,12 +17430,6 @@
 
                 .pip-button:hover {
                     box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
-                }
-
-                .pip-button.active {
-                    background: linear-gradient(135deg, #e17055, #fab1a0);
-                    box-shadow: 0 6px 20px rgba(225, 112, 85, 0.4);
-                    color: white;
                 }
             }
 
@@ -18080,14 +17474,6 @@
                     border-bottom: 1px solid rgba(0, 0, 0, 0.06);
                 }
 
-                .attendance-summary:not(.retro-theme) .stat-card {
-                    background: rgba(255, 255, 255, 0.65);
-                    backdrop-filter: blur(8px);
-                    -webkit-backdrop-filter: blur(8px);
-                    border-color: rgba(0, 0, 0, 0.06);
-                    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-                }
-
                 .attendance-summary:not(.retro-theme) .developer-info {
                     background: rgba(255, 255, 255, 0.8);
                     border-color: rgba(0, 0, 0, 0.1);
@@ -18101,10 +17487,6 @@
                         inset 0 1px 0 rgba(255, 255, 255, 0.9);
                 }
 
-                .attendance-summary:not(.retro-theme) .pip-placeholder {
-                    color: rgba(0, 0, 0, 0.7);
-                }
-
                 .attendance-summary:not(.retro-theme) .pip-button {
                     background: linear-gradient(135deg, #667eea, #764ba2);
                     border-color: rgba(255, 255, 255, 0.2);
@@ -18115,29 +17497,19 @@
                     box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
                 }
 
-                .attendance-summary:not(.retro-theme) .pip-button.active {
-                    background: linear-gradient(135deg, #e17055, #fab1a0);
-                    box-shadow: 0 6px 20px rgba(225, 112, 85, 0.4);
-                    color: white;
-                }
-
                 /* Fix glassmorphic containers for light mode */
-                .attendance-summary:not(.retro-theme) .snake-game-container,
-                .attendance-summary:not(.retro-theme) .quotes-container,
-                .attendance-summary:not(.retro-theme) .image-box-container {
+                .attendance-summary:not(.retro-theme) .snake-game-container {
                     background: rgba(255, 255, 255, 0.8);
                     border-color: rgba(0, 0, 0, 0.1);
                     backdrop-filter: blur(20px);
                     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
                 }
 
-                .attendance-summary:not(.retro-theme) .snake-game-title,
-                .attendance-summary:not(.retro-theme) .quotes-title {
+                .attendance-summary:not(.retro-theme) .snake-game-title {
                     color: rgba(0, 0, 0, 0.85);
                 }
 
-                .attendance-summary:not(.retro-theme) .snake-score,
-                .attendance-summary:not(.retro-theme) .quote-text {
+                .attendance-summary:not(.retro-theme) .snake-score {
                     color: rgba(0, 0, 0, 0.65);
                 }
 
@@ -18237,22 +17609,6 @@
                 border-color: rgba(255, 255, 255, 0.22);
             }
 
-            .attendance-summary.neumorphic-active .stat-card {
-                box-shadow:
-                    inset 5px 5px 10px rgba(0, 0, 0, 0.15),
-                    inset -5px -5px 10px rgba(255, 255, 255, 0.04),
-                    8px 8px 18px rgba(0, 0, 0, 0.18),
-                    -4px -4px 12px rgba(255, 255, 255, 0.03) !important;
-            }
-
-            .attendance-summary.neumorphic-active .stat-card:hover {
-                box-shadow:
-                    inset 7px 7px 14px rgba(0, 0, 0, 0.18),
-                    inset -7px -7px 14px rgba(255, 255, 255, 0.05),
-                    12px 12px 24px rgba(0, 0, 0, 0.22),
-                    -6px -6px 16px rgba(255, 255, 255, 0.04) !important;
-            }
-
             .attendance-summary.neumorphic-active .modern-table {
                 box-shadow:
                     inset 0 2px 6px rgba(0, 0, 0, 0.12),
@@ -18265,14 +17621,6 @@
                 box-shadow:
                     inset 4px 4px 10px rgba(0, 0, 0, 0.18),
                     inset -4px -4px 10px rgba(255, 255, 255, 0.04) !important;
-            }
-
-            .attendance-summary.neumorphic-active .completion-message {
-                box-shadow:
-                    inset 4px 4px 10px rgba(0, 0, 0, 0.12),
-                    inset -3px -3px 8px rgba(255, 255, 255, 0.04),
-                    8px 8px 20px rgba(0, 184, 148, 0.25),
-                    -4px -4px 12px rgba(255, 255, 255, 0.03) !important;
             }
 
             .attendance-summary.neumorphic-active .developer-info,
@@ -18295,22 +17643,6 @@
                     border-color: rgba(0, 0, 0, 0.08);
                 }
 
-                .attendance-summary.neumorphic-active .stat-card {
-                    box-shadow:
-                        inset 4px 4px 8px rgba(0, 0, 0, 0.05),
-                        inset -4px -4px 8px rgba(255, 255, 255, 0.8),
-                        6px 6px 14px rgba(0, 0, 0, 0.06),
-                        -4px -4px 10px rgba(255, 255, 255, 0.8) !important;
-                }
-
-                .attendance-summary.neumorphic-active .stat-card:hover {
-                    box-shadow:
-                        inset 6px 6px 12px rgba(0, 0, 0, 0.07),
-                        inset -6px -6px 12px rgba(255, 255, 255, 0.85),
-                        10px 10px 20px rgba(0, 0, 0, 0.08),
-                        -6px -6px 14px rgba(255, 255, 255, 0.85) !important;
-                }
-
                 .attendance-summary.neumorphic-active .modern-table {
                     box-shadow:
                         inset 0 2px 6px rgba(0, 0, 0, 0.04),
@@ -18322,14 +17654,6 @@
                     box-shadow:
                         inset 4px 4px 10px rgba(0, 0, 0, 0.06),
                         inset -4px -4px 10px rgba(255, 255, 255, 0.7) !important;
-                }
-
-                .attendance-summary.neumorphic-active .completion-message {
-                    box-shadow:
-                        inset 3px 3px 8px rgba(0, 0, 0, 0.08),
-                        inset -3px -3px 8px rgba(255, 255, 255, 0.7),
-                        8px 8px 20px rgba(0, 184, 148, 0.15),
-                        -4px -4px 12px rgba(255, 255, 255, 0.75) !important;
                 }
 
                 .attendance-summary.neumorphic-active .developer-info,
@@ -18345,12 +17669,6 @@
             /* Neumorphic OFF = flat clean look (reset from defaults) */
             .attendance-summary:not(.neumorphic-active):not(.retro-theme) {
                 box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08) !important;
-            }
-            .attendance-summary:not(.neumorphic-active):not(.retro-theme) .stat-card {
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
-            }
-            .attendance-summary:not(.neumorphic-active):not(.retro-theme) .stat-card:hover {
-                box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12) !important;
             }
 
             /* FLUID GRADIENTS — class-toggled OFF via .no-fluid
@@ -18373,22 +17691,6 @@
                 opacity: 0.5 !important;
             }
 
-            /* Stat card hover shimmer: disabled */
-            .attendance-summary.no-fluid .stat-card::before {
-                display: none !important;
-            }
-
-            /* Stat cards: solid tints instead of gradient */
-            .attendance-summary.no-fluid .stat-card.worked-time-card {
-                background: rgba(0, 184, 148, 0.12) !important;
-            }
-            .attendance-summary.no-fluid .stat-card.remaining-time-card {
-                background: rgba(225, 112, 85, 0.12) !important;
-            }
-            .attendance-summary.no-fluid .stat-card.completion-time-card {
-                background: rgba(108, 92, 231, 0.12) !important;
-            }
-
             /* Progress bar fill: solid color, no rainbow animation */
             .attendance-summary.no-fluid .progress-fill {
                 animation: none !important;
@@ -18399,48 +17701,9 @@
                 display: none !important;
             }
 
-            /* Completion message: solid instead of gradient */
-            .attendance-summary.no-fluid .completion-message {
-                animation: none !important;
-                background: #00b894 !important;
-            }
-
-            /* Stat value text glow removed for clean look */
-            .attendance-summary.no-fluid .worked-time {
-                text-shadow: none !important;
-            }
-            .attendance-summary.no-fluid .remaining-time {
-                text-shadow: none !important;
-            }
-            .attendance-summary.no-fluid .completion-time {
-                text-shadow: none !important;
-            }
-
             /* Table header: solid color */
             .attendance-summary.no-fluid .modern-table thead {
                 background: #667eea !important;
-            }
-
-            /* PiP compact glassmorphic aurora glow: static */
-            .no-fluid.compact-mode:not(.retro-theme) .pip-compact-display {
-                animation: none !important;
-            }
-            .no-fluid.compact-mode:not(.retro-theme) .pip-compact-display::before {
-                animation: none !important;
-                opacity: 0.3 !important;
-            }
-
-            /* Light mode overrides for no-fluid */
-            @media (prefers-color-scheme: light) {
-                .attendance-summary.no-fluid .stat-card.worked-time-card {
-                    background: rgba(0, 184, 148, 0.08) !important;
-                }
-                .attendance-summary.no-fluid .stat-card.remaining-time-card {
-                    background: rgba(225, 112, 85, 0.08) !important;
-                }
-                .attendance-summary.no-fluid .stat-card.completion-time-card {
-                    background: rgba(108, 92, 231, 0.08) !important;
-                }
             }
 
             /* ═══ CYBERPUNK HUD THEME — generated from cyber-dev/cyber-theme.css, do not edit here ═══ */
@@ -18961,10 +18224,6 @@
                 z-index: 1000;
             }
 
-            .attendance-summary.retro-theme .developer-tooltip {
-                z-index: 9999 !important;
-            }
-
             /* Boot-in scan reveal. Added on entering the theme and on Game
                Mode toggle, removed on a timer so it can re-trigger. */
             .attendance-summary.retro-theme.rt-booting .modern-table,
@@ -19033,11 +18292,8 @@
                 animation: rtGhostR 7s steps(1, end) infinite;
             }
 
-            /* The tint chains AHEAD of the shadows so the glyph is recoloured first and
-               the bloom thrown from the result; reversed, the halo stops following it. */
             .attendance-summary.retro-theme .emoji-display {
                 filter:
-                    var(--rt-emo-progress, opacity(1))
                     drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4))
                     drop-shadow(0 0 calc(15px * var(--rt-glow-k))
                         rgba(var(--rt-glow-rgb), calc(0.85 * var(--rt-glow-k)))) !important;
@@ -19334,6 +18590,7 @@
                 border-bottom: 0 !important;
                 background: var(--rt-hazard-dim) !important;
                 background-size: 22px 100%;
+                animation: rtHazardCrawl 2.4s linear infinite;
                 position: relative;
                 z-index: 2;
                 user-select: none;
@@ -19973,20 +19230,6 @@
 
             /* SETTINGS MODAL — body-level, so it reads the tokens applyPreferences()
                mirrors onto documentElement. */
-
-            /* EMOJI TINT handles, on body scope so the body-level modal sees them. */
-            body:has(.retro-theme) {
-                --rt-emo-tint: url(#rt-emoji-tint);
-                --rt-emo-progress: var(--rt-emo-tint);
-            }
-
-
-            /* A bare wrapper around one emoji: a filter on the button itself would
-               duotone its border and knocked-out glyphs too. */
-            body:has(.retro-theme) .rt-emo {
-                display: inline-block;
-                filter: var(--rt-emo-tint, opacity(1));
-            }
 
             body:has(.retro-theme) .close-modal-button {
                 background: var(--rt-text, #fff200) !important;
@@ -21382,64 +20625,6 @@
             }
             /* ═══ END POOL THEME ═══ */
 
-            /* Borderless PiP Window - Hide Browser Chrome */
-            @media (display-mode: picture-in-picture) {
-                /* Target the PiP window itself */
-                :root {
-                    /* Maximize content area */
-                    overflow: hidden !important;
-                }
-
-                body {
-                    /* Remove all default margins and padding */
-                    margin: 0 !important;
-                    padding: 0 !important;
-                    border: none !important;
-                    border-radius: 0 !important;
-                    overflow: hidden !important;
-                    /* Extend content to cover potential title bar area */
-                    min-height: 100vh !important;
-                    height: 100vh !important;
-                }
-
-                html {
-                    margin: 0 !important;
-                    padding: 0 !important;
-                    border: none !important;
-                    overflow: hidden !important;
-                }
-
-                /* Ensure content fills entire window including title bar area */
-                .pip-window-content,
-                .attendance-summary {
-                    margin: 0 !important;
-                    border-radius: 0 !important;
-                    min-height: 100vh !important;
-                    height: 100vh !important;
-                    max-width: 100vw !important;
-                    width: 100vw !important;
-                    overflow-y: auto !important;
-                    overflow-x: hidden !important;
-                    box-sizing: border-box !important;
-                }
-
-                /* Compact mode should also be borderless */
-                .pip-compact-display {
-                    border: none !important;
-                    border-radius: 0 !important;
-                    width: 100vw !important;
-                    height: 100vh !important;
-                    display: flex !important;
-                    flex-direction: column !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-                    margin: 0 !important;
-                    padding: 0 !important;
-                    box-sizing: border-box !important;
-                    box-shadow: none !important;
-                }
-            }
-
             .snake-game-container {
                 background: rgba(255, 255, 255, 0.08);
                 border: 1px solid rgba(255, 255, 255, 0.15);
@@ -22074,85 +21259,9 @@
                 }
             }
 
-            .quotes-container {
-                background: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 16px;
-                padding: 20px;
-                min-height: 180px;
-                position: relative;
-                overflow: hidden;
-                /* Isolate quote animations from parent updates */
-                contain: layout style;
-            }
-
-            .quotes-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 16px;
-            }
-
-            .quotes-title {
-                font-size: 1rem;
-                font-weight: 600;
-                color: rgba(255, 255, 255, 0.9);
-            }
-
-            .quote-add-btn {
-                padding: 6px 12px;
-                background: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                border-radius: 6px;
-                color: white;
-                font-size: 0.8rem;
-                cursor: pointer;
-                transition: all 0.3s ease;
-            }
-
-            .quote-add-btn:hover {
-                background: rgba(255, 255, 255, 0.2);
-            }
-
-            .quote-display {
-                text-align: center;
-                padding: 20px 10px;
-                min-height: 100px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-
-            .quote-text {
-                font-size: 1rem;
-                font-style: italic;
-                color: rgba(255, 255, 255, 0.9);
-                line-height: 1.6;
-                opacity: 1;
-                transition: opacity 0.3s ease, transform 0.3s ease;
-                transform: translateY(0);
-                /* Prevent animation resets from parent updates */
-                contain: layout style paint;
-            }
-
             @keyframes fadeOut {
                 from { opacity: 1; transform: translateY(0); }
                 to { opacity: 0; transform: translateY(-10px); }
-            }
-
-            .quote-text.fade-out {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-
-            .quote-author {
-                font-size: 0.875rem;
-                color: rgba(255, 255, 255, 0.6);
-                margin-top: 12px;
-                text-align: right;
-                transition: opacity 0.3s ease;
-                /* Prevent animation resets from parent updates */
-                contain: layout style paint;
             }
 
             /* ACHIEVEMENTS (POOL_V2_PLAN.md, Achievement icons). Tokens: Glassmorphic dark here,
@@ -22842,409 +21951,9 @@
                 to { transform: translateX(0); opacity: 1; }
             }
 
-            /* IMAGE BOX — the image is the card; its options are one menu (right-click or the
-               hover kebab). Values follow the Image Display Widget artboard. The container is
-               deliberately not clipped: the menu may overhang it onto the XP panel. */
-            .image-box-container {
-                background: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 18px;
-                padding: 16px;
-                position: relative;
-            }
-
-            .image-display {
-                --ib-ratio: 16 / 9;
-                position: relative;
-                width: 100%;
-                aspect-ratio: var(--ib-ratio);
-                margin: 0 auto;
-                border-radius: 12px;
-                overflow: hidden;
-                background: #111015;
-            }
-
-            /* Portrait keeps the landscape frames' height budget: as tall as the card is wide. */
-            .image-display.ib-portrait {
-                width: 75%;
-            }
-
-            .image-display.ib-empty {
-                min-height: 196px;
-            }
-
-            .ib-stage {
-                position: absolute;
-                inset: 0;
-            }
-
-            .image-display .image-box-img {
-                display: block;
-                width: 100%;
-                height: 100%;
-                object-fit: cover;
-            }
-
-            .image-display.ib-contain .image-box-img {
-                object-fit: contain;
-            }
-
-            .ib-kebab {
-                position: absolute;
-                top: 10px;
-                right: 10px;
-                width: 36px;
-                height: 36px;
-                padding: 0;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                border-radius: 999px;
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                background: rgba(20, 18, 26, 0.55);
-                backdrop-filter: blur(10px);
-                -webkit-backdrop-filter: blur(10px);
-                color: #fff;
-                cursor: pointer;
-                opacity: 0;
-                transform: translateY(-2px);
-                transition: opacity 0.16s ease, transform 0.16s ease, background 0.16s ease;
-            }
-
-            .ib-stage:hover .ib-kebab,
-            .ib-stage:focus-within .ib-kebab,
-            .ib-menu-open .ib-kebab {
-                opacity: 1;
-                transform: none;
-            }
-
-            .ib-kebab:hover {
-                background: rgba(20, 18, 26, 0.8);
-            }
-
-            .ib-hint {
-                position: absolute;
-                left: 10px;
-                bottom: 10px;
-                padding: 5px 10px;
-                border-radius: 999px;
-                background: rgba(20, 18, 26, 0.6);
-                backdrop-filter: blur(10px);
-                -webkit-backdrop-filter: blur(10px);
-                font-size: 12px;
-                color: #d9d4e6;
-                pointer-events: none;
-                opacity: 0;
-                transition: opacity 0.2s ease 0.25s;
-            }
-
-            .ib-stage:hover .ib-hint {
-                opacity: 1;
-            }
-
-            /* Once the menu has been found, the hint has done its job. */
-            .ib-hint-seen .ib-hint,
-            .ib-menu-open .ib-hint {
-                display: none;
-            }
-
-            .ib-drag .ib-stage::after {
-                content: '';
-                position: absolute;
-                inset: 0;
-                border: 2px dashed #8b78f0;
-                border-radius: 12px;
-                background: rgba(139, 120, 240, 0.18);
-                pointer-events: none;
-            }
-
-            .ib-drop {
-                position: absolute;
-                inset: 0;
-                box-sizing: border-box;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                gap: 10px;
-                padding: 12px;
-                border-radius: 12px;
-                border: 2px dashed #4a4558;
-                background: #1e1c25;
-                text-align: center;
-                transition: background 0.15s ease, border-color 0.15s ease;
-            }
-
-            .ib-drop:hover {
-                border-color: #6c6480;
-            }
-
-            .ib-drag .ib-drop {
-                border-color: #8b78f0;
-                background: #2c2740;
-            }
-
-            .ib-drop-icon {
-                width: 44px;
-                height: 44px;
-                flex-shrink: 0;
-                border-radius: 12px;
-                background: #312d3b;
-                color: #b9a8ff;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-
-            .ib-drop-title {
-                font-size: 15px;
-                font-weight: 600;
-                color: #ece9f3;
-            }
-
-            .ib-browse {
-                display: inline-flex;
-                align-items: center;
-                height: 36px;
-                padding: 0 16px;
-                border: 0;
-                border-radius: 10px;
-                background: #8b78f0;
-                color: #16131f;
-                font: inherit;
-                font-size: 13px;
-                font-weight: 600;
-                cursor: pointer;
-                transition: background 0.15s ease;
-            }
-
-            .ib-browse:hover {
-                background: #9d8bf5;
-            }
-
-            .ib-drop-note {
-                font-size: 12px;
-                color: #9b95a8;
-            }
-
-            .ib-link-btn {
-                padding: 0;
-                border: 0;
-                background: none;
-                font: inherit;
-                color: #b9a8ff;
-                text-decoration: underline;
-                text-underline-offset: 2px;
-                cursor: pointer;
-            }
-
-            .ib-link-btn:hover {
-                color: #d4c9ff;
-            }
-
-            .ib-kebab:focus-visible,
-            .ib-browse:focus-visible,
-            .ib-link-btn:focus-visible,
-            .ib-ratio:focus-visible,
-            .ib-undo:focus-visible {
-                outline: 2px solid #b9a8ff;
-                outline-offset: 2px;
-            }
-
-            .ib-menu {
-                position: absolute;
-                z-index: 30;
-                width: 236px;
-                box-sizing: border-box;
-                padding: 6px;
-                border-radius: 12px;
-                background: rgba(33, 30, 41, 0.97);
-                backdrop-filter: blur(14px);
-                -webkit-backdrop-filter: blur(14px);
-                border: 1px solid #3d3948;
-                box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
-                color: #ece9f3;
-                text-align: left;
-            }
-
-            /* [hidden] loses to any display rule, the retro theme's included. */
-            .ib-menu[hidden],
-            .ib-toast[hidden],
-            .ib-undo[hidden] {
-                display: none !important;
-            }
-
-            .ib-menu-label {
-                padding: 8px 10px 6px;
-                font-size: 11px;
-                font-weight: 600;
-                letter-spacing: 0.06em;
-                text-transform: uppercase;
-                color: #9b95a8;
-            }
-
-            .ib-ratios {
-                display: grid;
-                grid-template-columns: repeat(4, minmax(0, 1fr));
-                gap: 4px;
-                padding: 0 6px 8px;
-            }
-
-            .ib-ratio {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                gap: 5px;
-                height: 52px;
-                padding: 0;
-                border-radius: 8px;
-                border: 1px solid transparent;
-                background: #2a2733;
-                color: #b3adc0;
-                font: inherit;
-                font-size: 11px;
-                cursor: pointer;
-                transition: background 0.15s ease;
-            }
-
-            .ib-ratio:hover {
-                background: #34303f;
-            }
-
-            .ib-ratio[aria-pressed="true"] {
-                border-color: #8b78f0;
-                background: #342d4f;
-                color: #e4ddff;
-            }
-
-            .ib-ratio-icon {
-                display: block;
-                box-sizing: border-box;
-                border: 1.6px solid currentColor;
-                border-radius: 2px;
-            }
-
-            .ib-sep {
-                height: 1px;
-                margin: 2px 4px;
-                background: #37333f;
-            }
-
-            .ib-mi {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                width: 100%;
-                height: 38px;
-                padding: 0 10px;
-                border: 0;
-                border-radius: 8px;
-                background: transparent;
-                font: inherit;
-                font-size: 13px;
-                color: #ece9f3;
-                cursor: pointer;
-                text-align: left;
-            }
-
-            .ib-mi svg {
-                flex-shrink: 0;
-            }
-
-            .ib-mi-text {
-                flex-grow: 1;
-            }
-
-            .ib-mi-state {
-                font-size: 11px;
-                color: #9b95a8;
-            }
-
-            .ib-mi:hover,
-            .ib-mi:focus-visible {
-                background: #302c3b;
-                outline: none;
-            }
-
-            .ib-mi-danger {
-                color: #ff8a8a;
-            }
-
-            .ib-mi-danger:hover,
-            .ib-mi-danger:focus-visible {
-                background: #3a2025;
-            }
-
-            /* In flow under the frame, not over it: over a short frame's drop zone it would
-               cover the very buttons that put an image back. */
-            .ib-toast {
-                position: relative;
-                z-index: 25;
-                width: fit-content;
-                margin: 12px auto 0;
-                display: flex;
-                align-items: center;
-                gap: 14px;
-                padding: 8px 8px 8px 16px;
-                border-radius: 12px;
-                background: #2b2734;
-                border: 1px solid #3d3948;
-                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
-                font-size: 13px;
-                color: #ece9f3;
-                white-space: nowrap;
-                animation: ibToastIn 0.2s ease;
-            }
-
-            .ib-toast:has(.ib-undo[hidden]) {
-                padding: 12px 16px;
-            }
-
-            .ib-undo {
-                height: 32px;
-                padding: 0 12px;
-                border: 0;
-                border-radius: 8px;
-                background: #332f3e;
-                color: #c9bcff;
-                font: inherit;
-                font-size: 13px;
-                font-weight: 600;
-                cursor: pointer;
-            }
-
-            .ib-undo:hover {
-                background: #3a3548;
-            }
-
             @keyframes ibToastIn {
                 from { opacity: 0; transform: translateY(-4px); }
                 to { opacity: 1; transform: none; }
-            }
-
-            /* No hover to reveal the kebab on touch, so it stays up; the hint names a
-               right-click there isn't. */
-            @media (hover: none) {
-                .ib-kebab {
-                    opacity: 1;
-                    transform: none;
-                }
-                .ib-hint {
-                    display: none;
-                }
-            }
-
-            @media (prefers-reduced-motion: reduce) {
-                .ib-kebab,
-                .ib-hint,
-                .ib-drop,
-                .ib-ratio {
-                    transition: none;
-                }
-                .ib-toast {
-                    animation: none;
-                }
             }
 
             #flappy-canvas {
@@ -23480,9 +22189,7 @@
                Must be AFTER all component styles so cascade order wins. */
             @media (prefers-color-scheme: light) {
 
-                .snake-game-container,
-                .quotes-container,
-                .image-box-container {
+                .snake-game-container {
                     background: rgba(255, 255, 255, 0.82);
                     border-color: rgba(0, 0, 0, 0.10);
                     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
@@ -23584,102 +22291,6 @@
                     box-shadow: 0 20px 60px rgba(0,0,0,0.18);
                 }
 
-                .attendance-summary:not(.retro-theme) .quotes-title {
-                    color: rgba(0, 0, 0, 0.88);
-                }
-                .attendance-summary:not(.retro-theme) .quote-add-btn {
-                    background: rgba(0, 0, 0, 0.06);
-                    border-color: rgba(0, 0, 0, 0.12);
-                    color: rgba(0, 0, 0, 0.75);
-                }
-                .attendance-summary:not(.retro-theme) .quote-add-btn:hover {
-                    background: rgba(0, 0, 0, 0.10);
-                }
-                .attendance-summary:not(.retro-theme) .quote-text {
-                    color: rgba(0, 0, 0, 0.80);
-                }
-                .attendance-summary:not(.retro-theme) .quote-author {
-                    color: rgba(0, 0, 0, 0.50);
-                }
-
-                /* Image Box: the frame, drop zone and menu go light. The kebab and hint sit
-                   on the image and the toast on the page, so they stay dark in both modes. */
-                .attendance-summary:not(.retro-theme) .image-display {
-                    background: #ebe8f1;
-                }
-                .attendance-summary:not(.retro-theme) .ib-drop {
-                    background: #f6f4fa;
-                    border-color: #c9c3d6;
-                }
-                .attendance-summary:not(.retro-theme) .ib-drop:hover {
-                    border-color: #a39bb5;
-                }
-                .attendance-summary:not(.retro-theme) .ib-drag .ib-drop {
-                    background: #ece7ff;
-                    border-color: #6a55dc;
-                }
-                .attendance-summary:not(.retro-theme) .ib-drop-icon {
-                    background: #e7e2f7;
-                    color: #5b47cf;
-                }
-                .attendance-summary:not(.retro-theme) .ib-drop-title,
-                .attendance-summary:not(.retro-theme) .ib-menu,
-                .attendance-summary:not(.retro-theme) .ib-mi {
-                    color: #1f1b2a;
-                }
-                .attendance-summary:not(.retro-theme) .ib-browse {
-                    background: #6a55dc;
-                    color: #fff;
-                }
-                .attendance-summary:not(.retro-theme) .ib-browse:hover {
-                    background: #5b47cf;
-                }
-                .attendance-summary:not(.retro-theme) .ib-drop-note,
-                .attendance-summary:not(.retro-theme) .ib-menu-label,
-                .attendance-summary:not(.retro-theme) .ib-mi-state {
-                    color: #5f596c;
-                }
-                .attendance-summary:not(.retro-theme) .ib-link-btn {
-                    color: #5b47cf;
-                }
-                .attendance-summary:not(.retro-theme) .ib-link-btn:hover {
-                    color: #45349f;
-                }
-                .attendance-summary:not(.retro-theme) .ib-menu {
-                    background: rgba(255, 255, 255, 0.97);
-                    border-color: rgba(0, 0, 0, 0.10);
-                    box-shadow: 0 18px 44px rgba(30, 20, 60, 0.18);
-                }
-                .attendance-summary:not(.retro-theme) .ib-ratio {
-                    background: #f1eff6;
-                    color: #4d475a;
-                }
-                .attendance-summary:not(.retro-theme) .ib-ratio:hover,
-                .attendance-summary:not(.retro-theme) .ib-mi:hover,
-                .attendance-summary:not(.retro-theme) .ib-mi:focus-visible {
-                    background: #e9e6f0;
-                }
-                .attendance-summary:not(.retro-theme) .ib-ratio[aria-pressed="true"] {
-                    background: #ebe6ff;
-                    border-color: #6a55dc;
-                    color: #3b2d8f;
-                }
-                .attendance-summary:not(.retro-theme) .ib-sep {
-                    background: rgba(0, 0, 0, 0.08);
-                }
-                .attendance-summary:not(.retro-theme) .ib-mi-danger {
-                    color: #b3261e;
-                }
-                .attendance-summary:not(.retro-theme) .ib-mi-danger:hover,
-                .attendance-summary:not(.retro-theme) .ib-mi-danger:focus-visible {
-                    background: #fdecec;
-                }
-                .attendance-summary:not(.retro-theme) .ib-browse:focus-visible,
-                .attendance-summary:not(.retro-theme) .ib-link-btn:focus-visible,
-                .attendance-summary:not(.retro-theme) .ib-ratio:focus-visible {
-                    outline-color: #6a55dc;
-                }
-
                 .attendance-summary:not(.retro-theme) .pool-color-swatch {
                     border-color: rgba(0, 0, 0, 0.15);
                 }
@@ -23701,12 +22312,6 @@
                     color: rgba(0, 0, 0, 0.78);
                     border-bottom-color: rgba(0, 0, 0, 0.08);
                 }
-                .attendance-summary:not(.retro-theme) .stat-label {
-                    color: rgba(0, 0, 0, 0.58);
-                }
-                .attendance-summary:not(.retro-theme) .remaining-desc {
-                    color: rgba(0, 0, 0, 0.55);
-                }
                 .attendance-summary:not(.retro-theme) .progress-bar {
                     background: rgba(0, 0, 0, 0.08);
                 }
@@ -23722,11 +22327,6 @@
                     border-color: rgba(0, 0, 0, 0.16);
                     z-index: 1000;
                 }
-                .attendance-summary:not(.retro-theme) .developer-tooltip {
-                    background: linear-gradient(145deg, rgba(15, 15, 30, 0.96), rgba(25, 20, 50, 0.96));
-                    backdrop-filter: blur(50px);
-                    min-width: 340px;
-                }
                 .attendance-summary:not(.retro-theme) .settings-button {
                     background: rgba(255, 255, 255, 0.82);
                     border-color: rgba(0, 0, 0, 0.08);
@@ -23734,28 +22334,6 @@
                 .attendance-summary:not(.retro-theme) .settings-button:hover {
                     background: rgba(255, 255, 255, 0.92);
                     border-color: rgba(0, 0, 0, 0.16);
-                }
-                .attendance-summary:not(.retro-theme) .stat-card {
-                    background: rgba(255, 255, 255, 0.72);
-                    border-color: rgba(0, 0, 0, 0.08);
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-                }
-                .attendance-summary:not(.retro-theme) .stat-card:hover {
-                    background: rgba(255, 255, 255, 0.90);
-                    border-color: rgba(0, 0, 0, 0.14);
-                    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.10);
-                }
-                .attendance-summary:not(.retro-theme) .stat-card.worked-time-card {
-                    background: linear-gradient(135deg, rgba(0,184,148,0.12), rgba(0,184,148,0.04));
-                    border-color: rgba(0,184,148,0.25);
-                }
-                .attendance-summary:not(.retro-theme) .stat-card.remaining-time-card {
-                    background: linear-gradient(135deg, rgba(225,112,85,0.12), rgba(225,112,85,0.04));
-                    border-color: rgba(225,112,85,0.25);
-                }
-                .attendance-summary:not(.retro-theme) .stat-card.completion-time-card {
-                    background: linear-gradient(135deg, rgba(108,92,231,0.12), rgba(108,92,231,0.04));
-                    border-color: rgba(108,92,231,0.25);
                 }
                 .attendance-summary:not(.retro-theme) .gap-warning {
                     background: linear-gradient(135deg, #ffeaa7, #fab1a0) !important;
@@ -23780,10 +22358,6 @@
                 .attendance-summary:not(.retro-theme) .game-score-btn.is-record .gsb-score { color: #8a6300; }
                 /* The figures beside it (lines, level, mode, turn) sat under 3:1. */
                 .attendance-summary:not(.retro-theme) .gsb-aside { opacity: 0.85; }
-
-                /* The three timers: the same hues, deep enough to read on their tinted cards. */
-                .attendance-summary:not(.retro-theme) .worked-time { color: #00806a; }
-                .attendance-summary:not(.retro-theme) .remaining-time { color: #c0482b; }
 
                 /* The settings modal and Ludo's Max panel live on <body>, outside
                    .attendance-summary, so the light rules written for them above never
@@ -23845,154 +22419,6 @@
                     color: #dc2626;
                 }
             }
-
-            /* AchPopover: the leaderboard as player rows; a row's hover, focus or press opens its achievements. */
-            .leaderboard-panel {
-                display: flex;
-                flex-direction: column;
-                gap: 10px;
-                box-sizing: border-box;
-                padding: 14px;
-                min-height: 200px;
-                border-radius: 20px;
-                background: var(--ach-panel);
-                border: 1px solid var(--ach-border);
-                box-shadow: var(--ach-shadow);
-                backdrop-filter: var(--ach-blur);
-                -webkit-backdrop-filter: var(--ach-blur);
-                color: var(--ach-text);
-                font-family: var(--ach-font);
-                line-height: 1.3;
-            }
-            .lb-head {
-                height: 32px;
-                flex-shrink: 0;
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 8px;
-            }
-            .lb-head-t { font-family: var(--ach-display); font-size: 16px; font-weight: 600; }
-            .lb-head-n { font-size: 11px; color: var(--ach-muted); white-space: nowrap; }
-            .lb-list {
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
-                max-height: 300px;
-                overflow-y: auto;
-                scrollbar-width: thin;
-                scrollbar-color: var(--ach-track) transparent;
-            }
-            .lb-row {
-                flex-shrink: 0;
-                height: 52px;
-                box-sizing: border-box;
-                padding: 0 12px 0 10px;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                border-radius: 12px;
-                border: 1px solid transparent;
-                background: transparent;
-                color: inherit;
-                font: inherit;
-                text-align: left;
-                cursor: pointer;
-            }
-            .lb-row:hover,
-            .lb-row[aria-expanded="true"] {
-                background: var(--ach-inner);
-                border-color: var(--ach-inner-border);
-            }
-            .lb-row:focus-visible { outline: 2px solid var(--ach-focus); outline-offset: 2px; }
-            .lb-row-rank { width: 18px; flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--ach-muted); font-variant-numeric: tabular-nums; }
-            .lb-row-av {
-                width: 32px;
-                height: 32px;
-                flex-shrink: 0;
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                background: var(--ach-track);
-                color: var(--ach-text);
-                font-size: 11px;
-                font-weight: 700;
-            }
-            .lb-row-who { display: flex; flex-direction: column; gap: 1px; flex-grow: 1; min-width: 0; }
-            .lb-row-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .lb-row-lv { font-size: 11px; color: var(--ach-muted); }
-            .lb-row-xp { flex-shrink: 0; font-size: 13px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
-            .lb-register-card {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 10px;
-                padding: 24px 16px;
-                text-align: center;
-            }
-            .lb-register-icon { font-size: 2.5rem; }
-            .lb-register-title {
-                margin: 0;
-                font-size: 1.1rem;
-                font-weight: 700;
-                background: linear-gradient(135deg, #667eea, #764ba2);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-            }
-            .lb-register-desc {
-                margin: 0;
-                font-size: 0.8rem;
-                opacity: 0.7;
-                max-width: 260px;
-            }
-            .lb-name-input {
-                width: 80%;
-                max-width: 200px;
-                padding: 8px 12px;
-                border-radius: 10px;
-                border: 1px solid rgba(255,255,255,0.2);
-                background: rgba(255,255,255,0.08);
-                color: inherit;
-                font-size: 0.85rem;
-                outline: none;
-                transition: border-color 0.2s;
-            }
-            .lb-name-input:focus {
-                border-color: #667eea;
-                box-shadow: 0 0 8px rgba(102,126,234,0.3);
-            }
-            .lb-register-btn {
-                padding: 8px 20px;
-                border: none;
-                border-radius: 10px;
-                background: linear-gradient(135deg, #667eea, #764ba2);
-                color: #fff;
-                font-weight: 600;
-                font-size: 0.85rem;
-                cursor: pointer;
-                transition: transform 0.15s, box-shadow 0.2s;
-            }
-            .lb-register-btn:hover {
-                transform: translateY(-1px);
-                box-shadow: 0 4px 16px rgba(102,126,234,0.4);
-            }
-            .lb-register-btn:disabled {
-                opacity: 0.6;
-                cursor: not-allowed;
-                transform: none;
-            }
-            .lb-sync-btn {
-                background: rgba(255,255,255,0.1);
-                border: 1px solid rgba(255,255,255,0.15);
-                border-radius: 8px;
-                padding: 4px 10px;
-                cursor: pointer;
-                font-size: 0.8rem;
-                color: inherit;
-                transition: background 0.2s;
-            }
-            .lb-sync-btn:hover { background: rgba(255,255,255,0.2); }
             .lb-table {
                 width: max-content;
                 min-width: 100%;
@@ -24212,87 +22638,56 @@
         }
     }
 
-    // Calculate emoji based on work progress
-    function getEmojiForProgress(workedSeconds, totalSeconds = getShiftSeconds()) {
-        // 'none' = no mood glyph at all. Checked first and unconditionally, so it also silences
-        // the overtime clown/running glyphs below.
-        if (userPreferences.emojiSet === 'none') return '';
+    // The mood face for the time worked: the design's mood path (attMood), or none when hidden.
+    const moodIdFor = worked => userPreferences.emojiSet === 'none' ? '' : attMood(worked, getShiftSeconds()).id;
+    const moodHtml = id => id ? attIcon(id, '1em') : '';
 
-        const progress = Math.min(workedSeconds / totalSeconds, 1);
-
-        // If exceeded shift + 30 minutes, show clown emoji (go home!)
-        if (workedSeconds > (totalSeconds + 1800)) {
-            return clownEmoji;
-        }
-
-        // If between shift end and shift + 30 min, show running emoji (wrap it up!)
-        if (workedSeconds >= totalSeconds && workedSeconds <= (totalSeconds + 1800)) {
-            return runningEmoji;
-        }
-
-        // Calculate which emoji to show based on progress for under 8 hours
-        const currentSet = emojiSets[userPreferences.emojiSet] || emojiSets.fun;
-        const emojiIndex = Math.floor(progress * currentSet.length);
-        return currentSet[Math.min(emojiIndex, currentSet.length - 1)];
+    // ABOUT (design: Attendance widget · revamped, B1 About): the (i) button opens a dialog over the
+    // control bar; its close button, Escape or a click outside shuts it.
+    const ATT_ABOUT_GAMES = [['g-snake', 'Snake', '3 modes, 12 stages, golden bite, 5 skins'], ['g-pool', 'Pool', '8-Ball and Snooker, 4 CPU tiers, tournaments, 10 cues'],
+        ['g-flappy', 'Flappy', 'Dynamic gap &amp; speed scaling per score'], ['g-reflex', 'RefleX', 'Screen &amp; target modes, false-start guard'],
+        ['g-tasbih', 'Tasbih', 'Digital prayer counter with memory'], ['g-ludo', 'Ludo', 'Ludo Star rules, 3 CPU tiers, 2–4P hot-seat'],
+        ['g-tetris', 'Tetris', '7-bag + next piece, ghost, wall kicks'], ['g-breakout', 'Breakout', '11 powerups, multi-ball, combo system'],
+        ['g-aim', 'Aim', 'Chaos mode, accuracy tracking, bullet holes'], ['g-board', 'Leaderboard', 'Cloud ranks, per-tier boards, medallions']];
+    function attAboutClose(about, focus) {
+        if (about.hidden) return;
+        const btn = about.parentNode.querySelector('.developer-info');
+        about.hidden = true;
+        btn.setAttribute('aria-expanded', 'false');
+        if (focus) btn.focus();
     }
+    document.addEventListener('click', e => document.querySelectorAll('.att-about:not([hidden])').forEach(p => { if (!p.contains(e.target)) attAboutClose(p); }));
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.att-about').forEach(p => attAboutClose(p, true)); });
 
     function addDeveloperInfo(container) {
-        const existingInfo = container.querySelector('.developer-info');
-        if (existingInfo) {
-            existingInfo.remove();
-        }
-
-        const developerDiv = document.createElement('div');
-        developerDiv.className = 'developer-info';
-        developerDiv.innerHTML = `
-            ℹ️
-            <div class="developer-tooltip">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                    <span style="font-size:1.4rem;">📅</span>
-                    <div style="text-align:left;">
-                        <div style="font-size:0.85rem;font-weight:700;letter-spacing:0.3px;">Attendance Tracker Plus</div>
-                        <div style="font-size:0.65rem;opacity:0.7;">by Hassan Nasir &middot; Core: Websoft Team</div>
-                    </div>
-                    <span style="margin-left:auto;background:linear-gradient(135deg,#667eea,#764ba2);padding:2px 8px;border-radius:10px;font-size:0.6rem;font-weight:700;letter-spacing:0.5px;">v6.0</span>
+        const chips = [['f-xp', 'XP &amp; Levels'], ['f-ach', Object.keys(ACHIEVEMENTS).length + ' Achievements'], ['f-cloud', 'Cloud Sync'], ['f-integrity', 'XP Integrity'],
+            ['f-skins', 'Snake Skins'], ['f-pip', 'Float Window'], ['image', 'Desk Card'], ['f-theme', 'Light / Dark / Cyberpunk'], ['f-shifts', '4h – 15h Shifts'], ['f-quotes', 'Quotes']];
+        container.insertAdjacentHTML('beforeend', `
+            <button type="button" class="developer-info" aria-label="About Attendance Tracker Plus" aria-haspopup="dialog" aria-expanded="false">${attIcon('info', '24px')}</button>
+            <section class="att-about" role="dialog" aria-label="About Attendance Tracker Plus" hidden>
+                <div class="att-about-head">
+                    <span class="att-about-app">${attIcon('u-app', 28)}</span>
+                    <span class="att-about-name"><b>Attendance Tracker Plus</b>by Hassan Nasir &middot; Core: Websoft Team</span>
+                    <span class="att-about-ver">v7.0</span>
+                    <button type="button" class="att-about-x" aria-label="Close">${attIcon('u-close', 18)}</button>
                 </div>
-                <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0;"></div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;text-align:left;">
-                    <small>🐍 <strong>Snake</strong> — 3 modes, 12 stages, golden bite, 5 skins</small>
-                    <small>🎲 <strong>Ludo</strong> — Ludo Star rules, CPU tiers, 2–4P hot-seat</small>
-                    <small>🎱 <strong>Pool</strong> — Spin physics, cushions, CPU &amp; PvP</small>
-                    <small>🧱 <strong>Tetris</strong> — 7-bag + next piece, ghost, wall kicks</small>
-                    <small>🐦 <strong>Flappy</strong> — Dynamic gap &amp; speed scaling per score</small>
-                    <small>🏓 <strong>Breakout</strong> — 11 powerups, multi-ball, combo system</small>
-                    <small>⚡ <strong>RefleX</strong> — Screen &amp; target modes, false-start guard</small>
-                    <small>💥 <strong>Aim</strong> — Chaos mode, accuracy tracking, bullet holes</small>
-                    <small>📿 <strong>Tasbih</strong> — Digital prayer counter with memory</small>
-                    <small>🏆 <strong>Leaderboard</strong> — Cloud ranks, per-game boards, badges</small>
+                <ul class="att-about-games" aria-label="Games and tools">${ATT_ABOUT_GAMES.map(([id, n, d]) =>
+                    `<li title="${n} · ${d}"><span class="att-about-tile">${attIcon(id, 20)}</span><span><b>${n}</b> &middot; ${d}</span></li>`).join('')}</ul>
+                <div class="att-about-chips">${chips.map(([id, n]) => `<span>${attIcon(id, 16)}${n}</span>`).join('')}</div>
+                <div class="att-about-foot">
+                    <span>5 Oct 2026 &middot; build ${BUILD_LABEL}</span>
+                    <span>${attIcon('u-tip', 16)}Click the mood icon for Game Mode</span>
+                    <span>${attIcon('u-settings', 16)}Settings</span>
                 </div>
-                <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0;"></div>
-                <!-- width:0 + min-width:100% keeps this row out of the tooltip's
-                     max-content width, so the badges wrap to the width the game
-                     grid already sets instead of stretching the card. -->
-                <div style="display:flex;gap:6px 6px;flex-wrap:wrap;justify-content:center;width:0;min-width:100%;">
-                    <span style="background:rgba(102,126,234,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">⭐ XP &amp; Levels</span>
-                    <span style="background:rgba(255,71,87,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🏅 ${Object.keys(ACHIEVEMENTS).length} Achievements</span>
-                    <span style="background:rgba(0,206,201,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">☁️ Cloud Sync</span>
-                    <span style="background:rgba(46,213,115,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🛡️ XP Integrity</span>
-                    <span style="background:rgba(253,203,110,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🎨 Snake Skins</span>
-                    <span style="background:rgba(118,75,162,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🖼️ PiP Mode</span>
-                    <span style="background:rgba(0,229,255,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">🌗 Light / Dark / Cyberpunk</span>
-                    <span style="background:rgba(162,155,254,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">⏱️ 4h – 15h Shifts</span>
-                    <span style="background:rgba(255,165,2,0.2);padding:2px 7px;border-radius:6px;font-size:0.6rem;">💬 Quotes</span>
-                </div>
-                <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0;"></div>
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;opacity:0.6;font-size:0.58rem;">
-                    <span>15 Aug 2026 &middot; build ${BUILD_LABEL}</span>
-                    <span>💡 Click emoji → Game Mode</span>
-                    <span>⚙️ → Settings</span>
-                </div>
-            </div>
-        `;
-
-        container.appendChild(developerDiv);
+            </section>`);
+        const btn = container.querySelector('.developer-info'), about = container.querySelector('.att-about');
+        btn.onclick = e => {
+            e.stopPropagation();
+            if (!about.hidden) return attAboutClose(about);
+            about.hidden = false;
+            btn.setAttribute('aria-expanded', 'true');
+        };
+        about.querySelector('.att-about-x').onclick = () => attAboutClose(about, true);
     }
 
     function addSettingsButton(container) {
@@ -24303,7 +22698,7 @@
 
         const settingsButton = document.createElement('div');
         settingsButton.className = 'settings-button';
-        settingsButton.innerHTML = '<span class="rt-emo">⚙️</span>';
+        settingsButton.innerHTML = attIcon('gear', '24px');
         settingsButton.title = 'Settings';
         settingsButton.addEventListener('click', toggleSettingsModal);
 
@@ -24333,9 +22728,6 @@
             modal = document.getElementById('attendance-settings-modal');
             overlay = document.getElementById('settings-modal-overlay');
         }
-        // The modal element is built once and reused, so its content can be stale relative to the
-        // current theme. A fresh sweep on every open catches that; cyberSweepEmoji() is idempotent.
-        cyberSweepEmoji(modal);
 
         const wasOpen = modal.classList.contains('active');
         // Built once, so a select can be stale: another control (the pool panel's Game mode
@@ -24360,10 +22752,10 @@
 
     // A ⚙️ dropdown row: the pref it sets, its label and its [value, text] options. A value it does
     // not offer shows def (the first option unless given); id names the select, row adds attributes.
-    function sel(pref, label, options, { def = options[0][0], id, row = '' } = {}) {
+    function sel(pref, label, options, { def = options[0][0], id, row = '', icon } = {}) {
         const v = String(userPreferences[pref]), cur = options.some(o => o[0] === v) ? v : def;
         return `<div class="settings-option"${row}>
-                    <span class="settings-option-label">${label}</span>
+                    <span class="settings-option-label">${icon ? attIcon(icon) + ' ' : ''}${label}</span>
                     <select class="settings-select" data-pref="${pref}"${id ? ` id="${id}"` : ''}>${options.map(([val, text]) => `<option value="${val}"${val === cur ? ' selected' : ''}>${text}</option>`).join('')}</select>
                 </div>`;
     }
@@ -24382,39 +22774,39 @@
         const isGlassmorphic = userPreferences.displayTheme === 'glassmorphic';
 
         modal.innerHTML = `
-            <div class="settings-title">⚙️ Customize Your Experience</div>
+            <div class="settings-title">${attIcon('u-settings')} Customize Your Experience</div>
             <div class="settings-tabs" role="tablist" aria-label="Settings">
-                <button type="button" role="tab" class="settings-tab" data-settings-tab="general" aria-selected="false"><span class="rt-emo">✨</span> General</button>
-                <button type="button" role="tab" class="settings-tab" data-settings-tab="theme" aria-selected="false"><span class="rt-emo">🎨</span> Theme</button>
-                <button type="button" role="tab" class="settings-tab" data-settings-tab="cue" aria-selected="false"><span class="rt-emo">🎱</span> Cue Games</button>
-                <button type="button" role="tab" class="settings-tab" data-settings-tab="ludo" aria-selected="false"><span class="rt-emo">🎲</span> Ludo</button>
+                <button type="button" role="tab" class="settings-tab" data-settings-tab="general" aria-selected="false">${attIcon('sparkle')} General</button>
+                <button type="button" role="tab" class="settings-tab" data-settings-tab="theme" aria-selected="false">${attIcon('f-theme')} Theme</button>
+                <button type="button" role="tab" class="settings-tab" data-settings-tab="cue" aria-selected="false">${attIcon('g-pool')} Cue Games</button>
+                <button type="button" role="tab" class="settings-tab" data-settings-tab="ludo" aria-selected="false">${attIcon('g-ludo')} Ludo</button>
             </div>
             <div class="settings-group" role="tabpanel" data-settings-group="general" hidden>
                 <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">⏱️</span> Shift Duration</span>
+                    <span class="settings-option-label">${attIcon('f-shifts')} Shift Duration</span>
                     <select class="settings-select" data-pref="shiftDuration">
                         ${SHIFT_DURATIONS.map(([v, name]) => `<option value="${v}" ${userPreferences.shiftDuration === v ? 'selected' : ''}>${v} — ${name}</option>`).join('')}
                     </select>
                 </div>
-                ${sel('emojiSet', '<span class="rt-emo">😎</span> Emoji Style', [['fun', 'Fun (GenZ)'], ['none', 'None (No Emoji)']])}
+                ${sel('emojiSet', 'Mood Face', [['fun', 'Shown — follows your shift'], ['none', 'Hidden']], { icon: 'smile' })}
                 <div class="settings-option">
                     <span class="settings-option-label"> Game Mode <small style="opacity:0.6;font-size:0.75rem;">Hides side panels</small></span>
                     <div class="toggle-switch ${userPreferences.gameModeHidden ? 'active' : ''}" data-pref="gameModeHidden"></div>
                 </div>
-                ${sel('gameFps', '<span class="rt-emo">🖥️</span> VSync', [['60', 'Full (60 FPS)'], ['30', 'Half (30 FPS)']], { id: 'fps-selector' })}
+                ${sel('gameFps', 'VSync', [['60', 'Full (60 FPS)'], ['30', 'Half (30 FPS)']], { id: 'fps-selector', icon: 'monitor' })}
             </div>
             <div class="settings-group" role="tabpanel" data-settings-group="theme" hidden>
-                ${sel('displayTheme', '<span class="rt-emo">🎨</span> Display Theme', [['glassmorphic', 'Glassmorphic Aurora'], ['retro-futuristic', 'Cyberpunk HUD']], { id: 'theme-selector' })}
+                ${sel('displayTheme', 'Display Theme', [['glassmorphic', 'Glassmorphic Aurora'], ['retro-futuristic', 'Cyberpunk HUD']], { id: 'theme-selector', icon: 'f-theme' })}
                 <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
-                    <span class="settings-option-label"><span class="rt-emo">🎨</span> Neumorphic Depth <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
+                    <span class="settings-option-label">${attIcon('f-skins')} Neumorphic Depth <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
                     <div class="toggle-switch ${userPreferences.neumorphicDepth ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="neumorphicDepth"></div>
                 </div>
                 <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
-                    <span class="settings-option-label"><span class="rt-emo">🌊</span> Fluid Gradients <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
+                    <span class="settings-option-label">${attIcon('wave')} Fluid Gradients <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
                     <div class="toggle-switch ${userPreferences.fluidGradients ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="fluidGradients"></div>
                 </div>
                 <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
-                    <span class="settings-option-label"><span class="rt-emo">🎨</span> Palette</span>
+                    <span class="settings-option-label">${attIcon('f-skins')} Palette</span>
                     <div class="cyber-palette-swatches" id="cyber-palette-swatches">
                         ${Object.keys(CYBER_PALETTES).map(key => {
                             const p = CYBER_PALETTES[key];
@@ -24423,7 +22815,7 @@
                     </div>
                 </div>
                 <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
-                    <span class="settings-option-label"><span class="rt-emo">🌈</span> Cyberpunk Colors</span>
+                    <span class="settings-option-label">${attIcon('f-theme')} Cyberpunk Colors</span>
                     <div class="cyber-color-pickers">
                         <label title="Background primary">
                             <input type="color" data-pref="cyberBgPrimary" value="${userPreferences.cyberBgPrimary || '#07091a'}">
@@ -24460,7 +22852,7 @@
                     </div>
                 </div>
                 <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
-                    <span class="settings-option-label"><span class="rt-emo">💡</span> Glow Intensity</span>
+                    <span class="settings-option-label">${attIcon('u-tip')} Glow Intensity</span>
                     <div class="cyber-bg-controls">
                         <span class="cyber-contrast-chip is-pass" id="cyber-contrast-chip">Text vs BG</span>
                         <label class="cyber-bg-opacity-label">
@@ -24470,7 +22862,7 @@
                     </div>
                 </div>
                 <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
-                    <span class="settings-option-label"><span class="rt-emo">📐</span> Panel Shape</span>
+                    <span class="settings-option-label">${attIcon('setsquare')} Panel Shape</span>
                     <select class="settings-select" data-pref="cyberPanelShape">
                         <option value="notched" ${(userPreferences.cyberPanelShape || 'notched') === 'notched' ? 'selected' : ''}>Notched — step cut</option>
                         <option value="chamfered" ${userPreferences.cyberPanelShape === 'chamfered' ? 'selected' : ''}>Chamfered — cut corners</option>
@@ -24479,7 +22871,7 @@
                     </select>
                 </div>
                 <div class="settings-option cyber-color-row" data-theme-dependent="retro-futuristic" style="${userPreferences.displayTheme === 'retro-futuristic' ? '' : 'display:none;'}">
-                    <span class="settings-option-label"><span class="rt-emo">🖼️</span> Background Image</span>
+                    <span class="settings-option-label">${attIcon('image')} Background Image</span>
                     <div class="cyber-bg-controls">
                         <button class="cyber-bg-btn" id="cyber-bg-change-btn" title="Set background image URL">Change BG</button>
                         <button class="cyber-bg-btn cyber-bg-clear" id="cyber-bg-clear-btn" title="Remove background image" ${userPreferences.cyberBgImage ? '' : 'style="display:none;"'}>✕</button>
@@ -24493,7 +22885,7 @@
             <div class="settings-group" role="tabpanel" data-settings-group="cue" hidden>
                 <div class="settings-subhead">Both games</div>
                 <div class="settings-option">
-                    <span class="settings-option-label"><span class="rt-emo">🎱</span> Table Color</span>
+                    <span class="settings-option-label">${attIcon('g-pool')} Table Color</span>
                     <div class="pool-color-swatches" id="pool-color-swatches">
                         <div class="pool-color-swatch ${userPreferences.poolTableColor === 'green' ? 'active' : ''}" data-pool-color="green" style="background: linear-gradient(135deg, #2d8a4e, #1a5c32);" title="Green"></div>
                         <div class="pool-color-swatch ${userPreferences.poolTableColor === 'red' ? 'active' : ''}" data-pool-color="red" style="background: linear-gradient(135deg, #8b3a3a, #5c1a1a);" title="Red"></div>
@@ -24501,22 +22893,22 @@
                         <div class="pool-color-swatch ${userPreferences.poolTableColor === 'lightgrey' ? 'active' : ''}" data-pool-color="lightgrey" style="background: linear-gradient(135deg, #a8b0b8, #c8cfd6);" title="Light Grey"></div>
                     </div>
                 </div>
-                ${sel('poolShotCam', '<span class="rt-emo">🎱</span> Shot Camera', [['overhead', 'Overhead — rise to the top view'], ['3d', 'Stay 3D — stand up, whole table']])}
-                ${sel('poolGuideLen', '<span class="rt-emo">🎯</span> Guideline', [['long', 'Long — the object ball\'s line in full'], ['medium', 'Medium'], ['short', 'Short — a hint of the line'], ['none', 'None — the aim line and ghost ball only']])}
-                ${sel('poolMaxLayout', '<span class="rt-emo">🎱</span> Max View', [['full', 'Full table — controls on it, between the pockets'], ['bars', 'Table between bars — nothing over the table']])}
-                <div class="settings-subhead">🎱 8-Ball Pool</div>
-                ${sel('poolDifficulty', '<span class="rt-emo">🎱</span> CPU', [['adaptive', 'Adaptive — matches your form'], ['easy', 'Easy — simple pots, misses often'], ['normal', 'Normal — solid, little position'], ['hard', 'Hard — plays position'], ['pro', 'Pro — hardly misses, call every shot']])}
-                ${sel('poolClock', '<span class="rt-emo">⏱️</span> Shot Clock', [['30', '30s — the default'], ['45', '45s'], ['0', 'Off — no clock']])}
-                <div class="settings-subhead">🔴 Snooker</div>
-                ${sel('snookerReds', '<span class="rt-emo">🔴</span> Reds', [['15', '15 — the full frame'], ['10', '10'], ['6', '6 — quick']])}
-                ${sel('snookerDifficulty', '<span class="rt-emo">🔴</span> CPU', [['adaptive', 'Adaptive — matches your form'], ['easy', 'Easy — pots the simple ones'], ['normal', 'Normal — small breaks, some safety'], ['hard', 'Hard — position and safety, call the colours'], ['pro', 'Pro — hardly misses, call every ball']])}
-                ${sel('snookerClock', '<span class="rt-emo">⏱️</span> Shot Clock', [['30', '30s'], ['45', '45s — the default'], ['60', '60s'], ['0', 'Off — no clock']], { def: '45' })}
+                ${sel('poolShotCam', 'Shot Camera', [['overhead', 'Overhead — rise to the top view'], ['3d', 'Stay 3D — stand up, whole table']], { icon: 'g-pool' })}
+                ${sel('poolGuideLen', 'Guideline', [['long', 'Long — the object ball\'s line in full'], ['medium', 'Medium'], ['short', 'Short — a hint of the line'], ['none', 'None — the aim line and ghost ball only']], { icon: 'pro' })}
+                ${sel('poolMaxLayout', 'Max View', [['full', 'Full table — controls on it, between the pockets'], ['bars', 'Table between bars — nothing over the table']], { icon: 'g-pool' })}
+                <div class="settings-subhead">${attIcon('g-pool')} 8-Ball Pool</div>
+                ${sel('poolDifficulty', 'CPU', [['adaptive', 'Adaptive — matches your form'], ['easy', 'Easy — simple pots, misses often'], ['normal', 'Normal — solid, little position'], ['hard', 'Hard — plays position'], ['pro', 'Pro — hardly misses, call every shot']], { icon: 'g-pool' })}
+                ${sel('poolClock', 'Shot Clock', [['30', '30s — the default'], ['45', '45s'], ['0', 'Off — no clock']], { icon: 'f-shifts' })}
+                <div class="settings-subhead">${attIcon('snooker')} Snooker</div>
+                ${sel('snookerReds', 'Reds', [['15', '15 — the full frame'], ['10', '10'], ['6', '6 — quick']], { icon: 'snooker' })}
+                ${sel('snookerDifficulty', 'CPU', [['adaptive', 'Adaptive — matches your form'], ['easy', 'Easy — pots the simple ones'], ['normal', 'Normal — small breaks, some safety'], ['hard', 'Hard — position and safety, call the colours'], ['pro', 'Pro — hardly misses, call every ball']], { icon: 'snooker' })}
+                ${sel('snookerClock', 'Shot Clock', [['30', '30s'], ['45', '45s — the default'], ['60', '60s'], ['0', 'Off — no clock']], { def: '45', icon: 'f-shifts' })}
             </div>
             <div class="settings-group" role="tabpanel" data-settings-group="ludo" hidden>
-                ${sel('ludoRotation', '<span class="rt-emo">🎲</span> Board', [['0', 'Blue top-left (default)'], ['1', 'Blue bottom-left'], ['2', 'Blue bottom-right'], ['3', 'Blue top-right']])}
-                ${sel('ludoDifficulty', '<span class="rt-emo">🎲</span> CPU', [['adaptive', 'Adaptive — follows your win rate'], ['easy', 'Easy — often plays a random move'], ['normal', 'Normal — plays well, ignores danger'], ['hard', 'Hard — also dodges your tokens']])}
+                ${sel('ludoRotation', 'Board', [['0', 'Blue top-left (default)'], ['1', 'Blue bottom-left'], ['2', 'Blue bottom-right'], ['3', 'Blue top-right']], { icon: 'g-ludo' })}
+                ${sel('ludoDifficulty', 'CPU', [['adaptive', 'Adaptive — follows your win rate'], ['easy', 'Easy — often plays a random move'], ['normal', 'Normal — plays well, ignores danger'], ['hard', 'Hard — also dodges your tokens']], { icon: 'g-ludo' })}
                 <div class="settings-option" style="align-items: flex-start; flex-direction: column; gap: 10px;">
-                    <span class="settings-option-label"><span class="rt-emo">🎲</span> Rules</span>
+                    <span class="settings-option-label">${attIcon('g-ludo')} Rules</span>
                     <div class="ludo-rule-toggles">
                         <div class="ludo-rule-row">
                             <span>Blocks bar opponents <small style="opacity:0.6;">(never on ★ squares)</small></span>
@@ -24544,7 +22936,7 @@
                     </div>
                 </div>
             </div>
-            <button class="close-modal-button">✨ Save & Close</button>
+            <button class="close-modal-button">${attIcon('check')} Save &amp; Close</button>
         `;
 
         document.body.appendChild(modal);
@@ -25003,251 +23395,16 @@
                        cyberText: '#ecdcff', cyberGlow: '#c77dff', cyberBorder: '#9d4edd' }
     };
 
-    // ------------------------------------------------------------------
-    // EMOJI TINT
-    //
-    // Colour emoji ignore CSS `color`, but an SVG filter reaches them:
-    // desaturate to luminance, then map it through a ramp built from the
-    // theme hue, keeping silhouette and shading.
-    //
-    // SVG rather than a CSS filter chain: sepia()/hue-rotate() recipes only
-    // approximate an arbitrary hex and drift on dark picks, while
-    // feComponentTransfer takes the channel values directly. Three ramp
-    // stops, not two: a plain duotone crushes the highlights to mud.
-    //
-    // Never filter a button, only the glyph or a bare .rt-emo wrapper: a
-    // filter also paints over background and border, and it becomes the
-    // containing block for position:fixed descendants, so it stays off the
-    // container and the side panels.
-    // ------------------------------------------------------------------
-
-    // Must match the url(#...) in cyber-theme.css; section H3 of
-    // cyber-verify.js asserts they agree.
-    const CYBER_EMOJI_FILTER_ID = 'rt-emoji-tint';
-    const CYBER_EMOJI_DEFS_ID   = 'rt-emoji-defs';
-
-    // How far the top stop is pushed toward white: 0 is a flat duotone, 1
-    // loses the hue in the highlights.
-    const CYBER_TINT_HILITE = 0.75;
-
-    // One "0 mid hi" table per channel. Luminance 0 stays black so the glyph
-    // keeps its own shading rather than becoming a flat silhouette.
-    function cyberTintTable(hex) {
-        const parts = hexToRgbStr(hex || '').split(',').map(function (n) {
-            return Number(n.trim()) / 255;
-        });
-        if (parts.length !== 3 || parts.some(function (n) { return isNaN(n); })) return null;
-        return parts.map(function (c) {
-            const v  = Math.min(1, Math.max(0, c));
-            const hi = v + (1 - v) * CYBER_TINT_HILITE;
-            return '0 ' + v.toFixed(4) + ' ' + hi.toFixed(4);
-        });
-    }
-
-    // Idempotent: builds the <defs> once per document, then only rewrites the
-    // ramp. Per document because filter references do not cross documents,
-    // so the PiP clone gets its own copy.
-    function ensureCyberEmojiFilter(doc) {
-        if (!doc || !doc.body) return;
-        // Feature-detected so a test stub without an SVG DOM no-ops instead
-        // of throwing out of applyCyberpunkTheme().
-        if (typeof doc.createElementNS !== 'function') return;
-        const table = cyberTintTable(userPreferences.cyberAccent || '#fff200');
-        if (!table) return;
-        const NS = 'http://www.w3.org/2000/svg';
-        let svg = doc.getElementById(CYBER_EMOJI_DEFS_ID);
-        if (!svg) {
-            svg = doc.createElementNS(NS, 'svg');
-            svg.setAttribute('id', CYBER_EMOJI_DEFS_ID);
-            svg.setAttribute('aria-hidden', 'true');
-            svg.setAttribute('focusable', 'false');
-            svg.setAttribute('width', '0');
-            svg.setAttribute('height', '0');
-            svg.style.cssText =
-                'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none';
-            const defs   = doc.createElementNS(NS, 'defs');
-            const filter = doc.createElementNS(NS, 'filter');
-            filter.setAttribute('id', CYBER_EMOJI_FILTER_ID);
-            // Without sRGB the transfer runs in linearRGB and the result is
-            // washed out and hue-shifted away from what the swatch says.
-            filter.setAttribute('color-interpolation-filters', 'sRGB');
-            const sat = doc.createElementNS(NS, 'feColorMatrix');
-            sat.setAttribute('type', 'saturate');
-            sat.setAttribute('values', '0');
-            filter.appendChild(sat);
-            const xfer = doc.createElementNS(NS, 'feComponentTransfer');
-            // Tagged with data-rt-ch: tag lookups are case-folded in HTML, so
-            // getElementsByTagName('feFuncR') finds nothing.
-            ['r', 'g', 'b'].forEach(function (ch) {
-                const f = doc.createElementNS(NS, 'feFunc' + ch.toUpperCase());
-                f.setAttribute('type', 'table');
-                f.setAttribute('data-rt-ch', ch);
-                xfer.appendChild(f);
-            });
-            filter.appendChild(xfer);
-            defs.appendChild(filter);
-            svg.appendChild(defs);
-            doc.body.appendChild(svg);
-        }
-        const funcs = svg.querySelectorAll('[data-rt-ch]');
-        for (let i = 0; i < funcs.length && i < 3; i++) {
-            funcs[i].setAttribute('tableValues', table[i]);
-        }
-    }
-
-    function clearCyberEmojiFilter(doc) {
-        if (!doc) return;
-        const svg = doc.getElementById(CYBER_EMOJI_DEFS_ID);
-        if (svg && svg.parentNode) svg.parentNode.removeChild(svg);
-    }
-
-    // ------------------------------------------------------------------
-    // EMOJI SWEEP: wraps emoji in the RENDERED DOM and keeps watching, so
-    // icons injected from data at render time (chip.textContent =
-    // meta.icon + …) are covered as well as literals in templates.
-    // ------------------------------------------------------------------
-
-    // Emoji_Presentation: colour emoji by default. Extended_Pictographic +
-    // U+FE0F: text glyphs forced into emoji presentation (the gear/hourglass
-    // family). Bare Extended_Pictographic is excluded: check marks, stars and
-    // arrows already follow --rt-text, and tinting them would be lossier.
-    const CYBER_EMOJI_RUN_RE =
-        /(?:(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F)(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F))*)+/gu;
-
-    // Never split text inside these: SCRIPT/STYLE hold source, and
-    // TITLE/OPTION/SELECT render in native chrome the filter cannot reach.
-    const CYBER_EMOJI_SKIP_TAGS = {
-        SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEXTAREA: 1, TITLE: 1, OPTION: 1, SELECT: 1
-    };
-
-    function cyberEmojiSkipAncestor(el) {
-        while (el) {
-            if (CYBER_EMOJI_SKIP_TAGS[el.tagName]) return true;
-            if (el.classList) {
-                // Already wrapped. Stops the observer recursing on its own
-                // output, since inserting the span is itself a mutation.
-                if (el.classList.contains('rt-emo')) return true;
-                // The progress glyph has its own filter chain (see
-                // --rt-emo-progress); wrapping it would nest filters.
-                if (el.classList.contains('emoji-display')) return true;
-            }
-            el = el.parentElement;
-        }
-        return false;
-    }
-
-    // Wraps every emoji run in one text node in a bare <span class="rt-emo">;
-    // returns whether it changed anything. Builds through node.ownerDocument,
-    // not `document`, because the PiP clone is a separate document.
-    function cyberWrapEmojiTextNode(node) {
-        const text = node.nodeValue;
-        if (!text) return false;
-        CYBER_EMOJI_RUN_RE.lastIndex = 0;
-        if (!CYBER_EMOJI_RUN_RE.test(text)) return false;
-        const doc = node.ownerDocument;
-        if (!doc || !node.parentNode) return false;
-        const frag = doc.createDocumentFragment();
-        let last = 0, m;
-        CYBER_EMOJI_RUN_RE.lastIndex = 0;
-        while ((m = CYBER_EMOJI_RUN_RE.exec(text))) {
-            if (m.index > last) frag.appendChild(doc.createTextNode(text.slice(last, m.index)));
-            const span = doc.createElement('span');
-            span.className = 'rt-emo';
-            span.textContent = m[0];
-            frag.appendChild(span);
-            last = m.index + m[0].length;
-        }
-        if (last < text.length) frag.appendChild(doc.createTextNode(text.slice(last)));
-        node.parentNode.replaceChild(frag, node);
-        return true;
-    }
-
-    // Full sweep of one subtree; cheap on emoji-free roots and safe to repeat
-    // (wrapped runs are skipped). Feature-detected: cyber-verify.js runs it
-    // against a Node stub with no TreeWalker, where a no-op is correct.
-    function cyberSweepEmoji(root) {
-        if (!root || !root.ownerDocument) return;
-        const doc = root.ownerDocument;
-        if (typeof doc.createTreeWalker !== 'function' || typeof NodeFilter === 'undefined') return;
-        const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-            acceptNode: function (node) {
-                return cyberEmojiSkipAncestor(node.parentElement)
-                    ? NodeFilter.FILTER_REJECT
-                    : NodeFilter.FILTER_ACCEPT;
-            }
-        });
-        const hits = [];
-        let n;
-        while ((n = walker.nextNode())) hits.push(n);
-        // Collect first, then wrap: replaceChild() mid-walk would detach the
-        // node the TreeWalker is sitting on.
-        hits.forEach(cyberWrapEmojiTextNode);
-    }
-
-    // True only while Cyberpunk is active. Observers stay attached across
-    // theme switches, so every callback gates on this to skip DOM walks while
-    // Glassmorphic is showing.
-    let cyberEmojiTintActive = false;
-
-    // One observer per root: applyCyberpunkTheme() runs on every
-    // colour-slider tick, and re-attaching would stack observers.
-    const cyberEmojiObservedRoots = typeof WeakSet === 'function' ? new WeakSet() : null;
-
-    // Persistent observer that sweeps whatever changes under `root`, which is
-    // what keeps data-driven writes such as game-mode chips tinted.
-    // Idempotent. Does NOT sweep existing content: callers needing an
-    // immediate pass call cyberSweepEmoji() (see applyPreferences()'s
-    // enteringRetro branch), so a colour drag does not walk the widget per tick.
-    function cyberWatchEmoji(root) {
-        if (!root || !cyberEmojiObservedRoots || cyberEmojiObservedRoots.has(root)) return;
-        if (typeof MutationObserver !== 'function') return;
-        cyberEmojiObservedRoots.add(root);
-        const observer = new MutationObserver(function (records) {
-            if (!cyberEmojiTintActive) return;
-            records.forEach(function (rec) {
-                if (rec.type === 'characterData') {
-                    if (rec.target.nodeType === 3) cyberWrapEmojiTextNode(rec.target);
-                    return;
-                }
-                rec.addedNodes.forEach(function (node) {
-                    if (node.nodeType === 3) cyberWrapEmojiTextNode(node);
-                    else if (node.nodeType === 1) cyberSweepEmoji(node);
-                });
-            });
-        });
-        observer.observe(root, { childList: true, subtree: true, characterData: true });
-    }
-
     // The whole Cyberpunk presentation pass; applyPreferences() delegates here.
     function applyCyberpunkTheme(container) {
         if (!container) return;
-        cyberEmojiTintActive = true;
-        cyberWatchEmoji(container);
         applyCyberTokens(container);
         applyCyberShape(container);
         updateCyberTitleGhosts(container);
-        ensureCyberEmojiFilter(document);
-        // Lets the stylesheet opt the progress glyph out of the tint for the
-        // one set whose meaning is its hue (see --rt-emo-progress).
-        container.setAttribute('data-emoji-set', userPreferences.emojiSet || 'fun');
 
         // Mirror onto the document root so body-level modal rules
         // (body:has(.retro-theme) ...) can resolve the same tokens.
         applyCyberTokens(document.documentElement);
-
-        // Mirror onto the PiP clone so the pickers apply live there too.
-        if (typeof isPipActive !== 'undefined' && isPipActive && pipWindow && !pipWindow.closed) {
-            const pipEl = pipWindow.document.querySelector('.pip-window-content.retro-theme');
-            if (pipEl) {
-                applyCyberTokens(pipEl);
-                applyCyberShape(pipEl);
-            }
-            ensureCyberEmojiFilter(pipWindow.document);
-            const bg1 = userPreferences.cyberBgPrimary || '#07091a';
-            const bg2 = userPreferences.cyberBgSecondary || '#11142b';
-            pipWindow.document.body.style.background =
-                'linear-gradient(135deg, ' + bg1 + ' 0%, ' + bg2 + ' 100%)';
-        }
     }
 
     function clearCyberpunkTheme(container) {
@@ -25257,14 +23414,6 @@
             container.classList.remove('rt-booting');
             const title = container.querySelector('.summary-title');
             if (title) title.removeAttribute('data-rt-text');
-            container.removeAttribute('data-emoji-set');
-        }
-        cyberEmojiTintActive = false;
-        // The defs node lives on <body>, so it outlives a theme switch
-        // unless it is removed here.
-        clearCyberEmojiFilter(document);
-        if (typeof isPipActive !== 'undefined' && isPipActive && pipWindow && !pipWindow.closed) {
-            clearCyberEmojiFilter(pipWindow.document);
         }
         clearCyberTokens(document.documentElement);
         if (cyberBootTimer) { clearTimeout(cyberBootTimer); cyberBootTimer = null; }
@@ -25286,11 +23435,6 @@
             // derive from a single array.
             applyCyberpunkTheme(container);
             if (enteringRetro) triggerCyberBoot(container);
-            // One full correcting sweep on the actual switch-in, not on every colour-slider tick
-            // (applyCyberpunkTheme()'s own cyberWatchEmoji() is the cheap, idempotent half). Content
-            // rendered under Glassmorphic has fired no mutation since, so the observer alone would
-            // leave it unwrapped forever.
-            if (enteringRetro) cyberSweepEmoji(container);
 
             let bgEl = container.querySelector('.cyber-bg-image');
             if (userPreferences.cyberBgImage) {
@@ -25344,7 +23488,7 @@
             if (totalWorkedElement) {
                 const timeStr = totalWorkedElement.textContent;
                 const seconds = timeToSeconds(timeStr);
-                emojiDisplay.textContent = getEmojiForProgress(seconds);
+                emojiDisplay.innerHTML = moodHtml(moodIdFor(seconds));
             }
         }
 
@@ -25382,8 +23526,8 @@
         const emojiEl = container.querySelector('.emoji-display');
         if (emojiEl) {
             emojiEl.title = gameModeOn
-                ? '🎮 Game Mode ON — click to turn off'
-                : '🎮 Game Mode OFF — click to turn on';
+                ? 'Game Mode ON — click to turn off'
+                : 'Game Mode OFF — click to turn on';
         }
 
         // Sync settings modal toggle if open
@@ -25550,16 +23694,6 @@
 
             if (shouldRerender) {
                 renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today);
-
-                // Clear cached DOM elements after re-render so they get re-queried
-                cachedElements = {
-                    totalWorkedTime: null,
-                    remainingTime: null,
-                    completionTime: null,
-                    emojiDisplay: null,
-                    progressFill: null,
-                    currentWorkedTime: null
-                };
             } else {
                 // Just update dynamic content without re-rendering to preserve animations
                 updateDynamicContent(totalWorkedTime, today, checkInOutList);
@@ -25618,17 +23752,6 @@
         return (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
     }
 
-    function interpolateColor(color1, color2, factor) {
-        if (arguments.length < 3) {
-            return color1;
-        }
-        let result = color1.slice();
-        for (let i = 0; i < 3; i++) {
-            result[i] = Math.round(result[i] + factor * (color2[i] - color1[i]));
-        }
-        return `rgba(${result[0]}, ${result[1]}, ${result[2]}, 0.2)`;
-    }
-
     function isPipSupported() {
         return 'documentPictureInPicture' in window;
     }
@@ -25647,7 +23770,7 @@
         const pipButton = document.createElement('button');
         pipButton.className = 'pip-button';
         pipButton.innerHTML = `
-            <span class="pip-icon"><span class="rt-emo">📱</span></span>
+            <span class="pip-icon">${attIcon('float', '22px')}</span>
             <span class="pip-text">Float</span>
         `;
 
@@ -25658,393 +23781,78 @@
         return pipButton;
     }
 
+    // FLOAT (design: Attendance widget · revamped, B1 Floating window): a 320 × 96 always-on-top window
+    // with one row, the mood face, the countdown and a thin progress rail; the browser draws the title
+    // bar. Colours are the widget's --att-* tokens, re-read every tick, so a theme or colour-scheme
+    // change reaches it unwired. It ticks on its own window's timer (a hidden tab's frames and timers
+    // stall) and recalculates the widget itself while the tab is hidden.
+    const ATT_PIP_VARS = ['panel', 'text', 'muted', 'accent', 'track', 'display', 'scheme', 'low', 'tense', 'void', 'up', 'run', 'home'];
+    const ATT_PIP_CSS = `
+        html, body { margin: 0; height: 100%; overflow: hidden; }
+        body { background: var(--att-panel); color: var(--att-text); color-scheme: var(--att-scheme); font: 400 13px 'Sora', system-ui, sans-serif; }
+        main { height: 100%; box-sizing: border-box; padding: 0 5vw; display: flex; align-items: center; justify-content: center; gap: max(8px, 4vw); }
+        .mood { width: clamp(28px, 58vh, 48px); aspect-ratio: 1; flex-shrink: 0; box-sizing: border-box; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            background: color-mix(in srgb, var(--tone) 12%, transparent); border: 1.5px solid color-mix(in srgb, var(--tone) 50%, transparent); }
+        .mood:empty { display: none; }
+        .mood svg { animation: moodIn 260ms cubic-bezier(.2, .8, .2, 1) both; }
+        @keyframes moodIn { from { opacity: 0; transform: scale(.85); } }
+        .txt { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .time { font: 700 clamp(18px, min(11.5vw, 42vh), 44px)/1 var(--att-display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .label { font-size: clamp(8px, min(3.2vw, 12vh), 11px); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--att-muted); white-space: nowrap; }
+        .rail { width: max(6px, 1.6vw); height: clamp(24px, 62vh, 72px); flex-shrink: 0; border-radius: 99px; background: var(--att-track); display: flex; align-items: flex-end; overflow: hidden; }
+        .rail i { width: 100%; background: var(--fill); transition: height .6s ease; }
+        @media (prefers-reduced-motion: reduce) { .mood svg { animation: none; } }`;
+
     async function togglePictureInPicture() {
+        if (isPipActive && pipWindow && !pipWindow.closed) return pipWindow.close();
+        const host = document.getElementById('total-time-summary');
+        if (!host) return;
         try {
-            if (isPipActive && pipWindow && !pipWindow.closed) {
-                pipWindow.close();
-                return;
-            }
-
-            // Calculate optimal window size based on screen size
-            const screenWidth = window.screen.width;
-            const screenHeight = window.screen.height;
-
-            let windowWidth, windowHeight;
-            if (screenWidth <= 480) {
-                windowWidth = Math.min(screenWidth * 0.9, 280);
-                windowHeight = Math.min(screenHeight * 0.7, 400);
-            } else if (screenWidth <= 768) {
-                windowWidth = Math.min(screenWidth * 0.8, 320);
-                windowHeight = Math.min(screenHeight * 0.75, 450);
-            } else {
-                windowWidth = 320;
-                windowHeight = 480;
-            }
-
-            // Create compact PiP window with dynamic sizing
-            pipWindow = await documentPictureInPicture.requestWindow({
-                width: windowWidth,
-                height: windowHeight,
-                disallowReturnToOpener: false
-            });
-
+            const w = pipWindow = await documentPictureInPicture.requestWindow({ width: 320, height: 96 });
+            const doc = w.document, b = doc.body, q = sel => doc.querySelector(sel);
             isPipActive = true;
-
-            copyStylesToPip(pipWindow);
-
-            const attendanceSummary = document.getElementById('total-time-summary');
-            if (attendanceSummary) {
-                // Clone only the main attendance content (center panel), not the side panels
-                const mainContent = attendanceSummary.querySelector('.main-attendance-content');
-                if (!mainContent) {
-                    console.error('Main attendance content not found');
-                    isPipActive = false;
-                    return;
-                }
-
-                const summaryClone = document.createElement('div');
-                summaryClone.className = 'attendance-summary pip-window-content';
-
-                // Clone only the main attendance content
-                const mainContentClone = mainContent.cloneNode(true);
-                summaryClone.appendChild(mainContentClone);
-
-                // Apply user's selected theme to PiP window
-                if (userPreferences.displayTheme === 'retro-futuristic') {
-                    summaryClone.classList.add('retro-theme');
-                }
-
-                pipChrome(summaryClone, pipWindow);
-                pipWindow.document.body.appendChild(summaryClone);
-
-                showPipPlaceholder(attendanceSummary);
-
-                updatePipButtonState(true);
-
-                // Set up PiP window event listeners
-                setupPipEventListeners(pipWindow, attendanceSummary);
-
-                startPipUpdateLoop(summaryClone);
-            }
-
+            doc.title = 'Time until freedom';
+            doc.head.innerHTML = `<meta name="color-scheme" content="light dark"><style>@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;700&family=Chakra+Petch:wght@700&display=swap');${ATT_PIP_CSS}</style>`;
+            b.innerHTML = '<main><span class="mood"></span><span class="txt"><span class="time"></span><span class="label"></span></span>' +
+                '<span class="rail" role="progressbar" aria-label="Shift progress" aria-valuemin="0" aria-valuemax="100"><i></i></span></main>';
+            let face = null;
+            const tick = () => {
+                if (document.hidden) insertAndCalculate();
+                if (!host.querySelector('.pip-placeholder')) showPipPlaceholder(host); // a full re-render wiped it
+                const cs = getComputedStyle(host), shift = getShiftSeconds(), worked = Math.max(0, lastTotalWorkedTime), left = shift - worked;
+                const m = attMood(worked, shift), pct = Math.round(Math.min(1, worked / shift) * 100), id = userPreferences.emojiSet === 'none' ? '' : m.id;
+                ATT_PIP_VARS.forEach(k => b.style.setProperty('--att-' + k, cs.getPropertyValue('--att-' + k)));
+                b.style.setProperty('--tone', `var(--att-${m.tone})`);
+                b.style.setProperty('--fill', m.kind === 'shift' ? 'var(--att-accent)' : 'var(--tone)');
+                if (id !== face) q('.mood').innerHTML = (face = id) && attIcon(id, '68%');
+                q('.time').textContent = (left < 0 ? '+' : '') + secondsToHHMMSS(Math.abs(left));
+                q('.label').textContent = { shift: 'Until freedom', run: 'Freedom reached', home: 'Overstayed' }[m.kind];
+                q('.rail i').style.height = pct + '%';
+                q('.rail').setAttribute('aria-valuenow', pct);
+            };
+            tick();
+            const timer = w.setInterval(tick, 1000);
+            w.addEventListener('pagehide', () => { w.clearInterval(timer); isPipActive = false; pipWindow = null; hidePipPlaceholder(host); });
         } catch (error) {
-            console.error('Failed to open Picture-in-Picture window:', error);
+            console.error('Failed to open the floating window:', error);
             isPipActive = false;
-            updatePipButtonState(false);
         }
     }
 
-    function copyStylesToPip(pipWindow) {
-        // Add color-scheme meta tag for proper theme inheritance
-        const metaColorScheme = pipWindow.document.createElement('meta');
-        metaColorScheme.name = 'color-scheme';
-        metaColorScheme.content = 'light dark';
-        pipWindow.document.head.appendChild(metaColorScheme);
-
-        const styleElement = document.getElementById('attendance-modern-styles');
-        if (styleElement) {
-            const pipStyleElement = pipWindow.document.createElement('style');
-            pipStyleElement.innerHTML = styleElement.innerHTML;
-            pipWindow.document.head.appendChild(pipStyleElement);
-        }
-
-        const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        // Borderless and theme-aware.
-        pipWindow.document.body.style.cssText = `
-            margin: 0;
-            padding: 0;
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: ${pipBackground(isDarkMode)};
-            min-height: 100vh;
-            overflow: hidden;
-            border: none;
-            border-radius: 0;
-            color-scheme: ${isDarkMode ? 'dark' : 'light'};
-            transition: background 0.3s ease, color 0.3s ease;
-        `;
-
-        // Set html styles to remove any default margins/padding
-        pipWindow.document.documentElement.style.cssText = `
-            margin: 0;
-            padding: 0;
-            border: none;
-            overflow: hidden;
-            color-scheme: ${isDarkMode ? 'dark' : 'light'};
-        `;
-
-        // Listen for browser/OS color scheme changes and update PiP window accordingly
-        const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
-        colorSchemeQuery.addEventListener('change', (e) => {
-            updatePipColorScheme(pipWindow, e.matches);
-        });
-    }
-
-    // The PiP window's backdrop: the Cyberpunk colours, else the glass gradient; light or dark.
-    function pipBackground(isDark) {
-        if (userPreferences.displayTheme === 'retro-futuristic') return isDark
-            ? `linear-gradient(135deg, ${userPreferences.cyberBgPrimary || '#07091a'} 0%, ${userPreferences.cyberBgSecondary || '#11142b'} 100%)`
-            : 'linear-gradient(135deg, #f4f6fb 0%, #e6ebf3 100%)';
-        return isDark ? 'linear-gradient(135deg, #2d3436 0%, #636e72 100%)' : 'linear-gradient(135deg, #ddd6fe 0%, #8b5cf6 100%)';
-    }
-
-    function updatePipColorScheme(pipWindow, isDark) {
-        if (!pipWindow || pipWindow.closed) return;
-        Object.assign(pipWindow.document.body.style, { background: pipBackground(isDark), colorScheme: isDark ? 'dark' : 'light' });
-        pipWindow.document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
-    }
-
-    // The PiP copy drops the main window's own buttons and gains the compact toggle.
-    function pipChrome(el, pipWindow) {
-        el.querySelectorAll('.pip-button, .developer-info, .settings-button').forEach(n => n.remove());
-        const btn = document.createElement('button');
-        btn.className = 'pip-compact-button';
-        btn.textContent = '[≡]';
-        btn.title = 'Toggle Compact Mode';
-        btn.onclick = () => toggleCompactMode(pipWindow, el);
-        el.appendChild(btn);
-    }
-
-    // Toggle compact mode in PiP window
-    function toggleCompactMode(pipWindow, summaryElement) {
-        if (!pipWindow || pipWindow.closed || !summaryElement) return;
-
-        const isCompact = summaryElement.classList.contains('compact-mode');
-
-        if (isCompact) {
-            // Switch back to full mode - regenerate content instead of cloning from placeholder
-            const hadRetroTheme = summaryElement.classList.contains('retro-theme');
-            summaryElement.classList.remove('compact-mode');
-            summaryElement.className = 'attendance-summary pip-window-content';
-            // Restore retro theme if it was set
-            if (hadRetroTheme || userPreferences.displayTheme === 'retro-futuristic') {
-                summaryElement.classList.add('retro-theme');
-            }
-
-            // Trigger a fresh calculation and render
-            const tableDiv = document.querySelector('.main-attendance-table');
-            if (tableDiv) {
-                // Create a temporary container to generate fresh content
-                const tempContainer = document.createElement('div');
-                tempContainer.id = 'temp-pip-content';
-                tempContainer.className = 'attendance-summary';
-
-                // Calculate and render fresh content to temp container
-                calculateTotalTime(tempContainer);
-
-                // Copy the fresh content to PiP window
-                if (tempContainer.innerHTML) {
-                    summaryElement.innerHTML = tempContainer.innerHTML;
-                    pipChrome(summaryElement, pipWindow);
-                }
-
-                tempContainer.remove();
-            }
-        } else {
-            summaryElement.classList.add('compact-mode');
-
-            // Apply retro theme to compact mode if user preference is set
-            if (userPreferences.displayTheme === 'retro-futuristic') {
-                summaryElement.classList.add('retro-theme');
-            }
-
-            // Get current remaining time and emoji from the actual content
-            const remainingTimeElement = summaryElement.querySelector('#remaining-time');
-            const emojiElement = summaryElement.querySelector('.emoji-display');
-            const remainingTime = remainingTimeElement ? remainingTimeElement.textContent : '00:00:00';
-            const currentEmoji = emojiElement ? emojiElement.textContent : '⏰';
-
-            const compactHTML = `
-                <div class="pip-compact-display" title="Click to expand">
-                    <div class="pip-compact-time">${remainingTime}<span class="pip-compact-emoji">${currentEmoji}</span></div>
-                    <div class="pip-compact-label">Time until freedom</div>
-                </div>
-            `;
-
-            summaryElement.innerHTML = compactHTML;
-
-            // Minimize body space for compact mode
-            if (pipWindow && !pipWindow.closed) {
-                pipWindow.document.body.style.overflow = 'hidden';
-                pipWindow.document.body.style.minHeight = 'auto';
-                pipWindow.document.body.style.height = 'auto';
-                pipWindow.document.documentElement.style.overflow = 'hidden';
-            }
-
-            // Add expand functionality to the compact display
-            const compactDisplay = summaryElement.querySelector('.pip-compact-display');
-            if (compactDisplay) {
-                compactDisplay.onclick = () => toggleCompactMode(pipWindow, summaryElement);
-            }
-        }
-    }
-
-    // Show placeholder in main window when content is in PiP
+    // While the timer floats the widget shows only this card; "Bring it back" closes the float.
     function showPipPlaceholder(container) {
-        container.classList.add('pip-active');
-
-        // Hide all content except PiP button
-        const allChildren = container.children;
-        for (let child of allChildren) {
-            if (!child.classList.contains('pip-button')) {
-                child.style.display = 'none';
-            }
-        }
-
-        const placeholder = document.createElement('div');
-        placeholder.className = 'pip-placeholder active';
-        placeholder.innerHTML = `
-            <div class="pip-placeholder-icon"><span class="rt-emo">📱</span></div>
-            <div class="pip-placeholder-text">Floating Window Active</div>
-            <div class="pip-placeholder-desc">Your attendance summary is now floating above other windows</div>
-        `;
-
-        container.appendChild(placeholder);
+        for (const c of container.children) c.classList.add('pip-hidden');
+        container.insertAdjacentHTML('beforeend', `<section class="pip-placeholder" aria-label="Floating window active">
+            <span class="pip-ph-disc">${attIcon('u-float', 36)}</span>
+            <span class="pip-ph-title">Floating window active</span>
+            <span class="pip-ph-desc">Your attendance summary is in the floating window and stays on top while you work.</span>
+            <button type="button" class="pip-ph-back">${attIcon('u-back', 20)}Bring it back</button></section>`);
+        container.querySelector('.pip-ph-back').onclick = () => pipWindow && pipWindow.close();
     }
 
     function hidePipPlaceholder(container) {
-        container.classList.remove('pip-active');
-
-        const placeholder = container.querySelector('.pip-placeholder');
-        if (placeholder) {
-            placeholder.remove();
-        }
-
-        const allChildren = container.children;
-        for (let child of allChildren) {
-            if (!child.classList.contains('pip-button')) {
-                child.style.display = '';
-            }
-        }
-    }
-
-    function updatePipButtonState(isActive) {
-        const pipButton = document.querySelector('.pip-button');
-        if (pipButton) {
-            if (isActive) {
-                pipButton.classList.add('active');
-                pipButton.innerHTML = `
-                    <span class="pip-icon"><span class="rt-emo">🔲</span></span>
-                    <span class="pip-text">Close Float</span>
-                `;
-            } else {
-                pipButton.classList.remove('active');
-                pipButton.innerHTML = `
-                    <span class="pip-icon"><span class="rt-emo">📱</span></span>
-                    <span class="pip-text">Float</span>
-                `;
-            }
-        }
-    }
-
-    // Set up PiP window event listeners
-    function setupPipEventListeners(pipWindow, originalContainer) {
-        pipWindow.addEventListener('pagehide', () => {
-            isPipActive = false;
-            pipWindow = null;
-            hidePipPlaceholder(originalContainer);
-            updatePipButtonState(false);
-        });
-
-        pipWindow.addEventListener('unload', () => {
-            isPipActive = false;
-            pipWindow = null;
-            hidePipPlaceholder(originalContainer);
-            updatePipButtonState(false);
-        });
-
-        // Handle color scheme changes from the main window
-        const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
-        const handleColorSchemeChange = (e) => {
-            if (pipWindow && !pipWindow.closed) {
-                updatePipColorScheme(pipWindow, e.matches);
-            }
-        };
-
-        colorSchemeQuery.addEventListener('change', handleColorSchemeChange);
-
-        // Clean up color scheme listener when PiP window closes
-        pipWindow.addEventListener('pagehide', () => {
-            colorSchemeQuery.removeEventListener('change', handleColorSchemeChange);
-        });
-    }
-
-    // Start update loop for PiP content
-    function startPipUpdateLoop(pipContent) {
-        const updatePipContent = () => {
-            if (!isPipActive || !pipWindow || pipWindow.closed) {
-                return;
-            }
-
-            // Get current data from the original container
-            const originalContainer = document.getElementById('total-time-summary');
-            if (originalContainer) {
-
-                // Check if we're in compact mode
-                if (pipContent.classList.contains('compact-mode')) {
-                    const compactTimeElement = pipContent.querySelector('.pip-compact-time');
-                    const compactDisplay = pipContent.querySelector('.pip-compact-display');
-
-                    const originalRemainingTime = originalContainer.querySelector('#remaining-time');
-                    const originalEmojiDisplay = originalContainer.querySelector('.emoji-display');
-                    const originalTotalWorked = originalContainer.querySelector('#total-worked-time');
-
-                    if (compactTimeElement && originalRemainingTime) {
-                        const remainingTime = originalRemainingTime.textContent;
-                        const emoji = originalEmojiDisplay ? originalEmojiDisplay.textContent : '⏰';
-                        compactTimeElement.innerHTML = `${remainingTime}<span class="pip-compact-emoji">${emoji}</span>`;
-
-                        // Dynamic background gradient based on progress
-                        if (originalTotalWorked && compactDisplay) {
-                            const totalSeconds = timeToSeconds(originalTotalWorked.textContent);
-                            const progress = Math.min(totalSeconds / getShiftSeconds(), 1);
-
-                            const startColor = [225, 112, 85]; // Red-ish
-                            const endColor = [0, 184, 148];   // Green-ish
-
-                            const bgColor = interpolateColor(startColor, endColor, progress);
-                            const borderColor = bgColor.replace('0.2)', '0.4)');
-
-                            compactDisplay.style.background = bgColor;
-                            compactDisplay.style.borderColor = borderColor;
-                        }
-                    }
-                } else {
-                    // Update full mode display - simple sync approach
-                    const pipTotalWorked = pipContent.querySelector('#total-worked-time');
-                    const pipRemainingTime = pipContent.querySelector('#remaining-time');
-                    const pipCompletionTime = pipContent.querySelector('#completion-time');
-                    const pipEmojiDisplay = pipContent.querySelector('.emoji-display');
-                    const pipProgressFill = pipContent.querySelector('.progress-fill');
-
-                    const originalTotalWorked = originalContainer.querySelector('#total-worked-time');
-                    const originalRemainingTime = originalContainer.querySelector('#remaining-time');
-                    const originalCompletionTime = originalContainer.querySelector('#completion-time');
-                    const originalEmojiDisplay = originalContainer.querySelector('.emoji-display');
-                    const originalProgressFill = originalContainer.querySelector('.progress-fill');
-
-                    // Sync content if original elements exist (not in placeholder mode)
-                    if (originalTotalWorked && pipTotalWorked) {
-                        pipTotalWorked.textContent = originalTotalWorked.textContent;
-                    }
-                    if (originalRemainingTime && pipRemainingTime) {
-                        pipRemainingTime.textContent = originalRemainingTime.textContent;
-                    }
-                    if (originalCompletionTime && pipCompletionTime) {
-                        pipCompletionTime.textContent = originalCompletionTime.textContent;
-                    }
-                    if (originalEmojiDisplay && pipEmojiDisplay) {
-                        pipEmojiDisplay.textContent = originalEmojiDisplay.textContent;
-                    }
-                    if (originalProgressFill && pipProgressFill) {
-                        pipProgressFill.style.width = originalProgressFill.style.width;
-                    }
-                }
-            }
-
-            setTimeout(updatePipContent, 1000);
-        };
-
-        setTimeout(updatePipContent, 1000);
+        container.querySelector('.pip-placeholder')?.remove();
+        for (const c of container.children) c.classList.remove('pip-hidden');
     }
 
     // Check if game panel should be preserved (games are initialized and active)
@@ -26052,23 +23860,127 @@
         return featuresInitialized;
     }
 
+    // WORKSPACE (design: Attendance widget · workspace layout). One model of the day feeds both the
+    // full render and the per-second update, so the two can never disagree.
+    const ATT_MOOD_NAME = { sweat: 'Sweating', yawn: 'Yawning', smile: 'Slight smile', blush: 'Smiling', grin: 'Grinning', run: 'Run for it' };
+    const moodName = id => ATT_MOOD_NAME[id] || id.charAt(0).toUpperCase() + id.slice(1);
+    const hhmm = s => secondsToHHMMSS(((Math.round(s) % 86400) + 86400) % 86400).slice(0, 5);
+    function wsModel(worked, list, today) {
+        const shift = getShiftSeconds(), H = Math.round(shift / 3600), m = attMood(worked, shift), left = shift - worked, kind = m.kind;
+        // Wall-clock seconds from the first check-in; a session past midnight counts on from it.
+        const now0 = timeToSeconds(formatTime(today)), inAt = list.length ? timeToSeconds(list[0].checkIn) : now0 - worked;
+        const at = t => { const s = timeToSeconds(t); return s < inAt ? s + 86400 : s; }, now = now0 < inAt ? now0 + 86400 : now0;
+        const live = !!list.length && list[list.length - 1].checkOut === 'Current';
+        // The timeline: an hour either side of the shift.
+        const t0 = Math.floor(inAt / 3600) - 1, t1 = Math.ceil((inAt + shift) / 3600) + 1, span = (t1 - t0) * 3600;
+        const x = s => (Math.max(0, Math.min(1, (s - t0 * 3600) / span)) * 100).toFixed(1) + '%';
+        let brk = 0;
+        list.forEach((v, i) => { const g = i ? at(v.checkIn) - at(list[i - 1].checkOut) : 0; if (g > 0 && g < 21600) brk += g; });
+        const pct = Math.round(Math.min(1, worked / shift) * 100), per = shift / m.lad.length, hide = userPreferences.emojiSet === 'none';
+        const name = (SHIFT_DURATIONS.find(d => d[0] === userPreferences.shiftDuration) || [0, 'Standard'])[1];
+        const slot = (id, k) => { const now = k === m.i && kind === 'shift';
+            return `<span class="ws-slot${now ? ' is-now' : k < m.i ? ' is-past' : ''}" style="--x: ${x(inAt + (k + 0.5) * per)}" title="${moodName(id)} · ${hhmm(inAt + k * per)}–${hhmm(inAt + (k + 1) * per)}">${attIcon(id, now ? '24px' : '18px')}</span>`; };
+        const r = {
+            key: (hide ? '' : m.id) + '|' + m.i + '|' + H, mood: hide ? '' : m.id, pct,
+            vars: `--ws-tone: var(--att-${m.tone}); --ws-fill: ${kind === 'shift' ? 'var(--att-accent)' : 'var(--ws-tone)'}; --ws-dot: ${!live ? 'var(--att-muted)' : kind === 'shift' ? 'var(--att-ok)' : 'var(--ws-tone)'}`,
+            lineOff: `${H}h ${name} shift · ` + (list.length ? 'check-in ' + list[0].checkIn : 'not checked in yet'),
+            sessions: list.length + (list.length === 1 ? ' session' : ' sessions'), multi: list.length > 1,
+            line: `${H}h ${name} shift · ` + (kind === 'shift' ? `hour ${Math.min(H, Math.floor(worked / 3600) + 1)} of ${H} · ${moodName(m.id)}` : kind === 'run' ? 'done · run for it' : 'over · go home'),
+            freeK: kind === 'shift' ? 'Time until freedom' : kind === 'run' ? 'Freedom reached' : 'Overstayed by',
+            freeV: (left < 0 ? '+' : '') + secondsToHHMMSS(Math.abs(left)),
+            outAt: formatTime12Hour(new Date(today.getTime() + left * 1000)),
+            status: live ? (kind === 'shift' ? 'Checked in · on shift' : kind === 'run' ? 'Shift complete' : 'Overstaying')
+                : !list.length ? 'Not checked in' : kind === 'shift' ? 'Checked out' : 'Shift complete',
+            worked: secondsToHHMMSS(worked), brk: secondsToHHMMSS(brk), target: `${H}h 00m · ${pct}%`,
+            path: hide ? '' : m.lad.map(slot).join(''),
+            bars: list.map(v => { const a = at(v.checkIn), b = v.checkOut === 'Current' ? now : at(v.checkOut); return [x(a), (Math.max(0, b - a) / span * 100).toFixed(1) + '%']; }),
+            nowX: x(now), shiftX: `left: ${x(inAt)}; width: ${(shift / span * 100).toFixed(2)}%`,
+            ticks: Array.from({ length: t1 - t0 + 1 }, (_, k) => { const h = (t0 + k + 24) % 24; return `<span style="left: ${x((t0 + k) * 3600)}">${h % 12 || 12}${h < 12 ? 'a' : 'p'}</span>`; }).join('')
+        };
+        r.spans = r.bars.map(([l, w]) => `<span class="ws-tl-work" style="left: ${l}; width: ${w}"></span>`).join('');
+        return r;
+    }
+
+    // The per-second pass: writes only what changed, so hover states and animations survive.
+    function wsUpdate(root, M) {
+        const q = s => root.querySelector(s), each = (s, f) => root.querySelectorAll(s).forEach(f), set = (el, v, p = 'textContent') => { if (el && el[p] !== v) el[p] = v; };
+        if (root.dataset.wsVars !== M.vars) { root.dataset.wsVars = M.vars; M.vars.split('; ').forEach(d => { const i = d.indexOf(': '); root.style.setProperty(d.slice(0, i), d.slice(i + 2)); }); }
+        if (root.dataset.wsKey !== M.key) { root.dataset.wsKey = M.key; set(q('.emoji-display'), moodHtml(M.mood), 'innerHTML'); set(q('.ws-path'), M.path, 'innerHTML'); }
+        [['[data-ws="line-off"]', M.lineOff], ['[data-ws="sessions"]', M.sessions], ['[data-ws="worked"]', M.worked], ['[data-ws="freek"]', M.freeK], ['#remaining-time', M.freeV], ['#completion-time', M.outAt], ['[data-ws="line"]', M.line], ['[data-ws="status"]', M.status],
+            ['#total-worked-time', M.worked], ['[data-ws="break"]', M.brk], ['[data-ws="target"]', M.target], ['#rt-day-total', M.worked + ' / ' + secondsToHHMMSS(getShiftSeconds())]]
+            .forEach(([s, v]) => each(s, el => set(el, v)));
+        each('[data-ws="spans"]', el => { if (el.children.length !== M.bars.length) { el.innerHTML = M.spans; return; }
+            M.bars.forEach(([l, w], i) => { const s = el.children[i].style; if (s.left !== l) s.left = l; if (s.width !== w) s.width = w; }); });
+        each('.ws-tl-ticks', el => set(el, M.ticks, 'innerHTML'));
+        each('.ws-tl-shift', el => { if (el.getAttribute('style') !== M.shiftX) el.setAttribute('style', M.shiftX); });
+        each('.ws-tl-now', el => { if (el.style.left !== M.nowX) el.style.left = M.nowX; });
+        each('.ws-total-row', el => el.classList.toggle('is-multi', M.multi));
+        const rw = q('.ws-rewards'), rk = xpSystemReady ? [userXP.level, userXP.currentXP, userXP.consecutiveDays, userXP.achievements.length].join() : '';
+        if (rw && rk && rw.dataset.k !== rk) { rw.dataset.k = rk; rw.innerHTML = wsRewardsHtml(); }
+        const fill = q('.progress-fill'), bar = q('.progress-bar');
+        if (fill && fill.style.width !== M.pct + '%') {
+            fill.style.width = M.pct + '%';
+            // The Cyberpunk playhead reads this off the track, so it moves in the same frame as the fill.
+            bar.style.setProperty('--rt-progress', M.pct + '%');
+            bar.setAttribute('aria-valuenow', M.pct);
+        }
+    }
+
+    // Players ranked on one board, best first.
+    function lbRanked(game, mode) {
+        const cfg = LB_BOARDS[game];
+        return leaderboardData.map(p => ({ p, v: lbBoardValue(p, game, mode) })).filter(r => r.v > 0)
+            .sort((a, b) => cfg.lowerIsBetter ? a.v - b.v : b.v - a.v);
+    }
+
+    // THE LEADERBOARD (left column; it replaced the Leaderboard tab): the team by total XP. Each game's
+    // own board stays behind its score button. A row's hover, focus or press shows the player's
+    // achievements. Runs every tick, but writes only when its markup changes, so a scroll or an open
+    // popover survives.
+    function renderMiniBoard() {
+        const box = document.querySelector('#total-time-summary .ws-board');
+        if (!box) return;
+        const attr = v => escapeHtml(String(v)).replace(/"/g, '&quot;');
+        const html = !lbRegistered
+            ? `<div class="ws-join"><span>Join to see where you rank with your team. Your level, XP and game scores are shared.</span>
+                <input id="lb-name-input" class="ws-join-in" type="text" placeholder="Display name (e.g. Hassan N.)" maxlength="20" aria-label="Display name">
+                <button type="button" class="lb-register-btn desk-primary" onclick="window.lbRegister()">Join the leaderboard</button></div>`
+            : leaderboardData.map(p => ({ p, v: p.totalXP || 0 })).sort((a, b) => b.v - a.v).map((r, i) => {
+                const me = r.p.clientId === lbClientId, name = String(r.p.displayName || '') + (me ? ' (you)' : '');
+                const keys = (Array.isArray(r.p.achievements) ? r.p.achievements : []).filter(k => ACHIEVEMENTS[k]).join(',');
+                return `<button type="button" class="ws-row${me ? ' is-me' : ''}" data-ach-name="${attr(name)}" data-ach-keys="${keys}" aria-label="${attr(name + ', rank ' + (i + 1) + ', ' + r.v.toLocaleString())}"><i>${i + 1}</i><em>${escapeHtml(lbInitials(r.p.displayName))}</em><span>${escapeHtml(name)}</span><b>${r.v.toLocaleString()}</b></button>`;
+            }).join('') || `<div class="ws-board-empty">${lbFetching ? 'Loading the board…' : 'No scores on this board yet.'}</div>`;
+        const list = box.querySelector('.ws-board-rows'), sync = box.querySelector('.ws-board-sync');
+        if (sync) sync.hidden = !lbRegistered;
+        if (list.innerHTML !== html) list.innerHTML = html;
+        const me = list.querySelector('.ws-row.is-me'), rank = me ? String(Array.prototype.indexOf.call(list.children, me)) : '';
+        if (me && list.dataset.meRank !== rank) { list.dataset.meRank = rank; list.scrollTop = +rank * (list.children[0].offsetHeight + 2); }
+    }
+
+    // Game Mode off's foot: the streak, the level and its XP, the achievements.
+    function wsRewardsHtml() {
+        const need = calculateXPForNextLevel(userXP.level), total = Object.keys(ACHIEVEMENTS).length;
+        return `<span class="ws-rw-streak">${attIcon('flame', '18px')}${userXP.consecutiveDays}-day streak</span>
+            <span class="ws-rw-xp"><b>Level ${userXP.level}</b><span role="progressbar" aria-label="XP to level ${userXP.level + 1}" aria-valuemin="0" aria-valuemax="${need}" aria-valuenow="${userXP.currentXP}"><i style="width: ${Math.min(100, userXP.currentXP / need * 100).toFixed(1)}%"></i></span><em>${userXP.currentXP.toLocaleString()} / ${need.toLocaleString()} XP</em></span>
+            <span class="ws-rw-ach">${userXP.achievements.filter(k => ACHIEVEMENTS[k]).length}/${total} achievements</span>`;
+    }
+
     function renderFullContent(totalTimeDiv, totalWorkedTime, checkInOutList, today) {
-        const currentEmoji = getEmojiForProgress(totalWorkedTime);
-        const progress = Math.min((totalWorkedTime / getShiftSeconds()) * 100, 100);
+        const M = wsModel(totalWorkedTime, checkInOutList, today), progress = M.pct;
         const shiftCode = String(userPreferences.shiftDuration || '8h').toUpperCase();
 
-        // Header. .rt-sweep and .rt-subcode are Cyberpunk-only chrome, emitted for every theme
-        // (one markup tree) and hidden by .attendance-summary:not(.retro-theme) in the theme block —
-        // adding one here without adding it there leaves unstyled text in the Glassmorphic widget.
-        // .rt-subcode stays a direct child of .summary-header: wrapping it with the h2 would re-flow
-        // the header for both themes.
+        // Header: the mood (a click toggles Game Mode), the title and the day's one line, then the
+        // control bar (Settings, About, Float). .rt-sweep and .rt-subcode are Cyberpunk-only chrome,
+        // hidden by .attendance-summary:not(.retro-theme) in the theme block; .rt-subcode stays a
+        // direct child of .summary-header.
         const headerHTML = `
             <div class="rt-sweep" aria-hidden="true"></div>
-            <div class="summary-header">
-                <div class="emoji-display" id="game-mode-emoji-toggle" title="🎮 Game Mode ON — click to turn off">${currentEmoji}</div>
-                <h2 class="summary-title">Attendance Summary</h2>
+            <header class="summary-header ws-head">
+                <div class="emoji-display" id="game-mode-emoji-toggle" role="button" tabindex="0" title="Game Mode ON — click to turn off">${moodHtml(M.mood)}</div>
+                <div class="ws-title"><h2 class="summary-title">Attendance Summary</h2><span class="ws-sub"><span class="ws-line-on" data-ws="line">${M.line}</span><span class="ws-line-off" data-ws="line-off">${M.lineOff}</span></span></div>
                 <span class="rt-subcode" aria-hidden="true">// SHIFT.${shiftCode}</span>
-            </div>
+                <div class="bottom-control-bar"></div>
+            </header>
         `;
 
         // Caption and tfoot go INSIDE the table: the theme draws .modern-table as one clipped plate,
@@ -26089,10 +24001,10 @@
                 <thead>
                     <tr>
                         <th>#</th>
-                        <th>Check-In</th>
-                        <th>Check-Out</th>
-                        <th>Worked Time</th>
-                        <th>Break Duration</th>
+                        <th>Check-in</th>
+                        <th>Check-out</th>
+                        <th>Worked</th>
+                        <th>Break</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -26115,7 +24027,7 @@
                 tableHTML += `
                     <tr>
                         <td colspan="5" class="gap-warning">
-                            ⚠️ 6+ Hour Gap Detected (not added in total time)
+                            ${attIcon('warn')} 6+ Hour Gap Detected (not added in total time)
                         </td>
                     </tr>
                 `;
@@ -26130,15 +24042,16 @@
                 <tr class="${isCurrentSession ? 'rt-active' : ''}">
                     <td>${index + 1}</td>
                     <td>${item.checkIn}</td>
-                    <td>${item.checkOut}</td>
+                    <td${isCurrentSession ? ' class="ws-out-live"' : ''}>${isCurrentSession ? '<span>Current</span><b>On shift</b>' : item.checkOut}</td>
                     <td${workedTimeCellId}>${item.workedTime}</td>
-                    <td>${durationDifference}</td>
+                    <td>${durationDifference || '—'}</td>
                 </tr>
             `;
         });
 
         tableHTML += `</tbody>
             <tfoot>
+                <tr class="ws-total-row${checkInOutList.length > 1 ? ' is-multi' : ''}"><td></td><td>Day total</td><td></td><td data-ws="worked">${secondsToHHMMSS(totalWorkedTime)}</td><td data-ws="break"></td></tr>
                 <tr>
                     <td class="rt-tbl-foot" colspan="5">
                         <span class="rt-foot-row">
@@ -26179,83 +24092,71 @@
                  fill (the fill has to clip its own highlight sweep, and the
                  playhead has to overhang), so the track needs to know the
                  percentage too. Unused by every other theme. -->
-            <div class="progress-bar" style="--rt-progress: ${progress}%">
+            <div class="progress-bar" role="progressbar" aria-label="Shift progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}" style="--rt-progress: ${progress}%">
                 <div class="progress-fill" style="width: ${progress}%"></div>
             </div>
         `;
 
-        const totalTimeFormatted = secondsToHHMMSS(totalWorkedTime);
-        const remainingTime = getShiftSeconds() - totalWorkedTime;
-        const remainingTimeFormatted = remainingTime > 0 ? secondsToHHMMSS(remainingTime) : "00:00:00";
-
-        let timeStatsHTML = `
-            <div class="time-stats">
-            <div class="stat-card worked-time-card">
-                <div class="stat-label">Total Worked</div>
-                <div id="total-worked-time" class="stat-value worked-time">${totalTimeFormatted}</div>
-            </div>
-            <div class="stat-card remaining-time-card">
-                <div class="stat-label">Remaining</div>
+        const totalTimeFormatted = M.worked, remainingTimeFormatted = M.freeV;
+        // The day on a timeline: the shift, each session, now. Game Mode off shows it in the time card.
+        const tlHTML = cls => `<div class="ws-tl ${cls}" aria-label="Day timeline"><div class="ws-tl-bar"><span class="ws-tl-shift" style="${M.shiftX}"></span><span data-ws="spans">${M.spans}</span><span class="ws-tl-now" style="left: ${M.nowX}"></span></div><div class="ws-tl-ticks">${M.ticks}</div></div>`;
+        // The time card: what is left (or how far over), when the shift ends, the mood path and the bar.
+        const timeCardHTML = `
+            <section class="ws-card ws-time" aria-label="Time">
                 <span class="rt-live" aria-hidden="true">&#9679; LIVE</span>
-                <div id="remaining-time" class="stat-value remaining-time">${remainingTimeFormatted}</div>
-                <div class="remaining-desc"><span class="rt-emo">⏰</span> Time until freedom</div>
-            </div>
+                <div class="ws-time-top">
+                    <div class="ws-free"><span class="ws-k" data-ws="freek">${M.freeK}</span><span id="remaining-time" class="ws-big">${M.freeV}</span></div>
+                    <div class="ws-at">Complete at<b id="completion-time">${M.outAt}</b></div>
+                </div>
+                <div class="ws-path" aria-label="Mood path">${M.path}</div>
+                <div class="ws-bar">${progressBarHTML}</div>
+                ${tlHTML('is-time')}
+            </section>
+        `;
+        // Today's attendance: status, the sessions on a timeline, the punch log, the totals.
+        const dayCardHTML = `
+            <section class="ws-card ws-day" aria-label="Today's attendance">
+                <div class="ws-day-head">Today's attendance<span class="ws-pill"><i></i><span data-ws="status">${M.status}</span></span><span class="ws-sessions" data-ws="sessions">${M.sessions}</span></div>
+                ${tlHTML('is-day')}
+                ${tableHTML}
+                <span class="ws-hint">Punch out for a break and it appears here as a new session.</span>
+                <div class="ws-totals">
+                    <div class="ws-tot">Worked today<b id="total-worked-time">${M.worked}</b></div>
+                    <div class="ws-tot">Break<b data-ws="break">${M.brk}</b></div>
+                    <div class="ws-tot is-target">Target<b data-ws="target">${M.target}</b></div>
+                </div>
+            </section>
         `;
 
-        let futureTimeFormatted = '';
-        if (remainingTime > 0) {
-            const futureTime = new Date(today.getTime() + remainingTime * 1000);
-            futureTimeFormatted = formatTime12Hour(futureTime);
-            timeStatsHTML += `
-                <div class="stat-card completion-time-card">
-                    <div class="stat-label">Complete at</div>
-                    <div id="completion-time" class="stat-value completion-time">${futureTimeFormatted}</div>
-                </div>
-            `;
-        }
-
-        timeStatsHTML += '</div>';
-
-        // Completion message uses shiftHours (declared above for the ruler), not a hardcoded 8-hour.
-        let completionHTML = '';
-        if (remainingTime <= 0) {
-            completionHTML = `
-                <div class="completion-message">
-                    🎉 Congratulations! You've completed your ${shiftHours}-hour shift! 🎉
-                </div>
-            `;
-        }
-
-        // Left panel - Multi-Game System & Quotes
+        // Left panel: the games, then the board for the open one
         // A game's header button, which opens its board: this run / best and a trophy, or the best
         // (wins) alone when there is no run figure.
         const gameScoreBtn = (g, best, cur, blank = '0', hidden) =>
             `<button id="${g}-lb-btn" class="game-score-btn"${hidden ? ' style="display: none;"' : ''} onclick="window.openGameLeaderboard('${g}')">` +
             (cur ? `<span class="gsb-score" id="${cur}">${blank}</span><span class="gsb-sep">/</span>` : '') +
-            `<span class="gsb-best" id="${best}">${blank}</span><span class="gsb-trophy">🏆</span></button>`;
+            `<span class="gsb-best" id="${best}">${blank}</span><span class="gsb-trophy">${attIcon('trophy')}</span></button>`;
         const leftPanelHTML = `
             <div class="left-panel">
                 <!-- Multi-Game Container -->
                 <div class="snake-game-container">
                     <!-- Game Switcher -->
                     <div class="game-switcher">
-                        <button id="game-switch-snake" class="game-switch-btn active" onclick="window.switchGame('snake')" title="Snake Game"><span class="rt-emo">🐍</span></button>
-                        <button id="game-switch-flappy" class="game-switch-btn" onclick="window.switchGame('flappy')" title="Flappy Bird"><span class="rt-emo">🐦</span></button>
-                        <button id="game-switch-tetris" class="game-switch-btn" onclick="window.switchGame('tetris')" title="Tetris"><span class="rt-emo">🧱</span></button>
-                        <button id="game-switch-reflex" class="game-switch-btn" onclick="window.switchGame('reflex')" title="RefleX Game"><span class="rt-emo">⚡</span></button>
-                        <button id="game-switch-aim" class="game-switch-btn" onclick="window.switchGame('aim')" title="Chaos Aim"><span class="rt-emo">💥</span></button>
-                        <button id="game-switch-breakout" class="game-switch-btn" onclick="window.switchGame('breakout')" title="Breakout"><span class="rt-emo">🏓</span></button>
-                        <button id="game-switch-pool" class="game-switch-btn" onclick="window.switchGame('pool')" title="8-Ball Pool"><span class="rt-emo">🎱</span></button>
-                        <button id="game-switch-ludo" class="game-switch-btn" onclick="window.switchGame('ludo')" title="Ludo"><span class="rt-emo">🎲</span></button>
-                        <button id="game-switch-prayer" class="game-switch-btn" onclick="window.switchGame('prayer')" title="Prayer Counter"><span class="rt-emo">📿</span></button>
-                        <button id="game-switch-leaderboard" class="game-switch-btn" onclick="window.switchGame('leaderboard')" title="Leaderboard"><span class="rt-emo">🏆</span></button>
+                        <button id="game-switch-snake" class="game-switch-btn active" onclick="window.switchGame('snake')" title="Snake Game">${attIcon('g-snake')}</button>
+                        <button id="game-switch-flappy" class="game-switch-btn" onclick="window.switchGame('flappy')" title="Flappy Bird">${attIcon('g-flappy')}</button>
+                        <button id="game-switch-tetris" class="game-switch-btn" onclick="window.switchGame('tetris')" title="Tetris">${attIcon('g-tetris')}</button>
+                        <button id="game-switch-reflex" class="game-switch-btn" onclick="window.switchGame('reflex')" title="RefleX Game">${attIcon('g-reflex')}</button>
+                        <button id="game-switch-aim" class="game-switch-btn" onclick="window.switchGame('aim')" title="Chaos Aim">${attIcon('g-aim')}</button>
+                        <button id="game-switch-breakout" class="game-switch-btn" onclick="window.switchGame('breakout')" title="Breakout">${attIcon('g-breakout')}</button>
+                        <button id="game-switch-pool" class="game-switch-btn" onclick="window.switchGame('pool')" title="8-Ball Pool">${attIcon('g-pool')}</button>
+                        <button id="game-switch-ludo" class="game-switch-btn" onclick="window.switchGame('ludo')" title="Ludo">${attIcon('g-ludo')}</button>
+                        <button id="game-switch-prayer" class="game-switch-btn" onclick="window.switchGame('prayer')" title="Prayer Counter">${attIcon('g-tasbih')}</button>
                     </div>
 
                     <!-- Game Header (Dynamic) -->
                     <div class="snake-game-header">
-                        <span id="game-title" class="snake-game-title">🐍 Snake</span>
+                        <span id="game-title" class="snake-game-title">${attIcon('g-snake')} Snake</span>
                         <div id="snake-scoreboard" class="snake-scoreboard">
-                            <span id="snake-mode-chip" class="snake-score snake-mode-chip">🧱 Walled</span>
+                            <span id="snake-mode-chip" class="snake-score snake-mode-chip">${attIcon('walled')} Walled</span>
                             ${gameScoreBtn('snake', 'snake-high-score', 'snake-current-score')}
                         </div>
                         <div id="flappy-scoreboard" class="snake-scoreboard" style="display: none;">
@@ -26266,7 +24167,7 @@
                             ${gameScoreBtn('tetris', 'tetris-high-score', 'tetris-score')}
                         </div>
                         <div id="reflex-scoreboard" class="snake-scoreboard" style="display: none;">
-                            <span class="snake-score gsb-aside" id="reflex-mode-chip">⚡ Screen</span>
+                            <span class="snake-score gsb-aside" id="reflex-mode-chip">${attIcon('g-reflex')} Screen</span>
                             ${gameScoreBtn('reflex', 'reflex-high-score', 'reflex-last-score', '—')}
                         </div>
                         <div id="aim-scoreboard" class="snake-scoreboard" style="display: none;">
@@ -26274,7 +24175,7 @@
                         </div>
                         <div id="breakout-scoreboard" class="snake-scoreboard" style="display: none;">
                             <span class="snake-score gsb-aside">Lv <span id="breakout-level">1</span></span>
-                            <span id="breakout-lives" class="snake-score gsb-aside">❤️❤️❤️</span>
+                            <span id="breakout-lives" class="snake-score gsb-aside">${attIcon('heart')}${attIcon('heart')}${attIcon('heart')}</span>
                             ${gameScoreBtn('breakout', 'breakout-hiscore', 'breakout-score')}
                         </div>
                         <div id="pool-scoreboard" class="snake-scoreboard" style="display: none;">
@@ -26283,13 +24184,13 @@
                         </div>
                         <div id="ludo-scoreboard" class="snake-scoreboard" style="display: none;">
                             <span class="snake-score gsb-aside" id="ludo-mode-label">PvCPU</span>
-                            <span class="snake-score gsb-aside" id="ludo-tier-label">⚔️ normal</span>
-                            <span class="snake-score gsb-aside" id="ludo-home-label">🏠 0/4</span>
+                            <span class="snake-score gsb-aside" id="ludo-tier-label">${attIcon('normal')} normal</span>
+                            <span class="snake-score gsb-aside" id="ludo-home-label">${attIcon('home')} 0/4</span>
                             <span class="snake-score gsb-aside" id="ludo-turn-label">Press Play</span>
                             ${gameScoreBtn('ludo', 'ludo-wins')}
                         </div>
                         <div id="prayer-scoreboard" class="snake-scoreboard" style="display: none;">
-                            <span class="snake-score">📿 Count: <span id="prayer-hdr-count">0</span></span>
+                            <span class="snake-score">${attIcon('g-tasbih')} Count: <span id="prayer-hdr-count">0</span></span>
                         </div>
                     </div>
 
@@ -26318,7 +24219,7 @@
                             <div class="prayer-sublabel">tap +1 to count dhikr</div>
                         </div>
                         <button class="prayer-plus-btn" onclick="window.prayerIncrementBtn()">+1</button>
-                        <button class="prayer-reset-btn" onclick="window.prayerResetBtn()" title="Reset counter">🔄</button>
+                        <button class="prayer-reset-btn" onclick="window.prayerResetBtn()" title="Reset counter" aria-label="Reset counter">${attIcon('reset')}</button>
                     </div>
 
                     <!-- Game Stats -->
@@ -26334,10 +24235,10 @@
 
                     <!-- Snake Controls -->
                     <div id="snake-controls" class="snake-controls">
-                        <button id="snake-mode-btn" class="snake-btn" onclick="window.cycleSnakeModeBtn()" title="Walls are lethal">🧱 Walled</button>
-                        <button id="snake-play-btn" class="snake-btn" onclick="window.snakePlayPause()">▶ Play</button>
-                        <button class="snake-btn" onclick="window.resetSnake()">🔄 Reset</button>
-                        <button class="snake-btn" onclick="window.toggleSnakeSkinTrayBtn()" title="Snake skins">🎨</button>
+                        <button id="snake-mode-btn" class="snake-btn" onclick="window.cycleSnakeModeBtn()" title="Walls are lethal">${attIcon('walled')} Walled</button>
+                        <button id="snake-play-btn" class="snake-btn is-primary" onclick="window.snakePlayPause()">${attIcon('play')} Play</button>
+                        <button class="snake-btn" onclick="window.resetSnake()">${attIcon('reset')} Reset</button>
+                        <button class="snake-btn is-icon" onclick="window.toggleSnakeSkinTrayBtn()" title="Snake skins" aria-label="Snake skins">${attIcon('f-skins')}</button>
                     </div>
 
                     <!-- Snake Skin Tray (rendered by renderSnakeSkinTray) -->
@@ -26349,33 +24250,33 @@
 
                     <!-- RefleX Controls -->
                     <div id="reflex-controls" class="snake-controls" style="display: none;">
-                        <button class="snake-btn" onclick="window.toggleReflexModeBtn()">🔄 Switch Mode</button>
-                        <button id="reflex-play-btn" class="snake-btn" onclick="window.startReflexGameBtn()">▶ Play</button>
-                        <button class="snake-btn" onclick="window.resetReflexGameBtn()">🔄 Reset</button>
+                        <button class="snake-btn" onclick="window.toggleReflexModeBtn()">${attIcon('swap')} Switch Mode</button>
+                        <button id="reflex-play-btn" class="snake-btn is-primary" onclick="window.startReflexGameBtn()">${attIcon('play')} Play</button>
+                        <button class="snake-btn" onclick="window.resetReflexGameBtn()">${attIcon('reset')} Reset</button>
                     </div>
 
                     <!-- AimTrainer Controls -->
                     <div id="aim-controls" class="snake-controls" style="display: none;">
-                        <button id="aim-play-btn" class="snake-btn" onclick="window.startAimGameBtn()">▶ Play</button>
-                        <button class="snake-btn" onclick="window.resetAimGameBtn()">🔄 Reset</button>
+                        <button id="aim-play-btn" class="snake-btn is-primary" onclick="window.startAimGameBtn()">${attIcon('play')} Play</button>
+                        <button class="snake-btn" onclick="window.resetAimGameBtn()">${attIcon('reset')} Reset</button>
                     </div>
 
                     <!-- Flappy Bird Controls -->
                     <div id="flappy-controls" class="snake-controls" style="display: none;">
-                        <button class="snake-btn" onclick="window.startFlappyGameBtn()">▶ Play</button>
-                        <button class="snake-btn" onclick="window.resetFlappyGameBtn()">🔄 Reset</button>
+                        <button class="snake-btn is-primary" onclick="window.startFlappyGameBtn()">${attIcon('play')} Play</button>
+                        <button class="snake-btn" onclick="window.resetFlappyGameBtn()">${attIcon('reset')} Reset</button>
                     </div>
 
                     <!-- Tetris Controls -->
                     <div id="tetris-controls" class="snake-controls" style="display: none;">
-                        <button class="snake-btn" onclick="window.startTetrisGameBtn()">▶ Play</button>
-                        <button class="snake-btn" onclick="window.resetTetrisGameBtn()">🔄 Reset</button>
+                        <button class="snake-btn is-primary" onclick="window.startTetrisGameBtn()">${attIcon('play')} Play</button>
+                        <button class="snake-btn" onclick="window.resetTetrisGameBtn()">${attIcon('reset')} Reset</button>
                     </div>
 
                     <!-- Breakout Controls -->
                     <div id="breakout-controls" class="snake-controls" style="display: none;">
-                        <button class="snake-btn" onclick="window.startBreakoutGameBtn()">▶ Play</button>
-                        <button class="snake-btn" onclick="window.resetBreakoutGameBtn()">🔄 Reset</button>
+                        <button class="snake-btn is-primary" onclick="window.startBreakoutGameBtn()">${attIcon('play')} Play</button>
+                        <button class="snake-btn" onclick="window.resetBreakoutGameBtn()">${attIcon('reset')} Reset</button>
                     </div>
 
                     <!-- Pool Controls -->
@@ -26384,21 +24285,14 @@
 
                     <!-- Ludo Controls -->
                     <div id="ludo-controls" class="snake-controls" style="display: none;">
-                        <button class="snake-btn" id="ludo-mode-btn" onclick="window.cycleLudoModeBtn()">🔄 PvCPU</button>
-                        <button class="snake-btn" onclick="window.startLudoGameBtn()">▶ Play</button>
-                        <button class="snake-btn" onclick="window.resetLudoGameBtn()">🔄 Reset</button>
+                        <button class="snake-btn" id="ludo-mode-btn" onclick="window.cycleLudoModeBtn()">${attIcon('swap')} PvCPU</button>
+                        <button class="snake-btn is-primary" onclick="window.startLudoGameBtn()">${attIcon('play')} Play</button>
+                        <button class="snake-btn" onclick="window.resetLudoGameBtn()">${attIcon('reset')} Reset</button>
                         <button class="snake-btn" onclick="window.toggleLudoMaximizeBtn()">⛶ Max</button>
                     </div>
 
                     <!-- Prayer Counter Controls (empty — interaction is on the panel itself) -->
                     <div id="prayer-controls" class="snake-controls" style="display: none;"></div>
-
-                    <!-- Leaderboard Panel -->
-                    <div id="leaderboard-panel" class="leaderboard-panel ach-ui" style="display: none;"></div>
-                    <div id="leaderboard-controls" class="snake-controls" style="display: none;"></div>
-                    <div id="leaderboard-scoreboard" class="snake-scoreboard" style="display: none;">
-                        <button class="lb-sync-btn" onclick="window.lbSync()" title="Sync & Refresh">🔄</button>
-                    </div>
 
                     <!-- Game Over Overlays -->
                     <div id="snake-game-over" class="snake-game-over">
@@ -26413,19 +24307,10 @@
                 <div id="reflex-results"></div>
                 <div id="aim-results"></div>
 
-                <!-- Quotes Box -->
-                <div class="quotes-container">
-                    <div class="quotes-header">
-                        <span class="quotes-title">💭 Daily Motivation</span>
-                        <button class="quote-add-btn" onclick="window.addQuote()">+ Add Quote</button>
-                    </div>
-                    <div class="quote-display">
-                        <div>
-                            <div id="quote-text" class="quote-text"></div>
-                            <div id="quote-author" class="quote-author"></div>
-                        </div>
-                    </div>
-                </div>
+                <section class="ws-card ws-board" aria-label="Leaderboard">
+                    <div class="ws-board-head"><span>${attIcon('g-board')} Leaderboard</span><span class="ws-board-tools"><span class="ws-board-sub">Total XP</span><button type="button" class="ws-board-sync" onclick="window.lbSync()" title="Sync and refresh" aria-label="Sync and refresh">${attIcon('f-cloud', '18px')}</button></span></div>
+                    <div class="ws-board-rows"></div>
+                </section>
             </div>
         `;
 
@@ -26455,23 +24340,22 @@
         // Game Mode collapses .left-panel and .right-panel only, so anything that must survive it
         // has to live in the centre column.
         const mainContentHTML = `
-            <div class="main-attendance-content">
+            <div class="main-attendance-content ws-center" style="${M.vars}" data-ws-key="${M.key}">
                 ${headerHTML}
-                ${progressBarHTML}
-                ${tableHTML}
-                ${timeStatsHTML}
-                ${completionHTML}
+                ${timeCardHTML}
+                ${dayCardHTML}
+                <div class="ws-rewards" aria-label="Rewards"></div>
                 ${tickerHTML}
             </div>
         `;
 
-        // Right panel - XP System & Image Box
+        // Right panel: Work Rewards, then the desk card
         const rightPanelHTML = `
             <div class="right-panel">
                 <!-- Work Rewards (AchEarned): the level, its bar, today's milestone, the streak, the totals, the earned row -->
                 <section class="xpr ach-ui" aria-label="Work rewards">
                     <div class="xpr-head">
-                        <span class="xpr-title">${achSvg(ACH_SPARKLE_D, 18)}<span>Work Rewards</span></span>
+                        <span class="xpr-title">${attIcon('spark', '18px')}<span>Work Rewards</span></span>
                         <span class="xpr-level">Level&nbsp;<span id="xp-level">1</span></span>
                     </div>
                     <div class="xpr-progress">
@@ -26485,7 +24369,7 @@
                     </div>
                     <div id="xp-next-milestone" class="xpr-row xpr-milestone" style="display: none;"></div>
                     <div class="xpr-row xpr-streak">
-                        <span class="xpr-flame ach-t-rare">${achSvg(ACHIEVEMENTS.streak7.d, 18)}</span>
+                        <span class="xpr-flame">${attIcon('flame', '18px')}</span>
                         <span class="xpr-streak-n"><span id="xp-streak">0</span>-Day Streak</span>
                         <span class="xpr-muted">Best: <span id="xp-longest-streak">0</span></span>
                     </div>
@@ -26502,8 +24386,7 @@
                     <div id="xp-achievements" class="xp-achievements"></div>
                 </section>
 
-                <!-- Image Box -->
-                ${imageBoxHTML()}
+                ${DESK_HTML}
             </div>
         `;
 
@@ -26513,34 +24396,17 @@
 
         if (preserveGames && existingLeftPanel) {
             // Games are running - only update center and right panels, leave games untouched
-            let centerPanel = totalTimeDiv.querySelector('.main-attendance-content');
-            let rightPanel = totalTimeDiv.querySelector('.right-panel');
-
-            if (centerPanel) {
-                centerPanel.innerHTML = mainContentHTML.replace(/<div class="main-attendance-content">/, '').replace(/<\/div>$/, '');
-            } else {
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = mainContentHTML;
-                centerPanel = tempDiv.firstElementChild;
-                totalTimeDiv.appendChild(centerPanel);
-            }
-
-            if (rightPanel) {
-                rightPanel.innerHTML = rightPanelHTML.replace(/<div class="right-panel">/, '').replace(/<\/div>$/, '');
-            } else {
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = rightPanelHTML;
-                rightPanel = tempDiv.firstElementChild;
-                totalTimeDiv.appendChild(rightPanel);
-            }
+            const swap = (sel, html, after) => { const t = document.createElement('div'), old = totalTimeDiv.querySelector(sel); t.innerHTML = html.trim();
+                if (old) old.replaceWith(t.firstElementChild); else if (after) after.after(t.firstElementChild); else totalTimeDiv.appendChild(t.firstElementChild); };
+            swap('.main-attendance-content', mainContentHTML, existingLeftPanel);
+            swap('.right-panel', rightPanelHTML);
         } else {
             // First render or games not initialized - build everything
             totalTimeDiv.innerHTML = leftPanelHTML + mainContentHTML + rightPanelHTML;
         }
 
-        // A rebuilt right panel starts with an empty image frame; before the first init,
-        // initImageBox() fills it.
-        if (featuresInitialized) updateImageDisplay();
+        // A rebuilt right panel starts with an empty desk card; before the first init, initDesk() fills it.
+        if (featuresInitialized) renderDesk();
 
         // Wire emoji click → Game Mode toggle
         const _emojiToggle = totalTimeDiv.querySelector('#game-mode-emoji-toggle');
@@ -26553,9 +24419,10 @@
                 _emojiToggle.style.transform = 'scale(1.45) rotate(-12deg)';
                 setTimeout(() => { _emojiToggle.style.transform = ''; }, 230);
             });
+            _emojiToggle.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _emojiToggle.click(); } });
         }
 
-        // Bottom control bar — lives inside main-attendance-content as a normal flex child
+        // The control bar, in the header: Settings, About, Float
         const _mainContent = totalTimeDiv.querySelector('.main-attendance-content');
         const _target = _mainContent || totalTimeDiv;
         let _controlBar = _target.querySelector('.bottom-control-bar');
@@ -26566,8 +24433,8 @@
         }
         _controlBar.innerHTML = ''; // repopulate fresh each render
         addSettingsButton(_controlBar);
-        createPipButton(_controlBar);
         addDeveloperInfo(_controlBar);
+        createPipButton(_controlBar);
 
         addParallaxEffect(totalTimeDiv);
 
@@ -26575,9 +24442,9 @@
         if (!featuresInitialized) {
             setTimeout(() => {
                 initSnakeGame();
-                initQuotesSystem();
                 initXPSystem();
-                initImageBox();
+                initDesk();
+                initLeaderboard();
                 // Pre-load high scores for new games
                 flappyHighScore = loadFlappyHighScore();
                 tetrisHighScore = loadTetrisHighScore();
@@ -26598,7 +24465,6 @@
                         case '5': window.switchGame('aim'); break;
                         case '6': window.switchGame('breakout'); break;
                         case '7': window.switchGame('pool'); break;
-                        case '8': window.switchGame('leaderboard'); break;
                         case '9': window.switchGame('ludo'); break;
                         case 'p': case 'P':
                             if (currentGame === 'snake' && snakeGameRunning) pauseSnakeGame();
@@ -26616,6 +24482,13 @@
                             break;
                     }
                 });
+
+                document.addEventListener('wheel', (e) => {
+                    const rail = e.target.closest && e.target.closest('#total-time-summary .game-switcher');
+                    if (!rail || !e.deltaY || rail.scrollWidth <= rail.clientWidth) return;
+                    rail.scrollLeft += e.deltaY;
+                    e.preventDefault();
+                }, { passive: false });
 
                 featuresInitialized = true;
             }, 100);
@@ -26649,7 +24522,6 @@
             gameLbModeOverride = mode;
             renderGameLeaderboard(gameLbOpen);
         };
-        window.addQuote = addCustomQuote;
 
         window.switchGame = (gameKey) => {
             switchToGame(gameKey);
@@ -26685,7 +24557,7 @@
             // text stays in step with the mode it actually switched to.
             const label = cycleLudoModeAndReset();
             const btn = document.getElementById('ludo-mode-btn');
-            if (btn) btn.textContent = '🔄 ' + label;
+            if (btn) btn.innerHTML = attIcon('swap') + ' ' + label;
         };
         window.toggleLudoMaximizeBtn = () => { toggleLudoMaximize(); };
         // Dice audit, for settling "is the CPU cheating?" with your own data:
@@ -26711,11 +24583,11 @@
             const input = document.getElementById('lb-name-input');
             const name = (input ? input.value : '').trim();
             if (!name || name.length < 2) {
-                showXPNotification('⚠️ Enter a display name (2+ chars)', 'hourly');
+                showXPNotification('Enter a display name (2+ chars)', 'hourly', 'warn');
                 return;
             }
             const btn = document.querySelector('.lb-register-btn');
-            if (btn) { btn.disabled = true; btn.textContent = '⏳ Joining...'; }
+            if (btn) { btn.disabled = true; btn.innerHTML = attIcon('hourglass') + ' Joining...'; }
             const ok = await registerPlayer(name);
             if (ok) {
                 await fetchLeaderboard();
@@ -26724,184 +24596,37 @@
                     leaderboardData = [Object.assign({ clientId: lbClientId, displayName: lbDisplayName }, lbOwnEntry(),
                         { joinedAt: new Date().toISOString().split('T')[0], lastSync: new Date().toISOString() })];
                 }
-                renderLeaderboardPanel();
-            } else if (btn) { btn.disabled = false; btn.textContent = '🚀 Join Now'; }
+                renderMiniBoard();
+            } else if (btn) { btn.disabled = false; btn.innerHTML = attIcon('rocket') + ' Join Now'; }
         };
         window.lbSync = async () => {
-            showXPNotification('🔄 Syncing scores...', 'hourly');
+            showXPNotification('Syncing scores...', 'hourly', 'f-cloud');
             await syncMyScore();
             await fetchLeaderboard();
             // Ensure local entry reflects latest localStorage scores (avoids stale API cache)
             const myEntry = leaderboardData.find(p => p.clientId === lbClientId);
             if (myEntry) Object.assign(myEntry, lbOwnEntry());
-            renderLeaderboardPanel();
-            showXPNotification('✅ Leaderboard updated!', 'hourly');
+            renderMiniBoard();
+            showXPNotification('Leaderboard updated!', 'hourly', 'check');
         };
 
         function updateGameTitle(gameKey) {
             const el = document.getElementById('game-title'), g = GAME_PANELS[gameKey];
             if (!el || !g) return;
             if (gameKey === 'pool' && typeof poolRenderTitle === 'function') poolRenderTitle(el);
-            else el.textContent = typeof g.title === 'function' ? g.title() : g.title;
+            else el.innerHTML = attIcon(g.icon) + ' ' + escapeHtml(typeof g.title === 'function' ? g.title() : g.title);
         }
 
-        // Reset cached values for new render
-        cachedValues = {
-            totalWorked: totalTimeFormatted,
-            remaining: remainingTimeFormatted,
-            completion: futureTimeFormatted,
-            emoji: currentEmoji,
-            progress: progress
-        };
+        renderMiniBoard();
     }
 
     function updateDynamicContent(totalWorkedTime, today, checkInOutList = []) {
-        // Batch all DOM reads first, then all writes to prevent layout thrashing
-        const totalTimeFormatted = secondsToHHMMSS(totalWorkedTime);
-        const remainingTime = getShiftSeconds() - totalWorkedTime;
-        const remainingTimeFormatted = remainingTime > 0 ? secondsToHHMMSS(remainingTime) : "00:00:00";
-        const currentEmoji = getEmojiForProgress(totalWorkedTime);
-        const progress = Math.min((totalWorkedTime / getShiftSeconds()) * 100, 100);
-
-        let futureTimeFormatted = '';
-        if (remainingTime > 0) {
-            const futureTime = new Date(today.getTime() + remainingTime * 1000);
-            futureTimeFormatted = formatTime12Hour(futureTime);
-        }
-
-        // Update XP based on hours worked
-        const hoursWorked = totalWorkedTime / 3600;
-        awardXP(hoursWorked);
-
-        // Get or cache DOM elements (do this ONCE to avoid repeated queries)
-        if (!cachedElements.totalWorkedTime) {
-            cachedElements.totalWorkedTime = document.getElementById('total-worked-time');
-            cachedElements.remainingTime = document.getElementById('remaining-time');
-            cachedElements.completionTime = document.getElementById('completion-time');
-            cachedElements.emojiDisplay = document.querySelector('.emoji-display');
-            cachedElements.progressFill = document.querySelector('.progress-fill');
-            cachedElements.progressBar = document.querySelector('.progress-bar');
-            cachedElements.dayTotal = document.getElementById('rt-day-total');
-        }
-
-        // Update "Current" row in the table if it exists (for active check-in)
-        if (checkInOutList.length > 0) {
-            const lastEntry = checkInOutList[checkInOutList.length - 1];
-            if (lastEntry.checkOut === 'Current') {
-                if (!cachedElements.currentWorkedTime) {
-                    cachedElements.currentWorkedTime = document.getElementById('current-worked-time');
-                }
-                const workedTimeCell = cachedElements.currentWorkedTime;
-                if (workedTimeCell && workedTimeCell.textContent !== lastEntry.workedTime) {
-                    requestAnimationFrame(() => {
-                        workedTimeCell.textContent = lastEntry.workedTime;
-                    });
-                }
-            }
-        }
-
-        // Only update if values have actually changed
-        const updates = [];
-
-        if (cachedValues.totalWorked !== totalTimeFormatted) {
-            const element = cachedElements.totalWorkedTime;
-            if (element) {
-                updates.push({
-                    element: element,
-                    property: 'textContent',
-                    value: totalTimeFormatted
-                });
-            }
-            // The Cyberpunk punch-log footer shows the same running total; absent in Glassmorphic, so guarded.
-            if (cachedElements.dayTotal) {
-                updates.push({
-                    element: cachedElements.dayTotal,
-                    property: 'textContent',
-                    value: totalTimeFormatted + ' / ' + secondsToHHMMSS(getShiftSeconds())
-                });
-            }
-            cachedValues.totalWorked = totalTimeFormatted;
-        }
-
-        if (cachedValues.remaining !== remainingTimeFormatted) {
-            const element = cachedElements.remainingTime;
-            if (element) {
-                updates.push({
-                    element: element,
-                    property: 'textContent',
-                    value: remainingTimeFormatted
-                });
-            }
-            cachedValues.remaining = remainingTimeFormatted;
-        }
-
-        if (cachedValues.completion !== futureTimeFormatted && futureTimeFormatted) {
-            const element = cachedElements.completionTime;
-            if (element) {
-                updates.push({
-                    element: element,
-                    property: 'textContent',
-                    value: futureTimeFormatted
-                });
-            }
-            cachedValues.completion = futureTimeFormatted;
-        }
-
-        if (cachedValues.emoji !== currentEmoji) {
-            const element = cachedElements.emojiDisplay;
-            if (element) {
-                updates.push({
-                    element: element,
-                    property: 'textContent',
-                    value: currentEmoji
-                });
-            }
-            cachedValues.emoji = currentEmoji;
-        }
-
-        // Only update progress if it changed by at least 0.1% to avoid constant updates
-        const roundedProgress = Math.round(progress * 10) / 10;
-        if (Math.abs(cachedValues.progress - roundedProgress) >= 0.1) {
-            const element = cachedElements.progressFill;
-            if (element) {
-                updates.push({
-                    element: element,
-                    property: 'width',
-                    value: `${roundedProgress}%`
-                });
-            }
-            // The Cyberpunk playhead reads this off the track and must move in the same frame as the fill —
-            // nothing re-renders this markup, so a missed update parks the marker where the page loaded.
-            if (cachedElements.progressBar) {
-                updates.push({
-                    element: cachedElements.progressBar,
-                    property: '--rt-progress',
-                    value: `${roundedProgress}%`
-                });
-            }
-            cachedValues.progress = roundedProgress;
-        }
-
-        // Batch all DOM writes together using RAF for smooth, non-blocking updates
-        // RAF ensures updates happen during browser's repaint cycle, not during animations
-        if (updates.length > 0) {
-            requestAnimationFrame(() => {
-                // Group all updates in single batch to minimize reflows
-                updates.forEach(update => {
-                    if (update.element) {
-                        if (update.property === 'width') {
-                            update.element.style.width = update.value;
-                        } else if (update.property.startsWith('--')) {
-                            // A custom property is neither a style key nor an element property — assigning it either
-                            // way is a silent no-op.
-                            update.element.style.setProperty(update.property, update.value);
-                        } else {
-                            update.element[update.property] = update.value;
-                        }
-                    }
-                });
-            });
-        }
+        awardXP(totalWorkedTime / 3600);
+        const last = checkInOutList[checkInOutList.length - 1], cell = document.getElementById('current-worked-time');
+        if (last && last.checkOut === 'Current' && cell && cell.textContent !== last.workedTime) cell.textContent = last.workedTime;
+        const root = document.querySelector('#total-time-summary .ws-center');
+        if (root) wsUpdate(root, wsModel(totalWorkedTime, checkInOutList, today));
+        renderMiniBoard();
     }
 
     function startUpdateLoop() {

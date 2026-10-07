@@ -28,8 +28,6 @@
   }
   .summary-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
   .emoji-display { font-size: 2rem; }
-  .rt-emo-demo, .rt-emo-raw { display: flex; gap: 7px; font-size: 1.35rem; margin: 6px 0 2px; }
-  .rt-emo-raw { opacity: .85; }
   .rig-note { font-size: 11px; opacity: .55; margin: 4px 0 0; }
   .summary-title { font-size: 1.4rem; margin: 0; font-weight: 700; }
   .modern-table { width: 100%; border-collapse: collapse; margin: 0 0 14px; font-size: .82rem; }
@@ -258,7 +256,7 @@
             <span class="stat-label">Remaining</span>
             <span class="rt-live" aria-hidden="true">&#9679; LIVE</span>
             <span class="stat-value remaining-time">03:48:14</span>
-            <span class="remaining-desc"><span class="rt-emo">⏰</span> Time until freedom</span>
+            <span class="remaining-desc">Time until freedom</span>
           </div>
           <div class="stat-card completion-time-card">
             <span class="stat-label">Complete At</span>
@@ -346,19 +344,6 @@
     <input type="range" min="0" max="100" value="52" id="prog">
     <span class="k" style="flex:0 0 34px;text-align:right" id="progOut">52%</span>
   </div>
-
-  <h2>Emoji tint</h2>
-  <div class="rt-emo-demo" aria-hidden="true">
-    <span class="rt-emo">⏰</span><span class="rt-emo">⚙️</span><span class="rt-emo">📱</span>
-    <span class="rt-emo">🎮</span><span class="rt-emo">🏆</span><span class="rt-emo">💡</span>
-    <span class="rt-emo">📐</span><span class="rt-emo">🎵</span><span class="rt-emo">🐍</span>
-    <span class="rt-emo">🎲</span>
-  </div>
-  <div class="rt-emo-raw" aria-hidden="true">
-    <span>⏰</span><span>⚙️</span><span>📱</span><span>🎮</span><span>🏆</span>
-    <span>💡</span><span>📐</span><span>🎵</span><span>🐍</span><span>🎲</span>
-  </div>
-  <p class="rig-note">Tinted above, untouched below. The tint follows <em>Accent</em>.</p>
 
   <h2>Emoji set</h2>
   <select id="emojiset">

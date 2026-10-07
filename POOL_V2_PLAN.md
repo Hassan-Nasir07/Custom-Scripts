@@ -2393,8 +2393,8 @@ economy, so every step is earned by playing.
    material vocabulary: ebony, abalone points, pearl, and gold rings with a sheen. Its card shows
    "Master 5 cues · 2 of 5" until then. A canvas pass to restyle it is optional, not blocking.
 
-**Stats: four bars of 1–10, as multipliers on what the game does today.** Standard is **4/4/4/4**
-and plays exactly as now, so the CPU (always Standard), the fingerprint and every balance test
+**Stats: four bars of 1–10, as multipliers on what the game does today.** Standard at level 1 is
+**4/4/4/4** and plays exactly as now, so the CPU's Easy cue, the fingerprint and every balance test
 hold. Each bar above or below 4 changes the stat by a fixed step:
 
 | Bar | Scales | Per step | At 10 | At 1 |
@@ -2404,7 +2404,11 @@ hold. Each bar above or below 4 changes the stat by a fixed step:
 | Spin | the most tip offset (`cfg.maxTip`, the spin pad's radius) | +5% | +30% | −15% |
 | Time | the shot clock, when it is on | +5% | +30% | −15% |
 
-Each cue has its bars at level 1 and at level 5, and levels 2–4 fall in between, rounded.
+Each cue has its bars at level 1 and at level 5. **Every level-up adds at least one bar point**
+(the user, 2026-10-07): the cue's gains are dealt out one at a time, round-robin, its biggest
+first, and level n has round(total × (n − 1) / 4) of them. Rounding a straight line between
+levels 1 and 5, as first built, left some level-ups with no gain (Tulipwood moved only at level 3).
+Every cue gains 4–7 points over its four level-ups, so each one shows.
 
 **No cue is best at everything** (the user, 2026-10-05). Every cue except Standard has a
 weakness of 6 or less, and the most any cue totals at level 5 is 32 of the 40. Better cues buy a
@@ -2413,7 +2417,7 @@ spin. The looks get richer down the list, and the totals climb slowly:
 
 | Cue | Lv 1 (P/A/S/T) | Lv 5 | Total | Style, and its weakness |
 |---|---|---|---|---|
-| Standard | 4/4/4/4 | 4/4/4/4 | 16 | today's game; it never levels |
+| Standard | 4/4/4/4 | 5/5/5/5 | 20 | today's game at level 1; a point a level (the user, 2026-10-07) |
 | Tulipwood | 5/5/4/4 | 6/6/5/5 | 22 | an easy all-rounder |
 | Birdseye | 4/5/5/5 | 4/7/6/6 | 23 | control; soft break |
 | Ember | 7/4/2/4 | 10/6/2/6 | 24 | overpowered break and long pots; almost no spin |
@@ -2467,7 +2471,8 @@ rules and the XP tables don't change.
   ball today. Pool's tip is already 0.236 D, so pool changes only in look.
 - **pool-hud.js.** The picker is DOM cards with a `<canvas>` per cue drawn by `pqDraw`, so there
   is no CSS-gradient copy of the renderer. It also holds the header pill, the notices, and the
-  stats rows (four 10-segment bars: filled to the current level, and outlined to level 5).
+  stats rows (four 10-segment bars: filled to the current level, and outlined where the next
+  level adds; the user, 2026-10-07).
   pool-theme.css gets only layout and theme rules.
 - **pool-game.js.** Four multipliers enter where the values are already read:
   - `poolSpeedOf`, and a per-shot `cap` that `ppStrike` honours in place of `cfg.maxSpeed`.
@@ -2634,7 +2639,7 @@ the text they match, those checks become behavioural ones in the same step.
       pad's reach and `shot.tipMax`, aim into `poolGuideLen()`, time into the clock (quick
       frames and tournaments). The CPU plans with its cue's reach (a world whose cfg has it).
 - [x] `poolCueRecord` (wins per cue): levels, the four bars on every card (filled to the level,
-      outlined to 5), the frame card's line ("Ember: 12 of 15 wins to level 4", "… reached
+      outlined where the next level adds), the frame card's line ("Ember: 12 of 15 wins to level 4", "… reached
       level 3", "… mastered"), and sync (the snapshot, raised field by field on restore).
 - [x] **Wins count against the CPU only.** Tournaments don't count either: they are humans only,
       the same reason as 2 Players.

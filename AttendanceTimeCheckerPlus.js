@@ -16553,8 +16553,8 @@
             .att-about-name b { font: 700 18px var(--att-display); color: var(--att-text); }
             .att-about-ver { height: 26px; padding: 0 10px; border-radius: 13px; color: var(--att-ink); font-size: 12px; font-weight: 700; }
             .att-about-games { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 18px; }
-            .att-about-games li { height: 36px; display: flex; align-items: center; gap: 10px; min-width: 0; }
-            .att-about-games li > span + span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--att-muted); }
+            .att-about-games li { min-height: 36px; display: flex; align-items: center; gap: 10px; min-width: 0; }
+            .att-about-games li > span + span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.35; color: var(--att-muted); }
             .att-about-games b { color: var(--att-text); }
             .att-about-tile { width: 30px; height: 30px; border-radius: 9px; }
             .att-about-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
@@ -16591,6 +16591,11 @@
             #total-time-summary .ws-head .pip-button { height: 44px; padding: 0 16px 0 12px; gap: 8px; border: 0; border-radius: 12px; background: var(--att-accent); color: var(--att-on-accent); box-shadow: none; transform: none; font: 600 13px 'Sora', system-ui, sans-serif; letter-spacing: 0; }
             #total-time-summary .ws-head .pip-icon { margin: 0; }
             #total-time-summary .ws-head .att-about { top: calc(100% + 10px); bottom: auto; left: auto; right: 0; transform: none; }
+            /* About hangs from the header (its right edge, the bar's), so Game Mode off can span it. */
+            #total-time-summary .ws-head .bottom-control-bar { position: static; }
+            /* Game Mode off: the widget is 640 px, so About spans the header instead of overhanging its left edge. */
+            #total-time-summary.game-mode-off .ws-head .att-about { left: 0; right: 0; width: auto; padding: 16px 18px; gap: 14px; }
+            #total-time-summary.game-mode-off .att-about-games { gap: 4px 14px; }
 
             /* The time card: the countdown, when it ends, and the mood path over the progress bar. */
             .ws-time { display: flex; flex-direction: column; gap: 14px; }
@@ -22648,7 +22653,7 @@
         ['g-flappy', 'Flappy', 'Dynamic gap &amp; speed scaling per score'], ['g-reflex', 'RefleX', 'Screen &amp; target modes, false-start guard'],
         ['g-tasbih', 'Tasbih', 'Digital prayer counter with memory'], ['g-ludo', 'Ludo', 'Ludo Star rules, 3 CPU tiers, 2–4P hot-seat'],
         ['g-tetris', 'Tetris', '7-bag + next piece, ghost, wall kicks'], ['g-breakout', 'Breakout', '11 powerups, multi-ball, combo system'],
-        ['g-aim', 'Aim', 'Chaos mode, accuracy tracking, bullet holes'], ['g-board', 'Leaderboard', 'Cloud ranks, per-tier boards, medallions']];
+        ['g-aim', 'Aim', 'Chaos mode, accuracy tracking, bullet holes'], ['g-board', 'Leaderboard', 'Team by total XP, finds you; per-game boards']];
     function attAboutClose(about, focus) {
         if (about.hidden) return;
         const btn = about.parentNode.querySelector('.developer-info');
@@ -22661,21 +22666,22 @@
 
     function addDeveloperInfo(container) {
         const chips = [['f-xp', 'XP &amp; Levels'], ['f-ach', Object.keys(ACHIEVEMENTS).length + ' Achievements'], ['f-cloud', 'Cloud Sync'], ['f-integrity', 'XP Integrity'],
-            ['f-skins', 'Snake Skins'], ['f-pip', 'Float Window'], ['image', 'Desk Card'], ['f-theme', 'Light / Dark / Cyberpunk'], ['f-shifts', '4h – 15h Shifts'], ['f-quotes', 'Quotes']];
+            ['f-skins', 'Snake Skins'], ['g-pool', '10 Pool Cues'], ['monitor', 'Workspace Layout'], ['hourglass', 'Day Timeline'],
+            ['image', 'Desk Card'], ['f-quotes', 'Rotating Quotes'], ['f-pip', 'Float Window'], ['f-theme', 'Light / Dark / Cyberpunk'], ['f-shifts', '4h – 15h Shifts']];
         container.insertAdjacentHTML('beforeend', `
             <button type="button" class="developer-info" aria-label="About Attendance Tracker Plus" aria-haspopup="dialog" aria-expanded="false">${attIcon('info', '24px')}</button>
             <section class="att-about" role="dialog" aria-label="About Attendance Tracker Plus" hidden>
                 <div class="att-about-head">
                     <span class="att-about-app">${attIcon('u-app', 28)}</span>
                     <span class="att-about-name"><b>Attendance Tracker Plus</b>by Hassan Nasir &middot; Core: Websoft Team</span>
-                    <span class="att-about-ver">v7.0</span>
+                    <span class="att-about-ver">v7.1</span>
                     <button type="button" class="att-about-x" aria-label="Close">${attIcon('u-close', 18)}</button>
                 </div>
                 <ul class="att-about-games" aria-label="Games and tools">${ATT_ABOUT_GAMES.map(([id, n, d]) =>
                     `<li title="${n} · ${d}"><span class="att-about-tile">${attIcon(id, 20)}</span><span><b>${n}</b> &middot; ${d}</span></li>`).join('')}</ul>
                 <div class="att-about-chips">${chips.map(([id, n]) => `<span>${attIcon(id, 16)}${n}</span>`).join('')}</div>
                 <div class="att-about-foot">
-                    <span>5 Oct 2026 &middot; build ${BUILD_LABEL}</span>
+                    <span>7 Oct 2026 &middot; build ${BUILD_LABEL}</span>
                     <span>${attIcon('u-tip', 16)}Click the mood icon for Game Mode</span>
                     <span>${attIcon('u-settings', 16)}Settings</span>
                 </div>

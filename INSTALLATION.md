@@ -14,7 +14,7 @@ This method loads `AttendanceTimeCheckerPlus.js` directly from GitHub, so it alw
 4. Under the **JS** tab, paste the following loader code:
    ```javascript
    (async () => {
-     const url = "https://raw.githubusercontent.com/Hassan-Nasir07/Custom-Scripts/refs/heads/main/AttendanceTimeCheckerPlus.js?v=" + Date.now()
+     const url = "https://raw.githubusercontent.com/script-handler/Custom-Scripts/refs/heads/main/AttendanceTimeCheckerPlus.js?v=" + Date.now()
 
      const res = await fetch(url);
      const code = await res.text();

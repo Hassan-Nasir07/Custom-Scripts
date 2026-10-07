@@ -260,7 +260,6 @@ This feature brings modern UI/UX design principles to workforce management, maki
 
 ---
 
-**Developed by**: Hassan Nasir (Enhanced from Websoft Team's core)  
 **Build**: v2.1.2025 (PiP + WFH/WFO Edition)  
 **Last Modified**: December 25, 2025  
 **Special**: Azadi Mubarak ☪️

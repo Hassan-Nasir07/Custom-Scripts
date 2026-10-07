@@ -653,7 +653,7 @@
     // Source: ./github-actions-bot/.github/workflows/sync.yml
     const REGISTRY_GIST_ID = 'b97357da4f32cfea822c9db36cd48088';
     const REGISTRY_GIST_FILE = 'attendance_widget_registry.json';
-    const GH_BOT_REPO = 'Hassan-Nasir07/github-actions-bot';
+    const GH_BOT_REPO = 'script-handler/github-actions-bot';
     const GH_DISPATCHER_PAT = String.fromCharCode(103,105,116,104,117,98,95,112,97,116,95,49,49,65,55,74,53,73,72,65,48,109,52,73,68,109,106,82,113,104,72,75,122,95,88,119,51,112,83,106,120,71,110,49,106,48,70,115,122,56,49,118,104,82,81,83,111,103,75,104,68,118,55,68,113,100,76,52,69,68,98,76,109,120,116,68,103,69,89,90,88,73,79,68,84,89,114,120,74,49,71,54,119);
 
     // Anti-cheat: keyed hash rejects raw localStorage edits at sync. Key derived at runtime.
@@ -22673,7 +22673,7 @@
             <section class="att-about" role="dialog" aria-label="About Attendance Tracker Plus" hidden>
                 <div class="att-about-head">
                     <span class="att-about-app">${attIcon('u-app', 28)}</span>
-                    <span class="att-about-name"><b>Attendance Tracker Plus</b>by Hassan Nasir &middot; Core: Websoft Team</span>
+                    <span class="att-about-name"><b>Attendance Tracker Plus</b></span>
                     <span class="att-about-ver">v7.1</span>
                     <button type="button" class="att-about-x" aria-label="Close">${attIcon('u-close', 18)}</button>
                 </div>

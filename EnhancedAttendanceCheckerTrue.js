@@ -1267,8 +1267,6 @@
         developerDiv.innerHTML = `
             ℹ️
             <div class="developer-tooltip">
-                <strong>Core Developer:</strong> Websoft Team<br>
-                <strong>Enhanced by:</strong> Hassan Nasir<br>
                 <small>Build: v2.1.2025 (PiP Edition)</small><br>
                 <small>Last Modified: 23 Aug 2025</small><br>
                 <small>New: Picture-in-Picture Support 📱</small><br>

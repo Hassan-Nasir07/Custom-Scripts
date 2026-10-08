@@ -727,15 +727,15 @@
             .pool-hud .ph-net-row.is-invite { border-color: rgba(var(--pool-accent-rgb), 0.55); background: rgba(var(--pool-accent-rgb), 0.08); }
             .pool-hud .ph-net-name { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .pool-hud .ph-net-sub { font-size: 11px; font-weight: 500; color: var(--pool-overlay-muted); white-space: normal; }
-            .pool-hud .ph-net-bo { display: flex; align-items: center; gap: 6px; }
-            .pool-hud .ph-net-bo .ph-sheet-l { margin: 0 auto 0 0; white-space: nowrap; }
-            .pool-hud .ph-net-bo .ph-btn { width: 40px; padding: 0; }
+            .pool-hud .ph-net-bo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+            .pool-hud .ph-net-bo .ph-sheet-l { flex: 1 0 100%; margin: 0; white-space: nowrap; }
+            .pool-hud .ph-net-bo .ph-btn { flex: 1 1 0; min-width: 0; padding: 0 6px; white-space: nowrap; }
             /* The invite takes the "New cue" notice's place; its buttons get a row of their own so
                the challenger's name and the match read in full in the widget's column. */
             .pool-hud .ph-invite { flex-wrap: wrap; row-gap: 6px; padding-bottom: 6px; }
             .pool-hud .ph-invite .ph-cuenew-t { flex: 1 1 calc(100% - 52px); }
             .pool-hud .ph-invite [data-ph="invitego"] { flex: 1 1 auto; margin-left: 42px; }
-            .pool-hud .ph-net-bo .ph-btn[aria-pressed="true"] { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.16); color: var(--pool-accent-lite); }
+            .pool-hud .ph-net-bo .ph-btn[aria-checked="true"] { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.16); color: var(--pool-accent-lite); }
 
             /* ── Tournament screens (pool-tour-ui.js) ───────────────────── */
             /* Each screen covers the panel; its body scrolls, its primary button stays pinned.

@@ -1384,6 +1384,128 @@
     window.atcPurgeBlocked = purgeBlockedPlayers;
     window.atcIsBlocked = isBlocked;
 
+    // ─── Game Mode lock ───────────────────────────────────────────────
+    // Game Mode (the games panels) stays off until this browser redeems an access key. The sync
+    // bot checks keys against UNLOCK_SECRET, a repo secret this script never sees: key n is the
+    // first 80 bits of HMAC-SHA256(secret, 'atc-games:' + n) in Crockford base32, and only the
+    // gist's current n is valid, so each key works once and the next one differs. A browser is
+    // known by tag = sha256 of its own random secret; only the tag ever leaves it.
+    //   await atcUnlockGames('XXXX-XXXX-XXXX-XXXX')       redeem a key (about 15-30 s)
+    //   await atcGamesTag()                                this browser's tag, for a revoke
+    //   await atcAdminGamesKey('<UNLOCK_SECRET>')          admin: the current key and the next two
+    //   atcAdminGamesRevoke(tag) / atcAdminGamesRotate()   admin, after atcAdminLogin
+    // The lock runs in this browser: it stops ordinary use, not someone editing the script.
+    const GAMES_SECRET_KEY = 'atc_games_secret', GAMES_OK_KEY = 'atc_games_ok';
+    const GAMES_OK_MS = 7 * 86400000;
+    const GAMES_ALPHA = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+    const GAMES_KEY_RE = /^[0-9A-HJKMNP-TV-Z]{16}$/;
+    // A browser unlocked within the week shows the games at once; the gist then confirms it.
+    let gamesUnlocked = false;
+    try { gamesUnlocked = (parseInt(localStorage.getItem(GAMES_OK_KEY), 10) || 0) > Date.now() && !!localStorage.getItem(GAMES_SECRET_KEY); } catch (_) {}
+    let gamesTagValue = null, gamesLastTry = 0;
+
+    const gamesHex = buf => Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
+    async function gamesTag() {
+        if (gamesTagValue) return gamesTagValue;
+        let secret = '';
+        try { secret = localStorage.getItem(GAMES_SECRET_KEY) || ''; } catch (_) {}
+        if (!/^[0-9a-f]{64}$/.test(secret)) {
+            const a = new Uint8Array(32);
+            crypto.getRandomValues(a);
+            secret = gamesHex(a);
+            try { localStorage.setItem(GAMES_SECRET_KEY, secret); } catch (_) {}
+        }
+        gamesTagValue = gamesHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret))).slice(0, 32);
+        return gamesTagValue;
+    }
+    // What a person types: any case, dashes or spaces, O for 0 and I or L for 1.
+    const gamesNormalize = k => String(k || '').toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+    // The same derivation as the bot's gamesKeyFor (sync.yml), on WebCrypto.
+    async function gamesKeyFor(secret, n) {
+        const enc = new TextEncoder();
+        const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode('atc-games:' + n)));
+        let val = 0, bits = 0, out = '';
+        for (const byte of mac) {
+            val = ((val << 8) | byte) & 0xffff; bits += 8;
+            while (bits >= 5 && out.length < 16) { out += GAMES_ALPHA[(val >>> (bits - 5)) & 31]; bits -= 5; }
+            if (out.length >= 16) break;
+        }
+        return out;
+    }
+    function gamesSet(on) {
+        const was = gamesUnlocked;
+        gamesUnlocked = !!on;
+        try { if (on) localStorage.setItem(GAMES_OK_KEY, String(Date.now() + GAMES_OK_MS)); else localStorage.removeItem(GAMES_OK_KEY); } catch (_) {}
+        if (was !== gamesUnlocked) applyGameMode();
+    }
+    // Is this browser's tag in the gist? Without the gist (offline, a rate limit) the last answer stands.
+    async function checkGamesUnlock() {
+        const reg = await fetchRegistry();
+        if (!reg) return gamesUnlocked;
+        const tag = await gamesTag(), tags = reg.gamesUnlock && reg.gamesUnlock.tags;
+        gamesSet(!!(tags && typeof tags === 'object' && tags[tag]));
+        return gamesUnlocked;
+    }
+    function gamesLockedNotice() {
+        showXPNotification('Game Mode is locked. Ask the admin for an access key, then run await atcUnlockGames("KEY") in the console.', 'game', 'f-integrity');
+    }
+    async function atcUnlockGames(key) {
+        if (gamesUnlocked && await checkGamesUnlock()) return '✓ Game Mode is already unlocked on this browser';
+        const k = gamesNormalize(key);
+        if (!GAMES_KEY_RE.test(k)) return '✗ That is not an access key. Keys look like XXXX-XXXX-XXXX-XXXX.';
+        if (Date.now() - gamesLastTry < 30000) return '✗ One try every 30 seconds. Wait a moment, then try again.';
+        gamesLastTry = Date.now();
+        const tag = await gamesTag();
+        let res = null;
+        try {
+            res = await fetch(`https://api.github.com/repos/${GH_BOT_REPO}/dispatches`, {
+                method: 'POST',
+                headers: { 'Accept': 'application/vnd.github+json', 'Authorization': `Bearer ${GH_DISPATCHER_PAT}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ event_type: 'games-unlock', client_payload: { tag, key: k, build_token: BUILD_TOKEN, build_label: BUILD_LABEL } })
+            });
+        } catch (_) {}
+        if (!res || !res.ok) return '✗ Could not reach GitHub' + (res ? ' (' + res.status + ')' : '') + '. Try again shortly.';
+        console.log('[Game Mode] Key sent. Checking every 5 s for up to 2 minutes…');
+        for (let i = 0; i < 24; i++) {
+            await new Promise(r => setTimeout(r, 5000));
+            if (await checkGamesUnlock()) {
+                showXPNotification('Game Mode unlocked', 'game', 'f-integrity');
+                return '✓ Game Mode unlocked';
+            }
+        }
+        return '✗ Key not accepted: wrong, already used, or rotated. Ask the admin for the current key.';
+    }
+    // Admin: the current key and the next two, from UNLOCK_SECRET and the gist's counter. The
+    // secret stays in this call: it is not kept or sent anywhere.
+    async function atcAdminGamesKey(secret) {
+        if (typeof secret !== 'string' || secret.length < 16) { console.error('[Admin] usage: await atcAdminGamesKey("<UNLOCK_SECRET>")'); return null; }
+        const reg = await fetchRegistry();
+        if (!reg) { console.error('[Admin] Could not read the gist.'); return null; }
+        const n = reg.gamesUnlock && Number.isInteger(reg.gamesUnlock.n) && reg.gamesUnlock.n >= 0 ? reg.gamesUnlock.n : 0;
+        const keys = [];
+        for (let i = 0; i < 3; i++) keys.push({ n: n + i, key: (await gamesKeyFor(secret, n + i)).match(/.{4}/g).join('-') });
+        console.log('[Admin] Access keys, valid in this order, one use each. Unlocked browsers: ' + Object.keys((reg.gamesUnlock && reg.gamesUnlock.tags) || {}).length);
+        if (console.table) console.table(keys);
+        return keys[0].key;
+    }
+    async function atcAdminGamesRevoke(tag) {
+        if (!/^[0-9a-f]{32}$/.test(String(tag || ''))) { console.error('[Admin] usage: atcAdminGamesRevoke("<32-hex tag from atcGamesTag()>")'); return false; }
+        const r = await _adminDispatch('admin-games-revoke', { tag });
+        if (r?.ok) console.log('[Admin] ✓ Revoke queued for ' + tag + ' (gist updates in ~30s)');
+        return !!r?.ok;
+    }
+    async function atcAdminGamesRotate() {
+        const r = await _adminDispatch('admin-games-rotate', {});
+        if (r?.ok) console.log('[Admin] ✓ Rotate queued: the current key dies, the next one becomes current (~30s)');
+        return !!r?.ok;
+    }
+    window.atcUnlockGames = atcUnlockGames;
+    window.atcGamesTag = gamesTag;
+    window.atcAdminGamesKey = atcAdminGamesKey;
+    window.atcAdminGamesRevoke = atcAdminGamesRevoke;
+    window.atcAdminGamesRotate = atcAdminGamesRotate;
+
     async function fetchLeaderboard() {
         if (lbFetching) return leaderboardData;
         lbFetching = true;
@@ -5933,27 +6055,31 @@
     // The Online tab's status line: the connection, else why not, and the last challenge's news.
     function phNetStatus(n) {
         if (!n) return { text: '', tone: '' };
-        const base = n.state === 'open' ? 'Connected' : n.state === 'connecting' ? 'Connecting…' : n.err || (n.state === 'down' ? 'Reconnecting…' : 'Not connected');
+        const k = (n.players || []).length;
+        const base = n.state === 'open' ? 'Connected · ' + (k ? k + (k === 1 ? ' player' : ' players') + ' online' : 'no one else online')
+            : n.state === 'connecting' ? 'Connecting…' : n.err || (n.state === 'down' ? 'Reconnecting…' : 'Not connected');
         return { text: base + (n.note && n.state === 'open' ? ' · ' + n.note : ''), tone: n.state === 'open' ? 'ok' : n.err ? 'hot' : '' };
     }
-    // The Online tab's body: in a match, a way out; else invites, your challenge, best of, players.
+    // The Online tab's body: in a match, a way out; else invites, your challenge, the players and
+    // (only once there is someone to challenge) the match length.
     function phNetBodyHTML(n) {
         if (!n) return '';
         const btn = (act, id, label, cls, off) => '<button type="button" class="ph-btn' + (cls ? ' ' + cls : '') + '" data-ph-net="' + act + '"' +
             (id !== undefined ? ' data-id="' + phEsc(id) + '"' : '') + (off ? ' disabled' : '') + '>' + label + '</button>';
-        if (n.inRoom) return '<span>You are in an online match. Leaving it concedes the frame on the table.</span><div class="ph-sheet-links">' + btn('leave', undefined, 'Leave match', 'is-hot') + '</div>';
-        if (n.state !== 'open') return '<span class="ph-net-sub">Play a colleague on the office network. Ask whoever runs the pool server for its address.</span>';
         const game = g => (g === 'snooker' ? 'Snooker' : '8-Ball');
+        const len = b => (b > 1 ? 'best of ' + b : '1 frame');
+        if (n.inRoom) return '<span class="ph-net-sub">In a match. Leaving concedes the frame.</span><div class="ph-sheet-links">' + btn('leave', undefined, 'Leave match', 'is-hot') + '</div>';
+        if (n.state !== 'open') return '<span class="ph-net-sub">Enter the server address, then Connect.</span>';
         let h = '';
         if (n.invites.length) h += '<div class="ph-net-list">' + n.invites.map(i => '<div class="ph-net-row is-invite"><span class="ph-net-name">' + phEsc(i.name) +
-            '<span class="ph-net-sub">challenges you · ' + game(i.game) + (i.bestOf > 1 ? ', best of ' + i.bestOf : '') + '</span></span>' +
+            '<span class="ph-net-sub">' + game(i.game) + ' · ' + len(i.bestOf) + '</span></span>' +
             btn('accept', i.id, 'Accept', 'is-go') + btn('decline', i.id, 'Decline') + '</div>').join('') + '</div>';
-        if (n.outgoing) h += '<div class="ph-net-row"><span class="ph-net-name">Waiting for ' + phEsc(n.outgoing) + '…</span>' + btn('cancel', undefined, 'Cancel') + '</div>';
-        h += '<div class="ph-net-bo" role="group" aria-label="Best of"><span class="ph-sheet-l ph-label">' + game(n.game).toUpperCase() + ' · BEST OF</span>' +
-            [1, 3, 5].map(b => '<button type="button" class="ph-btn" data-ph-net="bo" data-id="' + b + '" aria-pressed="' + (n.bestOf === b ? 'true' : 'false') + '">' + b + '</button>').join('') + '</div>';
-        h += n.players.length ? '<div class="ph-net-list">' + n.players.map(p => '<div class="ph-net-row"><span class="ph-net-name">' + phEsc(p.name) + (p.busy ? '<span class="ph-net-sub">in a match</span>' : '') + '</span>' +
-            (p.busy ? '' : btn('challenge', p.id, 'Challenge', '', !!n.outgoing)) + '</div>').join('') + '</div>'
-            : '<span class="ph-net-sub">No one else is online yet. Your colleague opens Game mode › Online on the same server.</span>';
+        if (n.outgoing) h += '<div class="ph-net-row"><span class="ph-net-name">Challenge sent<span class="ph-net-sub">Waiting for ' + phEsc(n.outgoing) + '…</span></span>' + btn('cancel', undefined, 'Cancel') + '</div>';
+        if (!n.players.length) return h + '<span class="ph-net-sub">Waiting for players. Others join from Game mode › Online with the same address.</span>';
+        h += '<div class="ph-net-bo" role="radiogroup" aria-label="Match length"><span class="ph-sheet-l ph-label">MATCH · ' + game(n.game).toUpperCase() + '</span>' +
+            [1, 3, 5].map(b => '<button type="button" role="radio" class="ph-btn" data-ph-net="bo" data-id="' + b + '" aria-checked="' + (n.bestOf === b ? 'true' : 'false') + '">' + (b > 1 ? 'Best of ' + b : '1 frame') + '</button>').join('') + '</div>';
+        h += '<div class="ph-net-list">' + n.players.map(p => '<div class="ph-net-row"><span class="ph-net-name">' + phEsc(p.name) + (p.busy ? '<span class="ph-net-sub">In a match</span>' : '') + '</span>' +
+            (p.busy ? '' : btn('challenge', p.id, 'Challenge', 'is-go', !!n.outgoing)) + '</div>').join('') + '</div>';
         return h;
     }
 
@@ -20679,15 +20805,15 @@
             .pool-hud .ph-net-row.is-invite { border-color: rgba(var(--pool-accent-rgb), 0.55); background: rgba(var(--pool-accent-rgb), 0.08); }
             .pool-hud .ph-net-name { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .pool-hud .ph-net-sub { font-size: 11px; font-weight: 500; color: var(--pool-overlay-muted); white-space: normal; }
-            .pool-hud .ph-net-bo { display: flex; align-items: center; gap: 6px; }
-            .pool-hud .ph-net-bo .ph-sheet-l { margin: 0 auto 0 0; white-space: nowrap; }
-            .pool-hud .ph-net-bo .ph-btn { width: 40px; padding: 0; }
+            .pool-hud .ph-net-bo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+            .pool-hud .ph-net-bo .ph-sheet-l { flex: 1 0 100%; margin: 0; white-space: nowrap; }
+            .pool-hud .ph-net-bo .ph-btn { flex: 1 1 0; min-width: 0; padding: 0 6px; white-space: nowrap; }
             /* The invite takes the "New cue" notice's place; its buttons get a row of their own so
                the challenger's name and the match read in full in the widget's column. */
             .pool-hud .ph-invite { flex-wrap: wrap; row-gap: 6px; padding-bottom: 6px; }
             .pool-hud .ph-invite .ph-cuenew-t { flex: 1 1 calc(100% - 52px); }
             .pool-hud .ph-invite [data-ph="invitego"] { flex: 1 1 auto; margin-left: 42px; }
-            .pool-hud .ph-net-bo .ph-btn[aria-pressed="true"] { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.16); color: var(--pool-accent-lite); }
+            .pool-hud .ph-net-bo .ph-btn[aria-checked="true"] { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.16); color: var(--pool-accent-lite); }
 
             /* ── Tournament screens (pool-tour-ui.js) ───────────────────── */
             /* Each screen covers the panel; its body scrolls, its primary button stays pinned.
@@ -23481,7 +23607,7 @@
                 ${sel('emojiSet', 'Mood Face', [['fun', 'Shown — follows your shift'], ['none', 'Hidden']], { icon: 'smile' })}
                 <div class="settings-option">
                     <span class="settings-option-label"> Game Mode <small style="opacity:0.6;font-size:0.75rem;">Hides side panels</small></span>
-                    <div class="toggle-switch ${userPreferences.gameModeHidden ? 'active' : ''}" data-pref="gameModeHidden"></div>
+                    <div class="toggle-switch ${userPreferences.gameModeHidden && gamesUnlocked ? 'active' : ''} ${gamesUnlocked ? '' : 'disabled'}" data-pref="gameModeHidden"></div>
                 </div>
                 ${sel('gameFps', 'VSync', [['60', 'Full (60 FPS)'], ['30', 'Half (30 FPS)']], { id: 'fps-selector', icon: 'monitor' })}
             </div>
@@ -24193,7 +24319,8 @@
     function applyGameMode() {
         const container = document.getElementById('total-time-summary');
         if (!container) return;
-        const gameModeOn = userPreferences.gameModeHidden; // true = ON
+        // Locked (no access key redeemed on this browser) reads as OFF; the preference is kept.
+        const gameModeOn = userPreferences.gameModeHidden && gamesUnlocked; // true = ON
         const leftPanel  = container.querySelector('.left-panel');
         const rightPanel = container.querySelector('.right-panel');
 
@@ -24215,8 +24342,8 @@
 
         const emojiEl = container.querySelector('.emoji-display');
         if (emojiEl) {
-            emojiEl.title = gameModeOn
-                ? 'Game Mode ON — click to turn off'
+            emojiEl.title = !gamesUnlocked ? 'Game Mode is locked — click for how to unlock'
+                : gameModeOn ? 'Game Mode ON — click to turn off'
                 : 'Game Mode OFF — click to turn on';
         }
 
@@ -24224,6 +24351,7 @@
         const toggle = document.querySelector('.toggle-switch[data-pref="gameModeHidden"]');
         if (toggle) {
             toggle.classList.toggle('active', gameModeOn);
+            toggle.classList.toggle('disabled', !gamesUnlocked);
         }
     }
 
@@ -25102,6 +25230,7 @@
         const _emojiToggle = totalTimeDiv.querySelector('#game-mode-emoji-toggle');
         if (_emojiToggle) {
             _emojiToggle.addEventListener('click', () => {
+                if (!gamesUnlocked) { gamesLockedNotice(); return; }
                 userPreferences.gameModeHidden = !userPreferences.gameModeHidden;
                 savePreferences();
                 applyGameMode();
@@ -25135,6 +25264,7 @@
                 initXPSystem();
                 initDesk();
                 initLeaderboard();
+                checkGamesUnlock();
                 // Pre-load high scores for new games
                 flappyHighScore = loadFlappyHighScore();
                 tetrisHighScore = loadTetrisHighScore();
@@ -25146,6 +25276,7 @@
                 document.addEventListener('keydown', (e) => {
                     // Only handle shortcuts if not in an input field
                     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                    if (!gamesUnlocked) return;
 
                     switch(e.key) {
                         case '1': window.switchGame('snake'); break;
@@ -25261,6 +25392,14 @@
         window.ludoDiceReset = () => ludoDiceReset();
         window.prayerIncrementBtn = prayerIncrement;
         window.prayerResetBtn = prayerReset;
+        // Game Mode lock: every game entry point on window does nothing while locked.
+        ['snakePlayPause', 'resetSnake', 'cycleSnakeModeBtn', 'toggleSnakeSkinTrayBtn', 'switchGame',
+            'startReflexGameBtn', 'resetReflexGameBtn', 'toggleReflexModeBtn', 'startAimGameBtn', 'resetAimGameBtn',
+            'startFlappyGameBtn', 'resetFlappyGameBtn', 'startTetrisGameBtn', 'resetTetrisGameBtn', 'startBreakoutGameBtn', 'resetBreakoutGameBtn',
+            'startLudoGameBtn', 'resetLudoGameBtn', 'cycleLudoModeBtn', 'toggleLudoMaximizeBtn', 'prayerIncrementBtn', 'prayerResetBtn'].forEach(name => {
+            const fn = window[name];
+            if (typeof fn === 'function') window[name] = (...args) => (gamesUnlocked ? fn(...args) : gamesLockedNotice());
+        });
 
         // This player's board row from local state, ahead of the API's cached copy.
         const lbOwnEntry = () => ({

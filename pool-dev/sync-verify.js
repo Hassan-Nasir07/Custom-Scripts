@@ -8,7 +8,8 @@
 // ships. It covers the gameModeBests merge Pool v2's tier boards need (Phase 8):
 // shape validation, the monotonic per-key merge, and the tier-win growth bound,
 // plus the gates that were already there (build token, XP budget, counters), and
-// snooker's (S6): its tier and mode bounds, and the high break's 155 cap and session rule.
+// snooker's (S6): its tier and mode bounds, and the high break's 155 cap and session rule;
+// and Game Mode's access keys: one use each, rotating, surviving every other write.
 //
 // The bot lives in its own repository, checked out beside this one; without it
 // the suite says so and passes, as there is nothing to test.
@@ -43,6 +44,8 @@ const SCRIPT = body.join('\n');
 const LABEL = ((lines.find(l => /^\s+BUILD_LABEL_CURRENT:/.test(l)) || '').split(':')[1] || '').trim();
 const HOST_LABEL = (fs.readFileSync(path.join(__dirname, '..', 'AttendanceTimeCheckerPlus.js'), 'utf8').match(/const BUILD_LABEL = '(v\d+)'/) || [])[1];
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+const UNLOCK = 'test-unlock-secret-0123456789abcdef';
+const { keyFor } = require('../tools/games-key');
 const FILE = 'attendance_widget_registry.json';
 
 // One dispatch against a gist holding `players`. Returns what was written and what was logged.
@@ -52,8 +55,9 @@ async function dispatch(payload, players, opts) {
     const core = {
         warning: m => log.warnings.push(String(m)), notice: m => log.notices.push(String(m)),
         info: m => log.infos.push(String(m)), setFailed: m => { log.failed = String(m); },
+        setSecret: m => { log.secrets = (log.secrets || []).concat(String(m)); },
     };
-    const gist = { lastUpdated: 'x', players: JSON.parse(JSON.stringify(players || [])) };
+    const gist = Object.assign({ lastUpdated: 'x', players: JSON.parse(JSON.stringify(players || [])) }, o.gist ? JSON.parse(JSON.stringify(o.gist)) : {});
     const fetch = async (url, init) => {
         if (!init || !init.method || init.method === 'GET') return { ok: true, json: async () => ({ files: { [FILE]: { content: JSON.stringify(gist) } } }) };
         log.written = JSON.parse(JSON.parse(init.body).files[FILE].content);
@@ -61,9 +65,10 @@ async function dispatch(payload, players, opts) {
     };
     const env = Object.assign({
         GIST_PAT: 'pat', ADMIN_KEY: 'admin', BUILD_TOKEN_CURRENT: 'tok-now', BUILD_TOKEN_PREVIOUS: 'tok-old', BUILD_LABEL_CURRENT: LABEL,
-        GIST_ID: 'gist', GIST_FILE: FILE, EVENT_TYPE: o.event || 'registry-update', PAYLOAD: JSON.stringify(payload),
+        GIST_ID: 'gist', GIST_FILE: FILE, EVENT_TYPE: o.event || 'registry-update', PAYLOAD: JSON.stringify(payload), UNLOCK_SECRET: UNLOCK,
     }, o.env);
-    await new AsyncFunction('core', 'fetch', 'process', SCRIPT)(core, fetch, { env });
+    // github-script hands the script require() as well.
+    await new AsyncFunction('core', 'fetch', 'process', 'require', SCRIPT)(core, fetch, { env }, require);
     log.player = id => log.written && log.written.players.find(p => p.clientId === id);
     return log;
 }
@@ -166,6 +171,60 @@ const send = (player, players, opts) => dispatch({ player, build_token: 'tok-now
     ok('…nor appear, on a record that already has gameModeBests', !('snooker:highBreak' in r.player('c1').gameModeBests));
     r = await send(next({ 'snooker:highBreak': 30 }, 0), [stored({ 'snooker:highBreak': 64 })]);
     ok('a lower one (an old tab) keeps the stored best', r.player('c1').gameModeBests['snooker:highBreak'] === 64);
+
+    head('Game Mode access keys');
+    const TAG = 'a'.repeat(32), TAG2 = 'b'.repeat(32);
+    const unlock = (tag, key, gist, extra) => dispatch(Object.assign({ tag, key, build_token: 'tok-now' }, extra), [stored({})], { event: 'games-unlock', gist });
+    const k0 = keyFor(UNLOCK, 0), k1 = keyFor(UNLOCK, 1);
+    ok('keys are 16 Crockford base32 characters, and differ by n', /^[0-9A-HJKMNP-TV-Z]{16}$/.test(k0) && k0 !== k1);
+    r = await unlock(TAG, k0.match(/.{4}/g).join('-').toLowerCase());
+    ok('key #0 (dashed, any case) unlocks the tag and moves the counter to #1',
+        r.written && r.written.gamesUnlock.n === 1 && !!r.written.gamesUnlock.tags[TAG] && r.written.gamesUnlock.tags[TAG].n === 0);
+    ok('…and the key is masked in the logs', (r.secrets || []).includes(k0));
+    const after = { gamesUnlock: r.written.gamesUnlock };
+    r = await unlock(TAG2, k0, after);
+    ok('key #0 again: rejected, nothing written (one use)', r.written === null && r.warnings.some(w => /key rejected/.test(w)));
+    r = await unlock(TAG2, k1, after);
+    ok('key #1 is the next one, for the next browser', r.written && r.written.gamesUnlock.n === 2 && !!r.written.gamesUnlock.tags[TAG2] && !!r.written.gamesUnlock.tags[TAG]);
+    r = await unlock(TAG2, keyFor(UNLOCK, 2), after);
+    ok('a key from further ahead does not work yet', r.written === null);
+    r = await unlock(TAG, k1, after);
+    ok('an unlocked browser does not use up the key it sends', r.written === null && r.infos.some(m => /already unlocked/.test(m)));
+    r = await unlock(TAG2, 'ZZZZZZZZZZZZZZZZ');
+    ok('a wrong key writes nothing', r.written === null);
+    r = await unlock('not-a-tag', k0);
+    ok('a malformed tag is refused', r.written === null && r.warnings.some(w => /malformed/.test(w)));
+    r = await unlock(TAG, 'short');
+    ok('…and a malformed key', r.written === null && r.warnings.some(w => /malformed/.test(w)));
+    r = await unlock(TAG, k0, null, { build_token: 'wrong' });
+    ok('the build-token gate applies', r.written === null && r.warnings.some(w => /Build token mismatch/.test(w)));
+    r = await dispatch({ tag: TAG, key: k0, build_token: 'tok-now' }, [], { event: 'games-unlock', env: { UNLOCK_SECRET: '' } });
+    ok('with no UNLOCK_SECRET configured nothing unlocks', r.written === null && /UNLOCK_SECRET/.test(r.failed || ''));
+    r = await dispatch({ player: next({}, 1), build_token: 'tok-now' }, [stored({})], { gist: after });
+    ok('a leaderboard sync keeps every unlock and the counter', r.written.gamesUnlock && r.written.gamesUnlock.n === 1 && !!r.written.gamesUnlock.tags[TAG]);
+    r = await dispatch({ registry: { players: [next({}, 1)] }, build_token: 'tok-now' }, [stored({})], { gist: after });
+    ok('…the legacy whole-registry sync too', r.written.gamesUnlock && r.written.gamesUnlock.n === 1);
+    r = await dispatch({ tag: TAG, build_token: 'tok-now' }, [], { event: 'admin-games-revoke', gist: after });
+    ok('revoke needs the admin key', r.written === null && /admin_key invalid/.test(r.failed || ''));
+    r = await dispatch({ tag: TAG, admin_key: 'admin', build_token: 'tok-now' }, [], { event: 'admin-games-revoke', gist: after });
+    ok('…with it, the browser is locked again; the counter stays', r.written && !r.written.gamesUnlock.tags[TAG] && r.written.gamesUnlock.n === 1);
+    r = await dispatch({ admin_key: 'admin', build_token: 'tok-now' }, [], { event: 'admin-games-rotate', gist: after });
+    ok('rotate kills the current key: #1 is skipped, #2 is current', r.written && r.written.gamesUnlock.n === 2);
+    r = await dispatch({ build_token: 'tok-now' }, [], { event: 'admin-games-rotate', gist: after });
+    ok('…and needs the admin key', r.written === null && /admin_key invalid/.test(r.failed || ''));
+    {
+        // The userscript derives keys on WebCrypto for atcAdminGamesKey: lifted out, it agrees with the bot.
+        const host = fs.readFileSync(path.join(__dirname, '..', 'AttendanceTimeCheckerPlus.js'), 'utf8').replace(/\r\n/g, '\n');
+        const from = host.indexOf('    async function gamesKeyFor(secret, n) {'), to = host.indexOf('\n    }\n', from);
+        const alpha = (host.match(/const GAMES_ALPHA = '([0-9A-Z]+)';/) || [])[1];
+        const clientKeyFor = from > 0 && to > from && alpha ? new Function('GAMES_ALPHA', host.slice(from, to + 6) + '\nreturn gamesKeyFor;')(alpha) : null;
+        let same = !!clientKeyFor;
+        for (let n = 0; same && n <= 5; n++) same = (await clientKeyFor(UNLOCK, n)) === keyFor(UNLOCK, n);
+        ok('the userscript\'s keys match the bot\'s, #0 to #5', same);
+        const botFrom = SCRIPT.indexOf('function gamesKeyFor(secret, n) {');
+        const botKeyFor = new Function('require', 'GAMES_ALPHA', SCRIPT.slice(botFrom, SCRIPT.indexOf('\n}\n', botFrom) + 2) + '\nreturn gamesKeyFor;')(require, alpha);
+        ok('…and tools/games-key.js derives them as the bot does', [0, 1, 7, 42].every(n => botKeyFor(UNLOCK, n) === keyFor(UNLOCK, n)));
+    }
 
     head('The legacy whole-registry payload');
     r = await dispatch({ registry: { players: [next({ 'pool:easy': 1 }, 1)] }, build_token: 'tok-now' }, [stored({ 'pool:hard': 5 })]);

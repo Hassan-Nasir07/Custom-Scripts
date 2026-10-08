@@ -20,6 +20,14 @@ const OUT = path.resolve(process.argv.slice(2).find(a => !a.startsWith('--')) ||
 const PORTAL = 'https://globalportal.mtbc.com/#/time-absence/attendence-record';
 const CHROME = require('./browser').browserPath();     // Chrome, else Edge, or POOL_BROWSER
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// Game Mode's lock: this stand-in browser has redeemed an access key. Its secret and a recent
+// unlock are in storage before the userscript runs, and the stub registry (the gist, served
+// below) lists its tag, so the games are open. GAMES.open = false serves it without the tag.
+const GAMES = { secret: '5eed'.repeat(16), open: true };
+GAMES.tag = require('crypto').createHash('sha256').update(GAMES.secret).digest('hex').slice(0, 32);
+const gamesRegistry = () => JSON.stringify({ files: { 'attendance_widget_registry.json': { content: JSON.stringify({ lastUpdated: new Date().toISOString(), players: [],
+    gamesUnlock: { n: 1, tags: GAMES.open ? { [GAMES.tag]: { at: new Date().toISOString(), n: 0 } } : {} } }) } } });
+const GAMES_PRESET = '<script>localStorage.setItem("atc_games_secret", "' + GAMES.secret + '"); localStorage.setItem("atc_games_ok", String(Date.now() + 864e5));</script>';
 
 function page() {
     let script = fs.readFileSync(path.join(ROOT, 'AttendanceTimeCheckerPlus.js'), 'utf8');
@@ -27,6 +35,7 @@ function page() {
     // Test-only window onto the closure: pool's state and the host helpers the checks call.
     const probe = `
     window.__probe = {
+        checkGamesUnlock, get gamesUnlocked() { return gamesUnlocked; },
         S: poolS, get mode() { return poolMode; }, get maximized() { return poolMaximized; }, get tier() { return poolCpuTier; },
         get currentGame() { return currentGame; }, get prefs() { return userPreferences; },
         applyPreferences, poolEndFrame, poolNewFrame, resetPoolGame, prCanPlace, phThemeTokens, pcProject, pcView,
@@ -51,6 +60,7 @@ function page() {
 // The portal ships jQuery; the widget uses it once, to put itself above the table.
 window.$ = sel => ({ before: el => { const t = document.querySelector(sel); if (t) t.parentNode.insertBefore(el, t); } });
 </script>
+${GAMES_PRESET}
 <script>${script.replace(/<\/script/gi, '<\\/script')}</script>
 </body></html>`;
 }
@@ -85,6 +95,13 @@ async function main() {
             if (u.startsWith('https://globalportal.mtbc.com/')) {
                 send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 200,
                     responseHeaders: [{ name: 'Content-Type', value: 'text/html; charset=utf-8' }], body: Buffer.from(html).toString('base64') });
+            } else if (m.params.request.url.startsWith('https://api.github.com/gists/')) {
+                // The registry read carries an Authorization header, so it is preflighted: both get CORS.
+                const cors = [{ name: 'Access-Control-Allow-Origin', value: 'https://globalportal.mtbc.com' }, { name: 'Access-Control-Allow-Headers', value: 'Authorization, Accept' },
+                    { name: 'Access-Control-Allow-Methods', value: 'GET, OPTIONS' }];
+                if (m.params.request.method === 'OPTIONS') send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 204, responseHeaders: cors });
+                else send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 200,
+                    responseHeaders: cors.concat([{ name: 'Content-Type', value: 'application/json' }]), body: Buffer.from(gamesRegistry()).toString('base64') });
             } else send('Fetch.failRequest', { requestId: m.params.requestId, errorReason: 'BlockedByClient' });
         }
         if (m.method === 'Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text);
@@ -698,6 +715,38 @@ async function main() {
     ok('a Pro win unlocks Called It', pro.tier === 'pro' && pro.calledIt, pro);
     ok('the Pool board has the four tiers, All-time, Hot-seat and Online, and opens on the tier being played',
        pro.tabs.join() === 'Pro,Hard,Normal,Easy,All-time,Hot-seat,Online' && /Pro/.test(pro.active || '') && pro.proSync >= 1, pro);
+    head('Game Mode lock');
+    // The registry stops listing this browser: the next check locks it.
+    GAMES.open = false;
+    ok('a browser the registry does not list is locked', (await ev('window.__probe.checkGamesUnlock()')) === false && !(await ev('window.__probe.gamesUnlocked')));
+    const lockState = () => ev(`(() => { const c = document.getElementById('total-time-summary'); return {
+        hidden: c.querySelector('.left-panel').classList.contains('game-mode-hidden'), off: c.classList.contains('game-mode-off'),
+        pref: window.__probe.prefs.gameModeHidden, game: window.__probe.currentGame,
+        title: c.querySelector('#game-mode-emoji-toggle').title, toasts: document.querySelectorAll('.xp-notif-game').length }; })()`);
+    let lk = await lockState();
+    ok('…its games panel is hidden, and the emoji says it is locked', lk.hidden && lk.off && /locked/.test(lk.title), lk);
+    const gameBefore = lk.game, prefBefore = lk.pref;
+    await click('#game-mode-emoji-toggle');
+    let lk2 = await lockState();
+    ok('the emoji does not turn Game Mode on; it shows how to unlock', lk2.hidden && lk2.pref === prefBefore && lk2.toasts > lk.toasts, lk2);
+    await ev("window.switchGame('" + (gameBefore === 'pool' ? 'snake' : 'pool') + "')");
+    await key('1');
+    ok('switchGame and the number keys do nothing', (await lockState()).game === gameBefore);
+    await ev("window.startTetrisGameBtn && window.startTetrisGameBtn()");
+    ok('…nor do the games\' own buttons from the console', (await lockState()).game === gameBefore);
+    ok('a key in the wrong shape is refused at once', /not an access key/.test(await ev("window.atcUnlockGames('nope')")));
+    ok('a well-formed key is sent to the bot (here GitHub is unreachable, so it says so)', /Could not reach GitHub/.test(await ev("window.atcUnlockGames('ABCD-EFGH-JKMN-PQRS')")));
+    ok('…and a second try within 30 s waits', /30 seconds/.test(await ev("window.atcUnlockGames('ABCD-EFGH-JKMN-PQRS')")));
+    ok('atcGamesTag gives this browser\'s tag (what a revoke takes)', (await ev('window.atcGamesTag()')) === GAMES.tag);
+    await ev('window.__probe.toggleSettingsModal && window.__probe.toggleSettingsModal()'); await sleep(400);
+    ok('⚙️\'s Game Mode switch is disabled while locked', !!(await ev("(() => { const t = document.querySelector('.toggle-switch[data-pref=\"gameModeHidden\"]'); return t && t.classList.contains('disabled'); })()")));
+    await ev('window.__probe.toggleSettingsModal && window.__probe.toggleSettingsModal()'); await sleep(400);
+    await settingsClosed();
+    GAMES.open = true;
+    ok('listed again: the next check unlocks it, live', (await ev('window.__probe.checkGamesUnlock()')) === true);
+    lk = await lockState();
+    ok('…the panel is back as the preference had it', lk.hidden === !lk.pref, lk);
+
     ok('no page errors anywhere', !errors.length, errors.slice(0, 3));
     if (consoleErrors.length) console.log('  · console errors (fonts and sync are blocked on purpose):', consoleErrors.length);
 

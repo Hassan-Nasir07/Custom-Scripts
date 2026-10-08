@@ -15,6 +15,14 @@ const OUT = path.resolve(process.argv[2] || path.join(os.tmpdir(), 'pool-net-bro
 const PORTAL = 'https://globalportal.mtbc.com/#/time-absence/attendence-record';
 const CHROME = require('./browser').browserPath();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// Game Mode's lock: this stand-in browser has redeemed an access key. Its secret and a recent
+// unlock are in storage before the userscript runs, and the stub registry (the gist, served
+// below) lists its tag, so the games are open. GAMES.open = false serves it without the tag.
+const GAMES = { secret: '5eed'.repeat(16), open: true };
+GAMES.tag = require('crypto').createHash('sha256').update(GAMES.secret).digest('hex').slice(0, 32);
+const gamesRegistry = () => JSON.stringify({ files: { 'attendance_widget_registry.json': { content: JSON.stringify({ lastUpdated: new Date().toISOString(), players: [],
+    gamesUnlock: { n: 1, tags: GAMES.open ? { [GAMES.tag]: { at: new Date().toISOString(), n: 0 } } : {} } }) } } });
+const GAMES_PRESET = '<script>localStorage.setItem("atc_games_secret", "' + GAMES.secret + '"); localStorage.setItem("atc_games_ok", String(Date.now() + 864e5));</script>';
 
 function page(name) {
     let script = fs.readFileSync(path.join(ROOT, 'AttendanceTimeCheckerPlus.js'), 'utf8');
@@ -35,6 +43,7 @@ function page(name) {
 })();
 window.$ = sel => ({ before: el => { const t = document.querySelector(sel); if (t) t.parentNode.insertBefore(el, t); } });
 </script>
+${GAMES_PRESET}
 <script>${script.replace(/<\/script/gi, '<\\/script')}</script>
 </body></html>`;
 }
@@ -66,6 +75,13 @@ async function browser(name) {
             if (m.params.request.url.startsWith('https://globalportal.mtbc.com/')) {
                 send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 200,
                     responseHeaders: [{ name: 'Content-Type', value: 'text/html; charset=utf-8' }], body: Buffer.from(html).toString('base64') });
+            } else if (m.params.request.url.startsWith('https://api.github.com/gists/')) {
+                // The registry read carries an Authorization header, so it is preflighted: both get CORS.
+                const cors = [{ name: 'Access-Control-Allow-Origin', value: 'https://globalportal.mtbc.com' }, { name: 'Access-Control-Allow-Headers', value: 'Authorization, Accept' },
+                    { name: 'Access-Control-Allow-Methods', value: 'GET, OPTIONS' }];
+                if (m.params.request.method === 'OPTIONS') send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 204, responseHeaders: cors });
+                else send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 200,
+                    responseHeaders: cors.concat([{ name: 'Content-Type', value: 'application/json' }]), body: Buffer.from(gamesRegistry()).toString('base64') });
             } else send('Fetch.failRequest', { requestId: m.params.requestId, errorReason: 'BlockedByClient' });
         }
         if (m.method === 'Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text);
@@ -129,12 +145,14 @@ async function browser(name) {
         await T.click('#pool-root [data-ph="sheetnetsrv"]');
         await T.type('127.0.0.1:' + port);
         await T.click('#pool-root [data-ph="sheetnetgo"]');
+        if (T === A) { await A.waitFor("window.__probe.N.state === 'open'"); await A.shot('online-empty', '#pool-root .pool-hud'); }
     }
     ok('both browsers connect from the portal page over wss://', await A.waitFor("window.__probe.N.state === 'open'") && await B.waitFor("window.__probe.N.state === 'open'"));
     ok('…and the Online tab lists the other player', await A.waitFor("!!document.querySelector('#pool-root [data-ph-net=\"challenge\"]')") && await B.waitFor("!!document.querySelector('#pool-root [data-ph-net=\"challenge\"]')"));
     await A.shot('online-tab', '#pool-root .pool-hud');
     await B.click('#pool-root [data-ph="sheetx"]');
     await A.click('#pool-root [data-ph-net="bo"][data-id="3"]');
+    ok('Best of 3 is picked', await A.waitFor("document.querySelector('#pool-root [data-ph-net=\"bo\"][data-id=\"3\"]').getAttribute('aria-checked') === 'true'"));
     await A.click('#pool-root [data-ph-net="challenge"]');
     ok('Challenge shows "Waiting for" on the challenger', await A.waitFor("/Waiting for Bea/.test(document.querySelector('#pool-root [data-ph=\"sheetnetbody\"]').textContent)"));
     ok('the invite appears over the other table', await B.waitFor("!document.querySelector('#pool-root [data-ph=\"invite\"]').hidden"));

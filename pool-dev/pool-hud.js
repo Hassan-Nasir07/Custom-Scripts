@@ -279,27 +279,31 @@
     // The Online tab's status line: the connection, else why not, and the last challenge's news.
     function phNetStatus(n) {
         if (!n) return { text: '', tone: '' };
-        const base = n.state === 'open' ? 'Connected' : n.state === 'connecting' ? 'Connecting…' : n.err || (n.state === 'down' ? 'Reconnecting…' : 'Not connected');
+        const k = (n.players || []).length;
+        const base = n.state === 'open' ? 'Connected · ' + (k ? k + (k === 1 ? ' player' : ' players') + ' online' : 'no one else online')
+            : n.state === 'connecting' ? 'Connecting…' : n.err || (n.state === 'down' ? 'Reconnecting…' : 'Not connected');
         return { text: base + (n.note && n.state === 'open' ? ' · ' + n.note : ''), tone: n.state === 'open' ? 'ok' : n.err ? 'hot' : '' };
     }
-    // The Online tab's body: in a match, a way out; else invites, your challenge, best of, players.
+    // The Online tab's body: in a match, a way out; else invites, your challenge, the players and
+    // (only once there is someone to challenge) the match length.
     function phNetBodyHTML(n) {
         if (!n) return '';
         const btn = (act, id, label, cls, off) => '<button type="button" class="ph-btn' + (cls ? ' ' + cls : '') + '" data-ph-net="' + act + '"' +
             (id !== undefined ? ' data-id="' + phEsc(id) + '"' : '') + (off ? ' disabled' : '') + '>' + label + '</button>';
-        if (n.inRoom) return '<span>You are in an online match. Leaving it concedes the frame on the table.</span><div class="ph-sheet-links">' + btn('leave', undefined, 'Leave match', 'is-hot') + '</div>';
-        if (n.state !== 'open') return '<span class="ph-net-sub">Play a colleague on the office network. Ask whoever runs the pool server for its address.</span>';
         const game = g => (g === 'snooker' ? 'Snooker' : '8-Ball');
+        const len = b => (b > 1 ? 'best of ' + b : '1 frame');
+        if (n.inRoom) return '<span class="ph-net-sub">In a match. Leaving concedes the frame.</span><div class="ph-sheet-links">' + btn('leave', undefined, 'Leave match', 'is-hot') + '</div>';
+        if (n.state !== 'open') return '<span class="ph-net-sub">Enter the server address, then Connect.</span>';
         let h = '';
         if (n.invites.length) h += '<div class="ph-net-list">' + n.invites.map(i => '<div class="ph-net-row is-invite"><span class="ph-net-name">' + phEsc(i.name) +
-            '<span class="ph-net-sub">challenges you · ' + game(i.game) + (i.bestOf > 1 ? ', best of ' + i.bestOf : '') + '</span></span>' +
+            '<span class="ph-net-sub">' + game(i.game) + ' · ' + len(i.bestOf) + '</span></span>' +
             btn('accept', i.id, 'Accept', 'is-go') + btn('decline', i.id, 'Decline') + '</div>').join('') + '</div>';
-        if (n.outgoing) h += '<div class="ph-net-row"><span class="ph-net-name">Waiting for ' + phEsc(n.outgoing) + '…</span>' + btn('cancel', undefined, 'Cancel') + '</div>';
-        h += '<div class="ph-net-bo" role="group" aria-label="Best of"><span class="ph-sheet-l ph-label">' + game(n.game).toUpperCase() + ' · BEST OF</span>' +
-            [1, 3, 5].map(b => '<button type="button" class="ph-btn" data-ph-net="bo" data-id="' + b + '" aria-pressed="' + (n.bestOf === b ? 'true' : 'false') + '">' + b + '</button>').join('') + '</div>';
-        h += n.players.length ? '<div class="ph-net-list">' + n.players.map(p => '<div class="ph-net-row"><span class="ph-net-name">' + phEsc(p.name) + (p.busy ? '<span class="ph-net-sub">in a match</span>' : '') + '</span>' +
-            (p.busy ? '' : btn('challenge', p.id, 'Challenge', '', !!n.outgoing)) + '</div>').join('') + '</div>'
-            : '<span class="ph-net-sub">No one else is online yet. Your colleague opens Game mode › Online on the same server.</span>';
+        if (n.outgoing) h += '<div class="ph-net-row"><span class="ph-net-name">Challenge sent<span class="ph-net-sub">Waiting for ' + phEsc(n.outgoing) + '…</span></span>' + btn('cancel', undefined, 'Cancel') + '</div>';
+        if (!n.players.length) return h + '<span class="ph-net-sub">Waiting for players. Others join from Game mode › Online with the same address.</span>';
+        h += '<div class="ph-net-bo" role="radiogroup" aria-label="Match length"><span class="ph-sheet-l ph-label">MATCH · ' + game(n.game).toUpperCase() + '</span>' +
+            [1, 3, 5].map(b => '<button type="button" role="radio" class="ph-btn" data-ph-net="bo" data-id="' + b + '" aria-checked="' + (n.bestOf === b ? 'true' : 'false') + '">' + (b > 1 ? 'Best of ' + b : '1 frame') + '</button>').join('') + '</div>';
+        h += '<div class="ph-net-list">' + n.players.map(p => '<div class="ph-net-row"><span class="ph-net-name">' + phEsc(p.name) + (p.busy ? '<span class="ph-net-sub">In a match</span>' : '') + '</span>' +
+            (p.busy ? '' : btn('challenge', p.id, 'Challenge', 'is-go', !!n.outgoing)) + '</div>').join('') + '</div>';
         return h;
     }
 

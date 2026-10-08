@@ -1252,20 +1252,9 @@
         return ok;
     }
 
-    // Manual recovery — re-claim a wiped account with its original clientId:
-    //   await window.atcRestoreByClientId('fc847975-8ca3-49fc-a5d2-6ccaea28fd6b');
-    // Second arg optionally overwrites displayName locally.
-    async function atcRestoreByClientId(clientId, displayName) {
-        if (!clientId || typeof clientId !== 'string') {
-            console.error('[Restore] usage: atcRestoreByClientId("<your-gist-clientId>")');
-            return false;
-        }
-        const registry = await fetchRegistry();
-        if (!registry) { console.error('[Restore] Could not reach gist'); return false; }
-        const rec = (registry.players || []).find(p => p.clientId === clientId);
-        if (!rec) { console.error('[Restore] No record with that clientId on the gist'); return false; }
-
-        lbClientId = clientId;
+    // This browser becomes the account in rec: its identity, then its progress, then the board.
+    function restoreRecordAs(rec, displayName) {
+        lbClientId = rec.clientId;
         lbDisplayName = displayName || rec.displayName || lbDisplayName || '';
         lbRegistered = true;
         saveLeaderboardProfile();
@@ -1274,8 +1263,31 @@
             console.log(`[Restore] ✓ Restored ${lbDisplayName || 'account'} — Level ${userXP.level}, ${userXP.totalXP} XP`);
             try { showXPNotification(`Progress restored — Level ${userXP.level}`, 'achievement', 'f-cloud'); } catch (_) {}
             try { if (typeof updateXPDisplay === 'function') updateXPDisplay(); } catch (_) {}
+            try { if (typeof updatePrayerDisplay === 'function') updatePrayerDisplay(); } catch (_) {}
         }
+        fetchLeaderboard().then(() => { try { renderMiniBoard(); } catch (_) {} }).catch(() => {});
+        try { renderMiniBoard(); } catch (_) {}
         return ok;
+    }
+
+    // Admin only: re-claim an account by its clientId (public in the gist, so open to anyone it
+    // would be a takeover). Players restore with their recovery code and password (atcRestore).
+    //   await atcAdminLogin('<admin key>'); await atcRestoreByClientId('fc847975-…');
+    // Second arg optionally overwrites displayName locally.
+    async function atcRestoreByClientId(clientId, displayName) {
+        if (!_adminKey) {
+            console.error('[Restore] Admin only: run await atcAdminLogin("<admin key>") first. Players restore with await atcRestore("RCV-…", "password").');
+            return false;
+        }
+        if (!clientId || typeof clientId !== 'string') {
+            console.error('[Restore] usage: atcRestoreByClientId("<your-gist-clientId>")');
+            return false;
+        }
+        const registry = await fetchRegistry();
+        if (!registry) { console.error('[Restore] Could not reach gist'); return false; }
+        const rec = (registry.players || []).find(p => p.clientId === clientId);
+        if (!rec) { console.error('[Restore] No record with that clientId on the gist'); return false; }
+        return restoreRecordAs(rec, displayName);
     }
     window.atcRestoreByClientId = atcRestoreByClientId;
     window.atcRestoreFromGist = restoreFromGist;
@@ -1285,10 +1297,18 @@
     //   window.atcAdminLogin('your-admin-key')
     // Valid for that tab only. The workflow validates it against the ADMIN_KEY repo secret.
     let _adminKey = null;
-    function atcAdminLogin(key) {
+    // sha256 of the admin key (hex). When set, atcAdminLogin refuses any other key, so the
+    // browser-side admin tools (atcRestoreByClientId) are not open to anyone who types a key.
+    //   node -e "console.log(require('crypto').createHash('sha256').update(process.argv[1]).digest('hex'))" "<ADMIN_KEY>"
+    const ADMIN_KEY_HASH = '';
+    async function atcAdminLogin(key) {
         if (typeof key !== 'string' || !key) {
-            console.error('[Admin] usage: atcAdminLogin("your-admin-key")');
+            console.error('[Admin] usage: await atcAdminLogin("your-admin-key")');
             return false;
+        }
+        if (ADMIN_KEY_HASH) {
+            const h = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key))), b => b.toString(16).padStart(2, '0')).join('');
+            if (h !== ADMIN_KEY_HASH) { console.error('[Admin] That is not the admin key.'); return false; }
         }
         _adminKey = key;
         console.log('[Admin] Admin key set for this session.');
@@ -1505,6 +1525,190 @@
     window.atcAdminGamesKey = atcAdminGamesKey;
     window.atcAdminGamesRevoke = atcAdminGamesRevoke;
     window.atcAdminGamesRotate = atcAdminGamesRotate;
+
+    // ─── Progress recovery: a code and a password ───────────────────
+    // A wiped browser loses atc_lb_profile, and with it the clientId that holds its progress.
+    // Setting a password gives the player a recovery code (80 random bits, RCV-XXXX-XXXX-XXXX-XXXX)
+    // to keep. The gist (public) holds only, on the player's record:
+    //   recovery = { v: 1, lookup: sha256('atc-rcv-lookup:' + code)[0..32], salt, it,
+    //                verifier: sha256(proof) }   proof = PBKDF2-SHA256(password, salt + ':' + code, it)
+    // so it reveals neither, and without the code no password can be tried against it. Restoring is
+    // checked here; setting and changing it go through the bot (recovery-set), which keeps it out of
+    // reach of ordinary syncs and, to change it, wants the current proof.
+    //   await atcSetRecovery('password')                          → the code (shown once: save it)
+    //   await atcSetRecovery('new', 'RCV-old-code', 'old')        change it
+    //   await atcRestore('RCV-…', 'password')                     this browser becomes that account
+    //   await atcAdminClearRecovery('clientId')                   admin: let it be set again
+    const RCV_IT = 150000;
+    let rcvTries = [];
+    const rcvEnc = v => new TextEncoder().encode(v);
+    const rcvSha = async v => gamesHex(await crypto.subtle.digest('SHA-256', rcvEnc(v)));
+    const rcvNormalize = c => gamesNormalize(c).replace(/^RCV/, '');
+    const rcvFormat = c => 'RCV-' + c.match(/.{4}/g).join('-');
+    function rcvNewCode() {
+        const a = new Uint8Array(10);
+        crypto.getRandomValues(a);
+        let val = 0, bits = 0, out = '';
+        for (const byte of a) { val = ((val << 8) | byte) & 0xffff; bits += 8; while (bits >= 5) { out += GAMES_ALPHA[(val >>> (bits - 5)) & 31]; bits -= 5; } }
+        return out;
+    }
+    const rcvLookup = async code => (await rcvSha('atc-rcv-lookup:' + code)).slice(0, 32);
+    async function rcvProof(password, salt, code, it) {
+        const key = await crypto.subtle.importKey('raw', rcvEnc(password), 'PBKDF2', false, ['deriveBits']);
+        return gamesHex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: rcvEnc(salt + ':' + code), iterations: it }, key, 256));
+    }
+    const rcvOk = async (rec, code, password) => !!(rec && rec.recovery && (await rcvSha(await rcvProof(password, rec.recovery.salt, code, rec.recovery.it))) === rec.recovery.verifier);
+
+    // Set (or, with the current code and password, change) this player's recovery. step(text)
+    // reports progress. Resolves { ok, code?, message }.
+    async function rcvSet(password, oldCode, oldPassword, step) {
+        const say = t => { try { if (step) step(t); } catch (_) {} };
+        if (!lbRegistered || !lbClientId) return { ok: false, message: 'Join the leaderboard first: recovery restores your board record.' };
+        if (typeof password !== 'string' || password.length < 6) return { ok: false, message: 'Use a password of at least 6 characters.' };
+        say('Checking your record…');
+        const reg = await fetchRegistry();
+        if (!reg) return { ok: false, message: 'Could not reach the board. Try again shortly.' };
+        const me = (reg.players || []).find(p => p.clientId === lbClientId);
+        if (!me) return { ok: false, message: 'Your record is not on the board yet. Sync (the cloud button), wait a minute, then try again.' };
+        let oldProof;
+        if (me.recovery) {
+            const oc = rcvNormalize(oldCode);
+            if (!GAMES_KEY_RE.test(oc) || typeof oldPassword !== 'string' || !(await rcvOk(me, oc, oldPassword))) {
+                return { ok: false, message: 'Your progress already has a recovery password. To change it, enter the current code and password.' };
+            }
+            oldProof = await rcvProof(oldPassword, me.recovery.salt, oc, me.recovery.it);
+        }
+        say('Making your code…');
+        const code = rcvNewCode(), saltBytes = new Uint8Array(16);
+        crypto.getRandomValues(saltBytes);
+        const salt = gamesHex(saltBytes), lookup = await rcvLookup(code);
+        const verifier = await rcvSha(await rcvProof(password, salt, code, RCV_IT));
+        let res = null;
+        try {
+            res = await fetch(`https://api.github.com/repos/${GH_BOT_REPO}/dispatches`, {
+                method: 'POST',
+                headers: { 'Accept': 'application/vnd.github+json', 'Authorization': `Bearer ${GH_DISPATCHER_PAT}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ event_type: 'recovery-set', client_payload: { client_id: lbClientId, recovery: { v: 1, lookup, salt, verifier, it: RCV_IT },
+                    old_proof: oldProof, build_token: BUILD_TOKEN, build_label: BUILD_LABEL } })
+            });
+        } catch (_) {}
+        if (!res || !res.ok) return { ok: false, message: 'Could not reach GitHub' + (res ? ' (' + res.status + ')' : '') + '. Nothing was changed; try again shortly.' };
+        say('Saving… this takes up to a minute.');
+        for (let i = 0; i < 24; i++) {
+            await new Promise(r => setTimeout(r, 5000));
+            const now = await fetchRegistry(), rec = now && (now.players || []).find(p => p.clientId === lbClientId);
+            if (rec && rec.recovery && rec.recovery.lookup === lookup) return { ok: true, code: rcvFormat(code), message: 'Saved. Keep this code and your password: together they restore your progress on any browser.' };
+        }
+        return { ok: false, message: 'Not saved: the board did not take it. Try again; if it keeps failing, ask the admin.' };
+    }
+    async function atcSetRecovery(password, oldCode, oldPassword) {
+        const r = await rcvSet(password, oldCode, oldPassword, t => console.log('[Recovery] ' + t));
+        if (!r.ok) { console.error('[Recovery] ✗ ' + r.message); return null; }
+        console.log('%c[Recovery] Your code: ' + r.code + '%c\nSave it now — it is shown once. ' + r.message, 'font-size:16px;font-weight:bold', '');
+        return r.code;
+    }
+    // Restore by code and password. Resolves { ok, message }.
+    async function rcvRestore(code, password) {
+        const c = rcvNormalize(code);
+        if (!GAMES_KEY_RE.test(c)) return { ok: false, message: 'That is not a recovery code. Codes look like RCV-XXXX-XXXX-XXXX-XXXX.' };
+        if (typeof password !== 'string' || !password) return { ok: false, message: 'Enter your password.' };
+        rcvTries = rcvTries.filter(t => Date.now() - t < 60000);
+        if (rcvTries.length >= 5) return { ok: false, message: 'Too many tries. Wait a minute, then try again.' };
+        rcvTries.push(Date.now());
+        const reg = await fetchRegistry();
+        if (!reg) return { ok: false, message: 'Could not reach the board. Try again shortly.' };
+        const lookup = await rcvLookup(c), rec = (reg.players || []).find(p => p.recovery && p.recovery.lookup === lookup);
+        if (!rec || !(await rcvOk(rec, c, password))) return { ok: false, message: 'Code or password is wrong.' };
+        restoreRecordAs(rec);
+        return { ok: true, message: 'Restored ' + (rec.displayName || 'your progress') + ': Level ' + userXP.level + ', ' + userXP.totalXP.toLocaleString() + ' XP.' };
+    }
+    async function atcRestore(code, password) {
+        const r = await rcvRestore(code, password);
+        return (r.ok ? '✓ ' : '✗ ') + r.message;
+    }
+    async function atcAdminClearRecovery(clientId) {
+        if (!clientId) { console.error('[Admin] usage: atcAdminClearRecovery("clientId")'); return false; }
+        const r = await _adminDispatch('admin-recovery-clear', { client_id: clientId });
+        if (r?.ok) console.log('[Admin] ✓ Recovery clear queued for ' + clientId + ' (gist updates in ~30s); they can set a new password.');
+        return !!r?.ok;
+    }
+
+    // The dialog: restore (not joined), protect (joined, no password yet) or change.
+    function rcvDialogClose() {
+        const o = document.getElementById('rcv-modal-overlay'), m = document.getElementById('rcv-modal');
+        if (o) o.classList.remove('active');
+        if (m) m.classList.remove('active');
+        if (rcvDialogClose.opener && rcvDialogClose.opener.focus) try { rcvDialogClose.opener.focus(); } catch (_) {}
+    }
+    function atcRecoveryDialog(mode) {
+        const own = leaderboardData.find(p => p.clientId === lbClientId);
+        mode = mode || (!lbRegistered ? 'restore' : own && own.recovery ? 'change' : 'set');
+        let overlay = document.getElementById('rcv-modal-overlay'), modal = document.getElementById('rcv-modal');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'rcv-modal-overlay'; overlay.className = 'achievements-modal-overlay';
+            overlay.onclick = rcvDialogClose;
+            document.body.appendChild(overlay);
+        }
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'rcv-modal'; modal.className = 'achievements-modal rcv-modal ach-ui';
+            modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true');
+            modal.onkeydown = e => { if (e.key === 'Escape') rcvDialogClose(); };
+            document.body.appendChild(modal);
+        }
+        const T = { restore: ['Restore your progress', 'Enter the recovery code you saved and your password.', 'Restore'],
+            set: ['Protect your progress', 'Pick a password. You will get a recovery code: with both, you can restore your level and scores on any browser.', 'Protect my progress'],
+            change: ['Change recovery password', 'Enter your current code and password, then the new password. You will get a new code.', 'Change password'] }[mode];
+        const field = (id, label, type, ac, ph) => '<label class="rcv-field"><span>' + label + '</span><input id="' + id + '" type="' + type + '" autocomplete="' + ac + '" spellcheck="false"' + (ph ? ' placeholder="' + ph + '"' : '') + '></label>';
+        modal.setAttribute('aria-label', T[0]);
+        modal.innerHTML = '<div class="achievements-modal-header"><div class="achievements-modal-title">' + T[0] + '</div>' +
+            '<button type="button" class="achievements-modal-close" aria-label="Close">' + achSvg('M6 6l12 12M18 6L6 18', 16, 2) + '</button></div>' +
+            '<p class="rcv-lead">' + T[1] + '</p><form class="rcv-form" novalidate>' +
+            (mode === 'restore' ? field('rcv-code', 'Recovery code', 'text', 'off', 'RCV-XXXX-XXXX-XXXX-XXXX') + field('rcv-pw', 'Password', 'password', 'current-password')
+                : mode === 'change' ? field('rcv-old-code', 'Current code', 'text', 'off', 'RCV-XXXX-XXXX-XXXX-XXXX') + field('rcv-old-pw', 'Current password', 'password', 'current-password') +
+                    field('rcv-pw', 'New password', 'password', 'new-password') + field('rcv-pw2', 'New password again', 'password', 'new-password')
+                : field('rcv-pw', 'Password (6+ characters)', 'password', 'new-password') + field('rcv-pw2', 'Password again', 'password', 'new-password')) +
+            '<button type="submit" class="rcv-go">' + T[2] + '</button><div class="rcv-status" role="status" aria-live="polite"></div></form>';
+        const $ = id => modal.querySelector('#' + id), status = modal.querySelector('.rcv-status'), go = modal.querySelector('.rcv-go');
+        const tell = (t, tone) => { status.textContent = t; status.className = 'rcv-status' + (tone ? ' is-' + tone : ''); };
+        modal.querySelector('.achievements-modal-close').onclick = rcvDialogClose;
+        modal.querySelector('.rcv-form').onsubmit = async e => {
+            e.preventDefault();
+            if (go.disabled) return;
+            if (mode !== 'restore' && $('rcv-pw').value !== $('rcv-pw2').value) { tell('The two passwords differ.', 'hot'); return; }
+            go.disabled = true;
+            try {
+                if (mode === 'restore') {
+                    tell('Checking…');
+                    const r = await rcvRestore($('rcv-code').value, $('rcv-pw').value);
+                    tell(r.message, r.ok ? 'ok' : 'hot');
+                    if (r.ok) setTimeout(rcvDialogClose, 1600);
+                } else {
+                    const r = await rcvSet($('rcv-pw').value, mode === 'change' ? $('rcv-old-code').value : undefined, mode === 'change' ? $('rcv-old-pw').value : undefined, t => tell(t));
+                    if (!r.ok) { tell(r.message, 'hot'); return; }
+                    // The code, once: copy it, then done.
+                    modal.querySelector('.rcv-form').outerHTML = '<div class="rcv-done"><span class="rcv-code" tabindex="0">' + escapeHtml(r.code) + '</span>' +
+                        '<p class="rcv-lead"><b>Save this code now: it is shown once.</b> ' + escapeHtml(r.message) + '</p>' +
+                        '<div class="rcv-row"><button type="button" class="rcv-go rcv-copy">Copy code</button><button type="button" class="rcv-sec rcv-ok">Done</button></div></div>';
+                    modal.querySelector('.rcv-copy').onclick = () => { try { navigator.clipboard.writeText(r.code); modal.querySelector('.rcv-copy').textContent = 'Copied'; } catch (_) {} };
+                    modal.querySelector('.rcv-ok').onclick = rcvDialogClose;
+                    try { fetchLeaderboard().then(() => renderMiniBoard()); } catch (_) {}
+                }
+            } finally { if (go.isConnected) go.disabled = false; }
+        };
+        rcvDialogClose.opener = document.activeElement;
+        requestAnimationFrame(() => {
+            overlay.classList.add('active'); modal.classList.add('active');
+            const first = modal.querySelector('input');
+            if (first) first.focus();
+        });
+        return mode;
+    }
+    window.atcSetRecovery = atcSetRecovery;
+    window.atcRestore = atcRestore;
+    window.atcAdminClearRecovery = atcAdminClearRecovery;
+    window.atcRecoveryDialog = atcRecoveryDialog;
 
     async function fetchLeaderboard() {
         if (lbFetching) return leaderboardData;
@@ -17504,6 +17708,31 @@
             .ws-board-sync { width: 28px; height: 28px; padding: 0; border-radius: 8px; border: 1px solid var(--att-inner-b); background: none; display: flex; align-items: center; justify-content: center; font: 400 11px 'Sora', system-ui, sans-serif; color: var(--att-muted); cursor: pointer; }
             .ws-board-sync:hover { background: var(--att-inner); color: var(--att-text); }
             .ws-board-sync[hidden] { display: none; }
+            .ws-board-rcv { position: relative; }
+            .ws-board-rcv.is-nudge::after { content: ''; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--att-accent); }
+            .ws-rcv-link { align-self: center; border: 0; background: none; padding: 6px 4px; font: 500 12px 'Sora', system-ui, sans-serif; color: var(--att-muted); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+            .ws-rcv-link:hover { color: var(--att-text); }
+            /* Recovery: the achievements modal's frame, sized to its form. */
+            .achievements-modal.rcv-modal { width: min(400px, calc(100vw - 32px)); height: auto; max-height: calc(100vh - 48px); overflow-y: auto; padding: 16px 18px 18px; gap: 12px; }
+            .rcv-modal .rcv-lead { margin: 0; font-size: 13px; line-height: 1.5; color: var(--ach-muted); }
+            .rcv-modal .rcv-lead b { color: var(--ach-text); }
+            .rcv-modal .rcv-form { display: flex; flex-direction: column; gap: 10px; }
+            .rcv-modal .rcv-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--ach-muted); }
+            .rcv-modal .rcv-field input { height: 44px; box-sizing: border-box; padding: 0 12px; border-radius: 12px; border: 1px solid var(--ach-inner-border); background: var(--ach-inner); color: var(--ach-text); font: 14px var(--ach-font); letter-spacing: 0; outline: none; }
+            .rcv-modal .rcv-field input:focus { border-color: var(--ach-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ach-accent) 25%, transparent); }
+            .rcv-modal .rcv-go, .rcv-modal .rcv-sec { height: 44px; border-radius: 12px; border: 0; padding: 0 16px; font: 600 14px var(--ach-font); cursor: pointer; }
+            .rcv-modal .rcv-go { background: var(--ach-accent); color: var(--ach-on-accent); }
+            .rcv-modal .rcv-go:disabled { opacity: 0.6; cursor: progress; }
+            .rcv-modal .rcv-sec { background: var(--ach-inner); color: var(--ach-text); border: 1px solid var(--ach-inner-border); }
+            .rcv-modal .rcv-go:focus-visible, .rcv-modal .rcv-sec:focus-visible { outline: 2px solid var(--ach-focus); outline-offset: 2px; }
+            .rcv-modal .rcv-status { min-height: 18px; font-size: 12px; line-height: 1.5; color: var(--ach-muted); }
+            .rcv-modal .rcv-status.is-ok { color: var(--ach-ok); }
+            .rcv-modal .rcv-status.is-hot { color: #FF8A8A; }
+            @media (prefers-color-scheme: light) { body:not(:has(.attendance-summary.retro-theme)) .rcv-modal .rcv-status.is-hot { color: #B3263A; } }
+            .rcv-modal .rcv-done { display: flex; flex-direction: column; gap: 12px; }
+            .rcv-modal .rcv-code { display: block; padding: 14px; border-radius: 12px; text-align: center; font: 700 18px ui-monospace, Consolas, monospace; letter-spacing: 0.06em; color: var(--ach-text); background: var(--ach-inner); border: 1px dashed var(--ach-accent); user-select: all; }
+            .rcv-modal .rcv-row { display: flex; gap: 8px; }
+            .rcv-modal .rcv-row > * { flex: 1 1 0; }
             .ws-board-rows { min-height: 0; max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-right: 2px; }
             .ws-board-rows::-webkit-scrollbar { width: 6px; }
             .ws-board-rows::-webkit-scrollbar-track { background: transparent; }
@@ -24762,14 +24991,22 @@
         const html = !lbRegistered
             ? `<div class="ws-join"><span>Join to see where you rank with your team. Your level, XP and game scores are shared.</span>
                 <input id="lb-name-input" class="ws-join-in" type="text" placeholder="Display name (e.g. Hassan N.)" maxlength="20" aria-label="Display name">
-                <button type="button" class="lb-register-btn desk-primary" onclick="window.lbRegister()">Join the leaderboard</button></div>`
+                <button type="button" class="lb-register-btn desk-primary" onclick="window.lbRegister()">Join the leaderboard</button>
+                <button type="button" class="ws-rcv-link" onclick="window.atcRecoveryDialog('restore')">Lost your progress? Restore it</button></div>`
             : leaderboardData.map(p => ({ p, v: p.totalXP || 0 })).sort((a, b) => b.v - a.v).map((r, i) => {
                 const me = r.p.clientId === lbClientId, name = String(r.p.displayName || '') + (me ? ' (you)' : '');
                 const keys = (Array.isArray(r.p.achievements) ? r.p.achievements : []).filter(k => ACHIEVEMENTS[k]).join(',');
                 return `<button type="button" class="ws-row${me ? ' is-me' : ''}" data-ach-name="${attr(name)}" data-ach-keys="${keys}" aria-label="${attr(name + ', rank ' + (i + 1) + ', ' + r.v.toLocaleString())}"><i>${i + 1}</i><em>${escapeHtml(lbInitials(r.p.displayName))}</em><span>${escapeHtml(name)}</span><b>${r.v.toLocaleString()}</b></button>`;
             }).join('') || `<div class="ws-board-empty">${lbFetching ? 'Loading the board…' : 'No scores on this board yet.'}</div>`;
-        const list = box.querySelector('.ws-board-rows'), sync = box.querySelector('.ws-board-sync');
+        const list = box.querySelector('.ws-board-rows'), sync = box.querySelector('.ws-board-sync:not(.ws-board-rcv)'), rcv = box.querySelector('.ws-board-rcv');
         if (sync) sync.hidden = !lbRegistered;
+        if (rcv) {
+            // The key: recovery for this account; a dot until a password protects it.
+            const own = leaderboardData.find(p => p.clientId === lbClientId), bare = !!own && !own.recovery;
+            rcv.hidden = !lbRegistered;
+            rcv.classList.toggle('is-nudge', bare);
+            rcv.title = bare ? 'Protect your progress: set a recovery password' : 'Recovery code and password';
+        }
         if (list.innerHTML !== html) list.innerHTML = html;
         const me = list.querySelector('.ws-row.is-me'), rank = me ? String(Array.prototype.indexOf.call(list.children, me)) : '';
         if (me && list.dataset.meRank !== rank) { list.dataset.meRank = rank; list.scrollTop = +rank * (list.children[0].offsetHeight + 2); }
@@ -25126,7 +25363,7 @@
                 <div id="aim-results"></div>
 
                 <section class="ws-card ws-board" aria-label="Leaderboard">
-                    <div class="ws-board-head"><span>${attIcon('g-board')} Leaderboard</span><span class="ws-board-tools"><span class="ws-board-sub">Total XP</span><button type="button" class="ws-board-sync" onclick="window.lbSync()" title="Sync and refresh" aria-label="Sync and refresh">${attIcon('f-cloud', '18px')}</button></span></div>
+                    <div class="ws-board-head"><span>${attIcon('g-board')} Leaderboard</span><span class="ws-board-tools"><span class="ws-board-sub">Total XP</span><button type="button" class="ws-board-sync ws-board-rcv" onclick="window.atcRecoveryDialog()" title="Recovery code and password" aria-label="Recovery code and password" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"></circle><path d="M10.8 12.2L20 3M16 7l3 3M14 9l2 2"></path></svg></button><button type="button" class="ws-board-sync" onclick="window.lbSync()" title="Sync and refresh" aria-label="Sync and refresh">${attIcon('f-cloud', '18px')}</button></span></div>
                     <div class="ws-board-rows"></div>
                 </section>
             </div>

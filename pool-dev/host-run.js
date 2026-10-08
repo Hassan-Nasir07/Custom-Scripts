@@ -25,7 +25,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // below) lists its tag, so the games are open. GAMES.open = false serves it without the tag.
 const GAMES = { secret: '5eed'.repeat(16), open: true };
 GAMES.tag = require('crypto').createHash('sha256').update(GAMES.secret).digest('hex').slice(0, 32);
-const gamesRegistry = () => JSON.stringify({ files: { 'attendance_widget_registry.json': { content: JSON.stringify({ lastUpdated: new Date().toISOString(), players: [],
+const gamesRegistry = () => JSON.stringify({ files: { 'attendance_widget_registry.json': { content: JSON.stringify({ lastUpdated: new Date().toISOString(), players: GAMES.players || [],
     gamesUnlock: { n: 1, tags: GAMES.open ? { [GAMES.tag]: { at: new Date().toISOString(), n: 0 } } : {} } }) } } });
 const GAMES_PRESET = '<script>localStorage.setItem("atc_games_secret", "' + GAMES.secret + '"); localStorage.setItem("atc_games_ok", String(Date.now() + 864e5));</script>';
 
@@ -36,6 +36,7 @@ function page() {
     const probe = `
     window.__probe = {
         checkGamesUnlock, get gamesUnlocked() { return gamesUnlocked; },
+        get lbClientId() { return lbClientId; }, get lbRegistered() { return lbRegistered; },
         S: poolS, get mode() { return poolMode; }, get maximized() { return poolMaximized; }, get tier() { return poolCpuTier; },
         get currentGame() { return currentGame; }, get prefs() { return userPreferences; },
         applyPreferences, poolEndFrame, poolNewFrame, resetPoolGame, prCanPlace, phThemeTokens, pcProject, pcView,
@@ -746,6 +747,43 @@ async function main() {
     ok('listed again: the next check unlocks it, live', (await ev('window.__probe.checkGamesUnlock()')) === true);
     lk = await lockState();
     ok('…the panel is back as the preference had it', lk.hidden === !lk.pref, lk);
+
+    head('Progress recovery');
+    {
+        // A player who protected their progress: the record the gist holds, built as the browser builds it.
+        const nc = require('crypto'), sha = v => nc.createHash('sha256').update(v).digest('hex');
+        const CODE = 'K7QDM3XA9PZRT2WF', PW = 'correct horse', SALT = '3c'.repeat(16), IT = 150000;
+        const proof = nc.pbkdf2Sync(PW, SALT + ':' + CODE, IT, 32, 'sha256').toString('hex');
+        GAMES.players = [{ clientId: 'rcv-player-1', displayName: 'Rina R.', totalXP: 54321, level: 1, currentXP: 0, gameSessions: 300, totalWorkDays: 40,
+            achievements: [], recovery: { v: 1, lookup: sha('atc-rcv-lookup:' + CODE).slice(0, 32), salt: SALT, verifier: sha(proof), it: IT, setAt: new Date().toISOString() } }];
+        ok('not joined: the Join box offers "Lost your progress? Restore it"', /Restore it/.test(await ev("(document.querySelector('#total-time-summary .ws-rcv-link') || {}).textContent || ''")));
+        if (!(await click('#total-time-summary .ws-rcv-link'))) await ev("window.atcRecoveryDialog('restore')");
+        ok('…it opens the restore dialog: code and password', await waitFor("(() => { const m = document.getElementById('rcv-modal'); return m && m.classList.contains('active') && !!m.querySelector('#rcv-code') && m.querySelector('#rcv-pw').type === 'password'; })()", 3000));
+        const fill = (code, pw) => ev(`(() => { document.getElementById('rcv-code').value = ${JSON.stringify(code)}; document.getElementById('rcv-pw').value = ${JSON.stringify(pw)}; })()`);
+        const status = () => ev("document.querySelector('#rcv-modal .rcv-status').textContent");
+        await shot('recovery-restore', '#rcv-modal');
+        await fill('RCV-' + CODE.match(/.{4}/g).join('-'), 'wrong password');
+        await click('#rcv-modal .rcv-go');
+        ok('a wrong password is refused', await waitFor("/Code or password is wrong/.test(document.querySelector('#rcv-modal .rcv-status').textContent)", 8000) && (await ev('window.__probe.lbClientId')) !== 'rcv-player-1', await status());
+        await fill(CODE.toLowerCase().replace(/0/g, 'o'), PW);
+        await click('#rcv-modal .rcv-go');
+        ok('the code typed loosely (lowercase, no dashes, O for 0) and the password restore it', await waitFor("/Restored Rina/.test(document.querySelector('#rcv-modal .rcv-status').textContent)", 8000), await status());
+        ok('…this browser is now that account, joined, with its XP', (await ev('window.__probe.lbClientId')) === 'rcv-player-1' && (await ev('window.__probe.lbRegistered')) === true && (await ev('window.__probe.xp.totalXP')) === 54321);
+        ok('…the dialog closes by itself', await waitFor("!document.getElementById('rcv-modal').classList.contains('active')", 4000));
+        ok('…and the board shows the key button, with no "protect" dot (a password is set)', await waitFor("(() => { const b = document.querySelector('#total-time-summary .ws-board-rcv'); return b && !b.hidden && !b.classList.contains('is-nudge'); })()", 6000));
+        ok('atcRestore from the console: a wrong password says so', /✗ Code or password is wrong/.test(await ev(`window.atcRestore('RCV-${CODE}', 'nope')`)));
+        ok('…and the right one restores', /✓ Restored Rina R\./.test(await ev(`window.atcRestore('${CODE}', ${JSON.stringify(PW)})`)));
+        ok('atcRestoreByClientId is admin only now', (await ev("window.atcRestoreByClientId('rcv-player-1')")) === false);
+        ok('the key button opens the change dialog for a protected account', (await ev('window.atcRecoveryDialog()')) === 'change' && await waitFor("!!document.querySelector('#rcv-modal #rcv-old-code')", 2000));
+        await sleep(300); await shot('recovery-change', '#rcv-modal');
+        await ev("document.querySelector('#rcv-modal .achievements-modal-close').click()");
+        const before = consoleErrors.length;
+        ok('setting a password without the current code is refused for a protected account', (await ev("window.atcSetRecovery('newpassword')")) === null && consoleErrors.slice(before).some(e => /already has a recovery password/.test(e)));
+        const before2 = consoleErrors.length;
+        await ev(`window.atcSetRecovery('newpassword', 'RCV-${CODE}', ${JSON.stringify(PW)})`);
+        ok('…with it, the change goes to the bot (GitHub is unreachable here, and it says so)', consoleErrors.slice(before2).some(e => /Could not reach GitHub/.test(e)));
+        GAMES.players = [];
+    }
 
     ok('no page errors anywhere', !errors.length, errors.slice(0, 3));
     if (consoleErrors.length) console.log('  · console errors (fonts and sync are blocked on purpose):', consoleErrors.length);

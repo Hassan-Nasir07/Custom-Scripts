@@ -9,7 +9,8 @@
 // shape validation, the monotonic per-key merge, and the tier-win growth bound,
 // plus the gates that were already there (build token, XP budget, counters), and
 // snooker's (S6): its tier and mode bounds, and the high break's 155 cap and session rule;
-// and Game Mode's access keys: one use each, rotating, surviving every other write.
+// Game Mode's access keys: one use each, rotating, surviving every other write; and progress
+// recovery: set once, changed only with the current proof, out of reach of ordinary syncs.
 //
 // The bot lives in its own repository, checked out beside this one; without it
 // the suite says so and passes, as there is nothing to test.
@@ -224,6 +225,52 @@ const send = (player, players, opts) => dispatch({ player, build_token: 'tok-now
         const botFrom = SCRIPT.indexOf('function gamesKeyFor(secret, n) {');
         const botKeyFor = new Function('require', 'GAMES_ALPHA', SCRIPT.slice(botFrom, SCRIPT.indexOf('\n}\n', botFrom) + 2) + '\nreturn gamesKeyFor;')(require, alpha);
         ok('…and tools/games-key.js derives them as the bot does', [0, 1, 7, 42].every(n => botKeyFor(UNLOCK, n) === keyFor(UNLOCK, n)));
+    }
+
+    head('Progress recovery');
+    {
+        // The browser's derivation (atcSetRecovery), in Node: lookup and verifier from code + password.
+        const nc = require('crypto');
+        const sha = v => nc.createHash('sha256').update(v).digest('hex');
+        const make = (code, pw, salt) => {
+            const proof = nc.pbkdf2Sync(pw, salt + ':' + code, 100000, 32, 'sha256').toString('hex');
+            return { proof, rec: { v: 1, lookup: sha('atc-rcv-lookup:' + code).slice(0, 32), salt, verifier: sha(proof), it: 100000 } };
+        };
+        const A = make('ABCDEFGHJKMNPQRS', 'hunter22', '1'.repeat(32)), B = make('TVWXYZ0123456789', 'swordfish', '2'.repeat(32));
+        const setRcv = (players, extra) => dispatch(Object.assign({ client_id: 'c1', build_token: 'tok-now' }, extra), players, { event: 'recovery-set' });
+        r = await setRcv([stored({})], { recovery: A.rec });
+        ok('a first recovery is stored on the record, stamped', r.player('c1').recovery && r.player('c1').recovery.lookup === A.rec.lookup && !!r.player('c1').recovery.setAt);
+        const withA = [stored({}, { recovery: Object.assign({ setAt: 'x' }, A.rec) })];
+        r = await setRcv(withA, { recovery: B.rec });
+        ok('a second one without the current proof is refused', r.written === null && r.warnings.some(w => /already has a recovery/.test(w)));
+        r = await setRcv(withA, { recovery: B.rec, old_proof: B.proof });
+        ok('…and with a wrong proof', r.written === null);
+        r = await setRcv(withA, { recovery: B.rec, old_proof: A.proof });
+        ok('with the current proof it is replaced, and the proof is masked in the logs', r.player('c1').recovery.lookup === B.rec.lookup && (r.secrets || []).includes(A.proof));
+        r = await setRcv([stored({})], { recovery: Object.assign({}, A.rec, { it: 1000 }) });
+        ok('too few PBKDF2 rounds are refused', r.written === null && r.warnings.some(w => /malformed/.test(w)));
+        r = await setRcv([stored({})], { recovery: Object.assign({}, A.rec, { verifier: 'xyz' }) });
+        ok('…and a malformed verifier', r.written === null);
+        r = await setRcv([stored({})], { client_id: 'nobody', recovery: A.rec });
+        ok('…and an unknown player', r.written === null && r.warnings.some(w => /no player/.test(w)));
+        r = await setRcv([stored({}), stored({}, { clientId: 'c2', recovery: A.rec })], { recovery: A.rec });
+        ok('…and a code another player already uses', r.written === null && r.warnings.some(w => /already in use/.test(w)));
+        r = await setRcv(withA, { recovery: B.rec, old_proof: A.proof, build_token: 'wrong' });
+        ok('the build-token gate applies', r.written === null);
+        r = await send(next({}, 1), withA);
+        ok('a sync that leaves recovery out keeps it', r.player('c1').recovery && r.player('c1').recovery.lookup === A.rec.lookup);
+        r = await send(next({}, 1, { recovery: B.rec }), withA);
+        ok('a sync cannot replace it', r.player('c1').recovery.lookup === A.rec.lookup);
+        r = await send(next({}, 1, { recovery: B.rec }), [stored({})]);
+        ok('…nor bring one in', !r.player('c1').recovery);
+        r = await send(Object.assign(next({}, 0), { clientId: 'c9', recovery: B.rec }), []);
+        ok('…nor a new record', !r.player('c9').recovery);
+        r = await dispatch({ registry: { players: [next({}, 1, { recovery: B.rec })] }, build_token: 'tok-now' }, withA);
+        ok('…nor the legacy whole-registry sync', r.player('c1').recovery.lookup === A.rec.lookup);
+        r = await dispatch({ client_id: 'c1', build_token: 'tok-now' }, withA, { event: 'admin-recovery-clear' });
+        ok('clearing it needs the admin key', r.written === null && /admin_key invalid/.test(r.failed || ''));
+        r = await dispatch({ client_id: 'c1', admin_key: 'admin', build_token: 'tok-now' }, withA, { event: 'admin-recovery-clear' });
+        ok('…with it, the record has none, and a new one can be set', r.player('c1') && !r.player('c1').recovery);
     }
 
     head('The legacy whole-registry payload');

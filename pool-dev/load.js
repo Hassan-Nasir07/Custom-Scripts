@@ -20,7 +20,7 @@ const path = require('path');
 
 // Splice order: each file only uses names from the ones before it at call time,
 // but keeping the dependency order makes the block read top-down.
-const FILES = ['pool-physics.js', 'pool-rules.js', 'pool-snooker.js', 'pool-tour.js', 'pool-camera.js', 'pool-cues.js', 'pool-render.js', 'pool-hud.js', 'pool-tour-ui.js', 'pool-ai.js', 'pool-snooker-ai.js', 'pool-game.js'];
+const FILES = ['pool-physics.js', 'pool-rules.js', 'pool-snooker.js', 'pool-tour.js', 'pool-camera.js', 'pool-cues.js', 'pool-render.js', 'pool-hud.js', 'pool-tour-ui.js', 'pool-ai.js', 'pool-snooker-ai.js', 'pool-net.js', 'pool-game.js'];
 const TARGET = path.join(__dirname, '..', 'AttendanceTimeCheckerPlus.js');
 // Module prefixes, plus the host-facing names pool-game.js keeps from v1. ps / PS_ is
 // snooker's (pool-snooker.js, from Phase S1): the userscript has no ps* names of its own.

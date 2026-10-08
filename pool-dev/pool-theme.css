@@ -699,6 +699,44 @@
             }
             .pool-hud .ph-sheet-links .ph-btn.is-hot { color: var(--pool-hot-lite); border-color: rgba(var(--pool-hot-rgb), 0.5); }
 
+            /* ── Online: the sheet's fourth tab and the invite over the table ── */
+            /* Four modes in a row; in the widget's column, two rows of two, icon beside label. */
+            .pool-hud .ph-sheet-modes { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+            .pool-hud .ph-sheet-mode span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            @container pool-hud (max-width: 439px) {
+                .pool-hud .ph-sheet-modes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                .pool-hud .ph-sheet-mode { height: 44px; flex-direction: row; gap: 8px; font-size: 12px; }
+            }
+            .pool-hud .ph-net-srv { display: flex; align-items: flex-end; gap: 8px; }
+            .pool-hud .ph-net-srv .ph-sheet-name { flex: 1 1 auto; }
+            .pool-hud .ph-net-go, .pool-hud .ph-net-row .ph-btn, .pool-hud .ph-net-bo .ph-btn {
+                height: 40px; padding: 0 12px; flex-shrink: 0; font-size: 12px;
+                color: var(--pool-overlay-text); background: rgba(255, 255, 255, 0.06); border-color: var(--pool-overlay-line);
+            }
+            .pool-hud .ph-net-row .ph-btn.is-go { color: var(--pool-accent-lite); border-color: rgba(var(--pool-accent-rgb), 0.6); background: rgba(var(--pool-accent-rgb), 0.12); }
+            .pool-hud .ph-net-row .ph-btn:disabled { opacity: 0.45; cursor: default; }
+            .pool-hud .ph-net-st { font-size: 12px; color: var(--pool-overlay-muted); min-height: 16px; }
+            .pool-hud .ph-net-st.is-ok { color: var(--pool-accent-lite); }
+            .pool-hud .ph-net-st.is-hot { color: var(--pool-hot-lite); }
+            .pool-hud .ph-net-body { display: flex; flex-direction: column; gap: 10px; }
+            .pool-hud .ph-net-list { display: flex; flex-direction: column; gap: 6px; max-height: 188px; overflow-y: auto; }
+            .pool-hud .ph-net-row {
+                min-height: 48px; display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px; box-sizing: border-box;
+                border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-overlay-line);
+            }
+            .pool-hud .ph-net-row.is-invite { border-color: rgba(var(--pool-accent-rgb), 0.55); background: rgba(var(--pool-accent-rgb), 0.08); }
+            .pool-hud .ph-net-name { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .pool-hud .ph-net-sub { font-size: 11px; font-weight: 500; color: var(--pool-overlay-muted); white-space: normal; }
+            .pool-hud .ph-net-bo { display: flex; align-items: center; gap: 6px; }
+            .pool-hud .ph-net-bo .ph-sheet-l { margin: 0 auto 0 0; white-space: nowrap; }
+            .pool-hud .ph-net-bo .ph-btn { width: 40px; padding: 0; }
+            /* The invite takes the "New cue" notice's place; its buttons get a row of their own so
+               the challenger's name and the match read in full in the widget's column. */
+            .pool-hud .ph-invite { flex-wrap: wrap; row-gap: 6px; padding-bottom: 6px; }
+            .pool-hud .ph-invite .ph-cuenew-t { flex: 1 1 calc(100% - 52px); }
+            .pool-hud .ph-invite [data-ph="invitego"] { flex: 1 1 auto; margin-left: 42px; }
+            .pool-hud .ph-net-bo .ph-btn[aria-pressed="true"] { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.16); color: var(--pool-accent-lite); }
+
             /* ── Tournament screens (pool-tour-ui.js) ───────────────────── */
             /* Each screen covers the panel; its body scrolls, its primary button stays pinned.
                Dialogs sit on the table in dark glass. */

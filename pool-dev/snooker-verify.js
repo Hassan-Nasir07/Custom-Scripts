@@ -31,6 +31,9 @@ const head = t => console.log('\n── ' + t + ' ' + '─'.repeat(Math.max(0, 5
 // has the CPU playing its tier's cue. With a Standard CPU the match is HEAD's but for the frame
 // card's cue line and poolCueRecord in storage (checked 2026-10-05). Match again for the ladders:
 // the frame card's line now names the wins that count ("1 of 5 CPU wins"); play is untouched.
+// Match again for online play (pool-net.js): poolWinsByMode carries an online count, so storage
+// reads {"cpu":3,"pvp":0,"online":0}; without that field the digest is 4170aabcf64b132d, as
+// before (checked 2026-10-08). Balls, frames, verdicts and XP are untouched.
 const POOL_ON_MAIN = {
     table: '1d1012657f807af2',
     breaks: 'ad93085bd4e0dc53',
@@ -38,7 +41,7 @@ const POOL_ON_MAIN = {
     judge: 'b7dd7e7f76a57efe',
     cpu: '0cdfe55ec4e4a8a7',
     render: '0f1de5d155b56bfa',
-    match: '4170aabcf64b132d',
+    match: '3c7bfff39b137b1b',
 };
 const WHAT = {
     table: 'the table geometry (segments, points, pockets)',

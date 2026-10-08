@@ -36,7 +36,7 @@ BLOCKS.forEach(b => {
     ok(b.name + ': sentinels appear exactly once each', host.split(b.open).length === 2 && host.split(b.close).length === 2);
     ok(b.name + ': the userscript copy is byte-identical to pool-dev/', trim(hostBlock(host, b)) === trim(devBlock(b, '\n')));
 });
-ok('the engine is spliced in dependency order', FILES.join() === 'pool-physics.js,pool-rules.js,pool-snooker.js,pool-tour.js,pool-camera.js,pool-cues.js,pool-render.js,pool-hud.js,pool-tour-ui.js,pool-ai.js,pool-snooker-ai.js,pool-game.js');
+ok('the engine is spliced in dependency order', FILES.join() === 'pool-physics.js,pool-rules.js,pool-snooker.js,pool-tour.js,pool-camera.js,pool-cues.js,pool-render.js,pool-hud.js,pool-tour-ui.js,pool-ai.js,pool-snooker-ai.js,pool-net.js,pool-game.js');
 ok('userscript has one line ending throughout', eolOf(host) === '\n' ? host.indexOf('\r') === -1 : host.split('\r\n').length === host.split('\n').length);
 ok('the theme CSS is safe inside the template literal', templateProblem(devBlock(BLOCKS[1], '\n')) === null);
 ok('the pool theme follows the Cyberpunk theme, as pool-table.html loads them',
@@ -103,7 +103,7 @@ ok('applyPreferences tells pool the theme changed', /applyGameMode\(\);\n[^\n]*\
 }
 ok('togglePoolMaximize uses the build hook on #pool-root', /canvasId: 'pool-root',[\s\S]{0,200}?build: poolBuildMax,[\s\S]{0,60}?unbuild: poolUnbuildMax/.test(block));
 ok('the leaderboard reads poolMode and poolCpuTier, declared by pool-game.js', /let poolMode = 'cpu';/.test(block) && /let poolCpuTier = /.test(block) &&
-   /if \(game === 'pool'\)\s+return poolMode === 'pvp' \? 'pvp'\s+: poolMode === 'cpu' && LB_BOARDS\.pool\.modes\[poolCpuTier\] \? poolCpuTier : 'cpu';/.test(src));
+   /if \(game === 'pool'\)\s+return poolMode === 'pvp' \? 'pvp' : poolMode === 'net' \? 'online'\s+: poolMode === 'cpu' && LB_BOARDS\.pool\.modes\[poolCpuTier\] \? poolCpuTier : 'cpu';/.test(src));
 ok('the achievement check still finds poolGamesWon', /let poolGamesWon = 0;/.test(block) && /typeof poolGamesWon === 'number' && poolGamesWon >= 100/.test(src));
 
 // ── 3b. The game seam (POOL_V2_PLAN.md, Snooker, Phase S0) ─────────────

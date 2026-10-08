@@ -99,6 +99,9 @@
     //   pots: { 1: [ids], 2: [ids] } each seat's potted balls, shown while the table is open
     //   tour: { kicker, title, frame } | null   header strip; the footer becomes Bracket / Pause / Max
     //   tourSheet: { saved, name }   the sheet's Tournament tab
+    //   net: poolNetModel() | null   online: the sheet's tab (server, players, invites) and an
+    //                                invite over the table; cpuTurn is also the other tab's turn
+    //   primaryLabel,                overrides the frame-over dialog's first button
     //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
     //   secondaryLabel,              overrides the frame-over dialog's second button
     //   result: { win, title, reason, recordLabel, record, delta, note, stats? } | null,
@@ -117,7 +120,7 @@
         const callNeeded = aiming && st.callRequired && !(g.called >= 0);
         const max = g.layout === 'max';
         const sheetOpen = !!(g.sheet && g.sheet.open);
-        const sheetMode = (g.sheet && g.sheet.mode) || (g.mode === 'pvp' ? 'pvp' : 'cpu');
+        const sheetMode = (g.sheet && g.sheet.mode) || (g.mode === 'pvp' || g.mode === 'net' ? g.mode : 'cpu');
         const onTable = new Set(g.world.balls.filter(b => b.state !== 'pocketed').map(b => b.id));
         // The big spin picker: only while you are the one aiming.
         const pickerOpen = !!g.spinOpen && aiming && !g.cpuTurn && !g.handoff && !toast && !g.dragging && !sheetOpen;
@@ -164,7 +167,9 @@
         }
 
         let hint = null;
-        if (bih) {
+        // The CPU's (or online, the other player's) ball in hand: theirs to place, not yours.
+        if (bih && g.cpuTurn) hint = { text: (g.names[g.frame.turn] || 'CPU') + ' has ball in hand', tone: '' };
+        else if (bih) {
             if (g.bih && g.bih.placed) hint = { text: 'Placed · aim', tone: '' };
             else if (g.bih && g.bih.valid === false) hint = { text: 'Drop on open felt', tone: 'hot' };
             else hint = { text: g.frame.ballInHand === 'kitchen' ? 'Place in kitchen' : 'Drag to place', tone: '' };
@@ -189,7 +194,7 @@
             : PH_SPINS[((g.spin || 0) % PH_SPINS.length + PH_SPINS.length) % PH_SPINS.length];
         const lean = Math.max(0, Math.min(100, Math.round(g.lean || 0)));
         const is3d = g.camera === '3d' && !bih;
-        const note = bih && g.bih && g.bih.valid === false && g.bih.sx !== undefined
+        const note = bih && !g.cpuTurn && g.bih && g.bih.valid === false && g.bih.sx !== undefined
             ? { text: PH_BIH_NOTE[g.bih.reason] || PH_BIH_NOTE.overlap, x: g.bih.sx, y: g.bih.sy + (g.bih.sr || 5) + 26 } : null;
 
         const vm = {
@@ -228,16 +233,16 @@
             replace: { show: !!g.canReplace && g.phase === 'aim' && !g.dragging && !g.handoff && !over },
             mini: { show: card, called: g.called >= 0 ? g.called : -1, caption: cardCap.text, tone: cardCap.tone },
             dialog: over && g.result ? Object.assign({ show: true, kicker: 'FRAME OVER · ' + (g.frames ? g.frames[0] + '–' + g.frames[1] : ''),
-                primary: g.mode === 'tour' ? 'NEXT FRAME' : 'NEW FRAME',
+                primary: g.primaryLabel || (g.mode === 'tour' ? 'NEXT FRAME' : 'NEW FRAME'),
                 secondary: g.secondaryLabel || (g.mode === 'cpu' ? 'Change difficulty' : g.mode === 'tour' ? 'Bracket' : 'Change mode') }, g.result) : { show: false },
-            foot: { show: !g.handoff, tour: g.mode === 'tour', modeLabel: g.mode === 'cpu' ? 'Vs CPU' : g.mode === 'tour' ? 'Tournament' : '2 Players' },
+            foot: { show: !g.handoff, tour: g.mode === 'tour', net: g.mode === 'net', modeLabel: g.mode === 'cpu' ? 'Vs CPU' : g.mode === 'tour' ? 'Tournament' : g.mode === 'net' ? 'Online' : '2 Players' },
             tour: g.tour ? { show: true, kicker: g.tour.kicker, title: g.tour.title, frame: g.tour.frame } : { show: false },
             handoff: g.handoff ? {
                 show: true, to: 'Pass to ' + g.names[g.handoff],
                 from: g.names[3 - g.handoff] + ', swap seats',
                 ready: (g.names[g.handoff] || '').toUpperCase() + "'S READY",
             } : { show: false },
-            cursor: bih ? 'placing' : g.dragging ? 'dragging' : '',
+            cursor: bih && !g.cpuTurn ? 'placing' : g.dragging ? 'dragging' : '',
             // The shot in view pixels (segments and circles), for phShy.
             shot: g.shot || null,
             maxBars: max && !!g.maxBars,
@@ -253,13 +258,49 @@
                 }),
                 tour: g.tourSheet && g.tourSheet.saved ? { saved: true, cta: 'RESUME ' + String(g.tourSheet.name || 'TOURNAMENT').toUpperCase(), sub: g.tourSheet.where || '' }
                     : { saved: false, cta: 'SET UP TOURNAMENT', sub: '' },
+                net: g.net || null,
             } : { show: false },
+            invite: phInvite(g.net, sheetOpen),
             cueName: g.cueName || 'Standard', cues: g.cues || null,
-            cueNew: g.cueNew && !sheetOpen && !toast ? g.cueNew : null,
+            cueNew: g.cueNew && !sheetOpen && !toast && !phInvite(g.net, sheetOpen).show ? g.cueNew : null,
             // Snooker's parts; hidden for pool.
             track: { show: false }, chips: { show: false }, concede: { show: false },
         };
         return vm.game === 'snooker' ? phSnookerModel(g, vm) : vm;
+    }
+
+    // Online: the oldest invite, over the table, while the sheet (which lists them all) is shut.
+    function phInvite(net, sheetOpen) {
+        const i = net && !net.inRoom && !sheetOpen && net.invites && net.invites[0];
+        if (!i) return { show: false };
+        return { show: true, id: i.id, title: i.name + ' challenges you', text: (i.game === 'snooker' ? 'Snooker' : '8-Ball') + (i.bestOf > 1 ? ' · best of ' + i.bestOf : ' · one frame') };
+    }
+    const phEsc = v => String(v === undefined || v === null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    // The Online tab's status line: the connection, else why not, and the last challenge's news.
+    function phNetStatus(n) {
+        if (!n) return { text: '', tone: '' };
+        const base = n.state === 'open' ? 'Connected' : n.state === 'connecting' ? 'Connecting…' : n.err || (n.state === 'down' ? 'Reconnecting…' : 'Not connected');
+        return { text: base + (n.note && n.state === 'open' ? ' · ' + n.note : ''), tone: n.state === 'open' ? 'ok' : n.err ? 'hot' : '' };
+    }
+    // The Online tab's body: in a match, a way out; else invites, your challenge, best of, players.
+    function phNetBodyHTML(n) {
+        if (!n) return '';
+        const btn = (act, id, label, cls, off) => '<button type="button" class="ph-btn' + (cls ? ' ' + cls : '') + '" data-ph-net="' + act + '"' +
+            (id !== undefined ? ' data-id="' + phEsc(id) + '"' : '') + (off ? ' disabled' : '') + '>' + label + '</button>';
+        if (n.inRoom) return '<span>You are in an online match. Leaving it concedes the frame on the table.</span><div class="ph-sheet-links">' + btn('leave', undefined, 'Leave match', 'is-hot') + '</div>';
+        if (n.state !== 'open') return '<span class="ph-net-sub">Play a colleague on the office network. Ask whoever runs the pool server for its address.</span>';
+        const game = g => (g === 'snooker' ? 'Snooker' : '8-Ball');
+        let h = '';
+        if (n.invites.length) h += '<div class="ph-net-list">' + n.invites.map(i => '<div class="ph-net-row is-invite"><span class="ph-net-name">' + phEsc(i.name) +
+            '<span class="ph-net-sub">challenges you · ' + game(i.game) + (i.bestOf > 1 ? ', best of ' + i.bestOf : '') + '</span></span>' +
+            btn('accept', i.id, 'Accept', 'is-go') + btn('decline', i.id, 'Decline') + '</div>').join('') + '</div>';
+        if (n.outgoing) h += '<div class="ph-net-row"><span class="ph-net-name">Waiting for ' + phEsc(n.outgoing) + '…</span>' + btn('cancel', undefined, 'Cancel') + '</div>';
+        h += '<div class="ph-net-bo" role="group" aria-label="Best of"><span class="ph-sheet-l ph-label">' + game(n.game).toUpperCase() + ' · BEST OF</span>' +
+            [1, 3, 5].map(b => '<button type="button" class="ph-btn" data-ph-net="bo" data-id="' + b + '" aria-pressed="' + (n.bestOf === b ? 'true' : 'false') + '">' + b + '</button>').join('') + '</div>';
+        h += n.players.length ? '<div class="ph-net-list">' + n.players.map(p => '<div class="ph-net-row"><span class="ph-net-name">' + phEsc(p.name) + (p.busy ? '<span class="ph-net-sub">in a match</span>' : '') + '</span>' +
+            (p.busy ? '' : btn('challenge', p.id, 'Challenge', '', !!n.outgoing)) + '</div>').join('') + '</div>'
+            : '<span class="ph-net-sub">No one else is online yet. Your colleague opens Game mode › Online on the same server.</span>';
+        return h;
     }
 
     // Snooker's parts over the shared model (see the file header).
@@ -363,6 +404,7 @@
         close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
         cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
         flag: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"></path><path d="M5 4h12l-2.5 4L17 12H5"></path></svg>',
+        net: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 9a14 14 0 0 1 19 0M5.8 12.6a9.2 9.2 0 0 1 12.4 0M9.1 16.2a4.4 4.4 0 0 1 5.8 0M12 19.6v.1"></path></svg>',
         cue: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20L16.5 7.5M15 6l3 3M17.6 4.4a1.4 1.4 0 0 1 2 2"></path></svg>',
     };
 
@@ -484,6 +526,9 @@
             '<div class="ph-cuenew ph-glass" role="status" data-ph="cuenew" hidden><span class="ph-cuenew-i">' + PH_ICON.cue + '</span>' +
             '<span class="ph-cuenew-t"><span class="ph-label">NEW CUE</span><span data-ph="cuenewn"></span></span>' +
             '<button type="button" class="ph-btn" data-ph="cuenewgo">Equip</button><button type="button" class="ph-btn is-icon" data-ph="cuenewx" aria-label="Dismiss">' + PH_ICON.close + '</button></div>' +
+            '<div class="ph-cuenew ph-invite ph-glass" role="alertdialog" aria-label="Online challenge" data-ph="invite" hidden><span class="ph-cuenew-i">' + PH_ICON.net + '</span>' +
+            '<span class="ph-cuenew-t"><span class="ph-label" data-ph="invitek"></span><span data-ph="invitet"></span></span>' +
+            '<button type="button" class="ph-btn" data-ph="invitego">Accept</button><button type="button" class="ph-btn is-icon" data-ph="invitex" aria-label="Decline">' + PH_ICON.close + '</button></div>' +
             '<div class="ph-bihnote ph-label" data-ph="bihnote" hidden></div>' +
             '<button type="button" class="ph-replace ph-glass" data-ph="replace" hidden>' + PH_ICON.hand + '<span>Move cue ball</span></button>' +
             '<div class="ph-mini ph-glass" data-ph="mini" hidden><span class="ph-mini-cap" data-ph="minicap"></span>' +
@@ -525,7 +570,8 @@
             '<div class="ph-sheet-modes" role="radiogroup" aria-label="Mode">' +
             '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="cpu" aria-checked="false">' + PH_ICON.chip + '<span>Vs CPU</span></button>' +
             '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="pvp" aria-checked="false">' + PH_ICON.people + '<span>2 Players</span></button>' +
-            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="tour" aria-checked="false">' + PH_ICON.bracket + '<span>Tournament</span></button></div>' +
+            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="tour" aria-checked="false">' + PH_ICON.bracket + '<span>Tournament</span></button>' +
+            '<button type="button" role="radio" class="ph-sheet-mode" data-ph-mode="net" aria-checked="false">' + PH_ICON.net + '<span>Online</span></button></div>' +
             '<div class="ph-sheet-cpu" data-ph="sheetcpu"><div class="ph-sheet-l ph-label">CPU DIFFICULTY</div>' +
             '<div class="ph-sheet-diffs" role="radiogroup" aria-label="CPU difficulty">' + diffs + '</div>' +
             '<div class="ph-sheet-note" data-ph="sheetnote" hidden></div></div>' +
@@ -537,6 +583,11 @@
             '<div class="ph-sheet-names">' + [1, 2].map(seat => '<label class="ph-sheet-name"><span class="ph-sheet-l ph-label">PLAYER ' + seat + '</span>' +
                 '<input type="text" class="ph-sheet-input" maxlength="16" autocomplete="off" spellcheck="false" data-ph="sheetp' + seat + '" aria-label="Player ' + seat + ' name"></label>').join('') + '</div>' +
             '<button type="button" class="ph-primary ph-label" data-ph="sheetstart">START 2-PLAYER FRAME</button></div>' +
+            // Online: the server, its status, then what phNetBodyHTML lists.
+            '<div class="ph-sheet-pvp ph-sheet-net" data-ph="sheetnet" hidden><div class="ph-net-srv"><label class="ph-sheet-name"><span class="ph-sheet-l ph-label">SERVER</span>' +
+            '<input type="text" class="ph-sheet-input" maxlength="120" autocomplete="off" spellcheck="false" placeholder="e.g. 172.16.3.132" data-ph="sheetnetsrv" aria-label="Pool server address"></label>' +
+            '<button type="button" class="ph-btn ph-net-go" data-ph="sheetnetgo">Connect</button></div>' +
+            '<div class="ph-net-st" role="status" data-ph="sheetnetst"></div><div class="ph-net-body" data-ph="sheetnetbody"></div></div>' +
             '</div>';
     }
 
@@ -595,7 +646,8 @@
             'sheet', 'sheetscrim', 'sheetx', 'sheetchip', 'sheetcpu', 'sheetpvp', 'sheetnote', 'sheetstart', 'sheetp1', 'sheetp2',
             'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy',
             'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn',
-            'cue', 'cues', 'cuenew', 'cuenewn', 'cuenewgo', 'cuenewx'].forEach(n => { hud[n] = ref(n); });
+            'cue', 'cues', 'cuenew', 'cuenewn', 'cuenewgo', 'cuenewx',
+            'sheetnet', 'sheetnetsrv', 'sheetnetgo', 'sheetnetst', 'sheetnetbody', 'invite', 'invitek', 'invitet', 'invitego', 'invitex'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
@@ -713,6 +765,19 @@
         hud.cues.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('cuesClose'); e.preventDefault(); e.stopPropagation(); } });
         hud.cuenewgo.addEventListener('click', () => fire('cueEquip', hud.cueNewId));
         hud.cuenewx.addEventListener('click', () => fire('cueNewX'));
+        // Online: the server field (Enter connects), Connect / Disconnect, the list's buttons, the invite.
+        hud.sheetnetsrv.addEventListener('input', () => fire('netServer', hud.sheetnetsrv.value));
+        hud.sheetnetsrv.addEventListener('keydown', e => { if (e.key === 'Enter') { fire('netServer', hud.sheetnetsrv.value); fire('netConnect'); e.preventDefault(); } });
+        hud.sheetnetgo.addEventListener('click', () => fire(hud.netOn ? 'netDisconnect' : 'netConnect'));
+        hud.sheetnetbody.addEventListener('click', e => {
+            const b = e.target.closest && e.target.closest('[data-ph-net]');
+            if (!b || b.disabled) return;
+            const act = b.getAttribute('data-ph-net'), id = b.getAttribute('data-id');
+            const map = { challenge: 'netChallenge', accept: 'netAccept', decline: 'netDecline', cancel: 'netCancel', leave: 'netLeave', bo: 'netBestOf' };
+            if (map[act]) fire(map[act], act === 'bo' ? +id : id);
+        });
+        hud.invitego.addEventListener('click', () => fire('netAccept', hud.inviteId));
+        hud.invitex.addEventListener('click', () => fire('netDecline', hud.inviteId));
         return hud;
     }
 
@@ -744,6 +809,10 @@
         const s = (k, v, f) => phSet(hud, k, v, f);
         s('game', vm.game, v => hud.el.setAttribute('data-game', v));
         if (hud.cue) s('cuel', vm.cueName, v => { hud.cue.title = 'Cue: ' + v; hud.cue.setAttribute('aria-label', 'Cue: ' + v + '. Open the cue collection'); });
+        const iv = vm.invite || { show: false };
+        s('invite', iv.show ? iv.id + '|' + iv.title + '|' + iv.text : '', () => {
+            phShow(hud.invite, iv.show); hud.invitek.textContent = iv.show ? iv.title : ''; hud.invitet.textContent = iv.show ? iv.text : ''; hud.inviteId = iv.show ? iv.id : null;
+        });
         s('cuenew', vm.cueNew, v => { phShow(hud.cuenew, !!v); hud.cuenewn.textContent = v ? pqById(v).name : ''; hud.cueNewId = v; });
         // The collection is rebuilt when its model changes (poolCueModel is cached until then).
         s('cues', vm.cues, m => {
@@ -968,7 +1037,8 @@
 
         if (hud.foot) s('foot.show', vm.foot.show, v => phShow(hud.foot, v));
         // In a tournament match: Bracket / Pause in place of the mode and Reset.
-        s('foot.tour', vm.foot.tour, v => { phShow(hud.mode, !v); phShow(hud.reset, !v); phShow(hud.bracket, v); phShow(hud.pause, v); if (hud.trophy) phShow(hud.trophy, !v); });
+        // Online: no Reset (a rack is the room's), the mode button leads to the Online tab.
+        s('foot.tour', vm.foot.tour + '|' + !!vm.foot.net, () => { const v = vm.foot.tour; phShow(hud.mode, !v); phShow(hud.reset, !v && !vm.foot.net); phShow(hud.bracket, v); phShow(hud.pause, v); if (hud.trophy) phShow(hud.trophy, !v); });
         s('title', vm.title, v => { if (hud.title) hud.title.textContent = v; });
         s('tour.show', vm.tour.show, v => { phShow(hud.tourhead, v); if (hud.title) phShow(hud.title, !v); });
         if (vm.tour.show) {
@@ -982,8 +1052,17 @@
         if (sh.show) {
             s('sheet.mode', sh.mode, v => {
                 hud.modeButtons.forEach(b => b.setAttribute('aria-checked', b.getAttribute('data-ph-mode') === v ? 'true' : 'false'));
-                phShow(hud.sheetcpu, v === 'cpu'); phShow(hud.sheetpvp, v === 'pvp'); phShow(hud.sheettour, v === 'tour');
+                phShow(hud.sheetcpu, v === 'cpu'); phShow(hud.sheetpvp, v === 'pvp'); phShow(hud.sheettour, v === 'tour'); phShow(hud.sheetnet, v === 'net');
             });
+            const nt = sh.net;
+            if (nt && sh.mode === 'net') {
+                // The field is never written back under the caret.
+                s('sheet.netsrv', nt.server, v => { if (hud.sheetnetsrv.ownerDocument.activeElement !== hud.sheetnetsrv) hud.sheetnetsrv.value = v; });
+                s('sheet.netgo', nt.state === 'off' ? 'Connect' : 'Disconnect', v => { hud.sheetnetgo.textContent = v; hud.netOn = v === 'Disconnect'; });
+                const st = phNetStatus(nt);
+                s('sheet.netst', st.text + '|' + st.tone, () => { hud.sheetnetst.textContent = st.text; hud.sheetnetst.className = 'ph-net-st' + (st.tone ? ' is-' + st.tone : ''); });
+                s('sheet.netbody', JSON.stringify([nt.state, nt.inRoom, nt.invites, nt.outgoing, nt.players, nt.bestOf, nt.game]), () => { hud.sheetnetbody.innerHTML = phNetBodyHTML(nt); });
+            }
             // The list is built once; its words follow the game being played.
             s('sheet.words', sh.diffs.map(d => d.name + '|' + d.desc).join(';'), () => hud.diffButtons.forEach((b, i) => {
                 const d = sh.diffs[i];

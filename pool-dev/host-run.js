@@ -660,8 +660,8 @@ async function main() {
            snk.tier === 'pro' && snk.gained >= 205 && snk.sessions === 1 && snk.century && !snk.calledIt, snk);
         ok('…the win and the break are filed: the wins button shows Pro\'s wins, the sync snapshot carries them and the 104',
            snk.pro >= 1 && snk.wins === String(snk.pro) && snk.sync === snk.pro && snk.high === '104' && snk.syncHigh === 104, snk);
-        ok('the Snooker board: the four tiers, All-time, Hot-seat and High break, opening on the tier being played',
-           snk.shown === 'flex' && /Snooker/.test(snk.head) && snk.tabs.join() === 'Pro,Hard,Normal,Easy,All-time,Hot-seat,High break' && /Pro/.test(snk.active) && /best break/.test(snk.foot), snk);
+        ok('the Snooker board: the four tiers, All-time, Hot-seat, Online and High break, opening on the tier being played',
+           snk.shown === 'flex' && /Snooker/.test(snk.head) && snk.tabs.join() === 'Pro,Hard,Normal,Easy,All-time,Hot-seat,Online,High break' && /Pro/.test(snk.active) && /best break/.test(snk.foot), snk);
         await click('#snooker-lb-btn'); await sleep(250);
         await ev(`window.setGameLeaderboardMode('highBreak')`); await sleep(100);
         await shot('host-snooker-board', '.snake-game-container');
@@ -696,8 +696,8 @@ async function main() {
         P.toggleGameLeaderboard('pool', false); P.prefs.poolDifficulty = 'adaptive'; P.poolNewFrame(1);
         return res; })()`);
     ok('a Pro win unlocks Called It', pro.tier === 'pro' && pro.calledIt, pro);
-    ok('the Pool board has the four tiers, All-time and Hot-seat, and opens on the tier being played',
-       pro.tabs.join() === 'Pro,Hard,Normal,Easy,All-time,Hot-seat' && /Pro/.test(pro.active || '') && pro.proSync >= 1, pro);
+    ok('the Pool board has the four tiers, All-time, Hot-seat and Online, and opens on the tier being played',
+       pro.tabs.join() === 'Pro,Hard,Normal,Easy,All-time,Hot-seat,Online' && /Pro/.test(pro.active || '') && pro.proSync >= 1, pro);
     ok('no page errors anywhere', !errors.length, errors.slice(0, 3));
     if (consoleErrors.length) console.log('  · console errors (fonts and sync are blocked on purpose):', consoleErrors.length);
 

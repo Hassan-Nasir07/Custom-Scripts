@@ -1,0 +1,34 @@
+<!doctype html>
+<!-- Route B: a popup served over plain HTTP by the pool server. It holds the ws:// socket
+     the HTTPS portal may not open itself, and relays both ways over postMessage. -->
+<meta charset="utf-8">
+<title>Pool link</title>
+<body style="font:14px system-ui;background:#0b1220;color:#d8e2f0;padding:16px">
+<b>Pool link</b> &middot; <span id="st">connecting&hellip;</span>
+<p style="color:#8aa0bf">Keep this window open while you play. You can minimise it.</p>
+<script>
+(function () {
+    // The portal is the only page allowed to talk through this window.
+    var PORTAL = 'https://globalportal.mtbc.com';
+    var st = document.getElementById('st'), opener = window.opener, ws = null, queue = [];
+    var allowed = function (o) { return o === PORTAL || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o); };
+    // Replies go only to the origin that greeted us: the opener says hello until it hears back.
+    var peer = null;
+    var tell = function (m) { if (peer && opener && !opener.closed) opener.postMessage({ poolBridge: true, m: m }, peer); };
+    function connect() {
+        ws = new WebSocket('ws://' + location.host + '/');
+        ws.onopen = function () { st.textContent = 'connected'; tell({ t: 'bridge', state: 'open' }); queue.splice(0).forEach(function (s) { ws.send(s); }); };
+        ws.onmessage = function (e) { tell({ t: 'data', data: e.data }); };
+        ws.onclose = function () { st.textContent = 'reconnecting…'; tell({ t: 'bridge', state: 'closed' }); setTimeout(connect, 1500); };
+    }
+    window.addEventListener('message', function (e) {
+        if (!allowed(e.origin) || e.source !== opener || !e.data || !e.data.poolBridge) return;
+        if (e.data.hello) { peer = e.origin; tell({ t: 'bridge', state: ws && ws.readyState === 1 ? 'open' : 'loaded' }); return; }
+        var s = e.data.m;
+        if (ws && ws.readyState === 1) ws.send(s); else queue.push(s);
+    });
+    // The portal closing ends the link.
+    setInterval(function () { if (!opener || opener.closed) window.close(); }, 2000);
+    connect();
+})();
+</script>

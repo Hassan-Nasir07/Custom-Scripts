@@ -26,6 +26,8 @@ node pool-dev/tour-verify.js              # the tournament model: brackets, seed
 node pool-dev/snooker-verify.js           # snooker; first, pool's fingerprints from main (pool unchanged)
 node pool-dev/pool-fingerprint.js         # print pool's fingerprints: table, breaks, shots, verdicts, CPU, draw calls, frames
 node pool-dev/sync-verify.js              # the sync bot's script from github-actions-bot/, run headless
+node pool-dev/net-verify.js               # online: two whole engines through mp-server/, best of 3 pool, a reload, a forfeit, snooker
+node pool-dev/net-browser.js [dir]        # online in two real Chromes: Online tab, challenge, invite, the break by mouse
 node pool-dev/snapshot.js [dir] [scene]   # real-Chrome PNGs of the prototype, every scene by default
 node pool-dev/snapshot.js --check [dir]   # …plus an in-browser layout and theme audit per scene
 node pool-dev/theme-verify.js [--quick]   # every state × theme, shape and preset: layout, WCAG AA text contrast, live theme switch
@@ -42,7 +44,7 @@ node ludo-dev/verify-all.js               # every suite, pool included
 ```
 
 Everything needs Node 14+ because the userscript uses `??` and optional chaining;
-`host-run.js` and `snapshot.js` need Node 22 (global `WebSocket` and `fetch`). The browser
+`host-run.js`, `snapshot.js`, `net-verify.js` and `net-browser.js` need Node 22 (global `WebSocket` and `fetch`). The browser
 tools find Chrome, else Edge (`browser.js`; `POOL_BROWSER` overrides). The
 default `node` here is 10, so use a newer one:
 
@@ -52,7 +54,7 @@ default `node` here is 10, so use a newer one:
 
 ## Files
 
-The engine block is these ten, in this order (`load.js` `FILES`):
+The engine block is these thirteen, in this order (`load.js` `FILES`):
 
 | file | what it is |
 |---|---|
@@ -66,7 +68,8 @@ The engine block is these ten, in this order (`load.js` `FILES`):
 | `pool-tour-ui.js` | the tournament's screens (setup, bracket compact and full, match intro, result, champion, cabinet) and dialogs (resume, abandon, pause) as HTML, and one overlay per HUD that re-renders only when the controller's key changes |
 | `pool-snooker-ai.js` | snooker's CPU (S4) on `pool-ai.js`'s helpers: candidates by the ghost ball with snooker's measured pocket tolerances, each played out and judged by `psJudge` (nominating and calling as it pots), scored in points expected (p·(points + γ·position) − the leave on a miss − fouls), noisy replays, safeties by the opponent's leave (a snooker a bonus), pool's sweep when snookered, a tuned break-off script per reds count, the choice after a foul, placement in the D, conceding by tier; each tier caps its trials (easy 14 … pro 120) and it thinks in 6 ms slices |
 | `pool-ai.js` | the CPU: four tiers on one planner (direct pots, banks, kicks, combos, safeties), every line checked on a cloned world with the real physics and rules, aim corrected for throw, position scored, noisy replays for risk, adaptive difficulty, time-sliced |
-| `pool-game.js` | the controller: the match, input, the loop, the CPU's turn, XP and records, Max, theme, lifecycle. What the host calls |
+| `pool-net.js` | online play's client (`../mp-server/`): the wss:// connection with backoff, the lobby, challenges and invites, a room's numbered moves (kept until acked, resent on reconnect, renumbered on a clash) and the live aim. Engine-free: `pool-game.js` hooks in through `poolNet.on` |
+| `pool-game.js` | the controller: the match, input, the loop, the CPU's turn, online (`poolMode` 'net': both tabs rack from the room's seed and play the same inputs; the shooter's settled table is checked per turn step; a reload replays the log), XP and records, Max, theme, lifecycle. What the host calls |
 
 The rest:
 

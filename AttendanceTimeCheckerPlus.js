@@ -17733,7 +17733,8 @@
             .rcv-modal .rcv-code { display: block; padding: 14px; border-radius: 12px; text-align: center; font: 700 18px ui-monospace, Consolas, monospace; letter-spacing: 0.06em; color: var(--ach-text); background: var(--ach-inner); border: 1px dashed var(--ach-accent); user-select: all; }
             .rcv-modal .rcv-row { display: flex; gap: 8px; }
             .rcv-modal .rcv-row > * { flex: 1 1 0; }
-            .ws-board-rows { min-height: 0; max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-right: 2px; }
+            /* Six rows (6 × 40 + 5 × 2 gap), then it scrolls: taller, it stretches the column beside it. */
+            .ws-board-rows { min-height: 0; max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-right: 2px; }
             .ws-board-rows::-webkit-scrollbar { width: 6px; }
             .ws-board-rows::-webkit-scrollbar-track { background: transparent; }
             .ws-board-rows::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in srgb, var(--att-text) 22%, transparent); }

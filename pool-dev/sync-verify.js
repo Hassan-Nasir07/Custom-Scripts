@@ -10,7 +10,8 @@
 // plus the gates that were already there (build token, XP budget, counters), and
 // snooker's (S6): its tier and mode bounds, and the high break's 155 cap and session rule;
 // Game Mode's access keys: one use each, rotating, surviving every other write; and progress
-// recovery: set once, changed only with the current proof, out of reach of ordinary syncs.
+// recovery: set once, changed only with the current proof, out of reach of ordinary syncs; and
+// login (name + password, checked against a private store): enrol, log in, rest, change, reset.
 //
 // The bot lives in its own repository, checked out beside this one; without it
 // the suite says so and passes, as there is nothing to test.
@@ -59,17 +60,24 @@ async function dispatch(payload, players, opts) {
         setSecret: m => { log.secrets = (log.secrets || []).concat(String(m)); },
     };
     const gist = Object.assign({ lastUpdated: 'x', players: JSON.parse(JSON.stringify(players || [])) }, o.gist ? JSON.parse(JSON.stringify(o.gist)) : {});
+    // Two gists: the public registry, and the private login store (LOGIN_GIST_ID).
+    const logins = o.logins ? JSON.parse(JSON.stringify(o.logins)) : { logins: {} };
     const fetch = async (url, init) => {
-        if (!init || !init.method || init.method === 'GET') return { ok: true, json: async () => ({ files: { [FILE]: { content: JSON.stringify(gist) } } }) };
-        log.written = JSON.parse(JSON.parse(init.body).files[FILE].content);
+        const store = /logins-gist/.test(url);
+        if (!init || !init.method || init.method === 'GET') {
+            return { ok: true, json: async () => ({ files: store ? { 'logins.json': { content: JSON.stringify(logins) } } : { [FILE]: { content: JSON.stringify(gist) } } }) };
+        }
+        if (store) log.logins = JSON.parse(JSON.parse(init.body).files['logins.json'].content);
+        else log.written = JSON.parse(JSON.parse(init.body).files[FILE].content);
         return { ok: true, text: async () => '' };
     };
     const env = Object.assign({
         GIST_PAT: 'pat', ADMIN_KEY: 'admin', BUILD_TOKEN_CURRENT: 'tok-now', BUILD_TOKEN_PREVIOUS: 'tok-old', BUILD_LABEL_CURRENT: LABEL,
-        GIST_ID: 'gist', GIST_FILE: FILE, EVENT_TYPE: o.event || 'registry-update', PAYLOAD: JSON.stringify(payload), UNLOCK_SECRET: UNLOCK,
+        GIST_ID: 'gist', GIST_FILE: FILE, EVENT_TYPE: o.event || 'registry-update', PAYLOAD: o.context ? '' : JSON.stringify(payload), UNLOCK_SECRET: UNLOCK, LOGIN_GIST_ID: 'logins-gist',
     }, o.env);
     // github-script hands the script require() as well.
-    await new AsyncFunction('core', 'fetch', 'process', 'require', SCRIPT)(core, fetch, { env }, require);
+    // o.context: the payload as the real action reads it (context.payload.client_payload).
+    await new AsyncFunction('core', 'fetch', 'process', 'require', 'context', SCRIPT)(core, fetch, { env }, require, o.context ? { payload: { client_payload: payload } } : undefined);
     log.player = id => log.written && log.written.players.find(p => p.clientId === id);
     return log;
 }
@@ -271,6 +279,77 @@ const send = (player, players, opts) => dispatch({ player, build_token: 'tok-now
         ok('clearing it needs the admin key', r.written === null && /admin_key invalid/.test(r.failed || ''));
         r = await dispatch({ client_id: 'c1', admin_key: 'admin', build_token: 'tok-now' }, withA, { event: 'admin-recovery-clear' });
         ok('…with it, the record has none, and a new one can be set', r.player('c1') && !r.player('c1').recovery);
+    }
+
+    head('Login: name + password');
+    {
+        const nc = require('crypto');
+        // What the browser sends: PBKDF2(password, 'atc-login:' + lowercase name), never the password.
+        const pwOf = (name, password) => nc.pbkdf2Sync(password, 'atc-login:' + name.toLowerCase(), 100000, 32, 'sha256').toString('hex');
+        const TAG = 'c'.repeat(32), NEW_TAG = 'd'.repeat(32), PW = pwOf('Hann', 'pool-shark-7');
+        const unlocked = { gamesUnlock: { n: 1, tags: { [TAG]: { at: 'x', n: 0 } } } };
+        const me = extra => [stored({}, Object.assign({ displayName: 'Hann' }, extra))];
+        const call = (event, payload, players, opts) => dispatch(Object.assign({ build_token: 'tok-now' }, payload), players, Object.assign({ event, context: true }, opts));
+
+        r = await call('login-enroll', { client_id: 'c1', tag: NEW_TAG, name: 'Hann', pw: PW }, me(), { gist: unlocked });
+        ok('enrolling needs a browser that unlocked Game Mode', r.written === null && r.warnings.some(w => /has not unlocked/.test(w)));
+        r = await call('login-enroll', { client_id: 'nobody', tag: TAG, name: 'Hann', pw: PW }, me(), { gist: unlocked });
+        ok('…and a player on the board', r.written === null && r.warnings.some(w => /no player/.test(w)));
+        r = await call('login-enroll', { client_id: 'c1', tag: TAG, name: 'Hann', pw: 'not-a-hash' }, me(), { gist: unlocked });
+        ok('…and a hashed password, never a raw one', r.written === null && r.warnings.some(w => /malformed/.test(w)));
+        r = await call('login-enroll', { client_id: 'c1', tag: TAG, name: 'Hann', pw: PW }, me(), { gist: unlocked });
+        const store = r.logins;
+        ok('enrolling stores a salted hash in the private store, keyed by the lowercase name', store && store.logins.hann && store.logins.hann.clientId === 'c1' && /^[0-9a-f]{64}$/.test(store.logins.hann.hash) && store.logins.hann.hash !== PW);
+        ok('…marks the public record (login: true, loginAt), with no password material in it', r.player('c1').login === true && !!r.player('c1').loginAt && !JSON.stringify(r.written).includes(store.logins.hann.hash));
+        ok('…and masks what it was sent', (r.secrets || []).includes(PW));
+        ok('the payload is read from the event (context), not the env the log prints', !!store);
+        r = await call('login-enroll', { client_id: 'c1', tag: TAG, name: 'Hann', pw: PW }, me({ login: true }), { gist: unlocked, logins: store });
+        ok('a second enrolment is refused (that is login-change)', r.written === null && r.warnings.some(w => /already has a password/.test(w)));
+        r = await call('login-enroll', { client_id: 'c2', tag: TAG, name: 'HANN', pw: PW }, me().concat(stored({}, { clientId: 'c2', displayName: 'Hann' })), { gist: unlocked, logins: store });
+        ok('a name another player enrolled is taken, whatever the case', r.written === null && r.warnings.some(w => /is taken/.test(w)));
+        r = await call('login-enroll', { client_id: 'c2', tag: TAG, name: 'Hann R.', pw: pwOf('Hann R.', 'x1234567') }, me().concat(stored({}, { clientId: 'c2', displayName: 'Hann' })), { gist: unlocked, logins: store });
+        ok('…a different one is fine, and renames that player on the board', r.player('c2').displayName === 'Hann R.' && r.player('c2').login === true);
+
+        const board = me({ login: true, loginAt: 'old' }), rest = { gist: unlocked, logins: store };
+        r = await call('login', { tag: NEW_TAG, name: 'hann', pw: PW }, board, rest);
+        ok('logging in on a new browser unlocks Game Mode there', r.written && !!r.written.gamesUnlock.tags[NEW_TAG] && r.written.gamesUnlock.tags[NEW_TAG].via === 'login');
+        ok('…tells it which account to restore', r.written.gamesUnlock.grants[NEW_TAG].clientId === 'c1');
+        ok('…and keeps the access-key counter and the other unlocks', r.written.gamesUnlock.n === 1 && !!r.written.gamesUnlock.tags[TAG]);
+        r = await call('login', { tag: NEW_TAG, name: 'Hann', pw: pwOf('Hann', 'wrong') }, board, rest);
+        ok('a wrong password writes nothing public, and counts a failed try privately', r.written === null && r.logins.logins.hann.fails.length === 1);
+        r = await call('login', { tag: NEW_TAG, name: 'Nobody', pw: PW }, board, rest);
+        ok('an unknown name writes nothing', r.written === null && !r.logins);
+        let tired = rest.logins;
+        for (let i = 0; i < 5; i++) { const x = await call('login', { tag: NEW_TAG, name: 'Hann', pw: pwOf('Hann', 'wrong' + i) }, board, { gist: unlocked, logins: tired }); tired = x.logins; }
+        r = await call('login', { tag: NEW_TAG, name: 'Hann', pw: PW }, board, { gist: unlocked, logins: tired });
+        ok('after 5 wrong tries the name rests: even the right password is refused', r.written === null && r.warnings.some(w => /resting/.test(w)));
+        const later = JSON.parse(JSON.stringify(tired));
+        later.logins.hann.fails = later.logins.hann.fails.map(t => t - 16 * 60000);
+        r = await call('login', { tag: NEW_TAG, name: 'Hann', pw: PW }, board, { gist: unlocked, logins: later });
+        ok('…15 minutes on, it works again and the count is cleared', !!r.written && r.logins.logins.hann.fails.length === 0);
+        r = await call('login', { tag: NEW_TAG, name: 'Hann', pw: PW }, board, { gist: { gamesUnlock: { n: 1, tags: {}, grants: { ['e'.repeat(32)]: { clientId: 'cx', at: new Date(Date.now() - 2 * 86400000).toISOString() } } } }, logins: store });
+        ok('grants older than a day are cleared on the next login', !r.written.gamesUnlock.grants['e'.repeat(32)] && !!r.written.gamesUnlock.grants[NEW_TAG]);
+
+        const PW2 = pwOf('Hann', 'new-password-9');
+        r = await call('login-change', { client_id: 'c1', name: 'Hann', old_pw: pwOf('Hann', 'nope'), pw: PW2 }, board, rest);
+        ok('changing the password needs the current one', r.written === null && r.logins.logins.hann.hash === store.logins.hann.hash);
+        r = await call('login-change', { client_id: 'c1', name: 'Hann', old_pw: PW, pw: PW2 }, board, rest);
+        ok('…with it, the new one is stored (new salt) and the old one masked', r.logins.logins.hann.hash !== store.logins.hann.hash && (r.secrets || []).includes(PW));
+        ok('…and loginAt moves, so the browser can tell it went through', !!r.written && r.player('c1').loginAt && r.player('c1').loginAt !== 'old');
+        r = await call('login', { tag: NEW_TAG, name: 'Hann', pw: PW2 }, board, { gist: unlocked, logins: r.logins });
+        ok('…and is the one that logs in', !!r.written);
+
+        r = await send(next({}, 1, { login: false }), board);
+        ok('a sync cannot remove login: true, nor move loginAt', r.player('c1').login === true && r.player('c1').loginAt === 'old');
+        r = await send(next({}, 1, { login: true }), [stored({})]);
+        ok('…nor add it', !r.player('c1').login);
+        r = await dispatch({ name: 'Hann', build_token: 'tok-now' }, board, { event: 'admin-login-reset', logins: store });
+        ok('resetting a login needs the admin key', r.written === null && /admin_key invalid/.test(r.failed || ''));
+        r = await dispatch({ name: 'HANN', admin_key: 'admin', build_token: 'tok-now' }, board, { event: 'admin-login-reset', logins: store });
+        ok('…with it, the name is free and the record can enrol again', !r.logins.logins.hann && !r.player('c1').login);
+        let thrown = null;
+        try { await dispatch({ tag: NEW_TAG, name: 'Hann', pw: PW, build_token: 'tok-now' }, board, { event: 'login', logins: store, env: { LOGIN_GIST_ID: '' } }); } catch (e) { thrown = e; }
+        ok('with no LOGIN_GIST_ID configured, logins fail loudly (the run fails)', !!thrown && /LOGIN_GIST_ID/.test(thrown.message));
     }
 
     head('The legacy whole-registry payload');

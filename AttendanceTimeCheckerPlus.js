@@ -1468,7 +1468,7 @@
         return gamesUnlocked;
     }
     function gamesLockedNotice() {
-        showXPNotification('Game Mode is locked. Ask the admin for an access key, then run await atcUnlockGames("KEY") in the console.', 'game', 'f-integrity');
+        showXPNotification('Game Mode is locked. Click the face at the top to log in.', 'game', 'f-integrity');
     }
     async function atcUnlockGames(key) {
         if (gamesUnlocked && await checkGamesUnlock()) return '✓ Game Mode is already unlocked on this browser';
@@ -1485,7 +1485,7 @@
                 body: JSON.stringify({ event_type: 'games-unlock', client_payload: { tag, key: k, build_token: BUILD_TOKEN, build_label: BUILD_LABEL } })
             });
         } catch (_) {}
-        if (!res || !res.ok) return '✗ Could not reach GitHub' + (res ? ' (' + res.status + ')' : '') + '. Try again shortly.';
+        if (!res || !res.ok) return "✗ Can't reach the leaderboard right now. Check your connection and try again in a minute.";
         console.log('[Game Mode] Key sent. Checking every 5 s for up to 2 minutes…');
         for (let i = 0; i < 24; i++) {
             await new Promise(r => setTimeout(r, 5000));
@@ -1526,189 +1526,259 @@
     window.atcAdminGamesRevoke = atcAdminGamesRevoke;
     window.atcAdminGamesRotate = atcAdminGamesRotate;
 
-    // ─── Progress recovery: a code and a password ───────────────────
-    // A wiped browser loses atc_lb_profile, and with it the clientId that holds its progress.
-    // Setting a password gives the player a recovery code (80 random bits, RCV-XXXX-XXXX-XXXX-XXXX)
-    // to keep. The gist (public) holds only, on the player's record:
-    //   recovery = { v: 1, lookup: sha256('atc-rcv-lookup:' + code)[0..32], salt, it,
-    //                verifier: sha256(proof) }   proof = PBKDF2-SHA256(password, salt + ':' + code, it)
-    // so it reveals neither, and without the code no password can be tried against it. Restoring is
-    // checked here; setting and changing it go through the bot (recovery-set), which keeps it out of
-    // reach of ordinary syncs and, to change it, wants the current proof.
-    //   await atcSetRecovery('password')                          → the code (shown once: save it)
-    //   await atcSetRecovery('new', 'RCV-old-code', 'old')        change it
-    //   await atcRestore('RCV-…', 'password')                     this browser becomes that account
-    //   await atcAdminClearRecovery('clientId')                   admin: let it be set again
-    const RCV_IT = 150000;
-    let rcvTries = [];
-    const rcvEnc = v => new TextEncoder().encode(v);
-    const rcvSha = async v => gamesHex(await crypto.subtle.digest('SHA-256', rcvEnc(v)));
-    const rcvNormalize = c => gamesNormalize(c).replace(/^RCV/, '');
-    const rcvFormat = c => 'RCV-' + c.match(/.{4}/g).join('-');
-    function rcvNewCode() {
-        const a = new Uint8Array(10);
-        crypto.getRandomValues(a);
-        let val = 0, bits = 0, out = '';
-        for (const byte of a) { val = ((val << 8) | byte) & 0xffff; bits += 8; while (bits >= 5) { out += GAMES_ALPHA[(val >>> (bits - 5)) & 31]; bits -= 5; } }
-        return out;
+    // ─── Accounts: leaderboard name + password ──────────────────────
+    // An access key unlocks one browser for a newcomer. Once in, they join the leaderboard and set
+    // a password; from then on their leaderboard name and password, on any computer, unlock Game
+    // Mode there and bring their progress back. The sync bot checks passwords against a private
+    // store (a secret gist only it reads), so nothing here or in the public gist can be used to
+    // guess them, and 5 wrong tries rest a name for 15 minutes. The browser sends only
+    //   pw = PBKDF2-SHA256(password, 'atc-login:' + lowercase name, 100 000)
+    // and the bot hashes that again with its own salt. A login writes, in the public gist, this
+    // browser's tag into gamesUnlock.tags and gamesUnlock.grants[tag] = { clientId }: which
+    // account to restore. The tag is a hash of a secret only this browser has.
+    //   await atcLogin('HANN', 'password')            this computer: Game Mode and your progress
+    //   await atcSetPassword('password'[, 'Name'])    joined + unlocked: log in anywhere from now on
+    //   await atcChangePassword('old', 'new')
+    //   await atcAdminResetLogin('HANN')               admin: forget it, so they can set one again
+    // Older recovery codes still restore from the console only: await atcRestore('RCV-…', 'password').
+    const LOGIN_PW_IT = 100000;
+    // How long to wait on the bot, and between login tries (host-run.js shortens these).
+    const acctPoll = { every: 4000, tries: 30, gap: 20000 };
+    const acctEnc = v => new TextEncoder().encode(v);
+    const acctSha = async v => gamesHex(await crypto.subtle.digest('SHA-256', acctEnc(v)));
+    const acctNameKey = n => String(n || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    const acctName = n => String(n || '').replace(/[\u0000-\u001f\u007f<>]/g, '').trim().replace(/\s+/g, ' ');
+    async function loginPw(name, password) {
+        const key = await crypto.subtle.importKey('raw', acctEnc(password), 'PBKDF2', false, ['deriveBits']);
+        return gamesHex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: acctEnc('atc-login:' + acctNameKey(name)), iterations: LOGIN_PW_IT }, key, 256));
     }
-    const rcvLookup = async code => (await rcvSha('atc-rcv-lookup:' + code)).slice(0, 32);
-    async function rcvProof(password, salt, code, it) {
-        const key = await crypto.subtle.importKey('raw', rcvEnc(password), 'PBKDF2', false, ['deriveBits']);
-        return gamesHex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: rcvEnc(salt + ':' + code), iterations: it }, key, 256));
-    }
-    const rcvOk = async (rec, code, password) => !!(rec && rec.recovery && (await rcvSha(await rcvProof(password, rec.recovery.salt, code, rec.recovery.it))) === rec.recovery.verifier);
-
-    // Set (or, with the current code and password, change) this player's recovery. step(text)
-    // reports progress. Resolves { ok, code?, message }.
-    async function rcvSet(password, oldCode, oldPassword, step) {
-        const say = t => { try { if (step) step(t); } catch (_) {} };
-        if (!lbRegistered || !lbClientId) return { ok: false, message: 'Join the leaderboard first: recovery restores your board record.' };
-        if (typeof password !== 'string' || password.length < 6) return { ok: false, message: 'Use a password of at least 6 characters.' };
-        say('Checking your record…');
-        const reg = await fetchRegistry();
-        if (!reg) return { ok: false, message: 'Could not reach the board. Try again shortly.' };
-        const me = (reg.players || []).find(p => p.clientId === lbClientId);
-        if (!me) return { ok: false, message: 'Your record is not on the board yet. Sync (the cloud button), wait a minute, then try again.' };
-        let oldProof;
-        if (me.recovery) {
-            const oc = rcvNormalize(oldCode);
-            if (!GAMES_KEY_RE.test(oc) || typeof oldPassword !== 'string' || !(await rcvOk(me, oc, oldPassword))) {
-                return { ok: false, message: 'Your progress already has a recovery password. To change it, enter the current code and password.' };
-            }
-            oldProof = await rcvProof(oldPassword, me.recovery.salt, oc, me.recovery.it);
-        }
-        say('Making your code…');
-        const code = rcvNewCode(), saltBytes = new Uint8Array(16);
-        crypto.getRandomValues(saltBytes);
-        const salt = gamesHex(saltBytes), lookup = await rcvLookup(code);
-        const verifier = await rcvSha(await rcvProof(password, salt, code, RCV_IT));
-        let res = null;
+    // A request to the sync bot. True once GitHub has taken it (the bot runs it ~15-30 s later).
+    async function botDispatch(event, payload) {
         try {
-            res = await fetch(`https://api.github.com/repos/${GH_BOT_REPO}/dispatches`, {
+            const res = await fetch(`https://api.github.com/repos/${GH_BOT_REPO}/dispatches`, {
                 method: 'POST',
                 headers: { 'Accept': 'application/vnd.github+json', 'Authorization': `Bearer ${GH_DISPATCHER_PAT}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ event_type: 'recovery-set', client_payload: { client_id: lbClientId, recovery: { v: 1, lookup, salt, verifier, it: RCV_IT },
-                    old_proof: oldProof, build_token: BUILD_TOKEN, build_label: BUILD_LABEL } })
+                body: JSON.stringify({ event_type: event, client_payload: Object.assign({}, payload, { build_token: BUILD_TOKEN, build_label: BUILD_LABEL }) })
             });
-        } catch (_) {}
-        if (!res || !res.ok) return { ok: false, message: 'Could not reach GitHub' + (res ? ' (' + res.status + ')' : '') + '. Nothing was changed; try again shortly.' };
-        say('Saving… this takes up to a minute.');
-        for (let i = 0; i < 24; i++) {
-            await new Promise(r => setTimeout(r, 5000));
-            const now = await fetchRegistry(), rec = now && (now.players || []).find(p => p.clientId === lbClientId);
-            if (rec && rec.recovery && rec.recovery.lookup === lookup) return { ok: true, code: rcvFormat(code), message: 'Saved. Keep this code and your password: together they restore your progress on any browser.' };
+            return res.ok;
+        } catch (_) { return false; }
+    }
+    // Poll the public gist every 4 s for up to 2 minutes until done(registry) answers.
+    async function botWait(done) {
+        for (let i = 0; i < acctPoll.tries; i++) {
+            await new Promise(r => setTimeout(r, acctPoll.every));
+            const reg = await fetchRegistry(), v = reg && done(reg);
+            if (v) return v;
         }
-        return { ok: false, message: 'Not saved: the board did not take it. Try again; if it keeps failing, ask the admin.' };
+        return null;
     }
-    async function atcSetRecovery(password, oldCode, oldPassword) {
-        const r = await rcvSet(password, oldCode, oldPassword, t => console.log('[Recovery] ' + t));
-        if (!r.ok) { console.error('[Recovery] ✗ ' + r.message); return null; }
-        console.log('%c[Recovery] Your code: ' + r.code + '%c\nSave it now — it is shown once. ' + r.message, 'font-size:16px;font-weight:bold', '');
-        return r.code;
+    const acctMine = reg => ((reg && reg.players) || []).find(p => p.clientId === lbClientId) || null;
+    const ACCT_OFFLINE = "Can't reach the leaderboard right now. Check your connection and try again in a minute.";
+    let acctLastLogin = 0;
+
+    // Name + password on this computer. step(text) reports progress. Resolves { ok, message }.
+    async function acctLogin(name, password, step) {
+        name = acctName(name);
+        if (name.length < 2 || typeof password !== 'string' || !password) return { ok: false, message: 'Enter your leaderboard name and your password.' };
+        if (Date.now() - acctLastLogin < acctPoll.gap) return { ok: false, message: 'Please wait a few seconds before trying again.' };
+        acctLastLogin = Date.now();
+        const tag = await gamesTag(), pw = await loginPw(name, password);
+        const before = await fetchRegistry();
+        if (!before) return { ok: false, message: ACCT_OFFLINE };
+        const was = before.gamesUnlock && before.gamesUnlock.grants && before.gamesUnlock.grants[tag];
+        if (!(await botDispatch('login', { tag, name, pw }))) return { ok: false, message: ACCT_OFFLINE };
+        if (step) step('Checking… this takes about half a minute.');
+        const grant = await botWait(reg => { const g = reg.gamesUnlock && reg.gamesUnlock.grants && reg.gamesUnlock.grants[tag]; return g && (!was || g.at !== was.at) ? { g, reg } : null; });
+        if (!grant) return { ok: false, message: "That name and password don't match. Check them and try again. After 5 wrong tries, please wait 15 minutes." };
+        await checkGamesUnlock();
+        const rec = (grant.reg.players || []).find(p => p.clientId === grant.g.clientId);
+        if (rec) restoreRecordAs(rec);
+        return { ok: true, message: 'Welcome back, ' + (rec && rec.displayName || name) + '! You are on Level ' + userXP.level + '.' };
     }
-    // Restore by code and password. Resolves { ok, message }.
-    async function rcvRestore(code, password) {
+    // Set a password for this leaderboard account (optionally under a new name). Resolves { ok, message, name? }.
+    async function acctSetPassword(password, name, step) {
+        if (!lbRegistered) return { ok: false, message: 'Join the leaderboard first, then set your password.' };
+        if (!gamesUnlocked) return { ok: false, message: 'Unlock Game Mode on this computer first.' };
+        if (typeof password !== 'string' || password.length < 6) return { ok: false, message: 'Use a password of at least 6 characters.' };
+        name = acctName(name || lbDisplayName);
+        if (name.length < 2 || name.length > 20) return { ok: false, message: 'Your login name needs 2 to 20 characters.' };
+        const reg = await fetchRegistry();
+        if (!reg) return { ok: false, message: ACCT_OFFLINE };
+        const me = acctMine(reg);
+        if (!me) return { ok: false, message: 'Your leaderboard entry is still being saved. Try again in a minute.' };
+        if (me.login) return { ok: false, message: 'You already have a password. Use "Change password" instead.' };
+        if ((reg.players || []).some(p => p.clientId !== lbClientId && p.login && acctNameKey(p.displayName) === acctNameKey(name))) {
+            return { ok: false, taken: true, message: 'Someone already uses the name "' + name + '". Pick a different login name (it also changes your name on the board).' };
+        }
+        const tag = await gamesTag(), pw = await loginPw(name, password);
+        if (!(await botDispatch('login-enroll', { client_id: lbClientId, tag, name, pw }))) return { ok: false, message: ACCT_OFFLINE };
+        if (step) step('Saving… this takes about half a minute.');
+        const done = await botWait(r => { const m = acctMine(r); return m && m.login ? m : null; });
+        if (!done) return { ok: false, message: "That didn't save. Try a different login name, or try again in a minute." };
+        lbDisplayName = done.displayName || name;
+        saveLeaderboardProfile();
+        fetchLeaderboard().then(() => { try { renderMiniBoard(); } catch (_) {} }).catch(() => {});
+        return { ok: true, name: lbDisplayName, message: 'Done! Use ' + lbDisplayName + ' and this password to log in on any computer.' };
+    }
+    async function acctChangePassword(oldPassword, newPassword, step) {
+        if (!lbRegistered) return { ok: false, message: 'Log in first.' };
+        if (typeof newPassword !== 'string' || newPassword.length < 6) return { ok: false, message: 'Use a new password of at least 6 characters.' };
+        const reg = await fetchRegistry(), me = acctMine(reg);
+        if (!reg) return { ok: false, message: ACCT_OFFLINE };
+        if (!me || !me.login) return { ok: false, message: "You don't have a password yet. Use \"Set your password\"." };
+        const name = me.displayName, was = me.loginAt;
+        if (!(await botDispatch('login-change', { client_id: lbClientId, name, old_pw: await loginPw(name, oldPassword || ''), pw: await loginPw(name, newPassword) }))) return { ok: false, message: ACCT_OFFLINE };
+        if (step) step('Saving… this takes about half a minute.');
+        const done = await botWait(r => { const m = acctMine(r); return m && m.loginAt && m.loginAt !== was ? m : null; });
+        return done ? { ok: true, message: 'Password changed. Use it next time you log in.' }
+            : { ok: false, message: "That didn't work. Check your current password and try again." };
+    }
+    const acctConsole = r => (r.ok ? '✓ ' : '✗ ') + r.message;
+    const atcLogin = async (name, password) => acctConsole(await acctLogin(name, password, t => console.log('[Login] ' + t)));
+    const atcSetPassword = async (password, name) => acctConsole(await acctSetPassword(password, name, t => console.log('[Login] ' + t)));
+    const atcChangePassword = async (oldPassword, newPassword) => acctConsole(await acctChangePassword(oldPassword, newPassword, t => console.log('[Login] ' + t)));
+    async function atcAdminResetLogin(name) {
+        if (!name) { console.error('[Admin] usage: atcAdminResetLogin("leaderboard name")'); return false; }
+        const r = await _adminDispatch('admin-login-reset', { name });
+        if (r?.ok) console.log('[Admin] ✓ Reset queued for "' + name + '" (~30s); they can set a new password.');
+        return !!r?.ok;
+    }
+
+    // Older recovery codes (before logins): console only, never shown in the widget.
+    const rcvSha = acctSha;
+    const rcvNormalize = c => gamesNormalize(c).replace(/^RCV/, '');
+    const rcvLookup = async code => (await rcvSha('atc-rcv-lookup:' + code)).slice(0, 32);
+    async function rcvProof(password, salt, code, it) {
+        const key = await crypto.subtle.importKey('raw', acctEnc(password), 'PBKDF2', false, ['deriveBits']);
+        return gamesHex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: acctEnc(salt + ':' + code), iterations: it }, key, 256));
+    }
+    let rcvTries = [];
+    async function atcRestore(code, password) {
         const c = rcvNormalize(code);
-        if (!GAMES_KEY_RE.test(c)) return { ok: false, message: 'That is not a recovery code. Codes look like RCV-XXXX-XXXX-XXXX-XXXX.' };
-        if (typeof password !== 'string' || !password) return { ok: false, message: 'Enter your password.' };
+        if (!GAMES_KEY_RE.test(c) || typeof password !== 'string' || !password) return '✗ usage: await atcRestore("RCV-XXXX-XXXX-XXXX-XXXX", "password")';
         rcvTries = rcvTries.filter(t => Date.now() - t < 60000);
-        if (rcvTries.length >= 5) return { ok: false, message: 'Too many tries. Wait a minute, then try again.' };
+        if (rcvTries.length >= 5) return '✗ Too many tries. Wait a minute, then try again.';
         rcvTries.push(Date.now());
         const reg = await fetchRegistry();
-        if (!reg) return { ok: false, message: 'Could not reach the board. Try again shortly.' };
+        if (!reg) return '✗ ' + ACCT_OFFLINE;
         const lookup = await rcvLookup(c), rec = (reg.players || []).find(p => p.recovery && p.recovery.lookup === lookup);
-        if (!rec || !(await rcvOk(rec, c, password))) return { ok: false, message: 'Code or password is wrong.' };
+        if (!rec || (await rcvSha(await rcvProof(password, rec.recovery.salt, c, rec.recovery.it))) !== rec.recovery.verifier) return '✗ Code or password is wrong.';
         restoreRecordAs(rec);
-        return { ok: true, message: 'Restored ' + (rec.displayName || 'your progress') + ': Level ' + userXP.level + ', ' + userXP.totalXP.toLocaleString() + ' XP.' };
-    }
-    async function atcRestore(code, password) {
-        const r = await rcvRestore(code, password);
-        return (r.ok ? '✓ ' : '✗ ') + r.message;
+        return '✓ Restored ' + (rec.displayName || 'your progress') + ': Level ' + userXP.level + ', ' + userXP.totalXP.toLocaleString() + ' XP.';
     }
     async function atcAdminClearRecovery(clientId) {
         if (!clientId) { console.error('[Admin] usage: atcAdminClearRecovery("clientId")'); return false; }
         const r = await _adminDispatch('admin-recovery-clear', { client_id: clientId });
-        if (r?.ok) console.log('[Admin] ✓ Recovery clear queued for ' + clientId + ' (gist updates in ~30s); they can set a new password.');
+        if (r?.ok) console.log('[Admin] ✓ Recovery clear queued for ' + clientId + ' (gist updates in ~30s).');
         return !!r?.ok;
     }
 
-    // The dialog: restore (not joined), protect (joined, no password yet) or change.
-    function rcvDialogClose() {
-        const o = document.getElementById('rcv-modal-overlay'), m = document.getElementById('rcv-modal');
+    // ─── The account dialog ─────────────────────────────────────────
+    // One small dialog, plain words: 'login' (Welcome back, with a way to an access key), 'key',
+    // 'set' (Set your password) and 'change' (Change password). With no mode: whatever fits now.
+    function acctDialogClose() {
+        const o = document.getElementById('acct-modal-overlay'), m = document.getElementById('acct-modal');
         if (o) o.classList.remove('active');
         if (m) m.classList.remove('active');
-        if (rcvDialogClose.opener && rcvDialogClose.opener.focus) try { rcvDialogClose.opener.focus(); } catch (_) {}
+        if (acctDialogClose.opener && acctDialogClose.opener.focus) try { acctDialogClose.opener.focus(); } catch (_) {}
     }
-    function atcRecoveryDialog(mode) {
+    function atcAccountDialog(mode) {
         const own = leaderboardData.find(p => p.clientId === lbClientId);
-        mode = mode || (!lbRegistered ? 'restore' : own && own.recovery ? 'change' : 'set');
-        let overlay = document.getElementById('rcv-modal-overlay'), modal = document.getElementById('rcv-modal');
+        mode = mode || (!gamesUnlocked || !lbRegistered ? 'login' : own && own.login ? 'change' : 'set');
+        let overlay = document.getElementById('acct-modal-overlay'), modal = document.getElementById('acct-modal');
         if (!overlay) {
             overlay = document.createElement('div');
-            overlay.id = 'rcv-modal-overlay'; overlay.className = 'achievements-modal-overlay';
-            overlay.onclick = rcvDialogClose;
+            overlay.id = 'acct-modal-overlay'; overlay.className = 'achievements-modal-overlay';
+            overlay.onclick = acctDialogClose;
             document.body.appendChild(overlay);
         }
         if (!modal) {
             modal = document.createElement('div');
-            modal.id = 'rcv-modal'; modal.className = 'achievements-modal rcv-modal ach-ui';
+            modal.id = 'acct-modal'; modal.className = 'achievements-modal rcv-modal ach-ui';
             modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true');
-            modal.onkeydown = e => { if (e.key === 'Escape') rcvDialogClose(); };
+            modal.onkeydown = e => { if (e.key === 'Escape') acctDialogClose(); };
             document.body.appendChild(modal);
         }
-        const T = { restore: ['Restore your progress', 'Enter the recovery code you saved and your password.', 'Restore'],
-            set: ['Protect your progress', 'Pick a password. You will get a recovery code: with both, you can restore your level and scores on any browser.', 'Protect my progress'],
-            change: ['Change recovery password', 'Enter your current code and password, then the new password. You will get a new code.', 'Change password'] }[mode];
-        const field = (id, label, type, ac, ph) => '<label class="rcv-field"><span>' + label + '</span><input id="' + id + '" type="' + type + '" autocomplete="' + ac + '" spellcheck="false"' + (ph ? ' placeholder="' + ph + '"' : '') + '></label>';
-        modal.setAttribute('aria-label', T[0]);
-        modal.innerHTML = '<div class="achievements-modal-header"><div class="achievements-modal-title">' + T[0] + '</div>' +
+        const esc = v => escapeHtml(String(v || ''));
+        const field = (id, label, type, ac, value) => '<label class="rcv-field"><span>' + label + '</span><input id="' + id + '" type="' + type + '" autocomplete="' + ac + '" spellcheck="false"' +
+            (value ? ' value="' + esc(value).replace(/"/g, '&quot;') + '"' : '') + '></label>';
+        const link = (id, text) => '<button type="button" class="rcv-link" id="' + id + '">' + text + '</button>';
+        const S = {
+            login: { title: 'Welcome back', lead: 'Log in with your leaderboard name and password to open Game Mode and bring back your progress.',
+                body: field('acct-name', 'Your leaderboard name', 'text', 'username', lbDisplayName) + field('acct-pw', 'Password', 'password', 'current-password'),
+                go: 'Log in', after: link('acct-to-key', 'New here? I have an access key') },
+            key: { title: 'Unlock Game Mode', lead: 'Type the access key you were given.',
+                body: field('acct-key', 'Access key', 'text', 'off'), go: 'Unlock', after: link('acct-to-login', 'Already on the leaderboard? Log in instead') },
+            set: { title: 'Set your password', lead: 'With a password you can log in on any computer, and your progress comes with you.',
+                body: '<p class="rcv-lead" id="acct-name-line">Your login name is <b>' + esc(lbDisplayName) + '</b> ' + link('acct-rename', 'change') + '</p>' +
+                    '<div id="acct-name-box" hidden>' + field('acct-name', 'Login name (also your name on the board)', 'text', 'username', lbDisplayName) + '</div>' +
+                    field('acct-pw', 'Password (6 or more characters)', 'password', 'new-password') + field('acct-pw2', 'Password again', 'password', 'new-password'),
+                go: 'Save', after: '' },
+            change: { title: 'Change password', lead: 'Your login name is ' + esc(lbDisplayName) + '.',
+                body: field('acct-old', 'Current password', 'password', 'current-password') + field('acct-pw', 'New password', 'password', 'new-password') + field('acct-pw2', 'New password again', 'password', 'new-password'),
+                go: 'Change password', after: '' },
+        }[mode];
+        modal.setAttribute('aria-label', S.title);
+        modal.innerHTML = '<div class="achievements-modal-header"><div class="achievements-modal-title">' + S.title + '</div>' +
             '<button type="button" class="achievements-modal-close" aria-label="Close">' + achSvg('M6 6l12 12M18 6L6 18', 16, 2) + '</button></div>' +
-            '<p class="rcv-lead">' + T[1] + '</p><form class="rcv-form" novalidate>' +
-            (mode === 'restore' ? field('rcv-code', 'Recovery code', 'text', 'off', 'RCV-XXXX-XXXX-XXXX-XXXX') + field('rcv-pw', 'Password', 'password', 'current-password')
-                : mode === 'change' ? field('rcv-old-code', 'Current code', 'text', 'off', 'RCV-XXXX-XXXX-XXXX-XXXX') + field('rcv-old-pw', 'Current password', 'password', 'current-password') +
-                    field('rcv-pw', 'New password', 'password', 'new-password') + field('rcv-pw2', 'New password again', 'password', 'new-password')
-                : field('rcv-pw', 'Password (6+ characters)', 'password', 'new-password') + field('rcv-pw2', 'Password again', 'password', 'new-password')) +
-            '<button type="submit" class="rcv-go">' + T[2] + '</button><div class="rcv-status" role="status" aria-live="polite"></div></form>';
+            '<p class="rcv-lead">' + S.lead + '</p><form class="rcv-form" novalidate>' + S.body +
+            '<button type="submit" class="rcv-go">' + S.go + '</button><div class="rcv-status" role="status" aria-live="polite"></div></form>' + S.after;
         const $ = id => modal.querySelector('#' + id), status = modal.querySelector('.rcv-status'), go = modal.querySelector('.rcv-go');
         const tell = (t, tone) => { status.textContent = t; status.className = 'rcv-status' + (tone ? ' is-' + tone : ''); };
-        modal.querySelector('.achievements-modal-close').onclick = rcvDialogClose;
+        modal.querySelector('.achievements-modal-close').onclick = acctDialogClose;
+        if ($('acct-to-key')) $('acct-to-key').onclick = () => atcAccountDialog('key');
+        if ($('acct-to-login')) $('acct-to-login').onclick = () => atcAccountDialog('login');
+        if ($('acct-rename')) $('acct-rename').onclick = () => { $('acct-name-box').hidden = false; $('acct-name-line').hidden = true; $('acct-name').focus(); };
+        const done = (text, then) => {
+            modal.querySelector('.rcv-form').outerHTML = '<div class="rcv-done"><p class="rcv-lead"><b>' + esc(text) + '</b></p>' +
+                (then ? '<p class="rcv-lead">' + esc(then) + '</p>' : '') + '<div class="rcv-row"><button type="button" class="rcv-go rcv-ok">Done</button></div></div>';
+            const a = modal.querySelector('.rcv-link');
+            if (a) a.remove();
+            modal.querySelector('.rcv-ok').onclick = acctDialogClose;
+            modal.querySelector('.rcv-ok').focus();
+        };
         modal.querySelector('.rcv-form').onsubmit = async e => {
             e.preventDefault();
             if (go.disabled) return;
-            if (mode !== 'restore' && $('rcv-pw').value !== $('rcv-pw2').value) { tell('The two passwords differ.', 'hot'); return; }
+            if ((mode === 'set' || mode === 'change') && $('acct-pw').value !== $('acct-pw2').value) { tell('The two passwords are different. Type them again.', 'hot'); return; }
             go.disabled = true;
+            const busy = t => tell(t, 'busy');
+            busy(mode === 'key' ? 'Checking… this takes about half a minute.' : 'One moment…');
             try {
-                if (mode === 'restore') {
-                    tell('Checking…');
-                    const r = await rcvRestore($('rcv-code').value, $('rcv-pw').value);
-                    tell(r.message, r.ok ? 'ok' : 'hot');
-                    if (r.ok) setTimeout(rcvDialogClose, 1600);
+                if (mode === 'login') {
+                    const r = await acctLogin($('acct-name').value, $('acct-pw').value, busy);
+                    if (r.ok) done(r.message); else tell(r.message, 'hot');
+                } else if (mode === 'key') {
+                    const out = await atcUnlockGames($('acct-key').value);
+                    if (/^✓/.test(out)) done("You're in! Game Mode is open.", lbRegistered ? 'Next, set a password with the key button on the leaderboard, so you can log in on any computer without a key.'
+                        : 'Next, join the leaderboard and set a password, so you can log in on any computer without a key.');
+                    else tell(out.replace(/^✗\s*/, '').replace(/^Key not accepted:.*$/, "That key didn't work. It may be mistyped or already used. Ask for a new one."), 'hot');
+                } else if (mode === 'set') {
+                    const r = await acctSetPassword($('acct-pw').value, $('acct-name').value, busy);
+                    if (r.ok) done(r.message);
+                    else { tell(r.message, 'hot'); if (r.taken) { $('acct-name-box').hidden = false; $('acct-name-line').hidden = true; } }
                 } else {
-                    const r = await rcvSet($('rcv-pw').value, mode === 'change' ? $('rcv-old-code').value : undefined, mode === 'change' ? $('rcv-old-pw').value : undefined, t => tell(t));
-                    if (!r.ok) { tell(r.message, 'hot'); return; }
-                    // The code, once: copy it, then done.
-                    modal.querySelector('.rcv-form').outerHTML = '<div class="rcv-done"><span class="rcv-code" tabindex="0">' + escapeHtml(r.code) + '</span>' +
-                        '<p class="rcv-lead"><b>Save this code now: it is shown once.</b> ' + escapeHtml(r.message) + '</p>' +
-                        '<div class="rcv-row"><button type="button" class="rcv-go rcv-copy">Copy code</button><button type="button" class="rcv-sec rcv-ok">Done</button></div></div>';
-                    modal.querySelector('.rcv-copy').onclick = () => { try { navigator.clipboard.writeText(r.code); modal.querySelector('.rcv-copy').textContent = 'Copied'; } catch (_) {} };
-                    modal.querySelector('.rcv-ok').onclick = rcvDialogClose;
-                    try { fetchLeaderboard().then(() => renderMiniBoard()); } catch (_) {}
+                    const r = await acctChangePassword($('acct-old').value, $('acct-pw').value, busy);
+                    if (r.ok) done(r.message); else tell(r.message, 'hot');
                 }
             } finally { if (go.isConnected) go.disabled = false; }
         };
-        rcvDialogClose.opener = document.activeElement;
+        // Back to what opened it (switching modes inside the dialog keeps the first opener).
+        if (!modal.classList.contains('active')) acctDialogClose.opener = document.activeElement;
         requestAnimationFrame(() => {
             overlay.classList.add('active'); modal.classList.add('active');
-            const first = modal.querySelector('input');
+            const first = Array.prototype.find.call(modal.querySelectorAll('input'), i => !i.closest('[hidden]') && !i.value) || modal.querySelector('input:not([hidden])');
             if (first) first.focus();
         });
         return mode;
     }
-    window.atcSetRecovery = atcSetRecovery;
+    window.atcLogin = atcLogin;
+    window.atcSetPassword = atcSetPassword;
+    window.atcChangePassword = atcChangePassword;
+    window.atcAdminResetLogin = atcAdminResetLogin;
     window.atcRestore = atcRestore;
     window.atcAdminClearRecovery = atcAdminClearRecovery;
-    window.atcRecoveryDialog = atcRecoveryDialog;
+    window.atcAccountDialog = atcAccountDialog;
 
     async function fetchLeaderboard() {
         if (lbFetching) return leaderboardData;
@@ -17727,6 +17797,13 @@
             .rcv-modal .rcv-go:focus-visible, .rcv-modal .rcv-sec:focus-visible { outline: 2px solid var(--ach-focus); outline-offset: 2px; }
             .rcv-modal .rcv-status { min-height: 18px; font-size: 12px; line-height: 1.5; color: var(--ach-muted); }
             .rcv-modal .rcv-status.is-ok { color: var(--ach-ok); }
+            .rcv-modal .rcv-status.is-busy { display: flex; align-items: center; gap: 8px; }
+            .rcv-modal .rcv-status.is-busy::before { content: ''; width: 14px; height: 14px; flex-shrink: 0; border-radius: 50%; border: 2px solid var(--ach-inner-border); border-top-color: var(--ach-accent); animation: rcv-spin 0.8s linear infinite; }
+            @keyframes rcv-spin { to { transform: rotate(360deg); } }
+            @media (prefers-reduced-motion: reduce) { .rcv-modal .rcv-status.is-busy::before { animation-duration: 2.4s; } }
+            .rcv-modal .rcv-link { align-self: center; border: 0; background: none; padding: 4px; font: 500 13px var(--ach-font); color: var(--ach-ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+            .rcv-modal .rcv-lead .rcv-link { padding: 0 2px; font-size: 12px; }
+            .rcv-modal .rcv-link:focus-visible { outline: 2px solid var(--ach-focus); outline-offset: 2px; border-radius: 4px; }
             .rcv-modal .rcv-status.is-hot { color: #FF8A8A; }
             @media (prefers-color-scheme: light) { body:not(:has(.attendance-summary.retro-theme)) .rcv-modal .rcv-status.is-hot { color: #B3263A; } }
             .rcv-modal .rcv-done { display: flex; flex-direction: column; gap: 12px; }
@@ -24572,7 +24649,7 @@
 
         const emojiEl = container.querySelector('.emoji-display');
         if (emojiEl) {
-            emojiEl.title = !gamesUnlocked ? 'Game Mode is locked — click for how to unlock'
+            emojiEl.title = !gamesUnlocked ? 'Game Mode is locked. Click to log in'
                 : gameModeOn ? 'Game Mode ON — click to turn off'
                 : 'Game Mode OFF — click to turn on';
         }
@@ -24993,7 +25070,7 @@
             ? `<div class="ws-join"><span>Join to see where you rank with your team. Your level, XP and game scores are shared.</span>
                 <input id="lb-name-input" class="ws-join-in" type="text" placeholder="Display name (e.g. Hassan N.)" maxlength="20" aria-label="Display name">
                 <button type="button" class="lb-register-btn desk-primary" onclick="window.lbRegister()">Join the leaderboard</button>
-                <button type="button" class="ws-rcv-link" onclick="window.atcRecoveryDialog('restore')">Lost your progress? Restore it</button></div>`
+                <button type="button" class="ws-rcv-link" onclick="window.atcAccountDialog('login')">Already on the leaderboard? Log in</button></div>`
             : leaderboardData.map(p => ({ p, v: p.totalXP || 0 })).sort((a, b) => b.v - a.v).map((r, i) => {
                 const me = r.p.clientId === lbClientId, name = String(r.p.displayName || '') + (me ? ' (you)' : '');
                 const keys = (Array.isArray(r.p.achievements) ? r.p.achievements : []).filter(k => ACHIEVEMENTS[k]).join(',');
@@ -25002,11 +25079,12 @@
         const list = box.querySelector('.ws-board-rows'), sync = box.querySelector('.ws-board-sync:not(.ws-board-rcv)'), rcv = box.querySelector('.ws-board-rcv');
         if (sync) sync.hidden = !lbRegistered;
         if (rcv) {
-            // The key: recovery for this account; a dot until a password protects it.
-            const own = leaderboardData.find(p => p.clientId === lbClientId), bare = !!own && !own.recovery;
+            // The key: this account's password; a dot until one is set.
+            const own = leaderboardData.find(p => p.clientId === lbClientId), bare = !!own && !own.login;
             rcv.hidden = !lbRegistered;
             rcv.classList.toggle('is-nudge', bare);
-            rcv.title = bare ? 'Protect your progress: set a recovery password' : 'Recovery code and password';
+            rcv.title = bare ? 'Set a password to log in anywhere' : 'Change password';
+            rcv.setAttribute('aria-label', rcv.title);
         }
         if (list.innerHTML !== html) list.innerHTML = html;
         const me = list.querySelector('.ws-row.is-me'), rank = me ? String(Array.prototype.indexOf.call(list.children, me)) : '';
@@ -25364,7 +25442,7 @@
                 <div id="aim-results"></div>
 
                 <section class="ws-card ws-board" aria-label="Leaderboard">
-                    <div class="ws-board-head"><span>${attIcon('g-board')} Leaderboard</span><span class="ws-board-tools"><span class="ws-board-sub">Total XP</span><button type="button" class="ws-board-sync ws-board-rcv" onclick="window.atcRecoveryDialog()" title="Recovery code and password" aria-label="Recovery code and password" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"></circle><path d="M10.8 12.2L20 3M16 7l3 3M14 9l2 2"></path></svg></button><button type="button" class="ws-board-sync" onclick="window.lbSync()" title="Sync and refresh" aria-label="Sync and refresh">${attIcon('f-cloud', '18px')}</button></span></div>
+                    <div class="ws-board-head"><span>${attIcon('g-board')} Leaderboard</span><span class="ws-board-tools"><span class="ws-board-sub">Total XP</span><button type="button" class="ws-board-sync ws-board-rcv" onclick="window.atcAccountDialog()" title="Password" aria-label="Password" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"></circle><path d="M10.8 12.2L20 3M16 7l3 3M14 9l2 2"></path></svg></button><button type="button" class="ws-board-sync" onclick="window.lbSync()" title="Sync and refresh" aria-label="Sync and refresh">${attIcon('f-cloud', '18px')}</button></span></div>
                     <div class="ws-board-rows"></div>
                 </section>
             </div>
@@ -25468,7 +25546,7 @@
         const _emojiToggle = totalTimeDiv.querySelector('#game-mode-emoji-toggle');
         if (_emojiToggle) {
             _emojiToggle.addEventListener('click', () => {
-                if (!gamesUnlocked) { gamesLockedNotice(); return; }
+                if (!gamesUnlocked) { atcAccountDialog('login'); return; }
                 userPreferences.gameModeHidden = !userPreferences.gameModeHidden;
                 savePreferences();
                 applyGameMode();

@@ -26,7 +26,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const GAMES = { secret: '5eed'.repeat(16), open: true };
 GAMES.tag = require('crypto').createHash('sha256').update(GAMES.secret).digest('hex').slice(0, 32);
 const gamesRegistry = () => JSON.stringify({ files: { 'attendance_widget_registry.json': { content: JSON.stringify({ lastUpdated: new Date().toISOString(), players: GAMES.players || [],
-    gamesUnlock: { n: 1, tags: GAMES.open ? { [GAMES.tag]: { at: new Date().toISOString(), n: 0 } } : {} } }) } } });
+    gamesUnlock: { n: 1, tags: GAMES.open ? { [GAMES.tag]: { at: new Date().toISOString(), n: 0 } } : {}, grants: GAMES.grants || {} } }) } } });
 const GAMES_PRESET = '<script>localStorage.setItem("atc_games_secret", "' + GAMES.secret + '"); localStorage.setItem("atc_games_ok", String(Date.now() + 864e5));</script>';
 
 function page() {
@@ -37,6 +37,7 @@ function page() {
     window.__probe = {
         checkGamesUnlock, get gamesUnlocked() { return gamesUnlocked; },
         get lbClientId() { return lbClientId; }, get lbRegistered() { return lbRegistered; },
+        acctPoll, fetchLeaderboard, renderMiniBoard,
         S: poolS, get mode() { return poolMode; }, get maximized() { return poolMaximized; }, get tier() { return poolCpuTier; },
         get currentGame() { return currentGame; }, get prefs() { return userPreferences; },
         applyPreferences, poolEndFrame, poolNewFrame, resetPoolGame, prCanPlace, phThemeTokens, pcProject, pcView,
@@ -103,6 +104,13 @@ async function main() {
                 if (m.params.request.method === 'OPTIONS') send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 204, responseHeaders: cors });
                 else send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 200,
                     responseHeaders: cors.concat([{ name: 'Content-Type', value: 'application/json' }]), body: Buffer.from(gamesRegistry()).toString('base64') });
+            } else if (GAMES.bot && u.startsWith('https://api.github.com/repos/') && /\/dispatches$/.test(u)) {
+                // A stand-in for the sync bot (its rules are tested in sync-verify.js): it answers
+                // as the real one would, by changing the stub registry.
+                const cors = [{ name: 'Access-Control-Allow-Origin', value: 'https://globalportal.mtbc.com' }, { name: 'Access-Control-Allow-Headers', value: 'Authorization, Accept, Content-Type' },
+                    { name: 'Access-Control-Allow-Methods', value: 'POST, OPTIONS' }];
+                if (m.params.request.method === 'POST') { try { const d = JSON.parse(m.params.request.postData || '{}'); GAMES.bot(d.event_type, d.client_payload || {}); } catch (e) { errors.push('stand-in bot: ' + e.message); } }
+                send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 204, responseHeaders: cors });
             } else send('Fetch.failRequest', { requestId: m.params.requestId, errorReason: 'BlockedByClient' });
         }
         if (m.method === 'Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text);
@@ -729,14 +737,16 @@ async function main() {
     const gameBefore = lk.game, prefBefore = lk.pref;
     await click('#game-mode-emoji-toggle');
     let lk2 = await lockState();
-    ok('the emoji does not turn Game Mode on; it shows how to unlock', lk2.hidden && lk2.pref === prefBefore && lk2.toasts > lk.toasts, lk2);
+    ok('the face does not turn Game Mode on; it opens "Welcome back" to log in', lk2.hidden && lk2.pref === prefBefore &&
+        await waitFor("(() => { const m = document.getElementById('acct-modal'); return m && m.classList.contains('active') && /Welcome back/.test(m.textContent); })()", 3000), lk2);
+    await ev("document.querySelector('#acct-modal .achievements-modal-close').click()");
     await ev("window.switchGame('" + (gameBefore === 'pool' ? 'snake' : 'pool') + "')");
     await key('1');
     ok('switchGame and the number keys do nothing', (await lockState()).game === gameBefore);
     await ev("window.startTetrisGameBtn && window.startTetrisGameBtn()");
     ok('…nor do the games\' own buttons from the console', (await lockState()).game === gameBefore);
     ok('a key in the wrong shape is refused at once', /not an access key/.test(await ev("window.atcUnlockGames('nope')")));
-    ok('a well-formed key is sent to the bot (here GitHub is unreachable, so it says so)', /Could not reach GitHub/.test(await ev("window.atcUnlockGames('ABCD-EFGH-JKMN-PQRS')")));
+    ok('a well-formed key is sent to the bot (here unreachable, and it says so plainly)', /Can't reach the leaderboard/.test(await ev("window.atcUnlockGames('ABCD-EFGH-JKMN-PQRS')")));
     ok('…and a second try within 30 s waits', /30 seconds/.test(await ev("window.atcUnlockGames('ABCD-EFGH-JKMN-PQRS')")));
     ok('atcGamesTag gives this browser\'s tag (what a revoke takes)', (await ev('window.atcGamesTag()')) === GAMES.tag);
     await ev('window.__probe.toggleSettingsModal && window.__probe.toggleSettingsModal()'); await sleep(400);
@@ -748,40 +758,92 @@ async function main() {
     lk = await lockState();
     ok('…the panel is back as the preference had it', lk.hidden === !lk.pref, lk);
 
-    head('Progress recovery');
+    head('Accounts: name + password');
     {
-        // A player who protected their progress: the record the gist holds, built as the browser builds it.
         const nc = require('crypto'), sha = v => nc.createHash('sha256').update(v).digest('hex');
-        const CODE = 'K7QDM3XA9PZRT2WF', PW = 'correct horse', SALT = '3c'.repeat(16), IT = 150000;
-        const proof = nc.pbkdf2Sync(PW, SALT + ':' + CODE, IT, 32, 'sha256').toString('hex');
-        GAMES.players = [{ clientId: 'rcv-player-1', displayName: 'Rina R.', totalXP: 54321, level: 1, currentXP: 0, gameSessions: 300, totalWorkDays: 40,
-            achievements: [], recovery: { v: 1, lookup: sha('atc-rcv-lookup:' + CODE).slice(0, 32), salt: SALT, verifier: sha(proof), it: IT, setAt: new Date().toISOString() } }];
-        ok('not joined: the Join box offers "Lost your progress? Restore it"', /Restore it/.test(await ev("(document.querySelector('#total-time-summary .ws-rcv-link') || {}).textContent || ''")));
-        if (!(await click('#total-time-summary .ws-rcv-link'))) await ev("window.atcRecoveryDialog('restore')");
-        ok('…it opens the restore dialog: code and password', await waitFor("(() => { const m = document.getElementById('rcv-modal'); return m && m.classList.contains('active') && !!m.querySelector('#rcv-code') && m.querySelector('#rcv-pw').type === 'password'; })()", 3000));
-        const fill = (code, pw) => ev(`(() => { document.getElementById('rcv-code').value = ${JSON.stringify(code)}; document.getElementById('rcv-pw').value = ${JSON.stringify(pw)}; })()`);
-        const status = () => ev("document.querySelector('#rcv-modal .rcv-status').textContent");
-        await shot('recovery-restore', '#rcv-modal');
-        await fill('RCV-' + CODE.match(/.{4}/g).join('-'), 'wrong password');
-        await click('#rcv-modal .rcv-go');
-        ok('a wrong password is refused', await waitFor("/Code or password is wrong/.test(document.querySelector('#rcv-modal .rcv-status').textContent)", 8000) && (await ev('window.__probe.lbClientId')) !== 'rcv-player-1', await status());
-        await fill(CODE.toLowerCase().replace(/0/g, 'o'), PW);
-        await click('#rcv-modal .rcv-go');
-        ok('the code typed loosely (lowercase, no dashes, O for 0) and the password restore it', await waitFor("/Restored Rina/.test(document.querySelector('#rcv-modal .rcv-status').textContent)", 8000), await status());
-        ok('…this browser is now that account, joined, with its XP', (await ev('window.__probe.lbClientId')) === 'rcv-player-1' && (await ev('window.__probe.lbRegistered')) === true && (await ev('window.__probe.xp.totalXP')) === 54321);
-        ok('…the dialog closes by itself', await waitFor("!document.getElementById('rcv-modal').classList.contains('active')", 4000));
-        ok('…and the board shows the key button, with no "protect" dot (a password is set)', await waitFor("(() => { const b = document.querySelector('#total-time-summary .ws-board-rcv'); return b && !b.hidden && !b.classList.contains('is-nudge'); })()", 6000));
-        ok('atcRestore from the console: a wrong password says so', /✗ Code or password is wrong/.test(await ev(`window.atcRestore('RCV-${CODE}', 'nope')`)));
-        ok('…and the right one restores', /✓ Restored Rina R\./.test(await ev(`window.atcRestore('${CODE}', ${JSON.stringify(PW)})`)));
-        ok('atcRestoreByClientId is admin only now', (await ev("window.atcRestoreByClientId('rcv-player-1')")) === false);
-        ok('the key button opens the change dialog for a protected account', (await ev('window.atcRecoveryDialog()')) === 'change' && await waitFor("!!document.querySelector('#rcv-modal #rcv-old-code')", 2000));
-        await sleep(300); await shot('recovery-change', '#rcv-modal');
-        await ev("document.querySelector('#rcv-modal .achievements-modal-close').click()");
-        const before = consoleErrors.length;
-        ok('setting a password without the current code is refused for a protected account', (await ev("window.atcSetRecovery('newpassword')")) === null && consoleErrors.slice(before).some(e => /already has a recovery password/.test(e)));
-        const before2 = consoleErrors.length;
-        await ev(`window.atcSetRecovery('newpassword', 'RCV-${CODE}', ${JSON.stringify(PW)})`);
-        ok('…with it, the change goes to the bot (GitHub is unreachable here, and it says so)', consoleErrors.slice(before2).some(e => /Could not reach GitHub/.test(e)));
+        const pwOf = (name, password) => nc.pbkdf2Sync(password, 'atc-login:' + name.toLowerCase(), 100000, 32, 'sha256').toString('hex');
+        const PASS = { current: 'pool-shark-7' };
+        // An enrolled player on the board, plus an old recovery code (the console fallback).
+        const CODE = 'K7QDM3XA9PZRT2WF', CODE_PW = 'correct horse', SALT = '3c'.repeat(16), IT = 150000;
+        const proof = nc.pbkdf2Sync(CODE_PW, SALT + ':' + CODE, IT, 32, 'sha256').toString('hex');
+        const rina = { clientId: 'acct-1', displayName: 'Rina R.', totalXP: 54321, level: 1, currentXP: 0, gameSessions: 300, totalWorkDays: 40, achievements: [],
+            login: true, loginAt: 'a', recovery: { v: 1, lookup: sha('atc-rcv-lookup:' + CODE).slice(0, 32), salt: SALT, verifier: sha(proof), it: IT, setAt: 'x' } };
+        GAMES.players = [rina]; GAMES.grants = {};
+        // The stand-in bot: logins against Rina's password, enrolment, and a password change.
+        GAMES.bot = (event, p) => {
+            if (event === 'login' && p.name.toLowerCase() === 'rina r.' && p.pw === pwOf('Rina R.', PASS.current)) {
+                GAMES.open = true; GAMES.grants[p.tag] = { clientId: 'acct-1', at: new Date().toISOString() };
+            } else if (event === 'login-enroll' && p.client_id === 'acct-1') {
+                rina.login = true; rina.loginAt = new Date().toISOString(); rina.displayName = p.name; PASS.enrolled = p.pw;
+            } else if (event === 'login-change' && p.old_pw === pwOf(rina.displayName, PASS.current)) {
+                rina.loginAt = new Date().toISOString(); PASS.changed = p.pw;
+            }
+        };
+        await ev('Object.assign(window.__probe.acctPoll, { every: 150, tries: 12, gap: 0 })');
+        // Locked, on a computer that is not this player's.
+        GAMES.open = false;
+        await ev('window.__probe.checkGamesUnlock()');
+        const modalText = () => ev("(document.getElementById('acct-modal') || {}).textContent || ''");
+        const jargon = t => /\b(tag|gist|clientId|dispatch|GitHub|payload|hash)\b/i.test(t);
+        const status = () => ev("(document.querySelector('#acct-modal .rcv-status') || {}).textContent || ''");
+        const set = (id, v) => ev(`(() => { const i = document.getElementById(${JSON.stringify(id)}); i.value = ${JSON.stringify(v)}; })()`);
+        const opened = title => waitFor(`(() => { const m = document.getElementById('acct-modal'); return m && m.classList.contains('active') && ${JSON.stringify(title)} === m.querySelector('.achievements-modal-title').textContent; })()`, 3000);
+        await click('#game-mode-emoji-toggle');
+        ok('locked: the face opens "Welcome back", name and password', await opened('Welcome back') && !!(await ev("!!document.getElementById('acct-name') && document.getElementById('acct-pw').type === 'password'")));
+        await shot('account-login', '#acct-modal');
+        ok('…in plain words (no technical terms)', !jargon(await modalText()), await modalText());
+        await set('acct-name', 'rina r.'); await set('acct-pw', 'not it');
+        await click('#acct-modal .rcv-go');
+        ok('while it checks, it says how long it takes', await waitFor("/half a minute/.test(document.querySelector('#acct-modal .rcv-status').textContent) && document.querySelector('#acct-modal .rcv-status').classList.contains('is-busy')", 3000));
+        ok('a wrong password: "don\'t match", and still locked', await waitFor("/don't match/.test(document.querySelector('#acct-modal .rcv-status').textContent)", 8000) && !(await ev('window.__probe.gamesUnlocked')), await status());
+        await set('acct-pw', PASS.current);
+        await click('#acct-modal .rcv-go');
+        ok('the right password: "Welcome back, Rina R.!"', await waitFor("/Welcome back, Rina R\\.!/.test(document.getElementById('acct-modal').textContent)", 8000), await status());
+        ok('…Game Mode opens on this computer', (await ev('window.__probe.gamesUnlocked')) === true && !(await lockState()).hidden);
+        ok('…and this computer is now Rina, with her progress', (await ev('window.__probe.lbClientId')) === 'acct-1' && (await ev('window.__probe.lbRegistered')) === true && (await ev('window.__probe.xp.totalXP')) === 54321);
+        await ev("document.querySelector('#acct-modal .rcv-ok').click()");
+
+        // Locked again for the key field (an open browser would just say "You're in").
+        GAMES.open = false;
+        await ev('window.__probe.checkGamesUnlock()');
+        ok('"New here? I have an access key" swaps to a key field', (await ev("window.atcAccountDialog('login')")) === 'login' && await opened('Welcome back') &&
+            (await click('#acct-to-key')) && await opened('Unlock Game Mode') && !!(await ev("!!document.getElementById('acct-key')")));
+        await set('acct-key', 'nope');
+        await click('#acct-modal .rcv-go');
+        ok('…a key in the wrong shape is refused plainly', await waitFor("/not an access key/.test(document.querySelector('#acct-modal .rcv-status').textContent)", 3000), await status());
+        await shot('account-key', '#acct-modal');
+        await ev("document.querySelector('#acct-modal .achievements-modal-close').click()");
+        GAMES.open = true;
+        await ev('window.__probe.checkGamesUnlock()');
+
+        // Joined, no password yet: the key button nudges, and sets one.
+        rina.login = false;
+        await ev('window.__probe.fetchLeaderboard().then(() => window.__probe.renderMiniBoard())');
+        ok('joined without a password: the key button carries a dot and says what it is for', await waitFor("(() => { const b = document.querySelector('#total-time-summary .ws-board-rcv'); return b && !b.hidden && b.classList.contains('is-nudge') && /log in anywhere/.test(b.title); })()", 4000));
+        ok('…it opens "Set your password", naming the login', (await ev('window.atcAccountDialog()')) === 'set' && await opened('Set your password') && /Your login name is Rina R\./.test(await modalText()));
+        await shot('account-set', '#acct-modal');
+        ok('…in plain words', !jargon(await modalText()), await modalText());
+        await set('acct-pw', 'abcdef1'); await set('acct-pw2', 'abcdef2');
+        await click('#acct-modal .rcv-go');
+        ok('two different passwords: it says so', /different/.test(await status()));
+        await set('acct-pw2', 'abcdef1');
+        await click('#acct-modal .rcv-go');
+        ok('saved: "Use Rina R. and this password to log in on any computer"', await waitFor("/Use Rina R\\. and this password/.test(document.getElementById('acct-modal').textContent)", 8000) && PASS.enrolled === pwOf('Rina R.', 'abcdef1'), await status());
+        ok('…only a hash of the password left this browser', PASS.enrolled !== 'abcdef1' && /^[0-9a-f]{64}$/.test(PASS.enrolled));
+        await ev("document.querySelector('#acct-modal .rcv-ok').click()");
+        PASS.current = 'abcdef1';
+        await ev('window.__probe.fetchLeaderboard().then(() => window.__probe.renderMiniBoard())');
+        ok('with a password: the dot goes, and the key button opens "Change password"', await waitFor("!document.querySelector('#total-time-summary .ws-board-rcv').classList.contains('is-nudge')", 4000) &&
+            (await ev('window.atcAccountDialog()')) === 'change' && await opened('Change password'));
+        await set('acct-old', 'abcdef1'); await set('acct-pw', 'newpass9'); await set('acct-pw2', 'newpass9');
+        await click('#acct-modal .rcv-go');
+        ok('…a change goes through with the current password', await waitFor("/Password changed/.test(document.getElementById('acct-modal').textContent)", 8000) && PASS.changed === pwOf('Rina R.', 'newpass9'), await status());
+        await ev("document.querySelector('#acct-modal .rcv-ok').click()");
+
+        ok('the Join box offers "Already on the leaderboard? Log in" (not a recovery code)', /Already on the leaderboard\? Log in/.test(page()) && !/Restore it|recovery code/i.test(await ev("document.getElementById('total-time-summary').textContent")));
+        ok('an old recovery code still restores from the console', /✓ Restored Rina R\./.test(await ev(`window.atcRestore('${CODE}', ${JSON.stringify(CODE_PW)})`)));
+        ok('atcRestoreByClientId is still admin only', (await ev("window.atcRestoreByClientId('acct-1')")) === false);
+        GAMES.bot = null;
         GAMES.players = [];
     }
 

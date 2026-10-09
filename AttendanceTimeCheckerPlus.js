@@ -11,7 +11,7 @@
     //             (pool-dev/sync-verify.js fails until the two match)
     const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
     // Seed UNCHANGED on purpose: rotating it without BUILD_TOKEN_CURRENT breaks every sync.
-    const BUILD_LABEL = 'v11';
+    const BUILD_LABEL = 'v12';
 
     // Ordinal of a 'v<N>' label; null if malformed (callers then assume behind).
     function _buildOrdinal(label) {
@@ -1405,7 +1405,9 @@
     window.atcIsBlocked = isBlocked;
 
     // ─── Game Mode lock ───────────────────────────────────────────────
-    // Game Mode (the games panels) stays off until this browser redeems an access key. The sync
+    // PLUS. Game Mode (the games panels, online play, the game boards) is the Plus tier; the
+    // attendance widget with Game Mode off is free. Plus opens when this browser redeems a Plus
+    // license key (or logs in to an account that has one, below). The sync
     // bot checks keys against UNLOCK_SECRET, a repo secret this script never sees: key n is the
     // first 80 bits of HMAC-SHA256(secret, 'atc-games:' + n) in Crockford base32, and only the
     // gist's current n is valid, so each key works once and the next one differs. A browser is
@@ -1468,12 +1470,12 @@
         return gamesUnlocked;
     }
     function gamesLockedNotice() {
-        showXPNotification('Game Mode is locked. Click the face at the top to log in.', 'game', 'f-integrity');
+        showXPNotification('Game Mode is a Plus feature. Click the face at the top to log in or activate Plus.', 'game', 'f-integrity');
     }
     async function atcUnlockGames(key) {
-        if (gamesUnlocked && await checkGamesUnlock()) return '✓ Game Mode is already unlocked on this browser';
+        if (gamesUnlocked && await checkGamesUnlock()) return '✓ Plus is already active on this browser';
         const k = gamesNormalize(key);
-        if (!GAMES_KEY_RE.test(k)) return '✗ That is not an access key. Keys look like XXXX-XXXX-XXXX-XXXX.';
+        if (!GAMES_KEY_RE.test(k)) return '✗ That is not a Plus license key. Keys look like XXXX-XXXX-XXXX-XXXX.';
         if (Date.now() - gamesLastTry < 30000) return '✗ One try every 30 seconds. Wait a moment, then try again.';
         gamesLastTry = Date.now();
         const tag = await gamesTag();
@@ -1490,11 +1492,11 @@
         for (let i = 0; i < 24; i++) {
             await new Promise(r => setTimeout(r, 5000));
             if (await checkGamesUnlock()) {
-                showXPNotification('Game Mode unlocked', 'game', 'f-integrity');
-                return '✓ Game Mode unlocked';
+                showXPNotification('Plus activated: Game Mode is open', 'game', 'f-integrity');
+                return '✓ Plus activated';
             }
         }
-        return '✗ Key not accepted: wrong, already used, or rotated. Ask the admin for the current key.';
+        return '✗ License key not accepted: wrong, already used, or retired. Ask for a new key.';
     }
     // Admin: the current key and the next two, from UNLOCK_SECRET and the gist's counter. The
     // secret stays in this call: it is not kept or sent anywhere.
@@ -1505,7 +1507,7 @@
         const n = reg.gamesUnlock && Number.isInteger(reg.gamesUnlock.n) && reg.gamesUnlock.n >= 0 ? reg.gamesUnlock.n : 0;
         const keys = [];
         for (let i = 0; i < 3; i++) keys.push({ n: n + i, key: (await gamesKeyFor(secret, n + i)).match(/.{4}/g).join('-') });
-        console.log('[Admin] Access keys, valid in this order, one use each. Unlocked browsers: ' + Object.keys((reg.gamesUnlock && reg.gamesUnlock.tags) || {}).length);
+        console.log('[Admin] Plus license keys, valid in this order, one use each. Plus browsers: ' + Object.keys((reg.gamesUnlock && reg.gamesUnlock.tags) || {}).length);
         if (console.table) console.table(keys);
         return keys[0].key;
     }
@@ -1527,7 +1529,7 @@
     window.atcAdminGamesRotate = atcAdminGamesRotate;
 
     // ─── Accounts: leaderboard name + password ──────────────────────
-    // An access key unlocks one browser for a newcomer. Once in, they join the leaderboard and set
+    // A Plus license key unlocks one browser for a newcomer. Once in, they join the leaderboard and set
     // a password; from then on their leaderboard name and password, on any computer, unlock Game
     // Mode there and bring their progress back. The sync bot checks passwords against a private
     // store (a secret gist only it reads), so nothing here or in the public gist can be used to
@@ -1598,7 +1600,7 @@
     // Set a password for this leaderboard account (optionally under a new name). Resolves { ok, message, name? }.
     async function acctSetPassword(password, name, step) {
         if (!lbRegistered) return { ok: false, message: 'Join the leaderboard first, then set your password.' };
-        if (!gamesUnlocked) return { ok: false, message: 'Unlock Game Mode on this computer first.' };
+        if (!gamesUnlocked) return { ok: false, message: 'Activate Plus on this computer first.' };
         if (typeof password !== 'string' || password.length < 6) return { ok: false, message: 'Use a password of at least 6 characters.' };
         name = acctName(name || lbDisplayName);
         if (name.length < 2 || name.length > 20) return { ok: false, message: 'Your login name needs 2 to 20 characters.' };
@@ -1674,7 +1676,7 @@
     }
 
     // ─── The account dialog ─────────────────────────────────────────
-    // One small dialog, plain words: 'login' (Welcome back, with a way to an access key), 'key',
+    // One small dialog, plain words: 'login' (Welcome back, with a way to a Plus license key), 'key' (Activate Plus),
     // 'set' (Set your password) and 'change' (Change password). With no mode: whatever fits now.
     function acctDialogClose() {
         const o = document.getElementById('acct-modal-overlay'), m = document.getElementById('acct-modal');
@@ -1704,11 +1706,11 @@
             (value ? ' value="' + esc(value).replace(/"/g, '&quot;') + '"' : '') + '></label>';
         const link = (id, text) => '<button type="button" class="rcv-link" id="' + id + '">' + text + '</button>';
         const S = {
-            login: { title: 'Welcome back', lead: 'Log in with your leaderboard name and password to open Game Mode and bring back your progress.',
+            login: { title: 'Welcome back', lead: 'Game Mode is part of Plus. Log in with your leaderboard name and password to open it and bring back your progress.',
                 body: field('acct-name', 'Your leaderboard name', 'text', 'username', lbDisplayName) + field('acct-pw', 'Password', 'password', 'current-password'),
-                go: 'Log in', after: link('acct-to-key', 'New here? I have an access key') },
-            key: { title: 'Unlock Game Mode', lead: 'Type the access key you were given.',
-                body: field('acct-key', 'Access key', 'text', 'off'), go: 'Unlock', after: link('acct-to-login', 'Already on the leaderboard? Log in instead') },
+                go: 'Log in', after: link('acct-to-key', 'New here? I have a Plus license key') },
+            key: { title: 'Activate Plus', lead: 'Plus opens Game Mode: every game, online play and the game leaderboards. Enter your license key.',
+                body: field('acct-key', 'License key', 'text', 'off'), go: 'Activate', after: link('acct-to-login', 'Already have Plus? Log in instead') },
             set: { title: 'Set your password', lead: 'With a password you can log in on any computer, and your progress comes with you.',
                 body: '<p class="rcv-lead" id="acct-name-line">Your login name is <b>' + esc(lbDisplayName) + '</b> ' + link('acct-rename', 'change') + '</p>' +
                     '<div id="acct-name-box" hidden>' + field('acct-name', 'Login name (also your name on the board)', 'text', 'username', lbDisplayName) + '</div>' +
@@ -1750,9 +1752,9 @@
                     if (r.ok) done(r.message); else tell(r.message, 'hot');
                 } else if (mode === 'key') {
                     const out = await atcUnlockGames($('acct-key').value);
-                    if (/^✓/.test(out)) done("You're in! Game Mode is open.", lbRegistered ? 'Next, set a password with the key button on the leaderboard, so you can log in on any computer without a key.'
-                        : 'Next, join the leaderboard and set a password, so you can log in on any computer without a key.');
-                    else tell(out.replace(/^✗\s*/, '').replace(/^Key not accepted:.*$/, "That key didn't work. It may be mistyped or already used. Ask for a new one."), 'hot');
+                    if (/^✓/.test(out)) done('Plus is active! Game Mode is open.', lbRegistered ? 'Next, set a password with the key button on the leaderboard, so Plus works on any computer without a new key.'
+                        : 'Next, join the leaderboard and set a password, so Plus works on any computer without a new key.');
+                    else tell(out.replace(/^✗\s*/, '').replace(/^License key not accepted:.*$/, "That license key didn't work. It may be mistyped or already used."), 'hot');
                 } else if (mode === 'set') {
                     const r = await acctSetPassword($('acct-pw').value, $('acct-name').value, busy);
                     if (r.ok) done(r.message);
@@ -6152,6 +6154,8 @@
     //   net: poolNetModel() | null   online: the sheet's tab (server, players, invites) and an
     //                                invite over the table; cpuTurn is also the other tab's turn
     //   primaryLabel,                overrides the frame-over dialog's first button
+    //   reactOpen,                   online: the React tray is open (net.said: { 1, 2 } each seat's bubble)
+    //   start: { label, sub } | null  Vs CPU: PLAY (or RESUME) over the table until pressed
     //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
     //   secondaryLabel,              overrides the frame-over dialog's second button
     //   result: { win, title, reason, recordLabel, record, delta, note, stats? } | null,
@@ -6311,6 +6315,10 @@
                 net: g.net || null,
             } : { show: false },
             invite: phInvite(g.net, sheetOpen),
+            // Online: the React button and tray, and what each seat just said (a bubble under its card).
+            react: { show: !!(g.net && g.net.inRoom) && !over, open: !!(g.net && g.net.inRoom && g.reactOpen) && !over },
+            start: g.start && !over ? { show: true, label: g.start.label, sub: g.start.sub } : { show: false },
+            said: [1, 2].map(seat => (g.net && g.net.inRoom && g.net.said && g.net.said[seat]) || ''),
             cueName: g.cueName || 'Standard', cues: g.cues || null,
             cueNew: g.cueNew && !sheetOpen && !toast && !phInvite(g.net, sheetOpen).show ? g.cueNew : null,
             // Snooker's parts; hidden for pool.
@@ -6458,9 +6466,13 @@
         close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
         cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
         flag: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"></path><path d="M5 4h12l-2.5 4L17 12H5"></path></svg>',
+        chat: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4V5z"></path><path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01"></path></svg>',
         net: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 9a14 14 0 0 1 19 0M5.8 12.6a9.2 9.2 0 0 1 12.4 0M9.1 16.2a4.4 4.4 0 0 1 5.8 0M12 19.6v.1"></path></svg>',
         cue: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20L16.5 7.5M15 6l3 3M17.6 4.4a1.4 1.4 0 0 1 2 2"></path></svg>',
     };
+
+    // Online: the quick reactions in the React tray (a message is free text, up to 30 characters).
+    const PH_REACTIONS = ['👍', '👏', '😂', '😮', '🔥', '😅', '😤', 'GG'];
 
     // ── The cue collection ────────────────────────────────────────────
     // Each cue's stroke icon: its achievement's (the design's), Standard's check, Collector's star.
@@ -6584,6 +6596,17 @@
             '<span class="ph-cuenew-t"><span class="ph-label" data-ph="invitek"></span><span data-ph="invitet"></span></span>' +
             '<button type="button" class="ph-btn" data-ph="invitego">Accept</button><button type="button" class="ph-btn is-icon" data-ph="invitex" aria-label="Decline">' + PH_ICON.close + '</button></div>' +
             '<div class="ph-bihnote ph-label" data-ph="bihnote" hidden></div>' +
+            // Vs CPU: the table waits behind PLAY until it is pressed.
+            '<div class="ph-scrim ph-start-scrim" data-ph="start" hidden><div class="ph-start"><button type="button" class="ph-primary ph-label ph-start-go" data-ph="startgo">' +
+            '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"></path></svg><span data-ph="startl">PLAY</span></button>' +
+            '<span class="ph-start-sub" data-ph="startsub"></span></div></div>' +
+            // Online: what each player just sent, under their card; the React tray.
+            '<span class="ph-bubble" data-seat="1" data-ph="bubble1" role="status" aria-live="polite" hidden></span>' +
+            '<span class="ph-bubble" data-seat="2" data-ph="bubble2" role="status" aria-live="polite" hidden></span>' +
+            '<div class="ph-react ph-glass" role="dialog" aria-label="Send a reaction" data-ph="react" hidden>' +
+            '<div class="ph-react-quick" role="group" aria-label="Quick reactions">' + PH_REACTIONS.map(r => '<button type="button" class="ph-react-q" data-ph-react="' + r + '">' + r + '</button>').join('') + '</div>' +
+            '<form class="ph-react-form" data-ph="reactform"><input type="text" class="ph-react-in" maxlength="30" autocomplete="off" spellcheck="false" placeholder="Say something (30 max)" aria-label="Message, up to 30 characters" data-ph="reacti">' +
+            '<button type="submit" class="ph-btn ph-react-send">Send</button></form></div>' +
             '<button type="button" class="ph-replace ph-glass" data-ph="replace" hidden>' + PH_ICON.hand + '<span>Move cue ball</span></button>' +
             '<div class="ph-mini ph-glass" data-ph="mini" hidden><span class="ph-mini-cap" data-ph="minicap"></span>' +
             '<div class="ph-mini-pad"><div class="ph-mini-table"></div>' + mini + '</div></div>' +
@@ -6669,6 +6692,7 @@
                 '<div class="ph-actions"><span class="ph-trophy" data-ph="trophy">' + PH_ICON.cup + '<span class="ph-num" data-ph="trophies">0</span></span>' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="reset" aria-label="Reset rack" title="Reset rack">' + PH_ICON.reset + '</button>' +
+                '<button type="button" class="ph-btn is-icon" data-ph="reactbtn" aria-haspopup="dialog" aria-label="React" title="React" hidden>' + PH_ICON.chat + '</button>' +
                 '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="pause" aria-label="Pause" title="Pause" hidden>' + PH_ICON.pause + '</button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="max" aria-label="Exit full view" title="Exit full view">' + PH_ICON.exit + '</button></div></div>' +
@@ -6678,6 +6702,7 @@
                 '<div class="ph-foot" data-ph="foot">' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn" data-ph="reset">' + PH_ICON.reset + '<span>Reset</span></button>' +
+                '<button type="button" class="ph-btn" data-ph="reactbtn" aria-haspopup="dialog" hidden>' + PH_ICON.chat + '<span>React</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="pause" hidden>' + PH_ICON.pause + '<span>Pause</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="max">' + PH_ICON.max + '<span>Max</span></button></div>' +
@@ -6701,7 +6726,8 @@
             'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy',
             'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn',
             'cue', 'cues', 'cuenew', 'cuenewn', 'cuenewgo', 'cuenewx',
-            'sheetnet', 'sheetnetsrv', 'sheetnetgo', 'sheetnetst', 'sheetnetbody', 'invite', 'invitek', 'invitet', 'invitego', 'invitex'].forEach(n => { hud[n] = ref(n); });
+            'sheetnet', 'sheetnetsrv', 'sheetnetgo', 'sheetnetst', 'sheetnetbody', 'invite', 'invitek', 'invitet', 'invitego', 'invitex',
+            'bubble1', 'bubble2', 'react', 'reactform', 'reacti', 'reactbtn', 'start', 'startgo', 'startl', 'startsub'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
@@ -6830,6 +6856,12 @@
             const map = { challenge: 'netChallenge', accept: 'netAccept', decline: 'netDecline', cancel: 'netCancel', leave: 'netLeave', bo: 'netBestOf' };
             if (map[act]) fire(map[act], act === 'bo' ? +id : id);
         });
+        // Online reactions: the button, a quick one, or a message (Enter sends, Esc closes).
+        hud.startgo.addEventListener('click', () => fire('start'));
+        hud.reactbtn.addEventListener('click', () => fire('react'));
+        hud.react.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-ph-react]'); if (b) fire('reactSend', b.getAttribute('data-ph-react')); });
+        hud.reactform.addEventListener('submit', e => { e.preventDefault(); const v = hud.reacti.value; hud.reacti.value = ''; fire('reactSend', v); });
+        hud.reacti.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('reactClose'); hud.reactbtn.focus(); e.preventDefault(); e.stopPropagation(); } });
         hud.invitego.addEventListener('click', () => fire('netAccept', hud.inviteId));
         hud.invitex.addEventListener('click', () => fire('netDecline', hud.inviteId));
         return hud;
@@ -7093,6 +7125,19 @@
         // In a tournament match: Bracket / Pause in place of the mode and Reset.
         // Online: no Reset (a rack is the room's), the mode button leads to the Online tab.
         s('foot.tour', vm.foot.tour + '|' + !!vm.foot.net, () => { const v = vm.foot.tour; phShow(hud.mode, !v); phShow(hud.reset, !v && !vm.foot.net); phShow(hud.bracket, v); phShow(hud.pause, v); if (hud.trophy) phShow(hud.trophy, !v); });
+        const st = vm.start || { show: false };
+        s('start.show', !!st.show, v => phShow(hud.start, v));
+        if (st.show) {
+            s('start.label', st.label, v => { hud.startl.textContent = v; });
+            s('start.sub', st.sub, v => { hud.startsub.textContent = v; hud.startgo.setAttribute('aria-label', st.label.charAt(0) + st.label.slice(1).toLowerCase() + ': ' + v); });
+        }
+        const rx = vm.react || { show: false, open: false };
+        s('react.show', !!rx.show, v => phShow(hud.reactbtn, v));
+        s('react.open', !!rx.open, v => {
+            phShow(hud.react, v); hud.reactbtn.setAttribute('aria-expanded', v ? 'true' : 'false'); hud.reactbtn.classList.toggle('is-open', v);
+            if (v) hud.reacti.focus();
+        });
+        (vm.said || []).forEach((t, i) => s('said' + i, t, v => { const b = hud['bubble' + (i + 1)]; b.textContent = v; phShow(b, !!v); }));
         s('title', vm.title, v => { if (hud.title) hud.title.textContent = v; });
         s('tour.show', vm.tour.show, v => { phShow(hud.tourhead, v); if (hud.title) phShow(hud.title, !v); });
         if (vm.tour.show) {
@@ -8585,6 +8630,7 @@
     //   poolNetMove(m)            a move in this room: numbered, kept until acked, resent on reconnect
     //   poolNetAim(a)             the live cue, throttled; the other tab draws it
     //   poolNetLeave()            out of the room
+    //   poolNetSay(text)          a reaction or message (30 characters), shown on both tables for 4 s
     // The engine hooks in through poolNet.on (start, closed, invite); pool-game.js sets them.
     // poolNet.transport is a test seam: (url, handlers) → { send, close }.
 
@@ -8592,6 +8638,7 @@
     const POOL_NET_BEAT_MS = 15000;
     const POOL_NET_AIM_MS = 100;
     const POOL_NET_ID_KEY = 'poolNetId', POOL_NET_SECRET_KEY = 'poolNetKey';
+    const POOL_NET_SAY_MAX = 30, POOL_NET_SAY_MS = 4000, POOL_NET_SAY_GAP = 1200;
 
     const poolNet = {
         state: 'off',            // off | connecting | open | down
@@ -8603,6 +8650,7 @@
         inbox: [],               // moves to play, in order: { seq, m, seat, replay }
         peer: 'here', peerUntil: 0,
         aim: null, peerCue: '', aimSent: '', aimAt: 0,
+        said: {}, sayAt: 0,     // each seat's last reaction { text, at }, and when we last sent one
         rev: 0,
         transport: null,
         on: {},
@@ -8747,6 +8795,9 @@
             N.aim = { a: +m.aim || 0, p: +m.power || 0, tip: m.tip || null, at: Date.now() };
             if (m.tip && typeof m.tip.q === 'string') N.peerCue = m.tip.q;
             break;
+        case 'say':
+            if (N.room && (m.seat === 1 || m.seat === 2)) poolNetHeard(m.seat, m.text);
+            break;
         case 'peer':
             N.peer = m.state === 'away' ? 'away' : 'here';
             N.peerUntil = N.peer === 'away' ? Date.now() + (m.holdMs || 180000) : 0;
@@ -8765,7 +8816,7 @@
         }
         poolNetBump();
     }
-    function poolNetEnd() { const N = poolNet; N.room = null; N.out = []; N.inbox = []; N.known = 0; N.peer = 'here'; N.aim = null; }
+    function poolNetEnd() { const N = poolNet; N.room = null; N.out = []; N.inbox = []; N.known = 0; N.peer = 'here'; N.aim = null; N.said = {}; }
 
     function poolNetChallenge(to, o) {
         o = o || {};
@@ -8796,6 +8847,25 @@
         N.aimSent = key; N.aimAt = now;
         poolNetRaw({ t: 'aim', room: N.room.id, aim: a.a, power: a.p, tip });
     }
+    // Reactions: one line of up to 30 characters (an emoji counts as one), no control characters.
+    const poolNetSayText = t => Array.from(String(t || '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim()).slice(0, POOL_NET_SAY_MAX).join('');
+    function poolNetHeard(seat, text) {
+        const t = poolNetSayText(text);
+        if (!t) return;
+        poolNet.said[seat] = { text: t, at: Date.now() };
+        poolNetBump();
+    }
+    // Send one; shown on our own table at once. False if empty, not in a room, or too soon after the last.
+    function poolNetSay(text) {
+        const N = poolNet, t = poolNetSayText(text), now = Date.now();
+        if (!t || !N.room || now - N.sayAt < POOL_NET_SAY_GAP) return false;
+        N.sayAt = now;
+        poolNetRaw({ t: 'say', room: N.room.id, text: t });
+        poolNetHeard(N.room.seat, t);
+        return true;
+    }
+    // What each seat is saying now (a bubble lasts 4 s): { 1: text | '', 2: text | '' }.
+    const poolNetSaying = () => { const out = {}, now = Date.now(); [1, 2].forEach(s => { const w = poolNet.said[s]; out[s] = w && now - w.at < POOL_NET_SAY_MS ? w.text : ''; }); return out; };
     function poolNetResult(frame, winner) { const N = poolNet; if (N.room) poolNetRaw({ t: 'result', room: N.room.id, frame, winner }); }
     function poolNetLeave() {
         const N = poolNet;
@@ -9105,7 +9175,10 @@
         // and while a move plays: replayed from the log (no animation, no awards) or ours.
         // netStep counts the frame's turns (each verdict and choice), so a settled table is only
         // ever compared with the same step here.
-        netRoom: null, netFrameNo: 0, netStep: 0, netBestOf: 1, netReplay: false, netLocal: false, netResyncs: 0,
+        // Vs CPU: the table waits behind PLAY (or RESUME) until it is pressed, so the CPU never
+        // breaks on its own when the panel opens. 'play' | 'resume' | null.
+        awaitStart: null,
+        reactOpen: false, netRoom: null, netFrameNo: 0, netStep: 0, netBestOf: 1, netReplay: false, netLocal: false, netResyncs: 0,
         // phase 'choice': after a snooker foul the table waits for the incoming player's pick.
         running: false, raf: null, lastMs: 0, acc: 0, sinceDraw: 0, drawKey: '',
         attached: false, armed: false, lastX: null, leanSave: null, nameSave: null, scheme: null,
@@ -9312,6 +9385,9 @@
         // A tournament's later frames start with the breaker taking the seat.
         const tm = poolTourMatch();
         S.handoff = tm && tm.frames.length > 0 ? S.breaker : 0; S.clockLeft = poolTurnClock() || POOL_CLOCK_S;
+        // Only with the panel up: headless (the verify suites) there is no button to press.
+        S.awaitStart = poolMode === 'cpu' && !!S.hudC && !S.startNow ? 'play' : null;
+        S.startNow = false;
         S.drawKey = '';
     }
 
@@ -9326,6 +9402,7 @@
         if (poolMode === 'tour') { poolLeaveTour(); return; }
         if (poolMode === 'net') { poolNetQuit(); return; }
         poolMode = poolMode === 'cpu' ? 'pvp' : 'cpu';
+        poolS.awaitStart = null;
         poolS.frames = [0, 0]; poolS.p2Cue = null;
         poolNewFrame(1);
         poolRefreshScoreBtn();
@@ -9531,13 +9608,13 @@
         }
         return { segs, dots };
     }
-    const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && !poolRemoteTurn() && poolS.phase !== 'over' && poolS.phase !== 'choice' && !poolS.confirm && !poolS.sheet.open && !poolTourBlocked();
+    const poolCanAct = () => !poolS.awaitStart && !poolS.handoff && !poolCpuTurn() && !poolRemoteTurn() && poolS.phase !== 'over' && poolS.phase !== 'choice' && !poolS.confirm && !poolS.sheet.open && !poolTourBlocked();
 
     // ── The CPU's turn ────────────────────────────────────────────────
     // Wait, place the ball if in hand, think (time-sliced), turn onto the line, draw back, strike.
     function poolCpuTick(dt) {
         const S = poolS, R = poolRules();
-        if (!poolCpuTurn() || poolTourBlocked() || S.phase === 'moving' || S.phase === 'strike') return;
+        if (!poolCpuTurn() || S.awaitStart || poolTourBlocked() || S.phase === 'moving' || S.phase === 'strike') return;
         const c = S.cpu || (S.cpu = { stage: 'wait', t: 0 });
         c.t += dt;
         // Fouled against: a beat (its card reads CHOOSING), then its choice.
@@ -9751,6 +9828,13 @@
             // Online: the sheet's tab, an invite over the table, and the frame-over buttons.
             net: poolNetModel(),
             primaryLabel: poolMode === 'net' ? poolNetPrimaryLabel() : null,
+            reactOpen: poolMode === 'net' && S.reactOpen,
+            // Vs CPU's PLAY / RESUME over the table, saying who breaks or is to play.
+            start: poolMode === 'cpu' && S.awaitStart && S.phase !== 'over' ? {
+                label: S.awaitStart === 'resume' ? 'RESUME' : 'PLAY',
+                sub: S.awaitStart === 'resume' ? (S.frame.turn === 2 ? poolNames()[2] + ' to play' : 'Your shot')
+                    : S.frame.turn === 2 ? poolNames()[2] + ' breaks' : 'You break',
+            } : null,
             secondaryLabel: poolMode === 'net' ? 'Leave match' : null,
         }));
         poolTourSync();
@@ -9907,6 +9991,8 @@
         if (!S.attached || typeof currentGame !== 'undefined' && currentGame !== 'pool') return;
         // The spin picker takes its own keys (arrows move the tip, Esc closes it).
         if (e.target && e.target.closest && e.target.closest('.ph-spinpop')) return;
+        // Esc closes the React tray (online), and nothing else sees it.
+        if (e.key === 'Escape' && S.reactOpen) { S.reactOpen = false; e.preventDefault(); e.stopImmediatePropagation(); return; }
         // Esc closes the Game mode sheet first, and nothing else sees it.
         if (e.key === 'Escape' && S.sheet.open) { S.sheet.open = false; e.preventDefault(); e.stopImmediatePropagation(); return; }
         if (S.cues) { if (e.key === 'Escape') { S.cues = false; e.preventDefault(); e.stopImmediatePropagation(); } return; }
@@ -10020,7 +10106,9 @@
         },
         // Pick the cue ball up again. The clock pauses in hand and resumes, so this buys no time.
         replace: () => { const S = poolS; if (S.phase === 'aim' && S.frame.ballInHand && poolCanAct() && !S.drag) { S.phase = 'bih'; S.placed = false; S.power = 0; } },
-        primary: () => { if (poolMode === 'tour') poolTourNextFrame(); else if (poolMode === 'net') poolNetNextFrame(); else poolNewFrame(3 - poolS.breaker); },
+        // NEW FRAME is itself the start: that rack does not wait behind PLAY.
+        primary: () => { if (poolMode === 'tour') poolTourNextFrame(); else if (poolMode === 'net') poolNetNextFrame(); else { poolS.startNow = true; poolNewFrame(3 - poolS.breaker); } },
+        start: () => { poolS.awaitStart = null; poolS.clockLeft = poolTurnClock() || POOL_CLOCK_S; },
         secondary: () => { if (poolMode === 'tour') poolOn.tourBracket(); else if (poolMode === 'net') poolNetQuit(true); else poolS.sheet = { open: true, mode: poolMode }; },
         // Online (the sheet's tab and the invite over the table).
         netServer: v => { userPreferences.poolNetServer = String(v || '').trim().slice(0, 120); clearTimeout(poolS.nameSave); poolS.nameSave = setTimeout(savePreferences, 400); },
@@ -10032,6 +10120,10 @@
         netAccept: id => { poolS.sheet.open = false; poolNetAnswer(id, true); },
         netDecline: id => poolNetAnswer(id, false),
         netLeave: () => { poolS.sheet.open = false; poolNetQuit(true); },
+        // Online reactions: the tray, and one sent (an emoji closes the tray; so does a message).
+        react: () => { const S = poolS; if (poolMode !== 'net' || !S.netRoom || S.netRoom.closed) return; S.reactOpen = !S.reactOpen; S.spinOpen = false; S.sheet.open = false; },
+        reactClose: () => { poolS.reactOpen = false; },
+        reactSend: text => { if (poolNetSay(text)) poolS.reactOpen = false; },
     };
 
     function poolBuild(root) {
@@ -10182,6 +10274,7 @@
         S.clockLeft = poolSnapClock(snap);
         // In hot-seat, whoever is to act takes the seat.
         S.handoff = poolMode === 'pvp' ? S.frame.turn : 0;
+        S.awaitStart = poolMode === 'cpu' && !!S.hudC ? 'resume' : null;
         S.drawKey = '';
         return true;
     }
@@ -10653,7 +10746,7 @@
         const S = poolS, room = S.netRoom;
         if (room && !room.closed && S.phase !== 'over' && S.frame && !S.frame.over && poolNetMarkAwarded(room.id, S.netFrameNo)) poolRules().fileNet(false);
         if (poolNet.room) poolNetLeave();
-        S.netRoom = null; S.netFrameNo = 0; S.result = null; S.frames = [0, 0];
+        S.netRoom = null; S.netFrameNo = 0; S.result = null; S.frames = [0, 0]; S.reactOpen = false;
         poolMode = 'cpu';
         const snap = S.parked[S.game];
         S.parked[S.game] = null;
@@ -10817,6 +10910,7 @@
             outgoing: N.outgoing ? N.outgoing.name || 'them' : '',
             bestOf: S.netBestOf, game: S.game,
             inRoom: poolMode === 'net' && !!S.netRoom && !S.netRoom.closed,
+            said: poolNetSaying(),
             rev: N.rev,
         };
     }
@@ -21115,9 +21209,47 @@
             .pool-hud .ph-net-bo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
             .pool-hud .ph-net-bo .ph-sheet-l { flex: 1 0 100%; margin: 0; white-space: nowrap; }
             .pool-hud .ph-net-bo .ph-btn { flex: 1 1 0; min-width: 0; padding: 0 6px; white-space: nowrap; }
+            /* Vs CPU: PLAY over the dimmed table, until the player starts the frame. */
+            .pool-hud .ph-start-scrim { display: flex; align-items: center; justify-content: center; z-index: 7; }
+            .pool-hud .ph-start-scrim[hidden] { display: none; }
+            .pool-hud .ph-start { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+            .pool-hud .ph-start-go { height: 52px; min-width: 156px; padding: 0 28px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; font-size: 16px; letter-spacing: 0.12em; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45); }
+            .pool-hud .ph-start-sub { font-size: 13px; font-weight: 600; color: var(--pool-overlay-text); text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); }
+            /* Online reactions: a small bubble under each player's card, and the React tray. */
+            .pool-hud .ph-bubble {
+                position: absolute; top: 52px; z-index: 4; max-width: calc(50% - 16px); box-sizing: border-box; padding: 5px 9px;
+                border-radius: 10px; background: var(--pool-overlay-strong); border: 1px solid rgba(var(--pool-accent-rgb), 0.55);
+                color: var(--pool-overlay-text); font-size: 11px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere;
+                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); pointer-events: none; animation: ph-bubble-in 0.18s ease-out;
+            }
+            .pool-hud .ph-bubble[data-seat="1"] { left: 10px; border-top-left-radius: 3px; }
+            .pool-hud .ph-bubble[data-seat="2"] { right: 10px; border-top-right-radius: 3px; }
+            @keyframes ph-bubble-in { from { opacity: 0; transform: translateY(-4px) scale(0.96); } to { opacity: 1; transform: none; } }
+            @media (prefers-reduced-motion: reduce) { .pool-hud .ph-bubble { animation: none; } }
+            .pool-hud[data-layout="max"] .ph-bubble { top: 64px; font-size: 12px; max-width: 320px; }
+            .pool-hud .ph-react {
+                position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 6; box-sizing: border-box; padding: 8px;
+                display: flex; flex-direction: column; gap: 8px; border-radius: var(--pool-radius); background: var(--pool-overlay-strong); pointer-events: auto;
+            }
+            .pool-hud[data-layout="max"] .ph-react { left: 50%; right: auto; width: 420px; transform: translateX(-50%); bottom: 16px; }
+            .pool-hud .ph-react-quick { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+            .pool-hud .ph-react-q {
+                height: 36px; padding: 0; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-overlay-line); background: rgba(255, 255, 255, 0.04);
+                color: var(--pool-overlay-text); font: 600 16px var(--pool-body, system-ui), system-ui, sans-serif; cursor: pointer;
+            }
+            .pool-hud .ph-react-q:hover { background: rgba(var(--pool-accent-rgb), 0.14); }
+            .pool-hud .ph-react-q:focus-visible, .pool-hud .ph-react-in:focus { outline: none; border-color: var(--pool-accent); box-shadow: 0 0 0 3px rgba(var(--pool-accent-rgb), 0.2); }
+            .pool-hud .ph-react-form { display: flex; gap: 6px; }
+            .pool-hud .ph-react-in {
+                flex: 1 1 auto; min-width: 0; height: 36px; box-sizing: border-box; padding: 0 10px; border-radius: var(--pool-radius-sm);
+                border: 1px solid var(--pool-overlay-line); background: transparent; color: var(--pool-overlay-text); font: inherit; font-size: 12px;
+            }
+            .pool-hud .ph-react-in::placeholder { color: var(--pool-overlay-muted); }
+            .pool-hud .ph-react .ph-react-send { height: 36px; padding: 0 12px; flex-shrink: 0; font-size: 12px; color: var(--pool-overlay-text); background: rgba(255, 255, 255, 0.06); border-color: var(--pool-overlay-line); }
+            .pool-hud [data-ph="reactbtn"].is-open { border-color: var(--pool-accent); }
             /* The invite takes the "New cue" notice's place; its buttons get a row of their own so
                the challenger's name and the match read in full in the widget's column. */
-            .pool-hud .ph-invite { flex-wrap: wrap; row-gap: 6px; padding-bottom: 6px; }
+            .pool-hud .ph-cuenew.ph-invite { flex-wrap: wrap; row-gap: 6px; padding-bottom: 6px; z-index: 8; }
             .pool-hud .ph-invite .ph-cuenew-t { flex: 1 1 calc(100% - 52px); }
             .pool-hud .ph-invite [data-ph="invitego"] { flex: 1 1 auto; margin-left: 42px; }
             .pool-hud .ph-net-bo .ph-btn[aria-checked="true"] { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.16); color: var(--pool-accent-lite); }
@@ -23784,22 +23916,23 @@
     function addDeveloperInfo(container) {
         const chips = [['f-xp', 'XP &amp; Levels'], ['f-ach', Object.keys(ACHIEVEMENTS).length + ' Achievements'], ['f-cloud', 'Cloud Sync'], ['f-integrity', 'XP Integrity'],
             ['f-skins', 'Snake Skins'], ['g-pool', '10 Pool Cues'], ['monitor', 'Workspace Layout'], ['hourglass', 'Day Timeline'],
-            ['image', 'Desk Card'], ['f-quotes', 'Rotating Quotes'], ['f-pip', 'Float Window'], ['f-theme', 'Light / Dark / Cyberpunk'], ['f-shifts', '4h – 15h Shifts']];
+            ['image', 'Desk Card'], ['f-quotes', 'Rotating Quotes'], ['f-pip', 'Float Window'], ['f-theme', 'Light / Dark / Cyberpunk'], ['f-shifts', '4h – 15h Shifts'],
+            ['f-integrity', 'Plus: Game Mode'], ['g-pool', 'Online Pool &amp; Snooker'], ['f-cloud', 'Log In Anywhere']];
         container.insertAdjacentHTML('beforeend', `
             <button type="button" class="developer-info" aria-label="About Attendance Tracker Plus" aria-haspopup="dialog" aria-expanded="false">${attIcon('info', '24px')}</button>
             <section class="att-about" role="dialog" aria-label="About Attendance Tracker Plus" hidden>
                 <div class="att-about-head">
                     <span class="att-about-app">${attIcon('u-app', 28)}</span>
                     <span class="att-about-name"><b>Attendance Tracker Plus</b></span>
-                    <span class="att-about-ver">v7.1</span>
+                    <span class="att-about-ver">v8.0</span>
                     <button type="button" class="att-about-x" aria-label="Close">${attIcon('u-close', 18)}</button>
                 </div>
                 <ul class="att-about-games" aria-label="Games and tools">${ATT_ABOUT_GAMES.map(([id, n, d]) =>
                     `<li title="${n} · ${d}"><span class="att-about-tile">${attIcon(id, 20)}</span><span><b>${n}</b> &middot; ${d}</span></li>`).join('')}</ul>
                 <div class="att-about-chips">${chips.map(([id, n]) => `<span>${attIcon(id, 16)}${n}</span>`).join('')}</div>
                 <div class="att-about-foot">
-                    <span>7 Oct 2026 &middot; build ${BUILD_LABEL}</span>
-                    <span>${attIcon('u-tip', 16)}Click the mood icon for Game Mode</span>
+                    <span>9 Oct 2026 &middot; build ${BUILD_LABEL}</span>
+                    <span>${attIcon('u-tip', 16)}${gamesUnlocked ? 'Click the mood icon for Game Mode' : 'Game Mode is Plus: click the mood icon to activate'}</span>
                     <span>${attIcon('u-settings', 16)}Settings</span>
                 </div>
             </section>`);
@@ -23913,7 +24046,7 @@
                 </div>
                 ${sel('emojiSet', 'Mood Face', [['fun', 'Shown — follows your shift'], ['none', 'Hidden']], { icon: 'smile' })}
                 <div class="settings-option">
-                    <span class="settings-option-label"> Game Mode <small style="opacity:0.6;font-size:0.75rem;">Hides side panels</small></span>
+                    <span class="settings-option-label"> Game Mode <span style="font-size:0.62rem;font-weight:700;letter-spacing:0.08em;padding:1px 6px;border-radius:6px;background:var(--att-accent, #8B78F0);color:var(--att-on-accent, #14111F);vertical-align:1px;">PLUS</span> <small style="opacity:0.6;font-size:0.75rem;">${gamesUnlocked ? 'Hides side panels' : 'Free tier: click the face at the top to activate Plus'}</small></span>
                     <div class="toggle-switch ${userPreferences.gameModeHidden && gamesUnlocked ? 'active' : ''} ${gamesUnlocked ? '' : 'disabled'}" data-pref="gameModeHidden"></div>
                 </div>
                 ${sel('gameFps', 'VSync', [['60', 'Full (60 FPS)'], ['30', 'Half (30 FPS)']], { id: 'fps-selector', icon: 'monitor' })}
@@ -24649,7 +24782,7 @@
 
         const emojiEl = container.querySelector('.emoji-display');
         if (emojiEl) {
-            emojiEl.title = !gamesUnlocked ? 'Game Mode is locked. Click to log in'
+            emojiEl.title = !gamesUnlocked ? 'Game Mode is a Plus feature. Click to log in or activate Plus'
                 : gameModeOn ? 'Game Mode ON — click to turn off'
                 : 'Game Mode OFF — click to turn on';
         }

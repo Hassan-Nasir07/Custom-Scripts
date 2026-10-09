@@ -85,7 +85,7 @@ const HOST_PARAMS = [
     'applyCyberTokens', 'applyCyberShape', 'clearCyberTokens', 'clearCyberShape',
 ];
 
-// opts: { store, prefs, name, seed, xpSystemReady }
+// opts: { store, prefs, name, seed, xpSystemReady, realDate }   realDate: the real clock (online timing)
 function game(opts) {
     opts = opts || {};
     const store = opts.store || {};
@@ -106,7 +106,7 @@ function game(opts) {
     let modalOpen = false;
     const host = {
         document, window, localStorage,
-        requestAnimationFrame: () => 1, cancelAnimationFrame: noop, Date: DateShim,
+        requestAnimationFrame: () => 1, cancelAnimationFrame: noop, Date: opts.realDate ? Date : DateShim,
         userPreferences: Object.assign({ poolTableColor: 'green', gameFps: 60, poolShotCam: 'overhead', poolCamera: '3d', poolLean: 35 }, opts.prefs),
         savePreferences: () => { log.saves++; },
         getFrameInterval: () => 1000 / 60,

@@ -14,6 +14,7 @@
     //   poolNetMove(m)            a move in this room: numbered, kept until acked, resent on reconnect
     //   poolNetAim(a)             the live cue, throttled; the other tab draws it
     //   poolNetLeave()            out of the room
+    //   poolNetSay(text)          a reaction or message (30 characters), shown on both tables for 4 s
     // The engine hooks in through poolNet.on (start, closed, invite); pool-game.js sets them.
     // poolNet.transport is a test seam: (url, handlers) → { send, close }.
 
@@ -21,6 +22,7 @@
     const POOL_NET_BEAT_MS = 15000;
     const POOL_NET_AIM_MS = 100;
     const POOL_NET_ID_KEY = 'poolNetId', POOL_NET_SECRET_KEY = 'poolNetKey';
+    const POOL_NET_SAY_MAX = 30, POOL_NET_SAY_MS = 4000, POOL_NET_SAY_GAP = 1200;
 
     const poolNet = {
         state: 'off',            // off | connecting | open | down
@@ -32,6 +34,7 @@
         inbox: [],               // moves to play, in order: { seq, m, seat, replay }
         peer: 'here', peerUntil: 0,
         aim: null, peerCue: '', aimSent: '', aimAt: 0,
+        said: {}, sayAt: 0,     // each seat's last reaction { text, at }, and when we last sent one
         rev: 0,
         transport: null,
         on: {},
@@ -176,6 +179,9 @@
             N.aim = { a: +m.aim || 0, p: +m.power || 0, tip: m.tip || null, at: Date.now() };
             if (m.tip && typeof m.tip.q === 'string') N.peerCue = m.tip.q;
             break;
+        case 'say':
+            if (N.room && (m.seat === 1 || m.seat === 2)) poolNetHeard(m.seat, m.text);
+            break;
         case 'peer':
             N.peer = m.state === 'away' ? 'away' : 'here';
             N.peerUntil = N.peer === 'away' ? Date.now() + (m.holdMs || 180000) : 0;
@@ -194,7 +200,7 @@
         }
         poolNetBump();
     }
-    function poolNetEnd() { const N = poolNet; N.room = null; N.out = []; N.inbox = []; N.known = 0; N.peer = 'here'; N.aim = null; }
+    function poolNetEnd() { const N = poolNet; N.room = null; N.out = []; N.inbox = []; N.known = 0; N.peer = 'here'; N.aim = null; N.said = {}; }
 
     function poolNetChallenge(to, o) {
         o = o || {};
@@ -225,6 +231,25 @@
         N.aimSent = key; N.aimAt = now;
         poolNetRaw({ t: 'aim', room: N.room.id, aim: a.a, power: a.p, tip });
     }
+    // Reactions: one line of up to 30 characters (an emoji counts as one), no control characters.
+    const poolNetSayText = t => Array.from(String(t || '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim()).slice(0, POOL_NET_SAY_MAX).join('');
+    function poolNetHeard(seat, text) {
+        const t = poolNetSayText(text);
+        if (!t) return;
+        poolNet.said[seat] = { text: t, at: Date.now() };
+        poolNetBump();
+    }
+    // Send one; shown on our own table at once. False if empty, not in a room, or too soon after the last.
+    function poolNetSay(text) {
+        const N = poolNet, t = poolNetSayText(text), now = Date.now();
+        if (!t || !N.room || now - N.sayAt < POOL_NET_SAY_GAP) return false;
+        N.sayAt = now;
+        poolNetRaw({ t: 'say', room: N.room.id, text: t });
+        poolNetHeard(N.room.seat, t);
+        return true;
+    }
+    // What each seat is saying now (a bubble lasts 4 s): { 1: text | '', 2: text | '' }.
+    const poolNetSaying = () => { const out = {}, now = Date.now(); [1, 2].forEach(s => { const w = poolNet.said[s]; out[s] = w && now - w.at < POOL_NET_SAY_MS ? w.text : ''; }); return out; };
     function poolNetResult(frame, winner) { const N = poolNet; if (N.room) poolNetRaw({ t: 'result', room: N.room.id, frame, winner }); }
     function poolNetLeave() {
         const N = poolNet;

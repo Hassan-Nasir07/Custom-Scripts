@@ -299,7 +299,10 @@
         // and while a move plays: replayed from the log (no animation, no awards) or ours.
         // netStep counts the frame's turns (each verdict and choice), so a settled table is only
         // ever compared with the same step here.
-        netRoom: null, netFrameNo: 0, netStep: 0, netBestOf: 1, netReplay: false, netLocal: false, netResyncs: 0,
+        // Vs CPU: the table waits behind PLAY (or RESUME) until it is pressed, so the CPU never
+        // breaks on its own when the panel opens. 'play' | 'resume' | null.
+        awaitStart: null,
+        reactOpen: false, netRoom: null, netFrameNo: 0, netStep: 0, netBestOf: 1, netReplay: false, netLocal: false, netResyncs: 0,
         // phase 'choice': after a snooker foul the table waits for the incoming player's pick.
         running: false, raf: null, lastMs: 0, acc: 0, sinceDraw: 0, drawKey: '',
         attached: false, armed: false, lastX: null, leanSave: null, nameSave: null, scheme: null,
@@ -506,6 +509,9 @@
         // A tournament's later frames start with the breaker taking the seat.
         const tm = poolTourMatch();
         S.handoff = tm && tm.frames.length > 0 ? S.breaker : 0; S.clockLeft = poolTurnClock() || POOL_CLOCK_S;
+        // Only with the panel up: headless (the verify suites) there is no button to press.
+        S.awaitStart = poolMode === 'cpu' && !!S.hudC && !S.startNow ? 'play' : null;
+        S.startNow = false;
         S.drawKey = '';
     }
 
@@ -520,6 +526,7 @@
         if (poolMode === 'tour') { poolLeaveTour(); return; }
         if (poolMode === 'net') { poolNetQuit(); return; }
         poolMode = poolMode === 'cpu' ? 'pvp' : 'cpu';
+        poolS.awaitStart = null;
         poolS.frames = [0, 0]; poolS.p2Cue = null;
         poolNewFrame(1);
         poolRefreshScoreBtn();
@@ -725,13 +732,13 @@
         }
         return { segs, dots };
     }
-    const poolCanAct = () => !poolS.handoff && !poolCpuTurn() && !poolRemoteTurn() && poolS.phase !== 'over' && poolS.phase !== 'choice' && !poolS.confirm && !poolS.sheet.open && !poolTourBlocked();
+    const poolCanAct = () => !poolS.awaitStart && !poolS.handoff && !poolCpuTurn() && !poolRemoteTurn() && poolS.phase !== 'over' && poolS.phase !== 'choice' && !poolS.confirm && !poolS.sheet.open && !poolTourBlocked();
 
     // ── The CPU's turn ────────────────────────────────────────────────
     // Wait, place the ball if in hand, think (time-sliced), turn onto the line, draw back, strike.
     function poolCpuTick(dt) {
         const S = poolS, R = poolRules();
-        if (!poolCpuTurn() || poolTourBlocked() || S.phase === 'moving' || S.phase === 'strike') return;
+        if (!poolCpuTurn() || S.awaitStart || poolTourBlocked() || S.phase === 'moving' || S.phase === 'strike') return;
         const c = S.cpu || (S.cpu = { stage: 'wait', t: 0 });
         c.t += dt;
         // Fouled against: a beat (its card reads CHOOSING), then its choice.
@@ -945,6 +952,13 @@
             // Online: the sheet's tab, an invite over the table, and the frame-over buttons.
             net: poolNetModel(),
             primaryLabel: poolMode === 'net' ? poolNetPrimaryLabel() : null,
+            reactOpen: poolMode === 'net' && S.reactOpen,
+            // Vs CPU's PLAY / RESUME over the table, saying who breaks or is to play.
+            start: poolMode === 'cpu' && S.awaitStart && S.phase !== 'over' ? {
+                label: S.awaitStart === 'resume' ? 'RESUME' : 'PLAY',
+                sub: S.awaitStart === 'resume' ? (S.frame.turn === 2 ? poolNames()[2] + ' to play' : 'Your shot')
+                    : S.frame.turn === 2 ? poolNames()[2] + ' breaks' : 'You break',
+            } : null,
             secondaryLabel: poolMode === 'net' ? 'Leave match' : null,
         }));
         poolTourSync();
@@ -1101,6 +1115,8 @@
         if (!S.attached || typeof currentGame !== 'undefined' && currentGame !== 'pool') return;
         // The spin picker takes its own keys (arrows move the tip, Esc closes it).
         if (e.target && e.target.closest && e.target.closest('.ph-spinpop')) return;
+        // Esc closes the React tray (online), and nothing else sees it.
+        if (e.key === 'Escape' && S.reactOpen) { S.reactOpen = false; e.preventDefault(); e.stopImmediatePropagation(); return; }
         // Esc closes the Game mode sheet first, and nothing else sees it.
         if (e.key === 'Escape' && S.sheet.open) { S.sheet.open = false; e.preventDefault(); e.stopImmediatePropagation(); return; }
         if (S.cues) { if (e.key === 'Escape') { S.cues = false; e.preventDefault(); e.stopImmediatePropagation(); } return; }
@@ -1214,7 +1230,9 @@
         },
         // Pick the cue ball up again. The clock pauses in hand and resumes, so this buys no time.
         replace: () => { const S = poolS; if (S.phase === 'aim' && S.frame.ballInHand && poolCanAct() && !S.drag) { S.phase = 'bih'; S.placed = false; S.power = 0; } },
-        primary: () => { if (poolMode === 'tour') poolTourNextFrame(); else if (poolMode === 'net') poolNetNextFrame(); else poolNewFrame(3 - poolS.breaker); },
+        // NEW FRAME is itself the start: that rack does not wait behind PLAY.
+        primary: () => { if (poolMode === 'tour') poolTourNextFrame(); else if (poolMode === 'net') poolNetNextFrame(); else { poolS.startNow = true; poolNewFrame(3 - poolS.breaker); } },
+        start: () => { poolS.awaitStart = null; poolS.clockLeft = poolTurnClock() || POOL_CLOCK_S; },
         secondary: () => { if (poolMode === 'tour') poolOn.tourBracket(); else if (poolMode === 'net') poolNetQuit(true); else poolS.sheet = { open: true, mode: poolMode }; },
         // Online (the sheet's tab and the invite over the table).
         netServer: v => { userPreferences.poolNetServer = String(v || '').trim().slice(0, 120); clearTimeout(poolS.nameSave); poolS.nameSave = setTimeout(savePreferences, 400); },
@@ -1226,6 +1244,10 @@
         netAccept: id => { poolS.sheet.open = false; poolNetAnswer(id, true); },
         netDecline: id => poolNetAnswer(id, false),
         netLeave: () => { poolS.sheet.open = false; poolNetQuit(true); },
+        // Online reactions: the tray, and one sent (an emoji closes the tray; so does a message).
+        react: () => { const S = poolS; if (poolMode !== 'net' || !S.netRoom || S.netRoom.closed) return; S.reactOpen = !S.reactOpen; S.spinOpen = false; S.sheet.open = false; },
+        reactClose: () => { poolS.reactOpen = false; },
+        reactSend: text => { if (poolNetSay(text)) poolS.reactOpen = false; },
     };
 
     function poolBuild(root) {
@@ -1376,6 +1398,7 @@
         S.clockLeft = poolSnapClock(snap);
         // In hot-seat, whoever is to act takes the seat.
         S.handoff = poolMode === 'pvp' ? S.frame.turn : 0;
+        S.awaitStart = poolMode === 'cpu' && !!S.hudC ? 'resume' : null;
         S.drawKey = '';
         return true;
     }
@@ -1847,7 +1870,7 @@
         const S = poolS, room = S.netRoom;
         if (room && !room.closed && S.phase !== 'over' && S.frame && !S.frame.over && poolNetMarkAwarded(room.id, S.netFrameNo)) poolRules().fileNet(false);
         if (poolNet.room) poolNetLeave();
-        S.netRoom = null; S.netFrameNo = 0; S.result = null; S.frames = [0, 0];
+        S.netRoom = null; S.netFrameNo = 0; S.result = null; S.frames = [0, 0]; S.reactOpen = false;
         poolMode = 'cpu';
         const snap = S.parked[S.game];
         S.parked[S.game] = null;
@@ -2011,6 +2034,7 @@
             outgoing: N.outgoing ? N.outgoing.name || 'them' : '',
             bestOf: S.netBestOf, game: S.game,
             inRoom: poolMode === 'net' && !!S.netRoom && !S.netRoom.closed,
+            said: poolNetSaying(),
             rev: N.rev,
         };
     }

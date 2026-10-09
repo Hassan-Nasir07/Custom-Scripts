@@ -24,7 +24,7 @@ const yieldIO = () => new Promise(r => setImmediate(r));
 
 // A tab: the engine with its own storage, pointed at the server, hooks set as initPoolGame does.
 function tab(name, port, store, seed) {
-    const P = L.game({ name, store: store || {}, seed });
+    const P = L.game({ name, store: store || {}, seed, realDate: true });
     P.host.userPreferences.poolNetServer = 'ws://127.0.0.1:' + port;
     P.host.userPreferences.snookerReds = 6;
     P.poolNet.on = { start: P.poolNetStart, closed: P.poolNetClosed };
@@ -96,6 +96,20 @@ async function playFrame(A, B, limit) {
     ok('…both rack the same table from the room seed', A.poolS.seed === B.poolS.seed && A.poolNetHash() === B.poolNetHash());
     ok('…named after the players', A.poolNames()[1] === 'Ali' && A.poolNames()[2] === 'Bea' && B.poolNames()[1] === 'Ali');
     ok('the breaker is seat 1: Bea cannot act, and her clock does not run', !B.poolCanAct() && A.poolCanAct() && B.poolRemoteTurn());
+
+    head('Reactions');
+    A.poolOn.react();
+    ok('React opens the tray (online only)', A.poolS.reactOpen === true);
+    A.poolOn.reactSend('🔥 nice shot');
+    ok('…sending closes it, and the bubble shows on the sender\'s own table at once', A.poolS.reactOpen === false && A.poolNetSaying()[1] === '🔥 nice shot');
+    ok('…and on the other table, under the sender\'s card', await until(() => B.poolNetSaying()[1] === '🔥 nice shot', 2000, [B]));
+    ok('…as the HUD model carries it', B.poolNetModel().said[1] === '🔥 nice shot' && B.poolNetModel().said[2] === '');
+    ok('a second within the cooldown is not sent', A.poolNetSay('again') === false);
+    await new Promise(r => setTimeout(r, 1300));
+    B.poolNetSay('x'.repeat(45));
+    ok('a long message arrives cut to 30 characters', await until(() => A.poolNetSaying()[2] === 'x'.repeat(30), 2000, [A]));
+    B.poolNet.said[2].at -= 4100;
+    ok('…and the bubble goes after 4 seconds', B.poolNetSaying()[2] === '');
 
     head('Best of 3, pool');
     let frames = 0, allSame = true, shotsTotal = 0;

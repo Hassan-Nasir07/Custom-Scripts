@@ -35,7 +35,7 @@ function page() {
     // Test-only window onto the closure: pool's state and the host helpers the checks call.
     const probe = `
     window.__probe = {
-        checkGamesUnlock, get gamesUnlocked() { return gamesUnlocked; },
+        checkGamesUnlock, get gamesUnlocked() { return gamesUnlocked; }, poolCanAct,
         get lbClientId() { return lbClientId; }, get lbRegistered() { return lbRegistered; },
         acctPoll, fetchLeaderboard, renderMiniBoard,
         S: poolS, get mode() { return poolMode; }, get maximized() { return poolMaximized; }, get tier() { return poolCpuTier; },
@@ -275,6 +275,24 @@ async function main() {
     ok('the canvas is sized from the panel and the loop runs', /^\d{3}x\d{3}$/.test(st.canvas) && st.running, st.canvas);
     ok('a frame waits for the break: ball in hand, "You" vs "CPU"', st.phase === 'bih' && st.names.join() === 'You,CPU', st.names);
     ok('no controls row under the panel; the header keeps the title and the wins button', st.controls === 'none' && st.scoreboard === 'flex' && /Pool/.test(st.title), st);
+    // Vs CPU waits behind PLAY: nobody breaks until it is pressed.
+    const gate = () => ev(`(() => { const S = window.__probe.S, h = S.hud; return { wait: S.awaitStart, shown: !h.start.hidden, label: h.startl.textContent, sub: h.startsub.textContent,
+        canAct: window.__probe.poolCanAct ? window.__probe.poolCanAct() : null, phase: S.phase, turn: S.frame.turn, t: S.world.t }; })()`);
+    let g0 = await gate();
+    ok('Vs CPU: a new frame waits behind PLAY over the table, saying who breaks', g0.wait === 'play' && g0.shown && g0.label === 'PLAY' && g0.sub === 'You break', g0);
+    await shot('host-play', '.snake-game-container');
+    await ev('window.__probe.poolNewFrame(2)');
+    await sleep(2500);
+    const g1 = await gate();
+    ok('…when the CPU breaks, it says so, and the CPU does not break by itself while it waits', g1.wait === 'play' && g1.sub === 'CPU breaks' && g1.turn === 2 && g1.phase === 'bih' && g1.t === 0, g1);
+    await click('#pool-root [data-ph="startgo"]');
+    ok('…PLAY starts it: the CPU breaks', await waitFor('["moving","strike"].includes(window.__probe.S.phase) || window.__probe.S.world.t > 0', 9000) && (await gate()).shown === false);
+    await waitFor('!["moving","strike"].includes(window.__probe.S.phase)', 15000);
+    await ev('window.__probe.poolNewFrame(1)');
+    await sleep(200);
+    await click('#pool-root [data-ph="startgo"]');
+    const g2 = await gate();
+    ok('…and on your break, PLAY hands you the table', g2.wait === null && !g2.shown && g2.phase === 'bih', g2);
     await report('compact, Glassmorphic dark');
     await shot('host-compact-dark', '.snake-game-container');
 
@@ -626,6 +644,9 @@ async function main() {
             tip: document.getElementById('game-switch-pool').title }; })()`);
         ok('the switch → Snooker: the panel plays snooker: its title (the snooker icon lit), wins button and tracker, 22 balls, ball in hand in the D',
            sn.game === 'snooker' && sn.balls === 22 && sn.title === 'Snooker' && /data-icon="snooker"/.test(sn.lit) && sn.next === 'Switch to 8-Ball Pool' && sn.poolBtn === 'none' && sn.snkBtn !== 'none' && sn.dg === 'snooker' && sn.track && sn.pref === 'snooker' && sn.zone === 'D' && sn.phase === 'bih' && sn.tip === 'Snooker', sn);
+        // The switch racks (or brings back) a Vs CPU frame: it waits behind PLAY too.
+        ok('a switched-to frame waits behind PLAY as well', !!(await ev('window.__probe.S.awaitStart')));
+        await click('#pool-root [data-ph="startgo"]');
         await shot('host-snooker-break', '.snake-game-container');
         // In the D by mouse, then the break-off by the power drag.
         const cb = await ev('(() => { const S = window.__probe.S, v = window.__probe.pcView(S.director.pose), q = window.__probe.pcProject(v, [-335, 25, S.cfg.ballR]), r = S.canvas.getBoundingClientRect(), k = r.width / S.W; return [r.left + q[0] * k, r.top + q[1] * k, r.left + r.width / 2, r.top + r.height - 70]; })()');
@@ -733,7 +754,7 @@ async function main() {
         pref: window.__probe.prefs.gameModeHidden, game: window.__probe.currentGame,
         title: c.querySelector('#game-mode-emoji-toggle').title, toasts: document.querySelectorAll('.xp-notif-game').length }; })()`);
     let lk = await lockState();
-    ok('…its games panel is hidden, and the emoji says it is locked', lk.hidden && lk.off && /locked/.test(lk.title), lk);
+    ok('…its games panel is hidden, and the face says Game Mode is a Plus feature', lk.hidden && lk.off && /Plus feature/.test(lk.title), lk);
     const gameBefore = lk.game, prefBefore = lk.pref;
     await click('#game-mode-emoji-toggle');
     let lk2 = await lockState();
@@ -745,7 +766,7 @@ async function main() {
     ok('switchGame and the number keys do nothing', (await lockState()).game === gameBefore);
     await ev("window.startTetrisGameBtn && window.startTetrisGameBtn()");
     ok('…nor do the games\' own buttons from the console', (await lockState()).game === gameBefore);
-    ok('a key in the wrong shape is refused at once', /not an access key/.test(await ev("window.atcUnlockGames('nope')")));
+    ok('a key in the wrong shape is refused at once', /not a Plus license key/.test(await ev("window.atcUnlockGames('nope')")));
     ok('a well-formed key is sent to the bot (here unreachable, and it says so plainly)', /Can't reach the leaderboard/.test(await ev("window.atcUnlockGames('ABCD-EFGH-JKMN-PQRS')")));
     ok('…and a second try within 30 s waits', /30 seconds/.test(await ev("window.atcUnlockGames('ABCD-EFGH-JKMN-PQRS')")));
     ok('atcGamesTag gives this browser\'s tag (what a revoke takes)', (await ev('window.atcGamesTag()')) === GAMES.tag);
@@ -806,11 +827,11 @@ async function main() {
         // Locked again for the key field (an open browser would just say "You're in").
         GAMES.open = false;
         await ev('window.__probe.checkGamesUnlock()');
-        ok('"New here? I have an access key" swaps to a key field', (await ev("window.atcAccountDialog('login')")) === 'login' && await opened('Welcome back') &&
-            (await click('#acct-to-key')) && await opened('Unlock Game Mode') && !!(await ev("!!document.getElementById('acct-key')")));
+        ok('"New here? I have a Plus license key" swaps to Activate Plus', (await ev("window.atcAccountDialog('login')")) === 'login' && await opened('Welcome back') &&
+            (await click('#acct-to-key')) && await opened('Activate Plus') && !!(await ev("!!document.getElementById('acct-key')")));
         await set('acct-key', 'nope');
         await click('#acct-modal .rcv-go');
-        ok('…a key in the wrong shape is refused plainly', await waitFor("/not an access key/.test(document.querySelector('#acct-modal .rcv-status').textContent)", 3000), await status());
+        ok('…a key in the wrong shape is refused plainly', await waitFor("/not a Plus license key/.test(document.querySelector('#acct-modal .rcv-status').textContent)", 3000), await status());
         await shot('account-key', '#acct-modal');
         await ev("document.querySelector('#acct-modal .achievements-modal-close').click()");
         GAMES.open = true;

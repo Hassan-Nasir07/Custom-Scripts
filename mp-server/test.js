@@ -94,6 +94,24 @@ function client(port, id, key, name) {
     a.send({ t: 'aim', room, aim: 1.25, power: 40, tip: { x: 0, y: 0 } });
     ok((await b.next('aim')).aim === 1.25, 'aim relayed');
 
+    console.log('reactions');
+    a.send({ t: 'say', room, text: '🔥 nice shot' });
+    let said = await b.next('say');
+    ok(said && said.text === '🔥 nice shot' && said.seat === 1, 'a reaction reaches the other player, with the sender\'s seat');
+    a.send({ t: 'say', room, text: 'too soon' });
+    ok(await b.none('say', 200), 'a second one within a second is dropped');
+    await wait(1000);
+    a.send({ t: 'say', room, text: 'x'.repeat(40) + '\u0007' });
+    said = await b.next('say');
+    ok(said && said.text === 'x'.repeat(30), 'a long message is cut to 30 characters, control characters gone');
+    await wait(1000);
+    b.send({ t: 'say', room, text: '😂😂😂' });
+    said = await a.next('say');
+    ok(said && said.text === '😂😂😂' && said.seat === 2, 'emoji count as one character each, both ways');
+    await wait(1000);
+    a.send({ t: 'say', room: 'nope', text: 'hello' });
+    ok(await b.none('say', 200), 'outside the room nothing is sent');
+
     console.log('busy');
     const c3 = await client(port, 'client-cccc', 'key-cccccccccccccccc', 'Cy').ready;
     c3.send({ t: 'challenge', to: 'client-aaaa', game: 'pool' });

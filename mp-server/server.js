@@ -16,12 +16,13 @@
 //     cancel    {id}
 //     move      {room, seq, m}                 seq = 1, 2, 3… per room; relayed and logged
 //     aim       {room, aim, power, tip}        relayed only (the opponent's cue, live)
+//     say       {room, text}                   a reaction or message, 30 characters, 1 a second; relayed only
 //     result    {room, frame, winner}          each side's verdict, compared
 //     leave     {room}
 //     ping
 //   server → client
 //     welcome {you, room?}  lobby {players}  challenged {...}  challenge {id, state}
-//     start {room, seed, game, bestOf, reds, seat, names, ids}  move {seq, m, seat}
+//     start {room, seed, game, bestOf, reds, seat, names, ids}  move {seq, m, seat}  say {text, seat}
 //     ack {seq}  resync {have}  aim {...}  peer {state, holdMs?}  closed {reason, by?}
 //     error {code, msg}  pong
 const fs = require('fs');
@@ -178,6 +179,14 @@ function createServer(opts = {}) {
         case 'aim':
             if (inRoom) send(other(room, c.id), { t: 'aim', aim: m.aim, power: m.power, tip: m.tip });
             return;
+        case 'say': {
+            // One line, 30 characters (an emoji is one), at most one a second; never logged.
+            const text = Array.from(String(m.text || '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim()).slice(0, 30).join('');
+            if (!inRoom || !text || Date.now() - (c.sayAt || 0) < 1000) return;
+            c.sayAt = Date.now();
+            send(other(room, c.id), { t: 'say', text, seat: room.ids.indexOf(c.id) + 1 });
+            return;
+        }
         case 'result': {
             if (!inRoom || !Number.isInteger(m.frame)) return;
             const r = room.results.get(m.frame) || {};

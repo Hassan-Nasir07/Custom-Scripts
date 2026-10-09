@@ -730,9 +730,47 @@
             .pool-hud .ph-net-bo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
             .pool-hud .ph-net-bo .ph-sheet-l { flex: 1 0 100%; margin: 0; white-space: nowrap; }
             .pool-hud .ph-net-bo .ph-btn { flex: 1 1 0; min-width: 0; padding: 0 6px; white-space: nowrap; }
+            /* Vs CPU: PLAY over the dimmed table, until the player starts the frame. */
+            .pool-hud .ph-start-scrim { display: flex; align-items: center; justify-content: center; z-index: 7; }
+            .pool-hud .ph-start-scrim[hidden] { display: none; }
+            .pool-hud .ph-start { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+            .pool-hud .ph-start-go { height: 52px; min-width: 156px; padding: 0 28px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; font-size: 16px; letter-spacing: 0.12em; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45); }
+            .pool-hud .ph-start-sub { font-size: 13px; font-weight: 600; color: var(--pool-overlay-text); text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); }
+            /* Online reactions: a small bubble under each player's card, and the React tray. */
+            .pool-hud .ph-bubble {
+                position: absolute; top: 52px; z-index: 4; max-width: calc(50% - 16px); box-sizing: border-box; padding: 5px 9px;
+                border-radius: 10px; background: var(--pool-overlay-strong); border: 1px solid rgba(var(--pool-accent-rgb), 0.55);
+                color: var(--pool-overlay-text); font-size: 11px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere;
+                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); pointer-events: none; animation: ph-bubble-in 0.18s ease-out;
+            }
+            .pool-hud .ph-bubble[data-seat="1"] { left: 10px; border-top-left-radius: 3px; }
+            .pool-hud .ph-bubble[data-seat="2"] { right: 10px; border-top-right-radius: 3px; }
+            @keyframes ph-bubble-in { from { opacity: 0; transform: translateY(-4px) scale(0.96); } to { opacity: 1; transform: none; } }
+            @media (prefers-reduced-motion: reduce) { .pool-hud .ph-bubble { animation: none; } }
+            .pool-hud[data-layout="max"] .ph-bubble { top: 64px; font-size: 12px; max-width: 320px; }
+            .pool-hud .ph-react {
+                position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 6; box-sizing: border-box; padding: 8px;
+                display: flex; flex-direction: column; gap: 8px; border-radius: var(--pool-radius); background: var(--pool-overlay-strong); pointer-events: auto;
+            }
+            .pool-hud[data-layout="max"] .ph-react { left: 50%; right: auto; width: 420px; transform: translateX(-50%); bottom: 16px; }
+            .pool-hud .ph-react-quick { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+            .pool-hud .ph-react-q {
+                height: 36px; padding: 0; border-radius: var(--pool-radius-sm); border: 1px solid var(--pool-overlay-line); background: rgba(255, 255, 255, 0.04);
+                color: var(--pool-overlay-text); font: 600 16px var(--pool-body, system-ui), system-ui, sans-serif; cursor: pointer;
+            }
+            .pool-hud .ph-react-q:hover { background: rgba(var(--pool-accent-rgb), 0.14); }
+            .pool-hud .ph-react-q:focus-visible, .pool-hud .ph-react-in:focus { outline: none; border-color: var(--pool-accent); box-shadow: 0 0 0 3px rgba(var(--pool-accent-rgb), 0.2); }
+            .pool-hud .ph-react-form { display: flex; gap: 6px; }
+            .pool-hud .ph-react-in {
+                flex: 1 1 auto; min-width: 0; height: 36px; box-sizing: border-box; padding: 0 10px; border-radius: var(--pool-radius-sm);
+                border: 1px solid var(--pool-overlay-line); background: transparent; color: var(--pool-overlay-text); font: inherit; font-size: 12px;
+            }
+            .pool-hud .ph-react-in::placeholder { color: var(--pool-overlay-muted); }
+            .pool-hud .ph-react .ph-react-send { height: 36px; padding: 0 12px; flex-shrink: 0; font-size: 12px; color: var(--pool-overlay-text); background: rgba(255, 255, 255, 0.06); border-color: var(--pool-overlay-line); }
+            .pool-hud [data-ph="reactbtn"].is-open { border-color: var(--pool-accent); }
             /* The invite takes the "New cue" notice's place; its buttons get a row of their own so
                the challenger's name and the match read in full in the widget's column. */
-            .pool-hud .ph-invite { flex-wrap: wrap; row-gap: 6px; padding-bottom: 6px; }
+            .pool-hud .ph-cuenew.ph-invite { flex-wrap: wrap; row-gap: 6px; padding-bottom: 6px; z-index: 8; }
             .pool-hud .ph-invite .ph-cuenew-t { flex: 1 1 calc(100% - 52px); }
             .pool-hud .ph-invite [data-ph="invitego"] { flex: 1 1 auto; margin-left: 42px; }
             .pool-hud .ph-net-bo .ph-btn[aria-checked="true"] { border-color: var(--pool-accent); background: rgba(var(--pool-accent-rgb), 0.16); color: var(--pool-accent-lite); }

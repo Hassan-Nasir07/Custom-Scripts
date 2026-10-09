@@ -178,6 +178,25 @@ async function browser(name) {
     ok('both tables come to rest the same, with no resync', ha === hb && (await A.ev('window.__probe.S.netResyncs')) === 0 && (await B.ev('window.__probe.S.netResyncs')) === 0, [ha, hb]);
     await A.shot('after-break-ali', '#pool-root .pool-hud');
     await B.shot('after-break-bea', '#pool-root .pool-hud');
+
+    // Reactions: Bea opens React, sends 👏, then a message.
+    const bubble = (T, seat) => T.ev(`(() => { const b = document.querySelector('#pool-root .ph-bubble[data-seat="${seat}"]'); return b && !b.hidden ? b.textContent : ''; })()`);
+    ok('the footer has React in an online match (where Reset was)', !!(await B.at('#pool-root [data-ph="reactbtn"]')));
+    await B.click('#pool-root [data-ph="reactbtn"]');
+    ok('…it opens the tray: quick reactions and a 30-character message box', await B.waitFor("!document.querySelector('#pool-root [data-ph=\"react\"]').hidden && document.querySelector('#pool-root [data-ph=\"reacti\"]').maxLength === 30", 2000));
+    await B.shot('react-tray', '#pool-root .pool-hud');
+    await B.click('#pool-root [data-ph-react="👏"]');
+    ok('a tap on 👏 closes the tray and shows it under Bea\'s own card', (await bubble(B, 2)) === '👏' && !!(await B.ev("document.querySelector('#pool-root [data-ph=\"react\"]').hidden")));
+    ok('…and Ali sees it under Bea\'s card', await A.waitFor(`(() => { const b = document.querySelector('#pool-root .ph-bubble[data-seat="2"]'); return b && !b.hidden && b.textContent === '👏'; })()`, 4000));
+    await A.shot('react-bubble', '#pool-root .pool-hud');
+    await sleep(1300);
+    await B.click('#pool-root [data-ph="reactbtn"]');
+    await B.click('#pool-root [data-ph="reacti"]');
+    await B.type('Good break!');
+    await B.click('#pool-root .ph-react-send');
+    ok('a typed message goes the same way', await A.waitFor(`(() => { const b = document.querySelector('#pool-root .ph-bubble[data-seat="2"]'); return b && !b.hidden && b.textContent === 'Good break!'; })()`, 4000));
+    ok('…and the bubble is small type', (await A.ev("parseFloat(getComputedStyle(document.querySelector('#pool-root .ph-bubble[data-seat=\"2\"]')).fontSize)")) <= 12);
+    ok('bubbles fade after about 4 seconds', await A.waitFor("document.querySelector('#pool-root .ph-bubble[data-seat=\"2\"]').hidden", 6000));
     ok('no page errors in either browser', !A.errors.length && !B.errors.length, A.errors.concat(B.errors));
 
     clearTimeout(bail);

@@ -102,6 +102,8 @@
     //   net: poolNetModel() | null   online: the sheet's tab (server, players, invites) and an
     //                                invite over the table; cpuTurn is also the other tab's turn
     //   primaryLabel,                overrides the frame-over dialog's first button
+    //   reactOpen,                   online: the React tray is open (net.said: { 1, 2 } each seat's bubble)
+    //   start: { label, sub } | null  Vs CPU: PLAY (or RESUME) over the table until pressed
     //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
     //   secondaryLabel,              overrides the frame-over dialog's second button
     //   result: { win, title, reason, recordLabel, record, delta, note, stats? } | null,
@@ -261,6 +263,10 @@
                 net: g.net || null,
             } : { show: false },
             invite: phInvite(g.net, sheetOpen),
+            // Online: the React button and tray, and what each seat just said (a bubble under its card).
+            react: { show: !!(g.net && g.net.inRoom) && !over, open: !!(g.net && g.net.inRoom && g.reactOpen) && !over },
+            start: g.start && !over ? { show: true, label: g.start.label, sub: g.start.sub } : { show: false },
+            said: [1, 2].map(seat => (g.net && g.net.inRoom && g.net.said && g.net.said[seat]) || ''),
             cueName: g.cueName || 'Standard', cues: g.cues || null,
             cueNew: g.cueNew && !sheetOpen && !toast && !phInvite(g.net, sheetOpen).show ? g.cueNew : null,
             // Snooker's parts; hidden for pool.
@@ -408,9 +414,13 @@
         close: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>',
         cup: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"></path></svg>',
         flag: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"></path><path d="M5 4h12l-2.5 4L17 12H5"></path></svg>',
+        chat: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4V5z"></path><path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01"></path></svg>',
         net: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 9a14 14 0 0 1 19 0M5.8 12.6a9.2 9.2 0 0 1 12.4 0M9.1 16.2a4.4 4.4 0 0 1 5.8 0M12 19.6v.1"></path></svg>',
         cue: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20L16.5 7.5M15 6l3 3M17.6 4.4a1.4 1.4 0 0 1 2 2"></path></svg>',
     };
+
+    // Online: the quick reactions in the React tray (a message is free text, up to 30 characters).
+    const PH_REACTIONS = ['👍', '👏', '😂', '😮', '🔥', '😅', '😤', 'GG'];
 
     // ── The cue collection ────────────────────────────────────────────
     // Each cue's stroke icon: its achievement's (the design's), Standard's check, Collector's star.
@@ -534,6 +544,17 @@
             '<span class="ph-cuenew-t"><span class="ph-label" data-ph="invitek"></span><span data-ph="invitet"></span></span>' +
             '<button type="button" class="ph-btn" data-ph="invitego">Accept</button><button type="button" class="ph-btn is-icon" data-ph="invitex" aria-label="Decline">' + PH_ICON.close + '</button></div>' +
             '<div class="ph-bihnote ph-label" data-ph="bihnote" hidden></div>' +
+            // Vs CPU: the table waits behind PLAY until it is pressed.
+            '<div class="ph-scrim ph-start-scrim" data-ph="start" hidden><div class="ph-start"><button type="button" class="ph-primary ph-label ph-start-go" data-ph="startgo">' +
+            '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"></path></svg><span data-ph="startl">PLAY</span></button>' +
+            '<span class="ph-start-sub" data-ph="startsub"></span></div></div>' +
+            // Online: what each player just sent, under their card; the React tray.
+            '<span class="ph-bubble" data-seat="1" data-ph="bubble1" role="status" aria-live="polite" hidden></span>' +
+            '<span class="ph-bubble" data-seat="2" data-ph="bubble2" role="status" aria-live="polite" hidden></span>' +
+            '<div class="ph-react ph-glass" role="dialog" aria-label="Send a reaction" data-ph="react" hidden>' +
+            '<div class="ph-react-quick" role="group" aria-label="Quick reactions">' + PH_REACTIONS.map(r => '<button type="button" class="ph-react-q" data-ph-react="' + r + '">' + r + '</button>').join('') + '</div>' +
+            '<form class="ph-react-form" data-ph="reactform"><input type="text" class="ph-react-in" maxlength="30" autocomplete="off" spellcheck="false" placeholder="Say something (30 max)" aria-label="Message, up to 30 characters" data-ph="reacti">' +
+            '<button type="submit" class="ph-btn ph-react-send">Send</button></form></div>' +
             '<button type="button" class="ph-replace ph-glass" data-ph="replace" hidden>' + PH_ICON.hand + '<span>Move cue ball</span></button>' +
             '<div class="ph-mini ph-glass" data-ph="mini" hidden><span class="ph-mini-cap" data-ph="minicap"></span>' +
             '<div class="ph-mini-pad"><div class="ph-mini-table"></div>' + mini + '</div></div>' +
@@ -619,6 +640,7 @@
                 '<div class="ph-actions"><span class="ph-trophy" data-ph="trophy">' + PH_ICON.cup + '<span class="ph-num" data-ph="trophies">0</span></span>' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="reset" aria-label="Reset rack" title="Reset rack">' + PH_ICON.reset + '</button>' +
+                '<button type="button" class="ph-btn is-icon" data-ph="reactbtn" aria-haspopup="dialog" aria-label="React" title="React" hidden>' + PH_ICON.chat + '</button>' +
                 '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="pause" aria-label="Pause" title="Pause" hidden>' + PH_ICON.pause + '</button>' +
                 '<button type="button" class="ph-btn is-icon" data-ph="max" aria-label="Exit full view" title="Exit full view">' + PH_ICON.exit + '</button></div></div>' +
@@ -628,6 +650,7 @@
                 '<div class="ph-foot" data-ph="foot">' +
                 '<button type="button" class="ph-btn" data-ph="mode" aria-haspopup="dialog">' + PH_ICON.people + '<span data-ph="model"></span></button>' +
                 '<button type="button" class="ph-btn" data-ph="reset">' + PH_ICON.reset + '<span>Reset</span></button>' +
+                '<button type="button" class="ph-btn" data-ph="reactbtn" aria-haspopup="dialog" hidden>' + PH_ICON.chat + '<span>React</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="bracket" hidden>' + PH_ICON.bracket + '<span>Bracket</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="pause" hidden>' + PH_ICON.pause + '<span>Pause</span></button>' +
                 '<button type="button" class="ph-btn" data-ph="max">' + PH_ICON.max + '<span>Max</span></button></div>' +
@@ -651,7 +674,8 @@
             'sheettour', 'sheettourgo', 'sheettourcta', 'sheettoursub', 'sheetcab', 'sheetabandon', 'bracket', 'pause', 'tourhead', 'tourk', 'tourn', 'tourf', 'title', 'trophy',
             'toastacts', 'track', 'trred', 'trreds', 'trdots', 'trsnk', 'trconcede', 'trrem', 'trlive', 'chips', 'chipgrid', 'chipcap', 'chippad', 'dlgstats', 'cscrim', 'cdlg', 'cdlgt', 'cdlgy', 'cdlgn',
             'cue', 'cues', 'cuenew', 'cuenewn', 'cuenewgo', 'cuenewx',
-            'sheetnet', 'sheetnetsrv', 'sheetnetgo', 'sheetnetst', 'sheetnetbody', 'invite', 'invitek', 'invitet', 'invitego', 'invitex'].forEach(n => { hud[n] = ref(n); });
+            'sheetnet', 'sheetnetsrv', 'sheetnetgo', 'sheetnetst', 'sheetnetbody', 'invite', 'invitek', 'invitet', 'invitego', 'invitex',
+            'bubble1', 'bubble2', 'react', 'reactform', 'reacti', 'reactbtn', 'start', 'startgo', 'startl', 'startsub'].forEach(n => { hud[n] = ref(n); });
         if (o.canvas) { hud.canvas.replaceWith(o.canvas); o.canvas.classList.add('ph-canvas'); hud.canvas = o.canvas; }
         hud.cards = [1, 2].map(seat => {
             const c = q('.ph-card[data-seat="' + seat + '"]');
@@ -780,6 +804,12 @@
             const map = { challenge: 'netChallenge', accept: 'netAccept', decline: 'netDecline', cancel: 'netCancel', leave: 'netLeave', bo: 'netBestOf' };
             if (map[act]) fire(map[act], act === 'bo' ? +id : id);
         });
+        // Online reactions: the button, a quick one, or a message (Enter sends, Esc closes).
+        hud.startgo.addEventListener('click', () => fire('start'));
+        hud.reactbtn.addEventListener('click', () => fire('react'));
+        hud.react.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-ph-react]'); if (b) fire('reactSend', b.getAttribute('data-ph-react')); });
+        hud.reactform.addEventListener('submit', e => { e.preventDefault(); const v = hud.reacti.value; hud.reacti.value = ''; fire('reactSend', v); });
+        hud.reacti.addEventListener('keydown', e => { if (e.key === 'Escape') { fire('reactClose'); hud.reactbtn.focus(); e.preventDefault(); e.stopPropagation(); } });
         hud.invitego.addEventListener('click', () => fire('netAccept', hud.inviteId));
         hud.invitex.addEventListener('click', () => fire('netDecline', hud.inviteId));
         return hud;
@@ -1043,6 +1073,19 @@
         // In a tournament match: Bracket / Pause in place of the mode and Reset.
         // Online: no Reset (a rack is the room's), the mode button leads to the Online tab.
         s('foot.tour', vm.foot.tour + '|' + !!vm.foot.net, () => { const v = vm.foot.tour; phShow(hud.mode, !v); phShow(hud.reset, !v && !vm.foot.net); phShow(hud.bracket, v); phShow(hud.pause, v); if (hud.trophy) phShow(hud.trophy, !v); });
+        const st = vm.start || { show: false };
+        s('start.show', !!st.show, v => phShow(hud.start, v));
+        if (st.show) {
+            s('start.label', st.label, v => { hud.startl.textContent = v; });
+            s('start.sub', st.sub, v => { hud.startsub.textContent = v; hud.startgo.setAttribute('aria-label', st.label.charAt(0) + st.label.slice(1).toLowerCase() + ': ' + v); });
+        }
+        const rx = vm.react || { show: false, open: false };
+        s('react.show', !!rx.show, v => phShow(hud.reactbtn, v));
+        s('react.open', !!rx.open, v => {
+            phShow(hud.react, v); hud.reactbtn.setAttribute('aria-expanded', v ? 'true' : 'false'); hud.reactbtn.classList.toggle('is-open', v);
+            if (v) hud.reacti.focus();
+        });
+        (vm.said || []).forEach((t, i) => s('said' + i, t, v => { const b = hud['bubble' + (i + 1)]; b.textContent = v; phShow(b, !!v); }));
         s('title', vm.title, v => { if (hud.title) hud.title.textContent = v; });
         s('tour.show', vm.tour.show, v => { phShow(hud.tourhead, v); if (hud.title) phShow(hud.title, !v); });
         if (vm.tour.show) {

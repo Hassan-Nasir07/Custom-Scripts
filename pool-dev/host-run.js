@@ -25,8 +25,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // below) lists its tag, so the games are open. GAMES.open = false serves it without the tag.
 const GAMES = { secret: '5eed'.repeat(16), open: true };
 GAMES.tag = require('crypto').createHash('sha256').update(GAMES.secret).digest('hex').slice(0, 32);
-const gamesRegistry = () => JSON.stringify({ files: { 'attendance_widget_registry.json': { content: JSON.stringify({ lastUpdated: new Date().toISOString(), players: GAMES.players || [],
-    gamesUnlock: { n: 1, tags: GAMES.open ? { [GAMES.tag]: { at: new Date().toISOString(), n: 0 } } : {}, grants: GAMES.grants || {} } }) } } });
+const gamesRegistry = () => {
+    const files = { 'attendance_widget_registry.json': { content: JSON.stringify({ lastUpdated: new Date().toISOString(), players: GAMES.players || [],
+        gamesUnlock: { n: 1, tags: GAMES.open ? { [GAMES.tag]: { at: new Date().toISOString(), n: 0 } } : {}, grants: GAMES.grants || {} } }) } };
+    // The bot's answer to each browser's last request, as the real bot writes it.
+    Object.entries(GAMES.status || {}).forEach(([tag, st]) => { files['status-' + tag + '.json'] = { content: JSON.stringify(st) }; });
+    return JSON.stringify({ files });
+};
 const GAMES_PRESET = '<script>localStorage.setItem("atc_games_secret", "' + GAMES.secret + '"); localStorage.setItem("atc_games_ok", String(Date.now() + 864e5));</script>';
 
 function page() {
@@ -798,14 +803,20 @@ async function main() {
         const cracker = { clientId: 'crk-1', displayName: 'Cracker', totalXP: 999999, level: 1, achievements: [], restricted: 'no_plus', restrictedAt: 'x' };
         GAMES.players = [rina, cracker]; GAMES.grants = {};
         // The stand-in bot: logins against Rina's password, enrolment, and a password change.
+        GAMES.status = {};
         GAMES.bot = (event, p) => {
-            if (event === 'login' && p.name.toLowerCase() === 'rina r.' && p.pw === pwOf('Rina R.', PASS.current)) {
-                GAMES.open = true; GAMES.grants[p.tag] = { clientId: 'acct-1', at: new Date().toISOString() };
+            // Like the real bot: the change, and an answer the browser can read at once.
+            const answer = (ok, code) => { if (p.rid && p.tag) GAMES.status[p.tag] = { rid: p.rid, event, ok, code, msg: '', at: new Date().toISOString() }; PASS.lastAsk = p; };
+            if (event === 'login') {
+                if (p.name.toLowerCase() === 'rina r.' && p.pw === pwOf('Rina R.', PASS.current)) { GAMES.open = true; GAMES.grants[p.tag] = { clientId: 'acct-1', at: new Date().toISOString() }; answer(true, 'ok'); }
+                else answer(false, p.name.toLowerCase() === 'rina r.' ? 'wrong_password' : 'no_login');
             } else if (event === 'login-enroll' && p.client_id === 'acct-1') {
                 PASS.enrollPlus = p.plus;
                 rina.login = true; rina.loginAt = new Date().toISOString(); rina.displayName = p.name; PASS.enrolled = p.pw;
-            } else if (event === 'login-change' && p.old_pw === pwOf(rina.displayName, PASS.current)) {
-                rina.loginAt = new Date().toISOString(); PASS.changed = p.pw;
+                answer(true, 'ok');
+            } else if (event === 'login-change') {
+                if (p.old_pw === pwOf(rina.displayName, PASS.current)) { rina.loginAt = new Date().toISOString(); PASS.changed = p.pw; answer(true, 'ok'); }
+                else answer(false, 'wrong_password');
             }
         };
         await ev('Object.assign(window.__probe.acctPoll, { every: 150, tries: 12, gap: 0 })');
@@ -823,8 +834,9 @@ async function main() {
         ok('…in plain words (no technical terms)', !jargon(await modalText()), await modalText());
         await set('acct-name', 'rina r.'); await set('acct-pw', 'not it');
         await click('#acct-modal .rcv-go');
-        ok('while it checks, it says how long it takes', await waitFor("/half a minute/.test(document.querySelector('#acct-modal .rcv-status').textContent) && document.querySelector('#acct-modal .rcv-status').classList.contains('is-busy')", 3000));
-        ok('a wrong password: "don\'t match", and still locked', await waitFor("/don't match/.test(document.querySelector('#acct-modal .rcv-status').textContent)", 8000) && !(await ev('window.__probe.gamesUnlocked')), await status());
+        ok('while it checks, it says what is happening (Sending…, then a live seconds count)', await waitFor("/Sending…|Checking… \d+ s/.test(document.querySelector('#acct-modal .rcv-status').textContent) && document.querySelector('#acct-modal .rcv-status').classList.contains('is-busy')", 3000));
+        ok('…and every request carries a request id and this browser\'s tag, so the bot can answer it', !!PASS.lastAsk && /^[0-9a-f]{16}$/.test(PASS.lastAsk.rid || '') && PASS.lastAsk.tag === GAMES.tag);
+        ok('a wrong password: "don\'t match" (the bot\'s own answer), and still locked', await waitFor("/don't match/.test(document.querySelector('#acct-modal .rcv-status').textContent)", 8000) && !(await ev('window.__probe.gamesUnlocked')), await status());
         await set('acct-pw', PASS.current);
         await click('#acct-modal .rcv-go');
         ok('the right password: "Welcome back, Rina R.!"', await waitFor("/Welcome back, Rina R\\.!/.test(document.getElementById('acct-modal').textContent)", 8000), await status());

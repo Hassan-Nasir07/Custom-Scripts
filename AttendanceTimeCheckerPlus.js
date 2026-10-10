@@ -11,7 +11,7 @@
     //             (pool-dev/sync-verify.js fails until the two match)
     const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
     // Seed UNCHANGED on purpose: rotating it without BUILD_TOKEN_CURRENT breaks every sync.
-    const BUILD_LABEL = 'v13';
+    const BUILD_LABEL = 'v14';
 
     // Ordinal of a 'v<N>' label; null if malformed (callers then assume behind).
     function _buildOrdinal(label) {
@@ -764,15 +764,38 @@
             });
             if (!res.ok) throw new Error(`gist fetch ${res.status}`);
             const gist = await res.json();
-            const raw = gist?.files?.[REGISTRY_GIST_FILE]?.content || '';
-            const start = raw.indexOf('{');
-            if (start < 0) return { lastUpdated: null, players: [] };
-            try { return JSON.parse(raw.slice(start)); }
-            catch { return { lastUpdated: null, players: [] }; }
+            return registryView(gist && gist.files || {});
         } catch (e) {
             console.warn('[Leaderboard] fetchRegistry error:', e);
             return null;
         }
+    }
+
+    // The gist holds the board (REGISTRY_GIST_FILE) and, beside it, small files the sync bot writes
+    // for accounts: plus-<tag>.json (a Plus browser, with its login grant), acct-<clientId>.json
+    // (login, loginAt, name), keys.json (the key counter) and status-<tag>.json (the answer to a
+    // browser's last request). This folds them into the shape the widget always read:
+    // registry.gamesUnlock { n, tags, grants }, players with login / loginAt / displayName, and
+    // registry.status { tag: answer }. Older data on the board itself still counts.
+    function registryView(files) {
+        const parse = raw => { const t = String(raw || ''), i = t.indexOf('{'); if (i < 0) return null; try { return JSON.parse(t.slice(i)); } catch { return null; } };
+        const reg = parse(files[REGISTRY_GIST_FILE] && files[REGISTRY_GIST_FILE].content) || { lastUpdated: null, players: [] };
+        if (!Array.isArray(reg.players)) reg.players = [];
+        const legacy = reg.gamesUnlock && typeof reg.gamesUnlock === 'object' ? reg.gamesUnlock : {};
+        const tags = Object.assign({}, legacy.tags || {}), grants = Object.assign({}, legacy.grants || {}), accts = {}, status = {};
+        let n = Number.isInteger(legacy.n) && legacy.n >= 0 ? legacy.n : 0;
+        Object.keys(files).forEach(name => {
+            let m;
+            const d = () => parse(files[name] && files[name].content);
+            if ((m = /^plus-([0-9a-f]{32})\.json$/.exec(name))) { const v = d(); if (!v || v.revoked) { delete tags[m[1]]; delete grants[m[1]]; } else { tags[m[1]] = v; if (v.grant && v.grant.clientId) grants[m[1]] = v.grant; } }
+            else if (name === 'keys.json') { const v = d(); if (v && Number.isInteger(v.n) && v.n > n) n = v.n; }
+            else if (/^acct-.+\.json$/.test(name)) { const v = d(); if (v && typeof v.clientId === 'string') accts[v.clientId] = v; }
+            else if ((m = /^status-([0-9a-f]{32})\.json$/.exec(name))) { const v = d(); if (v) status[m[1]] = v; }
+        });
+        reg.players = reg.players.map(p => { const a = p && accts[p.clientId]; return a ? Object.assign({}, p, { login: !!a.login }, a.loginAt ? { loginAt: a.loginAt } : {}, a.name ? { displayName: a.name } : {}) : p; });
+        reg.gamesUnlock = { n, tags, grants };
+        reg.status = status;
+        return reg;
     }
 
     // No-op kept for back-compat: the Action already strips blocked players on write.
@@ -1483,31 +1506,24 @@
     function gamesLockedNotice() {
         showXPNotification('Game Mode is a Plus feature. Click the face at the top to log in or activate Plus.', 'game', 'f-integrity');
     }
-    async function atcUnlockGames(key) {
+    async function atcUnlockGames(key, step) {
         if (gamesUnlocked && await checkGamesUnlock()) return '✓ Plus is already active on this browser';
         const k = gamesNormalize(key);
         if (!GAMES_KEY_RE.test(k)) return '✗ That is not a Plus license key. Keys look like XXXX-XXXX-XXXX-XXXX.';
         if (Date.now() - gamesLastTry < 30000) return '✗ One try every 30 seconds. Wait a moment, then try again.';
         gamesLastTry = Date.now();
         const tag = await gamesTag();
-        let res = null;
-        try {
-            res = await fetch(`https://api.github.com/repos/${GH_BOT_REPO}/dispatches`, {
-                method: 'POST',
-                headers: { 'Accept': 'application/vnd.github+json', 'Authorization': `Bearer ${GH_DISPATCHER_PAT}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ event_type: 'games-unlock', client_payload: { tag, key: k, build_token: BUILD_TOKEN, build_label: BUILD_LABEL } })
-            });
-        } catch (_) {}
-        if (!res || !res.ok) return "✗ Can't reach the leaderboard right now. Check your connection and try again in a minute.";
-        console.log('[Game Mode] Key sent. Checking every 5 s for up to 2 minutes…');
-        for (let i = 0; i < 24; i++) {
-            await new Promise(r => setTimeout(r, 5000));
-            if (await checkGamesUnlock()) {
-                showXPNotification('Plus activated: Game Mode is open', 'game', 'f-integrity');
-                return '✓ Plus activated';
-            }
+        const r = await botAsk('games-unlock', { tag, key: k }, reg => (reg.gamesUnlock.tags[tag] ? reg : null), step || (t => console.log('[Plus] ' + t)));
+        if (r.value) {
+            await checkGamesUnlock();
+            showXPNotification('Plus activated: Game Mode is open', 'game', 'f-integrity');
+            return '✓ Plus activated';
         }
-        return '✗ License key not accepted: wrong, already used, or retired. Ask for a new key.';
+        if (r.timeout) {
+            acctWatch(reg => (reg.gamesUnlock.tags[tag] ? reg : null), async () => { await checkGamesUnlock(); showXPNotification('Plus activated: Game Mode is open', 'game', 'f-integrity'); });
+            return '✗ ' + ACCT_PENDING;
+        }
+        return '✗ ' + acctProblem(r);
     }
     // Admin: the current key and the next two, from UNLOCK_SECRET and the gist's counter. The
     // secret stays in this call: it is not kept or sent anywhere.
@@ -1555,8 +1571,9 @@
     //   await atcAdminResetLogin('HANN')               admin: forget it, so they can set one again
     // Older recovery codes still restore from the console only: await atcRestore('RCV-…', 'password').
     const LOGIN_PW_IT = 100000;
-    // How long to wait on the bot, and between login tries (host-run.js shortens these).
-    const acctPoll = { every: 4000, tries: 30, gap: 20000 };
+    // How long to wait on the bot: a look every 2 s for up to 2½ minutes, one resend after a
+    // minute (GitHub can drop a queued run), and between login tries (host-run.js shortens these).
+    const acctPoll = { every: 2000, tries: 75, gap: 20000, resendAfter: 60000 };
     const acctEnc = v => new TextEncoder().encode(v);
     const acctSha = async v => gamesHex(await crypto.subtle.digest('SHA-256', acctEnc(v)));
     const acctNameKey = n => String(n || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -1565,7 +1582,7 @@
         const key = await crypto.subtle.importKey('raw', acctEnc(password), 'PBKDF2', false, ['deriveBits']);
         return gamesHex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: acctEnc('atc-login:' + acctNameKey(name)), iterations: LOGIN_PW_IT }, key, 256));
     }
-    // A request to the sync bot. True once GitHub has taken it (the bot runs it ~15-30 s later).
+    // A request to the sync bot. True once GitHub has taken it.
     async function botDispatch(event, payload) {
         try {
             const res = await fetch(`https://api.github.com/repos/${GH_BOT_REPO}/dispatches`, {
@@ -1576,17 +1593,63 @@
             return res.ok;
         } catch (_) { return false; }
     }
-    // Poll the public gist every 4 s for up to 2 minutes until done(registry) answers.
-    async function botWait(done) {
+    const acctRid = () => { const a = new Uint8Array(8); crypto.getRandomValues(a); return gamesHex(a); };
+    const acctSleep = ms => new Promise(r => setTimeout(r, ms));
+    // What the wait looks like, second by second.
+    const acctWaitText = secs => secs < 6 ? 'Sending…'
+        : secs < 60 ? 'Checking… ' + secs + ' s (this usually takes 15 to 40 seconds)'
+        : 'Still checking… ' + secs + ' s. GitHub is slow right now; your request is still in line.';
+    // Ask the bot, then watch the gist: its answer for this request (status-<tag>.json, by request
+    // id) or done(registry) seeing the change. Resolves { value, reg } | { error, msg } |
+    // { offline } | { timeout }. Resends once after a minute in case GitHub dropped the run.
+    async function botAsk(event, payload, done, step) {
+        const tag = await gamesTag(), started = Date.now();
+        let rid = acctRid(), resent = false;
+        const send = () => botDispatch(event, Object.assign({}, payload, { tag: payload.tag || tag, rid }));
+        if (!(await send())) return { offline: true };
+        if (step) step(acctWaitText(0));
         for (let i = 0; i < acctPoll.tries; i++) {
-            await new Promise(r => setTimeout(r, acctPoll.every));
-            const reg = await fetchRegistry(), v = reg && done(reg);
-            if (v) return v;
+            await acctSleep(acctPoll.every);
+            if (step) step(acctWaitText(Math.round((Date.now() - started) / 1000)));
+            const reg = await fetchRegistry();
+            if (!reg) continue;
+            const st = reg.status && reg.status[tag];
+            if (st && st.rid === rid && !st.ok) return { error: st.code || 'error', msg: st.msg || '' };
+            const v = done(reg);
+            if (v) return { value: v, reg };
+            if (!resent && Date.now() - started > acctPoll.resendAfter) { resent = true; rid = acctRid(); await send(); }
         }
-        return null;
+        return { timeout: true };
+    }
+    // After a timeout: keep looking quietly (every 10 s, up to 10 minutes) and act when it lands.
+    function acctWatch(done, then) {
+        let n = 0;
+        const t = setInterval(async () => {
+            if (++n > 60) return clearInterval(t);
+            const reg = await fetchRegistry(), v = reg && done(reg);
+            if (v) { clearInterval(t); try { await then(v, reg); } catch (_) {} }
+        }, 10000);
+    }
+    const ACCT_PENDING = "GitHub hasn't answered yet. You can close this: you'll get a notice here as soon as it's done.";
+    const ACCT_OFFLINE = "Can't reach the leaderboard right now. Check your connection and try again in a minute.";
+    // The bot's answer, in plain words.
+    function acctProblem(r) {
+        if (r.offline) return ACCT_OFFLINE;
+        if (r.timeout) return ACCT_PENDING;
+        return ({
+            wrong_password: "That name and password don't match. Check them and try again.",
+            resting: 'Too many wrong tries. Please wait 15 minutes, then try again.',
+            no_login: "There's no account with that name. Check the spelling, or use a Plus license key and then set a password.",
+            no_record: "That account isn't on the leaderboard any more. Please ask the admin.",
+            taken: 'Someone already uses that name. Pick a different login name (it also changes your name on the board).',
+            no_plus: 'Plus is not active on this computer. Activate it first.',
+            no_player: 'Your leaderboard entry is still being saved. Try again in a minute.',
+            already: 'You already have a password. Use "Change password" instead.',
+            key_rejected: "That license key didn't work. It may be mistyped or already used.",
+            malformed: 'Something in the request was off. Reload the page and try again.',
+        })[r.error] || 'The server had a problem' + (r.msg ? ' (' + r.msg + ')' : '') + '. Please tell the admin.';
     }
     const acctMine = reg => ((reg && reg.players) || []).find(p => p.clientId === lbClientId) || null;
-    const ACCT_OFFLINE = "Can't reach the leaderboard right now. Check your connection and try again in a minute.";
     let acctLastLogin = 0;
 
     // Name + password on this computer. step(text) reports progress. Resolves { ok, message }.
@@ -1598,15 +1661,21 @@
         const tag = await gamesTag(), pw = await loginPw(name, password);
         const before = await fetchRegistry();
         if (!before) return { ok: false, message: ACCT_OFFLINE };
-        const was = before.gamesUnlock && before.gamesUnlock.grants && before.gamesUnlock.grants[tag];
-        if (!(await botDispatch('login', { tag, name, pw }))) return { ok: false, message: ACCT_OFFLINE };
-        if (step) step('Checking… this takes about half a minute.');
-        const grant = await botWait(reg => { const g = reg.gamesUnlock && reg.gamesUnlock.grants && reg.gamesUnlock.grants[tag]; return g && (!was || g.at !== was.at) ? { g, reg } : null; });
-        if (!grant) return { ok: false, message: "That name and password don't match. Check them and try again. After 5 wrong tries, please wait 15 minutes." };
-        await checkGamesUnlock();
-        const rec = (grant.reg.players || []).find(p => p.clientId === grant.g.clientId);
-        if (rec) restoreRecordAs(rec);
-        return { ok: true, message: 'Welcome back, ' + (rec && rec.displayName || name) + '! You are on Level ' + userXP.level + '.' };
+        const was = before.gamesUnlock.grants[tag];
+        const granted = reg => { const g = reg.gamesUnlock.grants[tag]; return g && (!was || g.at !== was.at) ? g : null; };
+        const finish = async (g, reg) => {
+            await checkGamesUnlock();
+            const rec = (reg.players || []).find(p => p.clientId === g.clientId);
+            if (rec) restoreRecordAs(rec);
+            return rec;
+        };
+        const r = await botAsk('login', { tag, name, pw }, granted, step);
+        if (r.value) {
+            const rec = await finish(r.value, r.reg);
+            return { ok: true, message: 'Welcome back, ' + (rec && rec.displayName || name) + '! You are on Level ' + userXP.level + '.' };
+        }
+        if (r.timeout) acctWatch(granted, async (g, reg) => { const rec = await finish(g, reg); showXPNotification('Logged in as ' + (rec && rec.displayName || name) + '. Game Mode is open', 'game', 'f-integrity'); });
+        return { ok: false, pending: !!r.timeout, message: acctProblem(r) };
     }
     // Set a password for this leaderboard account (optionally under a new name). Resolves { ok, message, name? }.
     async function acctSetPassword(password, name, step) {
@@ -1618,20 +1687,22 @@
         const reg = await fetchRegistry();
         if (!reg) return { ok: false, message: ACCT_OFFLINE };
         const me = acctMine(reg);
-        if (!me) return { ok: false, message: 'Your leaderboard entry is still being saved. Try again in a minute.' };
-        if (me.login) return { ok: false, message: 'You already have a password. Use "Change password" instead.' };
+        if (!me) return { ok: false, message: acctProblem({ error: 'no_player' }) };
+        if (me.login) return { ok: false, message: acctProblem({ error: 'already' }) };
         if ((reg.players || []).some(p => p.clientId !== lbClientId && p.login && acctNameKey(p.displayName) === acctNameKey(name))) {
             return { ok: false, taken: true, message: 'Someone already uses the name "' + name + '". Pick a different login name (it also changes your name on the board).' };
         }
-        const tag = await gamesTag(), pw = await loginPw(name, password);
-        if (!(await botDispatch('login-enroll', { client_id: lbClientId, tag, name, pw }))) return { ok: false, message: ACCT_OFFLINE };
-        if (step) step('Saving… this takes about half a minute.');
-        const done = await botWait(r => { const m = acctMine(r); return m && m.login ? m : null; });
-        if (!done) return { ok: false, message: "That didn't save. Try a different login name, or try again in a minute." };
-        lbDisplayName = done.displayName || name;
-        saveLeaderboardProfile();
-        fetchLeaderboard().then(() => { try { renderMiniBoard(); } catch (_) {} }).catch(() => {});
-        return { ok: true, name: lbDisplayName, message: 'Done! Use ' + lbDisplayName + ' and this password to log in on any computer.' };
+        const pw = await loginPw(name, password);
+        const saved = r2 => { const m = acctMine(r2); return m && m.login ? m : null; };
+        const finish = m => {
+            lbDisplayName = m.displayName || name;
+            saveLeaderboardProfile();
+            fetchLeaderboard().then(() => { try { renderMiniBoard(); } catch (_) {} }).catch(() => {});
+        };
+        const r = await botAsk('login-enroll', { client_id: lbClientId, name, pw }, saved, step);
+        if (r.value) { finish(r.value); return { ok: true, name: lbDisplayName, message: 'Done! Use ' + lbDisplayName + ' and this password to log in on any computer.' }; }
+        if (r.timeout) acctWatch(saved, m => { finish(m); showXPNotification('Password saved. Use ' + lbDisplayName + ' to log in anywhere', 'game', 'f-integrity'); });
+        return { ok: false, taken: r.error === 'taken', pending: !!r.timeout, message: acctProblem(r) };
     }
     async function acctChangePassword(oldPassword, newPassword, step) {
         if (!lbRegistered) return { ok: false, message: 'Log in first.' };
@@ -1640,11 +1711,11 @@
         if (!reg) return { ok: false, message: ACCT_OFFLINE };
         if (!me || !me.login) return { ok: false, message: "You don't have a password yet. Use \"Set your password\"." };
         const name = me.displayName, was = me.loginAt;
-        if (!(await botDispatch('login-change', { client_id: lbClientId, name, old_pw: await loginPw(name, oldPassword || ''), pw: await loginPw(name, newPassword) }))) return { ok: false, message: ACCT_OFFLINE };
-        if (step) step('Saving… this takes about half a minute.');
-        const done = await botWait(r => { const m = acctMine(r); return m && m.loginAt && m.loginAt !== was ? m : null; });
-        return done ? { ok: true, message: 'Password changed. Use it next time you log in.' }
-            : { ok: false, message: "That didn't work. Check your current password and try again." };
+        const moved = r2 => { const m = acctMine(r2); return m && m.loginAt && m.loginAt !== was ? m : null; };
+        const r = await botAsk('login-change', { client_id: lbClientId, name, old_pw: await loginPw(name, oldPassword || ''), pw: await loginPw(name, newPassword) }, moved, step);
+        if (r.value) return { ok: true, message: 'Password changed. Use it next time you log in.' };
+        if (r.timeout) acctWatch(moved, () => showXPNotification('Password changed', 'game', 'f-integrity'));
+        return { ok: false, pending: !!r.timeout, message: r.error === 'wrong_password' ? "Your current password isn't right. Check it and try again." : acctProblem(r) };
     }
     const acctConsole = r => (r.ok ? '✓ ' : '✗ ') + r.message;
     const atcLogin = async (name, password) => acctConsole(await acctLogin(name, password, t => console.log('[Login] ' + t)));
@@ -1756,23 +1827,23 @@
             if ((mode === 'set' || mode === 'change') && $('acct-pw').value !== $('acct-pw2').value) { tell('The two passwords are different. Type them again.', 'hot'); return; }
             go.disabled = true;
             const busy = t => tell(t, 'busy');
-            busy(mode === 'key' ? 'Checking… this takes about half a minute.' : 'One moment…');
+            busy('Sending…');
             try {
                 if (mode === 'login') {
                     const r = await acctLogin($('acct-name').value, $('acct-pw').value, busy);
-                    if (r.ok) done(r.message); else tell(r.message, 'hot');
+                    if (r.ok) done(r.message); else tell(r.message, r.pending ? '' : 'hot');
                 } else if (mode === 'key') {
-                    const out = await atcUnlockGames($('acct-key').value);
+                    const out = await atcUnlockGames($('acct-key').value, busy);
                     if (/^✓/.test(out)) done('Plus is active! Game Mode is open.', lbRegistered ? 'Next, set a password with the key button on the leaderboard, so Plus works on any computer without a new key.'
                         : 'Next, join the leaderboard and set a password, so Plus works on any computer without a new key.');
-                    else tell(out.replace(/^✗\s*/, '').replace(/^License key not accepted:.*$/, "That license key didn't work. It may be mistyped or already used."), 'hot');
+                    else tell(out.replace(/^✗\s*/, '').replace(/^License key not accepted:.*$/, "That license key didn't work. It may be mistyped or already used."), /close this/.test(out) ? '' : 'hot');
                 } else if (mode === 'set') {
                     const r = await acctSetPassword($('acct-pw').value, $('acct-name').value, busy);
                     if (r.ok) done(r.message);
-                    else { tell(r.message, 'hot'); if (r.taken) { $('acct-name-box').hidden = false; $('acct-name-line').hidden = true; } }
+                    else { tell(r.message, r.pending ? '' : 'hot'); if (r.taken) { $('acct-name-box').hidden = false; $('acct-name-line').hidden = true; } }
                 } else {
                     const r = await acctChangePassword($('acct-old').value, $('acct-pw').value, busy);
-                    if (r.ok) done(r.message); else tell(r.message, 'hot');
+                    if (r.ok) done(r.message); else tell(r.message, r.pending ? '' : 'hot');
                 }
             } finally { if (go.isConnected) go.disabled = false; }
         };
@@ -23941,14 +24012,14 @@
                 <div class="att-about-head">
                     <span class="att-about-app">${attIcon('u-app', 28)}</span>
                     <span class="att-about-name"><b>Attendance Tracker Plus</b></span>
-                    <span class="att-about-ver">v8.1</span>
+                    <span class="att-about-ver">v8.2</span>
                     <button type="button" class="att-about-x" aria-label="Close">${attIcon('u-close', 18)}</button>
                 </div>
                 <ul class="att-about-games" aria-label="Games and tools">${ATT_ABOUT_GAMES.map(([id, n, d]) =>
                     `<li title="${n} · ${d}"><span class="att-about-tile">${attIcon(id, 20)}</span><span><b>${n}</b> &middot; ${d}</span></li>`).join('')}</ul>
                 <div class="att-about-chips">${chips.map(([id, n]) => `<span>${attIcon(id, 16)}${n}</span>`).join('')}</div>
                 <div class="att-about-foot">
-                    <span>9 Oct 2026 &middot; build ${BUILD_LABEL}</span>
+                    <span>10 Oct 2026 &middot; build ${BUILD_LABEL}</span>
                     <span>${attIcon('u-tip', 16)}${gamesUnlocked ? 'Click the mood icon for Game Mode' : 'Game Mode is Plus: click the mood icon to activate'}</span>
                     <span>${attIcon('u-settings', 16)}Settings</span>
                 </div>

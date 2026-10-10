@@ -276,14 +276,27 @@ function createServer(opts = {}) {
 // The Plus list from the leaderboard gist (public, read without auth), cached for 2 minutes and
 // refetched (at most every 20 s) for a tag it has not seen. Fails, without a list, by throwing.
 const GIST_URL = 'https://api.github.com/gists/b97357da4f32cfea822c9db36cd48088', GIST_FILE = 'attendance_widget_registry.json';
+// The Plus browsers in a gist's files: the board's older gamesUnlock.tags, then one
+// plus-<tag>.json per browser the bot added since ({ revoked: true } takes one away).
+function plusTagsOf(files) {
+    const parse = f => { const t = String((f && f.content) || ''), i = t.indexOf('{'); if (i < 0) return null; try { return JSON.parse(t.slice(i)); } catch (_) { return null; } };
+    const reg = parse(files[GIST_FILE]) || {}, tags = new Set(Object.keys((reg.gamesUnlock && reg.gamesUnlock.tags) || {}));
+    for (const name of Object.keys(files)) {
+        const m = /^plus-([0-9a-f]{32})\.json$/.exec(name);
+        if (!m) continue;
+        const d = parse(files[name]);
+        if (!d || d.revoked) tags.delete(m[1]); else tags.add(m[1]);
+    }
+    return tags;
+}
+
 function gistPlusTags() {
     let tags = null, at = 0, pending = null;
     const load = async () => {
         const r = await fetch(GIST_URL, { headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'atc-pool-server' } });
         if (!r.ok) throw new Error('gist ' + r.status);
-        const g = await r.json(), raw = (g.files && g.files[GIST_FILE] && g.files[GIST_FILE].content) || '{}';
-        const reg = JSON.parse(raw.slice(Math.max(0, raw.indexOf('{'))));
-        tags = new Set(Object.keys((reg.gamesUnlock && reg.gamesUnlock.tags) || {}));
+        const g = await r.json();
+        tags = plusTagsOf((g && g.files) || {});
         at = Date.now();
         return tags;
     };
@@ -295,7 +308,7 @@ function gistPlusTags() {
     };
 }
 
-module.exports = { createServer, gistPlusTags };
+module.exports = { createServer, gistPlusTags, plusTagsOf };
 
 if (require.main === module) {
     const dir = path.join(__dirname, 'certs');

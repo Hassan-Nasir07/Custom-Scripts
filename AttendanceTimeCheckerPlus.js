@@ -11,7 +11,7 @@
     //             (pool-dev/sync-verify.js fails until the two match)
     const BUILD_SEED  = 'd7c94e21b8a05f36e1c8d94a70b25f3c';
     // Seed UNCHANGED on purpose: rotating it without BUILD_TOKEN_CURRENT breaks every sync.
-    const BUILD_LABEL = 'v12';
+    const BUILD_LABEL = 'v13';
 
     // Ordinal of a 'v<N>' label; null if malformed (callers then assume behind).
     function _buildOrdinal(label) {
@@ -793,7 +793,7 @@
             },
             body: JSON.stringify({
                 event_type: 'registry-update',
-                client_payload: { player, build_token: BUILD_TOKEN, build_label: BUILD_LABEL }
+                client_payload: { player, plus: await plusProof(), build_token: BUILD_TOKEN, build_label: BUILD_LABEL }
             })
         });
         if (!res.ok) {
@@ -960,6 +960,8 @@
 
     async function syncMyScore() {
         if (!lbRegistered || lbFetching) return;
+        // The leaderboard is Plus: the bot ignores syncs without a licensed browser's proof.
+        if (!gamesUnlocked) { console.warn('[Sync] The leaderboard is part of Plus. Click the face at the top to activate it.'); return; }
         // Blocklisted clientIds cannot sync
         if (isBlocked(lbClientId)) {
             console.warn('[Leaderboard] Sync denied — clientId is on the blocklist.');
@@ -990,6 +992,9 @@
             if (idx === -1) return;
 
             const prev = registry.players[idx];
+
+            // Restricted: games were played here without Plus; a sync from a Plus browser lifts it.
+            if (prev.restricted) showXPNotification('The leaderboard is part of Plus. Click the face at the top to activate it.', 'hourly', 'block');
 
             // Anti-cheat gate 1: an already-flagged player never syncs.
             if (prev.flagged) {
@@ -1440,6 +1445,12 @@
         gamesTagValue = gamesHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret))).slice(0, 32);
         return gamesTagValue;
     }
+    // The Plus proof every cloud request carries: this browser's secret. The bot (and the pool
+    // server) hash it and look for the tag; a tag alone is public and proves nothing.
+    async function plusProof() {
+        await gamesTag();
+        try { return localStorage.getItem(GAMES_SECRET_KEY) || ''; } catch (_) { return ''; }
+    }
     // What a person types: any case, dashes or spaces, O for 0 and I or L for 1.
     const gamesNormalize = k => String(k || '').toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
     // The same derivation as the bot's gamesKeyFor (sync.yml), on WebCrypto.
@@ -1560,7 +1571,7 @@
             const res = await fetch(`https://api.github.com/repos/${GH_BOT_REPO}/dispatches`, {
                 method: 'POST',
                 headers: { 'Accept': 'application/vnd.github+json', 'Authorization': `Bearer ${GH_DISPATCHER_PAT}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ event_type: event, client_payload: Object.assign({}, payload, { build_token: BUILD_TOKEN, build_label: BUILD_LABEL }) })
+                body: JSON.stringify({ event_type: event, client_payload: Object.assign({}, payload, { plus: await plusProof(), build_token: BUILD_TOKEN, build_label: BUILD_LABEL }) })
             });
             return res.ok;
         } catch (_) { return false; }
@@ -1792,7 +1803,7 @@
             const hasBlocked = registry.players.some(p => isBlocked(p.clientId));
             if (hasBlocked) { lbFetching = false; purgeBlockedPlayers().catch(() => {}); lbFetching = true; }
             leaderboardData = registry.players
-                .filter(p => !isBlocked(p.clientId) && !p.flagged)
+                .filter(p => !isBlocked(p.clientId) && !p.flagged && !p.restricted)
                 .sort((a, b) => b.level - a.level || b.totalXP - a.totalXP);
             return leaderboardData;
         } catch (e) {
@@ -8653,6 +8664,7 @@
         said: {}, sayAt: 0,     // each seat's last reaction { text, at }, and when we last sent one
         rev: 0,
         transport: null,
+        plusProof: null,          // test seam: async () => this browser's Plus secret (else the host's plusProof)
         on: {},
     };
     const poolNetBump = () => { poolNet.rev++; };
@@ -8699,7 +8711,10 @@
         const handlers = {
             open: () => {
                 N.state = 'open'; N.tries = 0; N.everOpen = true; N.err = '';
-                poolNetRaw({ t: 'hello', clientId: N.id, key: N.key, name: poolNetName(), build: 1 });
+                // Online play is Plus: the hello carries this browser's Plus proof (its secret).
+                const proof = N.plusProof || (typeof plusProof === 'function' ? plusProof : null);
+                Promise.resolve(proof ? proof() : '').catch(() => '').then(plus =>
+                    poolNetRaw({ t: 'hello', clientId: N.id, key: N.key, name: poolNetName(), build: 1, plus }));
                 clearInterval(N.beat);
                 N.beat = setInterval(() => poolNetRaw({ t: 'ping' }), POOL_NET_BEAT_MS);
                 poolNetBump();
@@ -8811,6 +8826,8 @@
         case 'error':
             if (m.code === 'identity') { try { localStorage.removeItem(POOL_NET_ID_KEY); localStorage.removeItem(POOL_NET_SECRET_KEY); } catch (_) {} N.id = N.key = ''; poolNetConnect(); return; }
             if (m.code === 'replaced') { N.wanted = false; N.err = 'Online in another tab'; }
+            else if (m.code === 'plus') { N.wanted = false; N.err = 'Online play is part of Plus. Click the face at the top to activate it.'; }
+            else if (m.code === 'plus-check') { N.wanted = false; N.err = m.msg || "Can't check Plus right now. Try again in a minute."; }
             else N.note = m.msg || '';
             break;
         }
@@ -23924,7 +23941,7 @@
                 <div class="att-about-head">
                     <span class="att-about-app">${attIcon('u-app', 28)}</span>
                     <span class="att-about-name"><b>Attendance Tracker Plus</b></span>
-                    <span class="att-about-ver">v8.0</span>
+                    <span class="att-about-ver">v8.1</span>
                     <button type="button" class="att-about-x" aria-label="Close">${attIcon('u-close', 18)}</button>
                 </div>
                 <ul class="att-about-games" aria-label="Games and tools">${ATT_ABOUT_GAMES.map(([id, n, d]) =>
@@ -25858,6 +25875,7 @@
             gameBests: collectGameBests(), gameModeBests: collectGameModeBests()
         });
         window.lbRegister = async () => {
+            if (!gamesUnlocked) { showXPNotification('The leaderboard is part of Plus. Click the face at the top to activate it.', 'hourly', 'block'); return; }
             const input = document.getElementById('lb-name-input');
             const name = (input ? input.value : '').trim();
             if (!name || name.length < 2) {

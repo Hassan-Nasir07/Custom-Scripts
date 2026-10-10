@@ -183,6 +183,29 @@ ok('…and no tab needed a resync, the quick player included', A.poolS.netResync
     ok('…snooker online wins go to snookerWinsByMode.online', (JSON.parse(A.store.snookerWinsByMode || '{}').online || 0) + (JSON.parse(B2.store.snookerWinsByMode || '{}').online || 0) === 1);
 
     [A, B2].forEach(P => P.poolNetDisconnect());
+
+    head('Plus');
+    {
+        // Online play is Plus: a server that checks, a browser with a listed secret, one without.
+        const crypto = require('crypto');
+        const SECRET = '9f'.repeat(32), TAG = crypto.createHash('sha256').update(SECRET).digest('hex').slice(0, 32);
+        const ps = createServer({ log: false, plusTags: async () => new Set([TAG]) });
+        const pport = await ps.listen(0, '127.0.0.1');
+        const make = (name, secret) => {
+            const P = L.game({ name, store: {}, seed: 9, realDate: true });
+            P.poolNet.on = { start: P.poolNetStart, closed: P.poolNetClosed };
+            if (secret) P.poolNet.plusProof = async () => secret;
+            P.poolNetConnect('ws://127.0.0.1:' + pport);
+            return P;
+        };
+        const plus = make('Plus', SECRET), free = make('Free', null);
+        ok('a Plus browser gets into the lobby', await until(() => plus.poolNet.state === 'open' && Array.isArray(plus.poolNet.lobby), 3000) && await until(() => !!plus.poolNet.id, 1000));
+        ok('one without Plus is turned away, with the plain message, and stops retrying',
+            await until(() => /Online play is part of Plus/.test(free.poolNet.err) && free.poolNet.wanted === false, 3000), free.poolNet.err);
+        ok('…so the Plus browser sees nobody to challenge', await until(() => plus.poolNet.lobby.length === 0, 1500));
+        plus.poolNetDisconnect(); free.poolNetDisconnect();
+        await ps.close();
+    }
     await srv.close();
     console.log('\n' + pass + ' passed, ' + fail + ' failed');
     process.exit(fail ? 1 : 0);

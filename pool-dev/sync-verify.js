@@ -11,7 +11,8 @@
 // snooker's (S6): its tier and mode bounds, and the high break's 155 cap and session rule;
 // Game Mode's access keys: one use each, rotating, surviving every other write; and progress
 // recovery: set once, changed only with the current proof, out of reach of ordinary syncs; and
-// login (name + password, checked against a private store): enrol, log in, rest, change, reset.
+// login (name + password, checked against a private store): enrol, log in, rest, change, reset;
+// and Plus in the cloud: no licensed browser's secret, no leaderboard, password or recovery.
 //
 // The bot lives in its own repository, checked out beside this one; without it
 // the suite says so and passes, as there is nothing to test.
@@ -48,11 +49,15 @@ const HOST_LABEL = (fs.readFileSync(path.join(__dirname, '..', 'AttendanceTimeCh
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const UNLOCK = 'test-unlock-secret-0123456789abcdef';
 const { keyFor } = require('../tools/games-key');
+// By default every dispatch comes from a licensed (Plus) browser: its secret rides along as plus
+// and its tag is listed in the gist. opts.noPlus sends none.
+const PLUS = 'f'.repeat(64), PLUS_TAG = require('crypto').createHash('sha256').update(PLUS).digest('hex').slice(0, 32);
 const FILE = 'attendance_widget_registry.json';
 
 // One dispatch against a gist holding `players`. Returns what was written and what was logged.
 async function dispatch(payload, players, opts) {
     const o = opts || {};
+    if (!o.noPlus && payload && payload.plus === undefined) payload = Object.assign({}, payload, { plus: PLUS });
     const log = { warnings: [], notices: [], infos: [], failed: null, written: null };
     const core = {
         warning: m => log.warnings.push(String(m)), notice: m => log.notices.push(String(m)),
@@ -60,6 +65,7 @@ async function dispatch(payload, players, opts) {
         setSecret: m => { log.secrets = (log.secrets || []).concat(String(m)); },
     };
     const gist = Object.assign({ lastUpdated: 'x', players: JSON.parse(JSON.stringify(players || [])) }, o.gist ? JSON.parse(JSON.stringify(o.gist)) : {});
+    if (!o.noPlus) { gist.gamesUnlock = gist.gamesUnlock || { n: 0, tags: {} }; gist.gamesUnlock.tags = Object.assign({ [PLUS_TAG]: { at: 'x', n: 0 } }, gist.gamesUnlock.tags || {}); }
     // Two gists: the public registry, and the private login store (LOGIN_GIST_ID).
     const logins = o.logins ? JSON.parse(JSON.stringify(o.logins)) : { logins: {} };
     const fetch = async (url, init) => {
@@ -291,8 +297,8 @@ const send = (player, players, opts) => dispatch({ player, build_token: 'tok-now
         const me = extra => [stored({}, Object.assign({ displayName: 'Hann' }, extra))];
         const call = (event, payload, players, opts) => dispatch(Object.assign({ build_token: 'tok-now' }, payload), players, Object.assign({ event, context: true }, opts));
 
-        r = await call('login-enroll', { client_id: 'c1', tag: NEW_TAG, name: 'Hann', pw: PW }, me(), { gist: unlocked });
-        ok('enrolling needs a browser that unlocked Game Mode', r.written === null && r.warnings.some(w => /has not unlocked/.test(w)));
+        r = await call('login-enroll', { client_id: 'c1', tag: TAG, name: 'Hann', pw: PW }, me(), { gist: unlocked, noPlus: true });
+        ok('enrolling needs a Plus browser: a listed tag quoted without its secret is not enough', r.written === null && r.warnings.some(w => /no Plus license/.test(w)));
         r = await call('login-enroll', { client_id: 'nobody', tag: TAG, name: 'Hann', pw: PW }, me(), { gist: unlocked });
         ok('…and a player on the board', r.written === null && r.warnings.some(w => /no player/.test(w)));
         r = await call('login-enroll', { client_id: 'c1', tag: TAG, name: 'Hann', pw: 'not-a-hash' }, me(), { gist: unlocked });
@@ -350,6 +356,37 @@ const send = (player, players, opts) => dispatch({ player, build_token: 'tok-now
         let thrown = null;
         try { await dispatch({ tag: NEW_TAG, name: 'Hann', pw: PW, build_token: 'tok-now' }, board, { event: 'login', logins: store, env: { LOGIN_GIST_ID: '' } }); } catch (e) { thrown = e; }
         ok('with no LOGIN_GIST_ID configured, logins fail loudly (the run fails)', !!thrown && /LOGIN_GIST_ID/.test(thrown.message));
+    }
+
+    head('Plus in the cloud');
+    {
+        const crackSync = (player, players, extra) => dispatch(Object.assign({ player, build_token: 'tok-now' }, extra), players, { noPlus: true });
+        r = await crackSync(next({}, 3), [stored({})]);
+        ok('a sync with no Plus proof writes nothing for the player', r.written === null || r.player('c1').gameSessions === 100);
+        ok('…and is logged', r.warnings.some(w => /no Plus license for c1/.test(w)));
+        ok('…and, having played games (Game Mode opened by editing the script), it restricts the stored record', r.written && r.player('c1').restricted === 'no_plus' && !!r.player('c1').restrictedAt);
+        ok('…changing nothing else on it', r.player('c1').gameSessions === 100 && r.player('c1').totalXP === 5000);
+        r = await crackSync(next({}, 0, { totalXP: 5100 }), [stored({})]);
+        ok('without game activity it is just ignored, not restricted', r.written === null);
+        r = await crackSync(next({ 'pool:hard': 9 }, 0), [stored({ 'pool:hard': 2 })]);
+        ok('a higher game score alone counts as game activity', r.written && r.player('c1').restricted === 'no_plus');
+        r = await crackSync(Object.assign(next({}, 1), { clientId: 'c-new', displayName: 'Cracker' }), [stored({})]);
+        ok('a new player without Plus cannot join the board', r.written === null && r.warnings.some(w => /new player refused/.test(w)));
+        r = await crackSync(next({}, 2), [stored({})], { plus: 'nothex' });
+        ok('…nor with a malformed secret', !r.written || r.player('c1').gameSessions === 100);
+        r = await crackSync(next({}, 2), [stored({})], { plus: 'e'.repeat(64) });
+        ok('…nor with a well-formed secret whose browser never got Plus', !r.written || r.player('c1').gameSessions === 100);
+        ok('…which is masked in the logs either way', (r.secrets || []).includes('e'.repeat(64)));
+        r = await dispatch({ registry: { players: [next({}, 2)] }, build_token: 'tok-now' }, [stored({})], { noPlus: true });
+        ok('the legacy whole-registry payload is held to the same rule', r.written && r.player('c1').restricted === 'no_plus' && r.player('c1').gameSessions === 100);
+        r = await send(next({}, 2), [stored({}, { restricted: 'no_plus', restrictedAt: 'x' })]);
+        ok('a licensed sync goes through and lifts the restriction', r.player('c1').gameSessions === 102 && !r.player('c1').restricted && !r.player('c1').restrictedAt);
+        r = await send(next({}, 1, { restricted: false }), [stored({}, { restricted: 'no_plus' })], { noPlus: true });
+        ok('a client cannot clear its own restriction without Plus', r.player('c1') ? r.player('c1').restricted === 'no_plus' : true);
+        r = await send(Object.assign(next({}, 0), { clientId: 'c-new', displayName: 'New' }), []);
+        ok('a licensed new player joins as before', !!r.player('c-new'));
+        r = await dispatch({ client_id: 'c1', recovery: { v: 1, lookup: '1'.repeat(32), salt: '2'.repeat(32), verifier: '3'.repeat(64), it: 100000 }, build_token: 'tok-now' }, [stored({})], { event: 'recovery-set', noPlus: true });
+        ok('setting a recovery code needs Plus too', r.written === null && r.warnings.some(w => /no Plus license/.test(w)));
     }
 
     head('The legacy whole-registry payload');

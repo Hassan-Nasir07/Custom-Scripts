@@ -7,5 +7,6 @@ if not exist certs\cert.pem (
   pause
   exit /b 1
 )
-"C:\Program Files\nodejs\node.exe" server.js
+rem --use-system-ca: trust Windows' certificates, so the Plus check reaches GitHub through the office proxy.
+"C:\Program Files\nodejs\node.exe" --use-system-ca server.js
 pause

@@ -770,6 +770,11 @@ async function main() {
     ok('a well-formed key is sent to the bot (here unreachable, and it says so plainly)', /Can't reach the leaderboard/.test(await ev("window.atcUnlockGames('ABCD-EFGH-JKMN-PQRS')")));
     ok('…and a second try within 30 s waits', /30 seconds/.test(await ev("window.atcUnlockGames('ABCD-EFGH-JKMN-PQRS')")));
     ok('atcGamesTag gives this browser\'s tag (what a revoke takes)', (await ev('window.atcGamesTag()')) === GAMES.tag);
+    {
+        const before = await ev("document.querySelectorAll('.xp-milestone-notification').length");
+        await ev('window.lbRegister && window.lbRegister()');
+        ok('joining the leaderboard while locked says it is part of Plus', await waitFor("Array.prototype.some.call(document.querySelectorAll('.xp-milestone-notification'), n => /leaderboard is part of Plus/.test(n.textContent))", 2000), before);
+    }
     await ev('window.__probe.toggleSettingsModal && window.__probe.toggleSettingsModal()'); await sleep(400);
     ok('⚙️\'s Game Mode switch is disabled while locked', !!(await ev("(() => { const t = document.querySelector('.toggle-switch[data-pref=\"gameModeHidden\"]'); return t && t.classList.contains('disabled'); })()")));
     await ev('window.__probe.toggleSettingsModal && window.__probe.toggleSettingsModal()'); await sleep(400);
@@ -789,12 +794,15 @@ async function main() {
         const proof = nc.pbkdf2Sync(CODE_PW, SALT + ':' + CODE, IT, 32, 'sha256').toString('hex');
         const rina = { clientId: 'acct-1', displayName: 'Rina R.', totalXP: 54321, level: 1, currentXP: 0, gameSessions: 300, totalWorkDays: 40, achievements: [],
             login: true, loginAt: 'a', recovery: { v: 1, lookup: sha('atc-rcv-lookup:' + CODE).slice(0, 32), salt: SALT, verifier: sha(proof), it: IT, setAt: 'x' } };
-        GAMES.players = [rina]; GAMES.grants = {};
+        // Someone the bot restricted (games without Plus): never on the board.
+        const cracker = { clientId: 'crk-1', displayName: 'Cracker', totalXP: 999999, level: 1, achievements: [], restricted: 'no_plus', restrictedAt: 'x' };
+        GAMES.players = [rina, cracker]; GAMES.grants = {};
         // The stand-in bot: logins against Rina's password, enrolment, and a password change.
         GAMES.bot = (event, p) => {
             if (event === 'login' && p.name.toLowerCase() === 'rina r.' && p.pw === pwOf('Rina R.', PASS.current)) {
                 GAMES.open = true; GAMES.grants[p.tag] = { clientId: 'acct-1', at: new Date().toISOString() };
             } else if (event === 'login-enroll' && p.client_id === 'acct-1') {
+                PASS.enrollPlus = p.plus;
                 rina.login = true; rina.loginAt = new Date().toISOString(); rina.displayName = p.name; PASS.enrolled = p.pw;
             } else if (event === 'login-change' && p.old_pw === pwOf(rina.displayName, PASS.current)) {
                 rina.loginAt = new Date().toISOString(); PASS.changed = p.pw;
@@ -851,6 +859,7 @@ async function main() {
         await click('#acct-modal .rcv-go');
         ok('saved: "Use Rina R. and this password to log in on any computer"', await waitFor("/Use Rina R\\. and this password/.test(document.getElementById('acct-modal').textContent)", 8000) && PASS.enrolled === pwOf('Rina R.', 'abcdef1'), await status());
         ok('…only a hash of the password left this browser', PASS.enrolled !== 'abcdef1' && /^[0-9a-f]{64}$/.test(PASS.enrolled));
+        ok('…and it carried this browser\'s Plus proof (its secret, not the public tag)', PASS.enrollPlus === GAMES.secret);
         await ev("document.querySelector('#acct-modal .rcv-ok').click()");
         PASS.current = 'abcdef1';
         await ev('window.__probe.fetchLeaderboard().then(() => window.__probe.renderMiniBoard())');
@@ -861,6 +870,8 @@ async function main() {
         ok('…a change goes through with the current password', await waitFor("/Password changed/.test(document.getElementById('acct-modal').textContent)", 8000) && PASS.changed === pwOf('Rina R.', 'newpass9'), await status());
         await ev("document.querySelector('#acct-modal .rcv-ok').click()");
 
+        ok('a player the bot restricted is hidden from the board', !/Cracker/.test(await ev("(document.querySelector('#total-time-summary .ws-board-rows') || {}).textContent || ''")) &&
+            /Rina R\./.test(await ev("(document.querySelector('#total-time-summary .ws-board-rows') || {}).textContent || ''")));
         ok('the Join box offers "Already on the leaderboard? Log in" (not a recovery code)', /Already on the leaderboard\? Log in/.test(page()) && !/Restore it|recovery code/i.test(await ev("document.getElementById('total-time-summary').textContent")));
         ok('an old recovery code still restores from the console', /✓ Restored Rina R\./.test(await ev(`window.atcRestore('${CODE}', ${JSON.stringify(CODE_PW)})`)));
         ok('atcRestoreByClientId is still admin only', (await ev("window.atcRestoreByClientId('acct-1')")) === false);

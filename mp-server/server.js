@@ -10,7 +10,8 @@
 //
 // Protocol (JSON text frames, `t` is the type):
 //   client → server
-//     hello     {clientId, key, name, build}   first message; key is the client's own secret
+//     hello     {clientId, key, name, build, plus}   first message; key is the client's own secret,
+//                                              plus its Plus proof (online play is Plus, see plusTags)
 //     challenge {to, game, bestOf, reds}      → the target gets `challenged`
 //     answer    {id, accept}                   accept → both get `start`
 //     cancel    {id}
@@ -43,6 +44,9 @@ const DEFAULTS = {
     maxMsg: 64 * 1024,
     ratePerSec: 60,
     log: true,
+    // async (tag) => Set of Plus tags (gamesUnlock.tags in the leaderboard gist); null: no check.
+    // The tag asked about lets a fetcher refresh early for one it has not seen.
+    plusTags: null,
 };
 
 function createServer(opts = {}) {
@@ -102,7 +106,20 @@ function createServer(opts = {}) {
         });
     }
 
-    function onHello(ws, m) {
+    // Online play is Plus: the hello's secret must hash to a tag the gist lists.
+    async function plusOk(ws, m) {
+        if (!o.plusTags) return true;
+        const secret = typeof m.plus === 'string' && /^[0-9a-f]{64}$/.test(m.plus) ? m.plus : '';
+        const refuse = (code, msg) => { send({ ws }, { t: 'error', code, msg }); setTimeout(() => ws.close(4001), 50); return false; };
+        if (!secret) return refuse('plus', 'Online play is part of Plus.');
+        const tag = crypto.createHash('sha256').update(secret).digest('hex').slice(0, 32);
+        let tags;
+        try { tags = await o.plusTags(tag); } catch (e) { say('Plus check failed:', e.message); return refuse('plus-check', "Can't check Plus right now. Try again in a minute."); }
+        return tags.has(tag) ? true : refuse('plus', 'Online play is part of Plus.');
+    }
+
+    async function onHello(ws, m) {
+        if (!(await plusOk(ws, m)) || !ws.open) return;
         const id = String(m.clientId || '').slice(0, 64), key = String(m.key || '').slice(0, 128);
         if (!/^[\w-]{8,64}$/.test(id) || key.length < 16) return send({ ws }, { t: 'error', code: 'hello', msg: 'bad identity' });
         if (keys.has(id) && keys.get(id) !== key) return send({ ws }, { t: 'error', code: 'identity', msg: 'that id is taken' });
@@ -226,7 +243,8 @@ function createServer(opts = {}) {
             seen = Date.now();
             if (seen - win > 1000) { win = seen; n = 0; }
             if (++n > o.ratePerSec || text.length > o.maxMsg) { say('flood from', ws.ip); ws.close(1008); return; }
-            onMessage(ws, text);
+            // One at a time, in order: a hello (its Plus check is async) finishes before what follows it.
+            ws.chain = (ws.chain || Promise.resolve()).then(() => onMessage(ws, text)).catch(e => say('message error:', e.message));
         });
         ws.on('pong', () => { seen = Date.now(); });
         const beat = setInterval(() => { if (Date.now() - seen > o.idleMs) ws.close(1001); else ws.ping(); }, Math.min(15000, o.idleMs / 3));
@@ -255,14 +273,41 @@ function createServer(opts = {}) {
     };
 }
 
-module.exports = { createServer };
+// The Plus list from the leaderboard gist (public, read without auth), cached for 2 minutes and
+// refetched (at most every 20 s) for a tag it has not seen. Fails, without a list, by throwing.
+const GIST_URL = 'https://api.github.com/gists/b97357da4f32cfea822c9db36cd48088', GIST_FILE = 'attendance_widget_registry.json';
+function gistPlusTags() {
+    let tags = null, at = 0, pending = null;
+    const load = async () => {
+        const r = await fetch(GIST_URL, { headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'atc-pool-server' } });
+        if (!r.ok) throw new Error('gist ' + r.status);
+        const g = await r.json(), raw = (g.files && g.files[GIST_FILE] && g.files[GIST_FILE].content) || '{}';
+        const reg = JSON.parse(raw.slice(Math.max(0, raw.indexOf('{'))));
+        tags = new Set(Object.keys((reg.gamesUnlock && reg.gamesUnlock.tags) || {}));
+        at = Date.now();
+        return tags;
+    };
+    return async tag => {
+        const age = Date.now() - at;
+        if (tags && (age < 120000 && (tags.has(tag) || age < 20000))) return tags;
+        if (!pending) pending = load().finally(() => { pending = null; });
+        try { return await pending; } catch (e) { if (tags) return tags; throw e; }
+    };
+}
+
+module.exports = { createServer, gistPlusTags };
 
 if (require.main === module) {
     const dir = path.join(__dirname, 'certs');
     let tls;
     try { tls = { key: fs.readFileSync(path.join(dir, 'key.pem')), cert: fs.readFileSync(path.join(dir, 'cert.pem')) }; }
     catch { console.error('No certificate: run  bash mp-server/make-cert.sh  first.'); process.exit(1); }
-    const s = createServer({ tls });
+    // PLUS_CHECK=off skips the Plus check (local experiments only).
+    const plusTags = process.env.PLUS_CHECK === 'off' ? null : gistPlusTags();
+    const s = createServer({ tls, plusTags });
+    if (plusTags) plusTags('').then(t => console.log('Plus check: gist reachable (' + t.size + ' Plus browsers).'))
+        .catch(e => console.log('Plus check: CAN\'T reach the gist (' + e.message + '). Online play will be refused until it can. Start with start.cmd (it trusts the office proxy).'));
+    else console.log('Plus check: OFF (PLUS_CHECK=off).');
     s.listen().then(port => {
         const addrs = Object.values(os.networkInterfaces()).flat().filter(a => a && a.family === 'IPv4' && !a.internal).map(a => a.address);
         console.log('Pool server on ' + os.hostname() + ':  wss://' + addrs[0] + ':' + port);

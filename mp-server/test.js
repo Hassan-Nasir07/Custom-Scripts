@@ -10,7 +10,7 @@ let fails = 0, passes = 0;
 const ok = (cond, what) => { if (cond) passes++; else { fails++; console.log('  FAIL', what); } };
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-function client(port, id, key, name) {
+function client(port, id, key, name, plus) {
     const ws = new WebSocket('ws://127.0.0.1:' + port + '/');
     const inbox = [], waiters = [];
     const c = {
@@ -30,7 +30,8 @@ function client(port, id, key, name) {
         const m = JSON.parse(e.data), i = waiters.findIndex(w => w.t === m.t);
         if (i >= 0) waiters.splice(i, 1)[0].r(m); else inbox.push(m);
     };
-    c.ready = new Promise(r => { ws.onopen = () => { c.send({ t: 'hello', clientId: id, key, name }); r(c); }; });
+    c.closed = new Promise(r => { ws.addEventListener('close', () => r(true)); });
+    c.ready = new Promise(r => { ws.onopen = () => { c.send({ t: 'hello', clientId: id, key, name, plus }); r(c); }; });
     return c;
 }
 
@@ -167,6 +168,32 @@ function client(port, id, key, name) {
 
     await a.close(); await c3.close();
     await s.close();
+
+    console.log('plus');
+    {
+        // Online play is Plus: the hello's secret must hash to a tag on the list.
+        const crypto = require('crypto');
+        const SECRET = 'ab'.repeat(32), TAG = crypto.createHash('sha256').update(SECRET).digest('hex').slice(0, 32);
+        let fail = false;
+        const ps = createServer({ log: false, plusTags: async () => { if (fail) throw new Error('offline'); return new Set([TAG]); } });
+        const pport = await ps.listen(0, '127.0.0.1');
+        const none = await client(pport, 'client-pppp', 'key-pppppppppppppppp', 'NoPlus').ready;
+        const e1 = await none.next('error');
+        ok(e1 && e1.code === 'plus' && !(await none.next('welcome', 200)), 'a hello without Plus is refused, never welcomed');
+        ok(await Promise.race([none.closed, wait(1000).then(() => false)]), '…and the socket is closed');
+        const fake = await client(pport, 'client-qqqq', 'key-qqqqqqqqqqqqqqqq', 'Fake', 'cd'.repeat(32)).ready;
+        ok((await fake.next('error')).code === 'plus', 'a secret whose browser never got Plus is refused');
+        const tagOnly = await client(pport, 'client-tttt', 'key-tttttttttttttttt', 'TagOnly', TAG).ready;
+        ok((await tagOnly.next('error')).code === 'plus', 'quoting the public tag instead of the secret is refused');
+        const good = await client(pport, 'client-gggg', 'key-gggggggggggggggg', 'Good', SECRET).ready;
+        ok((await good.next('welcome')) && !(await good.next('error', 200)), 'a Plus browser is welcomed into the lobby');
+        fail = true;
+        const later = await client(pport, 'client-llll', 'key-llllllllllllllll', 'Later', SECRET).ready;
+        const e2 = await later.next('error');
+        ok(e2 && e2.code === 'plus-check', 'if the Plus list cannot be read, it refuses (fails closed) and says why');
+        await good.close();
+        await ps.close();
+    }
     console.log('\n' + passes + ' passed, ' + fails + ' failed');
     process.exit(fails ? 1 : 0);
 })();

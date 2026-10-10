@@ -37,6 +37,7 @@
         said: {}, sayAt: 0,     // each seat's last reaction { text, at }, and when we last sent one
         rev: 0,
         transport: null,
+        plusProof: null,          // test seam: async () => this browser's Plus secret (else the host's plusProof)
         on: {},
     };
     const poolNetBump = () => { poolNet.rev++; };
@@ -83,7 +84,10 @@
         const handlers = {
             open: () => {
                 N.state = 'open'; N.tries = 0; N.everOpen = true; N.err = '';
-                poolNetRaw({ t: 'hello', clientId: N.id, key: N.key, name: poolNetName(), build: 1 });
+                // Online play is Plus: the hello carries this browser's Plus proof (its secret).
+                const proof = N.plusProof || (typeof plusProof === 'function' ? plusProof : null);
+                Promise.resolve(proof ? proof() : '').catch(() => '').then(plus =>
+                    poolNetRaw({ t: 'hello', clientId: N.id, key: N.key, name: poolNetName(), build: 1, plus }));
                 clearInterval(N.beat);
                 N.beat = setInterval(() => poolNetRaw({ t: 'ping' }), POOL_NET_BEAT_MS);
                 poolNetBump();
@@ -195,6 +199,8 @@
         case 'error':
             if (m.code === 'identity') { try { localStorage.removeItem(POOL_NET_ID_KEY); localStorage.removeItem(POOL_NET_SECRET_KEY); } catch (_) {} N.id = N.key = ''; poolNetConnect(); return; }
             if (m.code === 'replaced') { N.wanted = false; N.err = 'Online in another tab'; }
+            else if (m.code === 'plus') { N.wanted = false; N.err = 'Online play is part of Plus. Click the face at the top to activate it.'; }
+            else if (m.code === 'plus-check') { N.wanted = false; N.err = m.msg || "Can't check Plus right now. Try again in a minute."; }
             else N.note = m.msg || '';
             break;
         }

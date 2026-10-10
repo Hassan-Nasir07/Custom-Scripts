@@ -402,7 +402,7 @@
         neumorphicDepth: true,
         fluidGradients: true,
         emojiSet: 'fun', // 'fun', 'none'
-        displayTheme: 'glassmorphic', // 'glassmorphic' or 'retro-futuristic'
+        displayTheme: 'glassmorphic', // 'glassmorphic' | 'retro-futuristic' | 'business' (Just Business)
         gameModeHidden: true, // true = Game Mode ON (panels visible); false = Game Mode OFF (panels hidden, widget shrinks)
         shiftDuration: '8h', // '4h' = short leave, '8h' = standard, '9h' = overtime, up to '15h' (SHIFT_DURATIONS)
         poolTableColor: 'green', // 'green', 'red', 'blue', 'lightgrey'
@@ -24114,10 +24114,49 @@
         </style>
     `;
 
-    function injectModernStyles() {
-        if (!document.getElementById('attendance-modern-styles')) {
-            document.head.insertAdjacentHTML('beforeend', modernStyles);
+    // JUST BUSINESS (.biz-theme): the portal's flat light look, light whatever the OS scheme and with no motion.
+    // Every light-scheme rule above is re-emitted under BIZ (same specificity via :where), then BIZ_CSS goes on top.
+    const BIZ = 'body:has(.attendance-summary.biz-theme)';
+    const BIZ_W = `:is(.attendance-summary.biz-theme,${BIZ} :is(.settings-modal,.settings-modal-overlay,.ach-ui,.achievements-modal-overlay,.pool-modal-overlay,.xp-milestone-notification))`;
+    const BIZ_CSS = `
+${BIZ}{--aurora-1:#1E88E5;--aurora-2:#1E88E5;--aurora-3:#1E88E5;--aurora-4:#1E88E5}
+.attendance-summary.biz-theme{--att-panel:#FFFFFF;--att-border:#E3E8EF;--att-shadow:0 1px 3px rgba(16,24,40,.08);--att-text:#2B2B2B;--att-muted:#6B7280;--att-accent:#1E88E5;--att-on-accent:#FFFFFF;--att-ink:#1565C0;--att-track:#E3EAF3;--att-inner:#F5F8FC;--att-inner-b:#E3E8EF;--att-display:'Segoe UI',Roboto,Arial,sans-serif;--att-scheme:light;--att-card:#FFFFFF;--att-ok:#2E7D32;--att-danger:#C62828;--att-low:#1565C0;--att-tense:#B26A00;--att-void:#5E35B1;--att-up:#2E7D32;--att-run:#B26A00;--att-home:#C2185B;color-scheme:light}
+.attendance-summary.biz-theme:is(*,:hover){background:#EEF2F6;border:1px solid #E3E8EF;border-radius:10px;box-shadow:0 1px 3px rgba(16,24,40,.08);color:#2B2B2B}
+.attendance-summary.biz-theme::before{display:none}
+${BIZ} .ach-ui{--ach-surface:#FFFFFF;--ach-panel:#FFFFFF;--ach-border:#E3E8EF;--ach-shadow:0 1px 3px rgba(16,24,40,.08);--ach-text:#2B2B2B;--ach-muted:#6B7280;--ach-accent:#1E88E5;--ach-on-accent:#FFFFFF;--ach-ink:#1565C0;--ach-inner:#F5F8FC;--ach-inner-border:#E3E8EF;--ach-track:#E3EAF3;--ach-focus:#1565C0}
+${BIZ} .settings-modal{--att-accent:#1E88E5;--att-on-accent:#FFFFFF}
+${BIZ} .settings-tab.is-active{background:#E3F2FD;border-color:#90CAF9;color:#1565C0}
+${BIZ} .xp-milestone-notification{background:#1E88E5;box-shadow:0 2px 8px rgba(16,24,40,.2);border-color:transparent}
+${BIZ_W},${BIZ_W} *{font-family:'Segoe UI',Roboto,Arial,sans-serif!important}
+.attendance-summary.biz-theme .ws-card{border-radius:8px}
+.attendance-summary.biz-theme :is(.settings-button,.developer-info,.prayer-label){color:#1E88E5}
+.attendance-summary.biz-theme .prayer-plus-btn{background:#1E88E5;border-color:#1E88E5;box-shadow:none}
+.attendance-summary.biz-theme .prayer-screen{border-color:#E3E8EF;box-shadow:none}
+.attendance-summary.biz-theme .snake-skin-card.active{border-color:#1E88E5;box-shadow:inset 0 0 0 1px #1E88E5}
+.attendance-summary.biz-theme :is(.snake-canvas,#breakout-canvas,#ludo-canvas){box-shadow:none}
+#total-time-summary.biz-theme .ws-head .summary-title{color:#1B3A6B;-webkit-text-fill-color:#1B3A6B!important}
+.attendance-summary.biz-theme :is(.emoji-display,.progress-bar,.modern-table tr,.settings-button,.developer-info,.pip-button,.game-switch-btn):hover{transform:none!important}
+${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W} *::after{animation:none!important;transition:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}`;
+    const bizScope = s => (s = s.trim(), /^(body|html|:root)\b/.test(s) ? s.replace(/^(body|html|:root)/, '$1:where(:has(.attendance-summary.biz-theme))') : `:where(${BIZ}) ${s}`);
+    function bizLightCss(rules, light) {
+        let out = '';
+        for (const r of rules) {
+            if (r instanceof CSSMediaRule) {
+                const m = r.media.mediaText, isLight = m.includes('prefers-color-scheme: light');
+                const rest = isLight ? m.replace(/\(prefers-color-scheme: light\)(\s*and\s*)?|\s*and\s*\(prefers-color-scheme: light\)/, '').trim() : m;
+                const body = bizLightCss(r.cssRules, light || isLight);
+                if (body) out += rest ? `@media ${rest}{${body}}` : body;
+            } else if (light && r instanceof CSSStyleRule) out += r.selectorText.split(/,(?![^(]*\))/).map(bizScope).join(',') + '{' + r.style.cssText + '}';
         }
+        return out;
+    }
+    function injectModernStyles() {
+        if (document.getElementById('attendance-modern-styles')) return;
+        document.head.insertAdjacentHTML('beforeend', modernStyles);
+        const s = document.createElement('style');
+        s.id = 'att-biz-styles';
+        s.textContent = bizLightCss(document.getElementById('attendance-modern-styles').sheet.cssRules) + BIZ_CSS;
+        document.head.appendChild(s);
     }
 
     // The mood face for the time worked: the design's mood path (attMood), or none when hidden.
@@ -24280,7 +24319,7 @@
                 ${sel('gameFps', 'VSync', [['60', 'Full (60 FPS)'], ['30', 'Half (30 FPS)']], { id: 'fps-selector', icon: 'monitor' })}
             </div>
             <div class="settings-group" role="tabpanel" data-settings-group="theme" hidden>
-                ${sel('displayTheme', 'Display Theme', [['glassmorphic', 'Glassmorphic Aurora'], ['retro-futuristic', 'Cyberpunk HUD']], { id: 'theme-selector', icon: 'f-theme' })}
+                ${sel('displayTheme', 'Display Theme', [['glassmorphic', 'Glassmorphic Aurora'], ['retro-futuristic', 'Cyberpunk HUD'], ['business', 'Just Business']], { id: 'theme-selector', icon: 'f-theme' })}
                 <div class="settings-option ${!isGlassmorphic ? 'disabled' : ''}" data-theme-dependent="glassmorphic">
                     <span class="settings-option-label">${attIcon('f-skins')} Neumorphic Depth <small style="opacity: 0.6; font-size: 0.75rem;">(Glassmorphic only)</small></span>
                     <div class="toggle-switch ${userPreferences.neumorphicDepth ? 'active' : ''} ${!isGlassmorphic ? 'disabled' : ''}" data-pref="neumorphicDepth"></div>
@@ -24907,7 +24946,7 @@
     function applyPreferences() {
         const container = document.getElementById('total-time-summary');
         if (!container) return;
-
+        container.classList.toggle('biz-theme', userPreferences.displayTheme === 'business');
         if (userPreferences.displayTheme === 'retro-futuristic') {
             // Captured before the class goes on: the boot-in reveal fires on switch-in, not on every
             // colour-slider move (applyPreferences() runs on each of those).
@@ -25057,10 +25096,8 @@
             totalTimeDiv = document.createElement('div');
             totalTimeDiv.id = 'total-time-summary';
             totalTimeDiv.className = 'attendance-summary';
-            // Apply retro theme class if user preference is set
-            if (userPreferences.displayTheme === 'retro-futuristic') {
-                totalTimeDiv.classList.add('retro-theme');
-            }
+            if (userPreferences.displayTheme === 'retro-futuristic') totalTimeDiv.classList.add('retro-theme');
+            if (userPreferences.displayTheme === 'business') totalTimeDiv.classList.add('biz-theme');
             isFirstRender = true;
             isNewElement = true;
         }
@@ -25287,7 +25324,8 @@
         .label { font-size: clamp(8px, min(3.2vw, 12vh), 11px); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--att-muted); white-space: nowrap; }
         .rail { width: max(6px, 1.6vw); height: clamp(24px, 62vh, 72px); flex-shrink: 0; border-radius: 99px; background: var(--att-track); display: flex; align-items: flex-end; overflow: hidden; }
         .rail i { width: 100%; background: var(--fill); transition: height .6s ease; }
-        @media (prefers-reduced-motion: reduce) { .mood svg { animation: none; } }`;
+        @media (prefers-reduced-motion: reduce) { .mood svg { animation: none; } }
+        .biz * { animation: none !important; transition: none !important; }`;
 
     async function togglePictureInPicture() {
         if (isPipActive && pipWindow && !pipWindow.closed) return pipWindow.close();
@@ -25308,7 +25346,7 @@
                 const cs = getComputedStyle(host), shift = getShiftSeconds(), worked = Math.max(0, lastTotalWorkedTime), left = shift - worked;
                 const m = attMood(worked, shift), pct = Math.round(Math.min(1, worked / shift) * 100), id = userPreferences.emojiSet === 'none' ? '' : m.id;
                 ATT_PIP_VARS.forEach(k => b.style.setProperty('--att-' + k, cs.getPropertyValue('--att-' + k)));
-                b.style.setProperty('--tone', `var(--att-${m.tone})`);
+                b.style.setProperty('--tone', `var(--att-${m.tone})`); b.classList.toggle('biz', host.classList.contains('biz-theme'));
                 b.style.setProperty('--fill', m.kind === 'shift' ? 'var(--att-accent)' : 'var(--tone)');
                 if (id !== face) q('.mood').innerHTML = (face = id) && attIcon(id, '68%');
                 q('.time').textContent = (left < 0 ? '+' : '') + secondsToHHMMSS(Math.abs(left));

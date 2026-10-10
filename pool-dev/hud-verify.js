@@ -72,6 +72,8 @@ const vm = o => P.phModel(game(o));
     const lean0 = vm({ lean: 0 }).lean.label, lean100 = vm({ lean: 100 }).lean.label;
     ok('lean labels run 2°–31° across the slider', lean0 === '2°' && lean100 === '31°', lean0 + ' … ' + lean100);
 
+    const d0 = vm({ dragging: true, power: 0 });
+    ok('dragging in the dead zone (0%): "Release to cancel"', d0.hint.text === 'Release to cancel');
     const d = vm({ dragging: true, power: 62 });
     ok('dragging: "Release · 62%", the gauge lit', d.hint.text === 'Release · 62%' && d.hint.tone === 'power' && d.gauge.live && d.gauge.power === 62);
     const h = vm({ dragging: true, power: 90 });
@@ -137,7 +139,7 @@ const vm = o => P.phModel(game(o));
     ok('balls running: no hint, spin, gauge or lean', !mv.hint.show && !mv.spin.show && !mv.gauge.show && !mv.lean.show);
 
     const mx = vm({ layout: 'max', names: { 1: 'You', 2: 'CPU' } });
-    ok('Max: "2D TOP-DOWN" / "3D AIM", pill "Your shot · Solids"', mx.cam.label2d === '2D TOP-DOWN' && mx.cam.label3d === '3D AIM' && mx.pill.text === 'Your shot · Solids', mx.pill.text);
+    ok('Max: the short "2D" / "3D" (it sits on the rail), pill "Your shot · Solids"', mx.cam.label2d === '2D' && mx.cam.label3d === '3D' && mx.pill.text === 'Your shot · Solids', mx.pill.text);
     ok('Max: someone else\'s shot reads "Bilal\'s shot · Stripes"', vm({ layout: 'max', mode: 'pvp', frame: { turn: 2 } }).pill.text === "Bilal's shot · Stripes");
     ok('Max: YOU on your avatar, the CPU gets its chip', mx.cards[0].initials === 'YOU' && mx.cards[1].cpu);
     ok('initials: two words give two letters, one word its first two', P.phInitials('Player 1', 1) === 'P1' && P.phInitials('Ayesha Khan', 1) === 'AK' && P.phInitials('Bilal', 2) === 'BI' && P.phInitials('', 2) === 'P2');

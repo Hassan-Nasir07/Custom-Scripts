@@ -32,7 +32,9 @@
 
     const POOL_CLOCK_S = 30;                 // shot clock for human turns, in seconds
     const POOL_AIM_REACH = 240;              // px past the table's edge the aim keeps following
-    const POOL_DEAD_PX = 4;                  // power drag dead zone
+    // Power drag dead zone: this far either side of the press (behind the cue or in front of it)
+    // the power stays at 0%, and a release at 0% cancels, so a stroke is easy to call off.
+    const POOL_DEAD_PX = 14;
     const POOL_STRIKE_MS = 90;               // the cue's forward stroke before the ball launches
     const POOL_TOAST_MS = 2200;
     const POOL_POT_XP = 5;
@@ -918,10 +920,23 @@
             });
         }
         const gs = S.phase === 'bih' ? pcProject(v, [c.x, c.y, S.cfg.ballR]) : null;
+        // Top-down, the cloth is a rectangle: its edges (to the cushion line) and the corner
+        // pocket's reach on screen. The HUD puts its controls on the rails around it.
+        let rails = null;
+        if (pose.kind === 'ortho') {
+            const HL = S.cfg.halfLength + S.cfg.cushionWidth, HW = S.cfg.halfWidth + S.cfg.cushionWidth;
+            const a = pcProject(v, [-HL, -HW, 0]), b = pcProject(v, [HL, HW, 0]);
+            const ow = S.cfg.halfWidth + S.cfg.railWidth, oa = pcProject(v, [0, -ow, 0]), ob = pcProject(v, [0, ow, 0]);
+            const pk = (S.world.table.pockets || []).reduce((m, p) => Math.max(m, p.r || 0), 0);
+            if (a && b) rails = { top: Math.round(Math.min(a[1], b[1])), bottom: Math.round(S.H - Math.max(a[1], b[1])),
+                left: Math.round(Math.min(a[0], b[0])), right: Math.round(S.W - Math.max(a[0], b[0])), pocket: Math.round(pk * 2 * a[2]),
+                    // The empty band between the view's edge and the wood (the widget letterboxes 2D).
+                    bandTop: oa && ob ? Math.max(0, Math.round(Math.min(oa[1], ob[1]))) : 0, bandBottom: oa && ob ? Math.max(0, Math.round(S.H - Math.max(oa[1], ob[1]))) : 0 };
+        }
         // The other tab's turn reads as the CPU's does: its cue moves, yours stays down.
         const cpuTurn = poolCpuTurn() || poolRemoteTurn();
         phRender(S.hud, phModel({
-            layout: S.hud.layout, game: S.game, title: R.title, status: st, diffs: R.diffs, mode: poolMode, names: poolNames(), records: { 1: poolRecordText(1), 2: poolRecordText(2) },
+            layout: S.hud.layout, game: S.game, title: R.title, status: st, rails, diffs: R.diffs, mode: poolMode, names: poolNames(), records: { 1: poolRecordText(1), 2: poolRecordText(2) },
             frames: S.frames, trophies: S.wins,
             frame: S.frame, world: S.world, phase: S.phase, camera: userPreferences.poolCamera === '2d' ? '2d' : '3d',
             lean: poolLean(), power: S.power, dragging: !!(S.drag && S.drag.kind === 'power'), tip: S.tip, spinOpen: S.spinOpen, called: S.called,
@@ -1100,7 +1115,7 @@
             }
             return;
         }
-        if (S.power < 3) { S.power = 0; return; }
+        if (S.power <= 0) { S.power = 0; return; }
         S.phase = 'strike'; S.strikeT = 0;
     }
     function poolOnCancel() { if (poolS.drag && poolS.drag.kind === 'power') { poolS.drag = null; poolS.power = 0; } else poolOnUp(); }

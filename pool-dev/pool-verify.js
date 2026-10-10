@@ -330,6 +330,18 @@ function playFrame(P, maxTicks) {
     ok('the strike uses exactly that tip', strike && Math.abs(strike.tipX - want.x) < 1e-12 && Math.abs(strike.tipY - want.y) < 1e-12, strike && [strike.tipX, strike.tipY]);
     for (let i = 0; i < 4000 && (S.phase === 'moving' || S.phase === 'strike'); i++) P.poolTick(16);
     ok('the tip goes back to the centre for the next shot', S.tip.x === 0 && S.tip.y === 0 && !S.spinOpen);
+    // Power: a dead zone either side of the press (behind or in front of the cue) holds 0%,
+    // and a release at 0% calls the stroke off; anything above 0% plays.
+    S.phase = 'aim'; S.drag = { kind: 'power', x: 100, y: 100, ax: [0, -1], reach: 140 }; S.power = 0;
+    P.poolOnMove({ clientX: 0, clientY: 0, target: {}, shiftKey: false });
+    const inZone = S.power;
+    S.drag = { kind: 'power', x: 100, y: 100, ax: [0, -1], reach: 140 };
+    S.power = 0; P.poolOnUp();
+    ok('a release at 0% cancels the stroke', S.phase === 'aim' && S.power === 0);
+    S.drag = { kind: 'power', x: 100, y: 100, ax: [0, -1], reach: 140 }; S.power = 0.6; P.poolOnUp();
+    ok('…but any power above 0% plays (it used to need 3%)', S.phase === 'strike');
+    for (let i = 0; i < 4000 && (S.phase === 'moving' || S.phase === 'strike'); i++) P.poolTick(16);
+    ok('the dead zone is 14 px either way', P.POOL_DEAD_PX === 14 && inZone !== undefined);
     P.poolOn.camera('2d'); P.poolOn.lean(80);
     ok('the camera and lean are remembered in userPreferences', P.host.userPreferences.poolCamera === '2d' && P.host.userPreferences.poolLean === 80 && P.log.saves >= 1);
     P.host.userPreferences.poolShotCam = '3d';

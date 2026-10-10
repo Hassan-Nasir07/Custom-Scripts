@@ -1398,3 +1398,74 @@
                 .attendance-summary:not(.retro-theme) .pool-cue-pill { border-color: rgba(0, 0, 0, 0.14); background: rgba(0, 0, 0, 0.04); }
                 .attendance-summary:not(.retro-theme) .pool-cue-pill:hover { background: rgba(0, 0, 0, 0.08); }
             }
+
+            /* ── Table controls, compact ────────────────────────────────── */
+            /* Small enough to stay off the cloth: the 2D/3D switch and the shot pill top, spin and
+               the colour chips / hint bottom. Information (pill, hint) lets clicks through. */
+            .pool-hud .ph-view { --ctl: 24px; --ctl-max: 24px; }
+            .pool-hud[data-layout="max"] .ph-view { --ctl: 28px; --ctl-max: 28px; }
+            .pool-hud .ph-view .ph-cam, .pool-hud[data-layout="max"] .ph-view .ph-cam { top: 8px; left: 8px; gap: 2px; padding: 2px; border-radius: calc(var(--ctl) / 2); }
+            .pool-hud .ph-view .ph-cam button, .pool-hud[data-layout="max"] .ph-view .ph-cam button { height: calc(var(--ctl) - 4px); padding: 0 9px; gap: 4px; font-size: 11px; border-radius: calc(var(--ctl) / 2 - 2px); }
+            .pool-hud .ph-view .ph-pill, .pool-hud[data-layout="max"] .ph-view .ph-pill { top: 8px; right: 8px; height: var(--ctl); padding: 0 10px; gap: 6px; border-radius: calc(var(--ctl) / 2); font-size: 11px; pointer-events: none; }
+            .pool-hud .ph-view .ph-hint, .pool-hud[data-layout="max"] .ph-view .ph-hint { bottom: 8px; right: 8px; height: var(--ctl); padding: 0 10px; border-radius: calc(var(--ctl) / 2); font-size: 11px; pointer-events: none; }
+            .pool-hud .ph-view .ph-spin, .pool-hud[data-layout="max"] .ph-view .ph-spin { bottom: 8px; left: 8px; height: var(--ctl); padding: 0 10px 0 2px; gap: 6px; border-radius: calc(var(--ctl) / 2); }
+            .pool-hud .ph-view .ph-spin-ball, .pool-hud[data-layout="max"] .ph-view .ph-spin-ball { width: calc(var(--ctl) - 4px); height: calc(var(--ctl) - 4px); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+            .pool-hud .ph-view .ph-spin-dot, .pool-hud[data-layout="max"] .ph-view .ph-spin .ph-spin-dot { width: 6px; height: 6px; margin: -3px 0 0 -3px; box-shadow: 0 0 0 1px rgba(210, 53, 43, 0.3); }
+            .pool-hud .ph-view .ph-spin-l { display: none; }
+            .pool-hud .ph-view .ph-spin-v, .pool-hud[data-layout="max"] .ph-view .ph-spin-v { font-size: 11px; }
+            .pool-hud .ph-view .ph-spinpop, .pool-hud[data-layout="max"] .ph-view .ph-spinpop { bottom: calc(var(--ctl) + 16px); }
+            .pool-hud .ph-view .ph-replace, .pool-hud[data-layout="max"] .ph-view .ph-replace { bottom: calc(var(--ctl) + 14px); height: var(--ctl); padding: 0 10px; font-size: 11px; border-radius: calc(var(--ctl) / 2); }
+            .pool-hud[data-layout="max"] .ph-view .ph-mini { right: 8px; bottom: 8px; transform: none; }
+            /* Snooker's colour chips: one row of small balls, the caption beside them. */
+            .pool-hud .ph-view .ph-chips, .pool-hud[data-layout="max"] .ph-view .ph-chips { right: 8px; bottom: 8px; width: max-content; flex-direction: row; align-items: center; gap: 6px; padding: 2px 10px 2px 3px; border-radius: calc(var(--ctl) / 2 + 2px); }
+            .pool-hud .ph-view .ph-chips-grid { display: flex; gap: 2px; grid-auto-rows: auto; }
+            .pool-hud .ph-view .ph-chip, .pool-hud .ph-view .ph-chips[data-fold] .ph-chip { width: var(--ctl); height: var(--ctl); }
+            .pool-hud .ph-view .ph-chip span { width: calc(var(--ctl) - 4px); height: calc(var(--ctl) - 4px); font-size: 10px; }
+            .pool-hud .ph-view .ph-chip[aria-checked="true"] span { box-shadow: 0 0 0 1px var(--pool-overlay-strong), 0 0 0 2px var(--pool-accent); }
+            .pool-hud .ph-view .ph-chips-cap { font-size: 11px; }
+            .pool-hud .ph-view .ph-chips[data-fold] { padding: 2px 10px 2px 3px; }
+            /* Max too sits in the corners (its quarter-way placement was for the tall controls). */
+            .pool-hud[data-layout="max"] .ph-view .ph-cam, .pool-hud[data-layout="max"] .ph-view .ph-spin { right: auto; transform: none; }
+            .pool-hud[data-layout="max"] .ph-view .ph-spinpop { left: 8px; right: auto; transform: none; }
+            .pool-hud[data-layout="max"] .ph-view .ph-pill, .pool-hud[data-layout="max"] .ph-view .ph-hint,
+            .pool-hud[data-layout="max"] .ph-view .ph-mini, .pool-hud[data-layout="max"] .ph-view .ph-chips { left: auto; transform: none; }
+            /* Move cue ball, 3D: above the hint, or above spin while the call card or chips hold that corner. */
+            .pool-hud[data-layout="max"]:not([data-bars]) .ph-view .ph-replace { left: auto; right: 8px; transform: none; bottom: calc(var(--ctl) + 16px); }
+            .pool-hud[data-layout="max"]:not([data-bars]) .ph-view:is(.is-calling, .is-nominating) .ph-replace { left: 8px; right: auto; transform: none; }
+            /* The narrow column: tighter, so the switch and the pill don't meet. */
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .ph-view .ph-cam button { padding: 0 7px; }
+                .pool-hud .ph-view .ph-pill { padding: 0 8px; gap: 5px; }
+            }
+            /* The gauge and Move cue ball no longer need to step over a tall card. */
+            .pool-hud[data-layout="compact"] .ph-view.is-nominating:not(.is-nomfold) .ph-gauge { bottom: 82px; height: min(140px, calc(100% - 232px)); }
+            .pool-hud[data-layout="compact"] .ph-view.is-nominating:not(.is-nomfold) .ph-lock { bottom: calc(86px + min(140px, calc(100% - 232px))); }
+
+            /* 2D: on the rails. phRender sets --rail-top/bottom/left/right (the cloth's edges, px
+               from each side) and --rail-pocket; each control takes the rail's height (18 to 28 px),
+               centred on it, and starts a pocket's width past the corner pocket. */
+            .pool-hud:not([data-bars]) .ph-view.is-rails { --ctl-t: clamp(18px, calc(var(--rail-top) - 6px), var(--ctl-max)); --ctl-b: clamp(18px, calc(var(--rail-bottom) - 6px), var(--ctl-max)); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails .ph-cam { --ctl: var(--ctl-t); top: max(2px, calc((var(--rail-top) - var(--ctl-t)) / 2)); left: calc(var(--rail-left) + var(--rail-pocket) + 6px); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails .ph-pill { --ctl: var(--ctl-t); top: max(2px, calc((var(--rail-top) - var(--ctl-t)) / 2)); right: calc(var(--rail-right) + var(--rail-pocket) + 6px); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails .ph-spin { --ctl: var(--ctl-b); bottom: max(2px, calc((var(--rail-bottom) - var(--ctl-b)) / 2)); left: calc(var(--rail-left) + var(--rail-pocket) + 6px); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails .ph-hint, .pool-hud:not([data-bars]) .ph-view.is-rails .ph-chips, .pool-hud:not([data-bars]) .ph-view.is-rails .ph-mini { --ctl: var(--ctl-b); bottom: max(2px, calc((var(--rail-bottom) - var(--ctl-b)) / 2)); right: calc(var(--rail-right) + var(--rail-pocket) + 6px); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails .ph-replace { --ctl: var(--ctl-b); bottom: max(2px, calc((var(--rail-bottom) - var(--ctl-b)) / 2)); left: auto; right: calc(50% + var(--rail-pocket) / 2 + 8px); transform: none; }
+            /* A letterboxed table (the widget's 2D): the band past the wood takes them, in its corners. */
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-t .ph-cam, .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-t .ph-pill { --ctl: var(--ctl-max); top: calc((var(--rail-band-top) - var(--ctl-max)) / 2); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-t .ph-cam { left: 8px; }
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-t .ph-pill { right: 8px; }
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-spin, .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-hint,
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-chips, .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-mini { --ctl: var(--ctl-max); bottom: calc((var(--rail-band-bottom) - var(--ctl-max)) / 2); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-spin, .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-spinpop { left: 8px; }
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-hint, .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-chips,
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-mini { right: 8px; }
+            /* Move cue ball on the rail, ending short of the middle pocket; in a band, centred in it,
+               or above spin while the colour chips take the band's width. */
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-replace { --ctl: var(--ctl-max); bottom: calc((var(--rail-band-bottom) - var(--ctl-max)) / 2); left: 50%; right: auto; transform: translateX(-50%); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b.is-nominating .ph-replace { left: 8px; transform: none; bottom: calc((var(--rail-band-bottom) - var(--ctl-max)) / 2 + var(--ctl-max) + 6px); }
+            /* The widget's table is narrow between the pockets: "2D" alone, and the pill already
+               asks for a colour, so the open chips drop their caption. */
+            .pool-hud[data-layout="compact"] .ph-cam-more { display: none; }
+            .pool-hud[data-layout="compact"] .ph-view.is-rails:not(.is-band-b) .ph-chips:not([data-fold]) .ph-chips-cap { display: none; }
+            .pool-hud[data-layout="compact"] .ph-view.is-rails:not(.is-band-b) .ph-chips:not([data-fold]) { padding: 2px 3px; }
+            .pool-hud:not([data-bars]) .ph-view.is-rails .ph-spinpop { left: calc(var(--rail-left) + var(--rail-pocket) + 6px); bottom: calc(var(--rail-bottom) + 6px); }

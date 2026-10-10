@@ -6275,6 +6275,7 @@
     //   primaryLabel,                overrides the frame-over dialog's first button
     //   reactOpen,                   online: the React tray is open (net.said: { 1, 2 } each seat's bubble)
     //   start: { label, sub } | null  Vs CPU: PLAY (or RESUME) over the table until pressed
+    //   rails: { top, bottom, left, right, pocket, bandTop, bandBottom } | null   2D: the controls sit on the rails (or in the empty band past them)
     //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
     //   secondaryLabel,              overrides the frame-over dialog's second button
     //   result: { win, title, reason, recordLabel, record, delta, note, stats? } | null,
@@ -6350,7 +6351,8 @@
             hint = { text: (g.names[g.frame.turn] || 'CPU') + ' is aiming', tone: '' };
         } else if (aiming) {
             const pw = Math.round(g.power || 0);
-            if (g.dragging) hint = { text: 'Release · ' + pw + '%', tone: pw >= PH_POWER_HOT ? 'hot' : 'power' };
+            // Inside the dead zone (0%) a release calls the stroke off, and it says so.
+            if (g.dragging) hint = { text: pw > 0 ? 'Release · ' + pw + '%' : 'Release to cancel', tone: pw >= PH_POWER_HOT ? 'hot' : 'power' };
             else if (callNeeded) hint = { text: 'Tap a pocket', tone: 'call' };
             else if (st.callRequired && g.called >= 0) hint = { text: PH_POCKETS[g.called] + ' called', tone: '' };
             else hint = { text: 'Drag for power', tone: '' };
@@ -6360,7 +6362,7 @@
         // call, so the caption says what comes next. It steps aside for the spin picker.
         const card = aiming && st.callRequired && g.camera === '3d' && !g.cpuTurn && !g.handoff && !toast && !pickerOpen && !sheetOpen;
         const pwr = Math.round(g.power || 0);
-        const cardCap = g.dragging ? { text: 'Release · ' + pwr + '%', tone: pwr >= PH_POWER_HOT ? 'hot' : 'power' }
+        const cardCap = g.dragging ? { text: pwr > 0 ? 'Release · ' + pwr + '%' : 'Release to cancel', tone: pwr >= PH_POWER_HOT ? 'hot' : 'power' }
             : callNeeded ? { text: 'Tap a pocket', tone: 'call' } : { text: 'Drag to shoot', tone: '' };
 
         const spin = g.tip ? phClampTip(g.tip.x, g.tip.y)
@@ -6378,8 +6380,9 @@
             trophies: g.trophies || 0,
             cam: {
                 show: !toast, is3d,
-                label2d: max ? '2D TOP-DOWN' : bih ? '2D · AUTO' : '2D',
-                label3d: max ? '3D AIM' : '3D',
+                // Short, so the switch fits on the rail (2D) or in a corner (3D).
+                label2d: bih ? '2D · AUTO' : '2D',
+                label3d: '3D',
             },
             pill: { show: !toast && !over, text: pill },
             toast: toast ? { show: true, foul: toast.kind === 'foul', title: toast.title, sub: toast.sub, icon: toast.icon || '', choices: [], chooser: '' } : { show: false, choices: [] },
@@ -6437,6 +6440,8 @@
             // Online: the React button and tray, and what each seat just said (a bubble under its card).
             react: { show: !!(g.net && g.net.inRoom) && !over, open: !!(g.net && g.net.inRoom && g.reactOpen) && !over },
             start: g.start && !over ? { show: true, label: g.start.label, sub: g.start.sub } : { show: false },
+            // 2D: the cloth's edges on screen (px from each side) and the corner pocket's size.
+            rails: g.rails || null,
             said: [1, 2].map(seat => (g.net && g.net.inRoom && g.net.said && g.net.said[seat]) || ''),
             cueName: g.cueName || 'Standard', cues: g.cues || null,
             cueNew: g.cueNew && !sheetOpen && !toast && !phInvite(g.net, sheetOpen).show ? g.cueNew : null,
@@ -6536,7 +6541,7 @@
             show: true, folded,
             label: folded ? (st.freeBall ? 'Free ball: the ' : 'Nominated: the ') + phSnkName(nom) + '. Press it to change' : st.freeBall ? 'Nominate the free ball' : 'Nominate a colour',
             items: PH_SNK.map(b => ({ id: b.id, name: b.name, live: (on.nominable || []).indexOf(b.id) >= 0, checked: nom === b.id })),
-            caption: nom < 0 ? 'Tap a colour' : g.dragging ? 'Release · ' + pw + '%' : callNeeded ? 'Tap a pocket' : 'Drag to shoot',
+            caption: nom < 0 ? 'Tap a colour' : g.dragging ? (pw > 0 ? 'Release · ' + pw + '%' : 'Release to cancel') : callNeeded ? 'Tap a pocket' : 'Drag to shoot',
             tone: nom < 0 ? '' : g.dragging ? (pw >= PH_POWER_HOT ? 'hot' : 'power') : callNeeded ? 'call' : 'set',
             // With a call to make, the folded chips carry the pocket map in 3D (2D taps the table).
             pad: folded && !!st.callRequired && g.camera === '3d', called: g.called >= 0 ? g.called : -1,
@@ -7244,6 +7249,18 @@
         // In a tournament match: Bracket / Pause in place of the mode and Reset.
         // Online: no Reset (a rack is the room's), the mode button leads to the Online tab.
         s('foot.tour', vm.foot.tour + '|' + !!vm.foot.net, () => { const v = vm.foot.tour; phShow(hud.mode, !v); phShow(hud.reset, !v && !vm.foot.net); phShow(hud.bracket, v); phShow(hud.pause, v); if (hud.trophy) phShow(hud.trophy, !v); });
+        // 2D: the controls move onto the rails, sized to them (pool-theme.css, .is-rails).
+        const rl = vm.rails;
+        // A band of 36 px or more past the wood takes them instead, in its corners.
+        s('rails', rl ? [rl.top, rl.bottom, rl.left, rl.right, rl.pocket, rl.bandTop, rl.bandBottom].join() : '', () => {
+            hud.view.classList.toggle('is-rails', !!rl);
+            hud.view.classList.toggle('is-band-t', !!rl && rl.bandTop >= 36);
+            hud.view.classList.toggle('is-band-b', !!rl && rl.bandBottom >= 36);
+            ['top', 'bottom', 'left', 'right', 'pocket', 'bandTop', 'bandBottom'].forEach(k => {
+                const p = '--rail-' + k.replace(/[A-Z]/, c => '-' + c.toLowerCase());
+                if (rl) hud.view.style.setProperty(p, (rl[k] || 0) + 'px'); else hud.view.style.removeProperty(p);
+            });
+        });
         const st = vm.start || { show: false };
         s('start.show', !!st.show, v => phShow(hud.start, v));
         if (st.show) {
@@ -9033,7 +9050,9 @@
 
     const POOL_CLOCK_S = 30;                 // shot clock for human turns, in seconds
     const POOL_AIM_REACH = 240;              // px past the table's edge the aim keeps following
-    const POOL_DEAD_PX = 4;                  // power drag dead zone
+    // Power drag dead zone: this far either side of the press (behind the cue or in front of it)
+    // the power stays at 0%, and a release at 0% cancels, so a stroke is easy to call off.
+    const POOL_DEAD_PX = 14;
     const POOL_STRIKE_MS = 90;               // the cue's forward stroke before the ball launches
     const POOL_TOAST_MS = 2200;
     const POOL_POT_XP = 5;
@@ -9919,10 +9938,23 @@
             });
         }
         const gs = S.phase === 'bih' ? pcProject(v, [c.x, c.y, S.cfg.ballR]) : null;
+        // Top-down, the cloth is a rectangle: its edges (to the cushion line) and the corner
+        // pocket's reach on screen. The HUD puts its controls on the rails around it.
+        let rails = null;
+        if (pose.kind === 'ortho') {
+            const HL = S.cfg.halfLength + S.cfg.cushionWidth, HW = S.cfg.halfWidth + S.cfg.cushionWidth;
+            const a = pcProject(v, [-HL, -HW, 0]), b = pcProject(v, [HL, HW, 0]);
+            const ow = S.cfg.halfWidth + S.cfg.railWidth, oa = pcProject(v, [0, -ow, 0]), ob = pcProject(v, [0, ow, 0]);
+            const pk = (S.world.table.pockets || []).reduce((m, p) => Math.max(m, p.r || 0), 0);
+            if (a && b) rails = { top: Math.round(Math.min(a[1], b[1])), bottom: Math.round(S.H - Math.max(a[1], b[1])),
+                left: Math.round(Math.min(a[0], b[0])), right: Math.round(S.W - Math.max(a[0], b[0])), pocket: Math.round(pk * 2 * a[2]),
+                    // The empty band between the view's edge and the wood (the widget letterboxes 2D).
+                    bandTop: oa && ob ? Math.max(0, Math.round(Math.min(oa[1], ob[1]))) : 0, bandBottom: oa && ob ? Math.max(0, Math.round(S.H - Math.max(oa[1], ob[1]))) : 0 };
+        }
         // The other tab's turn reads as the CPU's does: its cue moves, yours stays down.
         const cpuTurn = poolCpuTurn() || poolRemoteTurn();
         phRender(S.hud, phModel({
-            layout: S.hud.layout, game: S.game, title: R.title, status: st, diffs: R.diffs, mode: poolMode, names: poolNames(), records: { 1: poolRecordText(1), 2: poolRecordText(2) },
+            layout: S.hud.layout, game: S.game, title: R.title, status: st, rails, diffs: R.diffs, mode: poolMode, names: poolNames(), records: { 1: poolRecordText(1), 2: poolRecordText(2) },
             frames: S.frames, trophies: S.wins,
             frame: S.frame, world: S.world, phase: S.phase, camera: userPreferences.poolCamera === '2d' ? '2d' : '3d',
             lean: poolLean(), power: S.power, dragging: !!(S.drag && S.drag.kind === 'power'), tip: S.tip, spinOpen: S.spinOpen, called: S.called,
@@ -10101,7 +10133,7 @@
             }
             return;
         }
-        if (S.power < 3) { S.power = 0; return; }
+        if (S.power <= 0) { S.power = 0; return; }
         S.phase = 'strike'; S.strikeT = 0;
     }
     function poolOnCancel() { if (poolS.drag && poolS.drag.kind === 'power') { poolS.drag = null; poolS.power = 0; } else poolOnUp(); }
@@ -22002,6 +22034,77 @@
                 .attendance-summary:not(.retro-theme) .pool-cue-pill { border-color: rgba(0, 0, 0, 0.14); background: rgba(0, 0, 0, 0.04); }
                 .attendance-summary:not(.retro-theme) .pool-cue-pill:hover { background: rgba(0, 0, 0, 0.08); }
             }
+
+            /* ── Table controls, compact ────────────────────────────────── */
+            /* Small enough to stay off the cloth: the 2D/3D switch and the shot pill top, spin and
+               the colour chips / hint bottom. Information (pill, hint) lets clicks through. */
+            .pool-hud .ph-view { --ctl: 24px; --ctl-max: 24px; }
+            .pool-hud[data-layout="max"] .ph-view { --ctl: 28px; --ctl-max: 28px; }
+            .pool-hud .ph-view .ph-cam, .pool-hud[data-layout="max"] .ph-view .ph-cam { top: 8px; left: 8px; gap: 2px; padding: 2px; border-radius: calc(var(--ctl) / 2); }
+            .pool-hud .ph-view .ph-cam button, .pool-hud[data-layout="max"] .ph-view .ph-cam button { height: calc(var(--ctl) - 4px); padding: 0 9px; gap: 4px; font-size: 11px; border-radius: calc(var(--ctl) / 2 - 2px); }
+            .pool-hud .ph-view .ph-pill, .pool-hud[data-layout="max"] .ph-view .ph-pill { top: 8px; right: 8px; height: var(--ctl); padding: 0 10px; gap: 6px; border-radius: calc(var(--ctl) / 2); font-size: 11px; pointer-events: none; }
+            .pool-hud .ph-view .ph-hint, .pool-hud[data-layout="max"] .ph-view .ph-hint { bottom: 8px; right: 8px; height: var(--ctl); padding: 0 10px; border-radius: calc(var(--ctl) / 2); font-size: 11px; pointer-events: none; }
+            .pool-hud .ph-view .ph-spin, .pool-hud[data-layout="max"] .ph-view .ph-spin { bottom: 8px; left: 8px; height: var(--ctl); padding: 0 10px 0 2px; gap: 6px; border-radius: calc(var(--ctl) / 2); }
+            .pool-hud .ph-view .ph-spin-ball, .pool-hud[data-layout="max"] .ph-view .ph-spin-ball { width: calc(var(--ctl) - 4px); height: calc(var(--ctl) - 4px); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+            .pool-hud .ph-view .ph-spin-dot, .pool-hud[data-layout="max"] .ph-view .ph-spin .ph-spin-dot { width: 6px; height: 6px; margin: -3px 0 0 -3px; box-shadow: 0 0 0 1px rgba(210, 53, 43, 0.3); }
+            .pool-hud .ph-view .ph-spin-l { display: none; }
+            .pool-hud .ph-view .ph-spin-v, .pool-hud[data-layout="max"] .ph-view .ph-spin-v { font-size: 11px; }
+            .pool-hud .ph-view .ph-spinpop, .pool-hud[data-layout="max"] .ph-view .ph-spinpop { bottom: calc(var(--ctl) + 16px); }
+            .pool-hud .ph-view .ph-replace, .pool-hud[data-layout="max"] .ph-view .ph-replace { bottom: calc(var(--ctl) + 14px); height: var(--ctl); padding: 0 10px; font-size: 11px; border-radius: calc(var(--ctl) / 2); }
+            .pool-hud[data-layout="max"] .ph-view .ph-mini { right: 8px; bottom: 8px; transform: none; }
+            /* Snooker's colour chips: one row of small balls, the caption beside them. */
+            .pool-hud .ph-view .ph-chips, .pool-hud[data-layout="max"] .ph-view .ph-chips { right: 8px; bottom: 8px; width: max-content; flex-direction: row; align-items: center; gap: 6px; padding: 2px 10px 2px 3px; border-radius: calc(var(--ctl) / 2 + 2px); }
+            .pool-hud .ph-view .ph-chips-grid { display: flex; gap: 2px; grid-auto-rows: auto; }
+            .pool-hud .ph-view .ph-chip, .pool-hud .ph-view .ph-chips[data-fold] .ph-chip { width: var(--ctl); height: var(--ctl); }
+            .pool-hud .ph-view .ph-chip span { width: calc(var(--ctl) - 4px); height: calc(var(--ctl) - 4px); font-size: 10px; }
+            .pool-hud .ph-view .ph-chip[aria-checked="true"] span { box-shadow: 0 0 0 1px var(--pool-overlay-strong), 0 0 0 2px var(--pool-accent); }
+            .pool-hud .ph-view .ph-chips-cap { font-size: 11px; }
+            .pool-hud .ph-view .ph-chips[data-fold] { padding: 2px 10px 2px 3px; }
+            /* Max too sits in the corners (its quarter-way placement was for the tall controls). */
+            .pool-hud[data-layout="max"] .ph-view .ph-cam, .pool-hud[data-layout="max"] .ph-view .ph-spin { right: auto; transform: none; }
+            .pool-hud[data-layout="max"] .ph-view .ph-spinpop { left: 8px; right: auto; transform: none; }
+            .pool-hud[data-layout="max"] .ph-view .ph-pill, .pool-hud[data-layout="max"] .ph-view .ph-hint,
+            .pool-hud[data-layout="max"] .ph-view .ph-mini, .pool-hud[data-layout="max"] .ph-view .ph-chips { left: auto; transform: none; }
+            /* Move cue ball, 3D: above the hint, or above spin while the call card or chips hold that corner. */
+            .pool-hud[data-layout="max"]:not([data-bars]) .ph-view .ph-replace { left: auto; right: 8px; transform: none; bottom: calc(var(--ctl) + 16px); }
+            .pool-hud[data-layout="max"]:not([data-bars]) .ph-view:is(.is-calling, .is-nominating) .ph-replace { left: 8px; right: auto; transform: none; }
+            /* The narrow column: tighter, so the switch and the pill don't meet. */
+            @container pool-hud (max-width: 359px) {
+                .pool-hud .ph-view .ph-cam button { padding: 0 7px; }
+                .pool-hud .ph-view .ph-pill { padding: 0 8px; gap: 5px; }
+            }
+            /* The gauge and Move cue ball no longer need to step over a tall card. */
+            .pool-hud[data-layout="compact"] .ph-view.is-nominating:not(.is-nomfold) .ph-gauge { bottom: 82px; height: min(140px, calc(100% - 232px)); }
+            .pool-hud[data-layout="compact"] .ph-view.is-nominating:not(.is-nomfold) .ph-lock { bottom: calc(86px + min(140px, calc(100% - 232px))); }
+
+            /* 2D: on the rails. phRender sets --rail-top/bottom/left/right (the cloth's edges, px
+               from each side) and --rail-pocket; each control takes the rail's height (18 to 28 px),
+               centred on it, and starts a pocket's width past the corner pocket. */
+            .pool-hud:not([data-bars]) .ph-view.is-rails { --ctl-t: clamp(18px, calc(var(--rail-top) - 6px), var(--ctl-max)); --ctl-b: clamp(18px, calc(var(--rail-bottom) - 6px), var(--ctl-max)); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails .ph-cam { --ctl: var(--ctl-t); top: max(2px, calc((var(--rail-top) - var(--ctl-t)) / 2)); left: calc(var(--rail-left) + var(--rail-pocket) + 6px); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails .ph-pill { --ctl: var(--ctl-t); top: max(2px, calc((var(--rail-top) - var(--ctl-t)) / 2)); right: calc(var(--rail-right) + var(--rail-pocket) + 6px); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails .ph-spin { --ctl: var(--ctl-b); bottom: max(2px, calc((var(--rail-bottom) - var(--ctl-b)) / 2)); left: calc(var(--rail-left) + var(--rail-pocket) + 6px); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails .ph-hint, .pool-hud:not([data-bars]) .ph-view.is-rails .ph-chips, .pool-hud:not([data-bars]) .ph-view.is-rails .ph-mini { --ctl: var(--ctl-b); bottom: max(2px, calc((var(--rail-bottom) - var(--ctl-b)) / 2)); right: calc(var(--rail-right) + var(--rail-pocket) + 6px); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails .ph-replace { --ctl: var(--ctl-b); bottom: max(2px, calc((var(--rail-bottom) - var(--ctl-b)) / 2)); left: auto; right: calc(50% + var(--rail-pocket) / 2 + 8px); transform: none; }
+            /* A letterboxed table (the widget's 2D): the band past the wood takes them, in its corners. */
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-t .ph-cam, .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-t .ph-pill { --ctl: var(--ctl-max); top: calc((var(--rail-band-top) - var(--ctl-max)) / 2); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-t .ph-cam { left: 8px; }
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-t .ph-pill { right: 8px; }
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-spin, .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-hint,
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-chips, .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-mini { --ctl: var(--ctl-max); bottom: calc((var(--rail-band-bottom) - var(--ctl-max)) / 2); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-spin, .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-spinpop { left: 8px; }
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-hint, .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-chips,
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-mini { right: 8px; }
+            /* Move cue ball on the rail, ending short of the middle pocket; in a band, centred in it,
+               or above spin while the colour chips take the band's width. */
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b .ph-replace { --ctl: var(--ctl-max); bottom: calc((var(--rail-band-bottom) - var(--ctl-max)) / 2); left: 50%; right: auto; transform: translateX(-50%); }
+            .pool-hud:not([data-bars]) .ph-view.is-rails.is-band-b.is-nominating .ph-replace { left: 8px; transform: none; bottom: calc((var(--rail-band-bottom) - var(--ctl-max)) / 2 + var(--ctl-max) + 6px); }
+            /* The widget's table is narrow between the pockets: "2D" alone, and the pill already
+               asks for a colour, so the open chips drop their caption. */
+            .pool-hud[data-layout="compact"] .ph-cam-more { display: none; }
+            .pool-hud[data-layout="compact"] .ph-view.is-rails:not(.is-band-b) .ph-chips:not([data-fold]) .ph-chips-cap { display: none; }
+            .pool-hud[data-layout="compact"] .ph-view.is-rails:not(.is-band-b) .ph-chips:not([data-fold]) { padding: 2px 3px; }
+            .pool-hud:not([data-bars]) .ph-view.is-rails .ph-spinpop { left: calc(var(--rail-left) + var(--rail-pocket) + 6px); bottom: calc(var(--rail-bottom) + 6px); }
             /* ═══ END POOL THEME ═══ */
 
             .snake-game-container {

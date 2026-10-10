@@ -104,6 +104,7 @@
     //   primaryLabel,                overrides the frame-over dialog's first button
     //   reactOpen,                   online: the React tray is open (net.said: { 1, 2 } each seat's bubble)
     //   start: { label, sub } | null  Vs CPU: PLAY (or RESUME) over the table until pressed
+    //   rails: { top, bottom, left, right, pocket, bandTop, bandBottom } | null   2D: the controls sit on the rails (or in the empty band past them)
     //   adaptiveTier,                the tier adaptive would play now (the NOW chip)
     //   secondaryLabel,              overrides the frame-over dialog's second button
     //   result: { win, title, reason, recordLabel, record, delta, note, stats? } | null,
@@ -179,7 +180,8 @@
             hint = { text: (g.names[g.frame.turn] || 'CPU') + ' is aiming', tone: '' };
         } else if (aiming) {
             const pw = Math.round(g.power || 0);
-            if (g.dragging) hint = { text: 'Release · ' + pw + '%', tone: pw >= PH_POWER_HOT ? 'hot' : 'power' };
+            // Inside the dead zone (0%) a release calls the stroke off, and it says so.
+            if (g.dragging) hint = { text: pw > 0 ? 'Release · ' + pw + '%' : 'Release to cancel', tone: pw >= PH_POWER_HOT ? 'hot' : 'power' };
             else if (callNeeded) hint = { text: 'Tap a pocket', tone: 'call' };
             else if (st.callRequired && g.called >= 0) hint = { text: PH_POCKETS[g.called] + ' called', tone: '' };
             else hint = { text: 'Drag for power', tone: '' };
@@ -189,7 +191,7 @@
         // call, so the caption says what comes next. It steps aside for the spin picker.
         const card = aiming && st.callRequired && g.camera === '3d' && !g.cpuTurn && !g.handoff && !toast && !pickerOpen && !sheetOpen;
         const pwr = Math.round(g.power || 0);
-        const cardCap = g.dragging ? { text: 'Release · ' + pwr + '%', tone: pwr >= PH_POWER_HOT ? 'hot' : 'power' }
+        const cardCap = g.dragging ? { text: pwr > 0 ? 'Release · ' + pwr + '%' : 'Release to cancel', tone: pwr >= PH_POWER_HOT ? 'hot' : 'power' }
             : callNeeded ? { text: 'Tap a pocket', tone: 'call' } : { text: 'Drag to shoot', tone: '' };
 
         const spin = g.tip ? phClampTip(g.tip.x, g.tip.y)
@@ -207,8 +209,9 @@
             trophies: g.trophies || 0,
             cam: {
                 show: !toast, is3d,
-                label2d: max ? '2D TOP-DOWN' : bih ? '2D · AUTO' : '2D',
-                label3d: max ? '3D AIM' : '3D',
+                // Short, so the switch fits on the rail (2D) or in a corner (3D).
+                label2d: bih ? '2D · AUTO' : '2D',
+                label3d: '3D',
             },
             pill: { show: !toast && !over, text: pill },
             toast: toast ? { show: true, foul: toast.kind === 'foul', title: toast.title, sub: toast.sub, icon: toast.icon || '', choices: [], chooser: '' } : { show: false, choices: [] },
@@ -266,6 +269,8 @@
             // Online: the React button and tray, and what each seat just said (a bubble under its card).
             react: { show: !!(g.net && g.net.inRoom) && !over, open: !!(g.net && g.net.inRoom && g.reactOpen) && !over },
             start: g.start && !over ? { show: true, label: g.start.label, sub: g.start.sub } : { show: false },
+            // 2D: the cloth's edges on screen (px from each side) and the corner pocket's size.
+            rails: g.rails || null,
             said: [1, 2].map(seat => (g.net && g.net.inRoom && g.net.said && g.net.said[seat]) || ''),
             cueName: g.cueName || 'Standard', cues: g.cues || null,
             cueNew: g.cueNew && !sheetOpen && !toast && !phInvite(g.net, sheetOpen).show ? g.cueNew : null,
@@ -365,7 +370,7 @@
             show: true, folded,
             label: folded ? (st.freeBall ? 'Free ball: the ' : 'Nominated: the ') + phSnkName(nom) + '. Press it to change' : st.freeBall ? 'Nominate the free ball' : 'Nominate a colour',
             items: PH_SNK.map(b => ({ id: b.id, name: b.name, live: (on.nominable || []).indexOf(b.id) >= 0, checked: nom === b.id })),
-            caption: nom < 0 ? 'Tap a colour' : g.dragging ? 'Release · ' + pw + '%' : callNeeded ? 'Tap a pocket' : 'Drag to shoot',
+            caption: nom < 0 ? 'Tap a colour' : g.dragging ? (pw > 0 ? 'Release · ' + pw + '%' : 'Release to cancel') : callNeeded ? 'Tap a pocket' : 'Drag to shoot',
             tone: nom < 0 ? '' : g.dragging ? (pw >= PH_POWER_HOT ? 'hot' : 'power') : callNeeded ? 'call' : 'set',
             // With a call to make, the folded chips carry the pocket map in 3D (2D taps the table).
             pad: folded && !!st.callRequired && g.camera === '3d', called: g.called >= 0 ? g.called : -1,
@@ -1073,6 +1078,18 @@
         // In a tournament match: Bracket / Pause in place of the mode and Reset.
         // Online: no Reset (a rack is the room's), the mode button leads to the Online tab.
         s('foot.tour', vm.foot.tour + '|' + !!vm.foot.net, () => { const v = vm.foot.tour; phShow(hud.mode, !v); phShow(hud.reset, !v && !vm.foot.net); phShow(hud.bracket, v); phShow(hud.pause, v); if (hud.trophy) phShow(hud.trophy, !v); });
+        // 2D: the controls move onto the rails, sized to them (pool-theme.css, .is-rails).
+        const rl = vm.rails;
+        // A band of 36 px or more past the wood takes them instead, in its corners.
+        s('rails', rl ? [rl.top, rl.bottom, rl.left, rl.right, rl.pocket, rl.bandTop, rl.bandBottom].join() : '', () => {
+            hud.view.classList.toggle('is-rails', !!rl);
+            hud.view.classList.toggle('is-band-t', !!rl && rl.bandTop >= 36);
+            hud.view.classList.toggle('is-band-b', !!rl && rl.bandBottom >= 36);
+            ['top', 'bottom', 'left', 'right', 'pocket', 'bandTop', 'bandBottom'].forEach(k => {
+                const p = '--rail-' + k.replace(/[A-Z]/, c => '-' + c.toLowerCase());
+                if (rl) hud.view.style.setProperty(p, (rl[k] || 0) + 'px'); else hud.view.style.removeProperty(p);
+            });
+        });
         const st = vm.start || { show: false };
         s('start.show', !!st.show, v => phShow(hud.start, v));
         if (st.show) {

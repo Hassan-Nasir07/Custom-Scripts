@@ -475,6 +475,8 @@ function toggleGameMaxModal(cfg) {
     if (S.game === 'snooker') { if (SNK_SCENES[sc]) snkScene(sc); }
     else if (sc !== 'rack' && sc !== 'break') scene(sc);
     if (S.game === 'pool' && sc === 'rack' && still && !Q.has('bihbreak')) { S.phase = 'aim'; S.aim = 0; }
+    // Design scenes show the table in play: the Vs CPU PLAY gate only with ?play=1.
+    if (!Q.has('play')) S.awaitStart = null;
     // ?pot=0..5 (snooker): the ball on (the colour nominated, else a red) ?od u (110) out from that
     // pocket (Top left, Top side, Top right, Bottom left, Bottom side, Bottom right) and the
     // cue ball ?cd u (260) behind it, ?cut degrees off the line, aimed at the pot; balls in the
@@ -746,7 +748,8 @@ function toggleGameMaxModal(cfg) {
                 ok('the chips sit on the table', cr.left >= vr.left - 1 && cr.right <= vr.right + 1 && cr.top >= vr.top - 1 && cr.bottom <= vr.bottom + 1);
                 const clash = ['gauge', 'lock', 'spin', 'hint', 'replace', 'pill', 'lean'].filter(n => hud[n] && visible(hud[n]) && hit(hud.chips, hud[n]));
                 ok('the chips clear the gauge, padlock, spin, hint and Move cue ball', !clash.length, clash.join());
-                ok('every chip is a 44 px target', hud.chipButtons.filter(visible).every(b => b.getBoundingClientRect().height >= 43.5));
+                // Compact by request (they sit on the rail): no smaller than the rail's 18 px.
+                ok('every chip is at least 18 px', hud.chipButtons.filter(visible).every(b => b.getBoundingClientRect().height >= 17.5));
                 if (S.nom >= 0 && !S.chipsOpen) ok('nominated, the chips fold to that colour', hud.chips.hasAttribute('data-fold') && hud.chipButtons.filter(visible).length === 1 && hud.chipButtons.filter(visible)[0].getAttribute('data-ph-nom') === String(S.nom));
             }
             if (visible(hud.toastacts)) {

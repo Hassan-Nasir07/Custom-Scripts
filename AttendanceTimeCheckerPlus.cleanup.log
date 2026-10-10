@@ -156,3 +156,27 @@ the assorted "legacy scalar" comments around lines 620-1675/5188-5497
   - Did not touch the ~15,600 unprotected lines' larger structural
     questions (e.g. whether some of the mini-games could share more code)
     — that's a redesign, not a cleanup, and outside what was asked.
+
+==========================================================================
+PASS 2 — 2026-10-10 — comment + log sweep (alongside the Just Business theme)
+==========================================================================
+Scope: unprotected lines only. Protected/generated blocks (Pool engine, Snake
+engine, Ludo engine, Cyberpunk theme CSS, Pool theme CSS, Cyberpunk HUD) were
+not touched; all four reinsert scripts report "already up to date".
+
+Removed: 122 full-line comments (123 lines incl. one doubled blank) that only
+restated the code beneath them: CSS section labels over their own selector
+("/* Settings Button */"), HTML "<!-- Snake Canvas -->"-style markup labels,
+"// Award XP based on ..." above the code that does it, and a few stale ones
+(e.g. "shrink by 25%" over scale(0.9)). Rationale/history comments kept.
+Logs removed: the "[Restore] ✓ Restored ..." console.log and the
+"[XP] Level state repaired" console.info. Admin/login console API untouched.
+
+Kept on purpose / restored:
+  - "// GAME SWITCHING SYSTEM" — ludo-dev/integration-verify.js anchors on it.
+  - reconcileLevelState('cloud restore') call text — snake-verify.js greps it,
+    so callers still pass their label though the function no longer reads it.
+
+Verification: node -c OK; 100% CRLF; snake/cyber/ludo/pool-theme suites give
+results identical to HEAD before the change (their pre-existing failures are
+unchanged); pool-dev/host-run.js 207 passed, 0 failed.

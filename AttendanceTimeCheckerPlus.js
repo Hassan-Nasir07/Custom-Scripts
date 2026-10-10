@@ -168,14 +168,12 @@
         return { id: lad[i], tone: i < 2 ? 'low' : i < 4 ? 'tense' : i >= lad.length - 4 ? 'up' : 'void', kind: 'shift', lad, i };
     }
 
-    // Global variables for performance optimization
     let lastTotalWorkedTime = -1; // Track if we need to re-render
     let isFirstRender = true; // Track first render
     let animationFrameId = null; // For requestAnimationFrame
     let pipWindow = null; // Picture-in-Picture window reference
     let isPipActive = false; // Track PiP status
 
-    // Feature initialization flags to prevent re-initialization
     let featuresInitialized = false;
 
     // Guards awardXP until loadUserXP() has run — else defaults overwrite saved XP.
@@ -313,7 +311,6 @@
     }
     let userXP = xpFrom({});
 
-    // XP System Constants (Research-proven values)
     const XP_PER_HOUR = 15;           // Base hourly reward (increased from 10)
     const STREAK_BONUS = 20;          // Daily streak bonus (per streak day, capped below)
     // Bonus = STREAK_BONUS * min(streak, STREAK_BONUS_MAX_DAYS), once per work day.
@@ -672,13 +669,11 @@
         return (h >>> 0).toString(36);
     }
 
-    // Compute and store the integrity hash for current userXP state
     function _saveXPIntegrity() {
         const hash = _xpHash(userXP.totalXP || 0, userXP.level || 1, userXP.gameSessions || 0, userXP.totalWorkDays || 0);
         localStorage.setItem('_xpSig', hash);
     }
 
-    // Verify that localStorage XP values haven't been tampered with
     function _verifyXPIntegrity() {
         const stored = localStorage.getItem('_xpSig');
         if (!stored) return true; // First run — no hash yet, allow
@@ -826,7 +821,6 @@
         return player;
     }
 
-    // Collect local game-best high scores from localStorage into one object
     function collectGameBests() {
         const reflexData = lsJSON('reflexHighScores', {});
         const reflexBest = reflexData?.screen?.best;
@@ -922,14 +916,12 @@
             gameModeBests: collectGameModeBests(),
             // Scoring-rules stamp — without it a rule change makes old and new scores incomparable.
             rulesetVersion: { snake: lsInt('snakeRulesetVer', 1) || 1 },
-            // Pool extended record (W/L/win-rate)
             poolRecord: lsJSON('poolRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 }),
             snookerRecord: lsJSON('snookerRecord', { p1Wins: 0, p1Losses: 0, p2Wins: 0, p2Losses: 0 }),
             // Frames won with each cue (pool-cues.js): their levels.
             poolCueRecord: lsJSON('poolCueRecord', {}),
             // Ludo W/L vs CPU; also drives the adaptive difficulty tier, so a fresh browser restores it.
             ludoRecord: lsJSON('ludoRecord', { wins: 0, losses: 0 }),
-            // Reflex full blob (screen + target modes)
             reflexHighScores: lsJSON('reflexHighScores', null),
             prayerCount: lsInt('prayerCount'),
             // An upload lives in this browser's IndexedDB only: sync its absence, not the marker.
@@ -943,7 +935,6 @@
     }
 
     async function registerPlayer(displayName) {
-        // Block banned clientIds from registering or re-registering
         if (isBlocked(lbClientId)) {
             console.warn('[Leaderboard] Registration denied — clientId is on the blocklist.');
             showXPNotification('Access denied', 'hourly', 'block');
@@ -985,7 +976,6 @@
         if (!lbRegistered || lbFetching) return;
         // The leaderboard is Plus: the bot ignores syncs without a licensed browser's proof.
         if (!gamesUnlocked) { console.warn('[Sync] The leaderboard is part of Plus. Click the face at the top to activate it.'); return; }
-        // Blocklisted clientIds cannot sync
         if (isBlocked(lbClientId)) {
             console.warn('[Leaderboard] Sync denied — clientId is on the blocklist.');
             return;
@@ -1069,7 +1059,6 @@
 
             // Preserve the original joinedAt so re-syncs don't change the join date
             snapshot.joinedAt = prev.joinedAt || new Date().toISOString().split('T')[0];
-            // Carry forward the integrity hash
             snapshot.xpSig = _xpHash(snapshot.totalXP, snapshot.level, snapshot.gameSessions, snapshot.totalWorkDays);
 
             // latestBuild is workflow-written only. Only our own record goes over the wire; the server merges.
@@ -1187,7 +1176,6 @@
           saveReflexHighScores(localReflex);
         }
 
-        // Prayer counter (only raise)
         if (typeof rec.prayerCount === 'number' && rec.prayerCount > 0) {
             const cur = lsInt('prayerCount');
             if (rec.prayerCount > cur) localStorage.setItem('prayerCount', String(rec.prayerCount));
@@ -1288,7 +1276,6 @@
         saveLeaderboardProfile();
         const ok = applyPlayerRecordToLocal(rec);
         if (ok) {
-            console.log(`[Restore] ✓ Restored ${lbDisplayName || 'account'} — Level ${userXP.level}, ${userXP.totalXP} XP`);
             try { showXPNotification(`Progress restored — Level ${userXP.level}`, 'achievement', 'f-cloud'); } catch (_) {}
             try { if (typeof updateXPDisplay === 'function') updateXPDisplay(); } catch (_) {}
             try { if (typeof updatePrayerDisplay === 'function') updatePrayerDisplay(); } catch (_) {}
@@ -1402,7 +1389,6 @@
         return false;
     }
 
-    // Unflag a player (remove freeze)
     async function atcAdminUnflag(clientId) {
         if (!clientId) { console.error('[Admin] usage: atcAdminUnflag("clientId")'); return false; }
         const result = await _adminDispatch('admin-unflag', { client_id: clientId });
@@ -1907,7 +1893,6 @@
         try {
             const registry = await fetchRegistry();
             if (!registry) return leaderboardData;
-            // Detect any blocked players still present and trigger a background purge
             const hasBlocked = registry.players.some(p => isBlocked(p.clientId));
             if (hasBlocked) { lbFetching = false; purgeBlockedPlayers().catch(() => {}); lbFetching = true; }
             leaderboardData = registry.players
@@ -2541,7 +2526,6 @@
     function updateBreakout() {
         const pad = breakoutPaddle;
 
-        // Tick powerup timers and handle expiration
         const prevSlowTimer = brkPU.slowTimer;
         const prevFastTimer = brkPU.fastTimer;
 
@@ -2550,13 +2534,11 @@
         timerKeys.forEach(k => { if (brkPU[k] > 0) brkPU[k]--; });
         if (brkPU.laserCooldown > 0) brkPU.laserCooldown--;
 
-        // Reset ball speed to normal when slow/fast powerup expires
         if ((prevSlowTimer > 0 && brkPU.slowTimer === 0) || (prevFastTimer > 0 && brkPU.fastTimer === 0)) {
             const normalSpeed = BRK_BASE_SPEED + breakoutLevel * 0.06;
             breakoutBalls.forEach(b => brkSetSpeed(b, normalSpeed));
         }
 
-        // Sync paddle width to current powerup state
         pad.w = brkPaddleWidth();
         pad.x = Math.max(0, Math.min(BRK_W - pad.w, pad.x));
 
@@ -2603,7 +2585,6 @@
             const ball = breakoutBalls[bi];
             if (!ball) continue; // guard: array may have been mutated mid-loop
 
-            // Stuck to paddle — ride with it
             if (ball.stuck) {
                 ball.x = pad.x + pad.w/2;
                 ball.trail = [];
@@ -2621,11 +2602,9 @@
             if (ball.y - ball.r < 0) { ball.y = ball.r; ball.vy = Math.abs(ball.vy); }
 
             if (ball.y + ball.r > BRK_H) {
-                // Clear stuck index if removing the stuck ball
                 if (brkPU.stuckBallIdx === bi) {
                     brkPU.stuckBallIdx = -1;
                 } else if (brkPU.stuckBallIdx > bi) {
-                    // Adjust index if removing a ball before the stuck one
                     brkPU.stuckBallIdx--;
                 }
                 breakoutBalls.splice(bi,1);
@@ -2722,7 +2701,6 @@
             breakoutScore += b.pts * comboMult * breakoutLevel;
             spawnBreakoutParticles(b.x+b.w/2, b.y+b.h/2, BRK_BRICK_COLORS[b.row][0], fromLaser?5:8);
 
-            // Explosive radius — damage nearby bricks
             if (explode) {
                 const EXP_R = 55;
                 breakoutBricks.forEach(nb => {
@@ -2841,7 +2819,6 @@
                 ctx.beginPath(); ctx.arc(pt.x,pt.y,BRK_BALL_R*0.7,0,Math.PI*2); ctx.fill();
             });
             ctx.globalAlpha=1;
-            // Ball color based on active mode
             const ballColor = isFireball?['#fff','#e17055','#c0392b']:
                               isThrough ?['#fff','#00cec9','#006266']:
                               isExplode ?['#fff','#fdcb6e','#e17055']:
@@ -13029,11 +13006,9 @@
 
         const config = reflexGameModes[reflexMode];
 
-        // Update game area appearance based on state
         gameAreaElement.className = 'multi-game-area reflex-game-area';
         gameAreaElement.style.pointerEvents = 'auto'; // Ensure clicks work
 
-        // Set crosshair cursor for Target mode
         if (config.targets) {
             gameAreaElement.style.cursor = 'crosshair';
         } else {
@@ -13162,7 +13137,6 @@
         `;
         resultsElement.classList.add('active');
 
-        // Add click handler for Play Again button
         const playAgainBtn = document.getElementById('reflex-play-again-btn');
         if (playAgainBtn) {
             playAgainBtn.onclick = () => {
@@ -13254,13 +13228,11 @@
             createdAt: Date.now()
         });
 
-        // Remove hit target and spawn new one
         aimTargets = aimTargets.filter(target => target.id !== targetId);
         aimTargets.push(createAimTarget());
 
         aimAccuracy = aimShots > 0 ? Math.round((aimHits / aimShots) * 100) : 0;
 
-        // Clean up old bullet holes (keep last 20)
         if (aimBulletHoles.length > 20) {
             aimBulletHoles = aimBulletHoles.slice(-20);
         }
@@ -13304,7 +13276,6 @@
                 Math.pow(clickX - target.x, 2) + Math.pow(clickY - target.y, 2)
             );
 
-            // Hit detection with 5px tolerance
             if (distance <= (target.size / 2) + 5) {
                 handleAimTargetHit(target.id, clickX, clickY);
                 targetHit = true;
@@ -13312,7 +13283,6 @@
             }
         }
 
-        // Record miss if no target hit
         if (!targetHit) {
             handleAimMissedShot(clickX, clickY);
         }
@@ -13415,7 +13385,6 @@
         gameAreaElement.style.cursor = 'crosshair';
 
         if (!aimGameStarted) {
-            // Clear everything when not started
             gameAreaElement.innerHTML = '';
             const instructionText = document.createElement('div');
             instructionText.className = 'aim-instruction-text';
@@ -13435,7 +13404,6 @@
             return;
         }
 
-        // Game is started - remove instruction text if it exists
         const instructionText = gameAreaElement.querySelector('.aim-instruction-text');
         if (instructionText) {
             instructionText.remove();
@@ -13477,7 +13445,6 @@
             }
         });
 
-        // Remove targets that no longer exist
         const existingTargets = gameAreaElement.querySelectorAll('.aim-target');
         existingTargets.forEach(targetEl => {
             const targetId = targetEl.dataset.targetId;
@@ -13487,7 +13454,6 @@
             }
         });
 
-        // Add new targets (only create DOM element once per target)
         aimTargets.forEach(target => {
             const existingTarget = gameAreaElement.querySelector(`[data-target-id="${target.id}"]`);
             if (!existingTarget) {
@@ -13552,7 +13518,6 @@
             </div>        `;
         resultsElement.classList.add('active');
 
-        // Add click handler for Play Again button
         const playAgainBtn = document.getElementById('aim-play-again-btn');
         if (playAgainBtn) {
             playAgainBtn.onclick = () => {
@@ -13662,7 +13627,6 @@
             flappyPipes.push({ x: flappyCanvas.width, gapY, gap, scored: false });
         }
 
-        // Move pipes at current dynamic speed
         const spd = flappyCurrentSpeed();
         for (let i = flappyPipes.length - 1; i >= 0; i--) {
             flappyPipes[i].x -= spd;
@@ -13788,7 +13752,6 @@
             flappyCtx.fillText('TAP / SPACE to fly!', cw / 2, ch / 2 - 20);
         }
 
-        // Instructions when not started at all
         if (!flappyGameRunning && !flappyGameOver) {
             flappyCtx.fillStyle = 'rgba(255,255,255,0.75)';
             flappyCtx.font = 'bold 14px sans-serif';
@@ -14129,7 +14092,6 @@
             ctx.strokeRect(boxX, boxY, previewW + boxPad * 2, previewH + boxPad * 2);
             ctx.restore();
 
-            // Center the piece inside the preview box
             const { shape, color } = tetrisNextPiece;
             const pieceW = shape[0].length * previewCell;
             const pieceH = shape.length * previewCell;
@@ -16295,8 +16257,7 @@
         return LUDO_MODE_LABEL[ludoMode];
     }
 
-    // GAME SWITCHING SYSTEM
-
+    // GAME SWITCHING SYSTEM (ludo-dev/integration-verify.js anchors on this line)
     function switchToGame(gameKey) {
         if (currentGame === gameKey) return;
 
@@ -16452,7 +16413,6 @@
                 if (ok) {
                     showXPNotification(`Restored Level ${userXP.level} from cloud`, 'achievement', 'f-cloud');
                 }
-                // Revalidate after restore completes (or if restore skipped)
                 try { revalidateAchievements(); } catch (_) {}
             }).catch(err => {
                 console.warn('[Restore] auto-restore failed:', err);
@@ -16490,14 +16450,12 @@
 
     // Repair userXP.level / userXP.currentXP when they disagree with totalXP. True if repaired.
     // Never touches totalXP — re-slices what the user already has, creating no XP.
-    function reconcileLevelState(reason) {
+    function reconcileLevelState() { // callers pass a label ('cloud restore', 'startup check') that snake-verify greps for
         const derived = deriveLevelFromTotalXP(userXP.totalXP);
         const storedLevel = userXP.level || 1;
         const storedCurrent = (typeof userXP.currentXP === 'number') ? userXP.currentXP : 0;
 
         if (derived.level === storedLevel && derived.currentXP === storedCurrent) return false;
-
-        console.info(`[XP] Level state repaired: L${storedLevel}/${storedCurrent} → L${derived.level}/${derived.currentXP} (totalXP ${userXP.totalXP}${reason ? `, ${reason}` : ''})`);
         userXP.level = derived.level;
         userXP.currentXP = derived.currentXP;
 
@@ -16520,7 +16478,6 @@
         // no real hours logged can't advance the streak.
         calculateStreak(hoursWorked);
 
-        // Reset daily tracking if it's a new day
         const today = new Date().toDateString();
         const lastDay = localStorage.getItem('xpLastDay');
 
@@ -16531,7 +16488,6 @@
             localStorage.setItem('xpLastDay', today);
         }
 
-        // Award XP for each completed hour (15 XP per hour)
         if (currentHour > userXP.lastHourTracked) {
             const hoursToAward = currentHour - Math.max(0, userXP.lastHourTracked);
             const xpGained = hoursToAward * XP_PER_HOUR;
@@ -16641,7 +16597,6 @@
     }
 
     function checkMilestones(currentHour) {
-        // Check if this milestone hasn't been reached today
         if (MILESTONE_BONUSES[currentHour] && !userXP.milestonesReached.includes(currentHour)) {
             const milestone = MILESTONE_BONUSES[currentHour];
             userXP.currentXP += milestone.xp;
@@ -16748,7 +16703,6 @@
         if (conds) unlockWhen(conds);
     }
 
-    // XP rewards per achievement tier
     const ACHIEVEMENT_XP = {
         firstDay: 50, week1: 100, workdays20: 200, centurion: 500,
         onTime: 75, marathon: 150, overtimeHero: 120,
@@ -16993,7 +16947,6 @@
 
         switch (gameType) {
             case 'snake': {
-                // Award XP based on snake score (each food = points)
                 const snakeScoreVal = performance.score || 0;
                 xpGained = xpTier(snakeScoreVal, [[20, 60], [15, 45], [10, 30], [5, 18], [1, 8]], 2);
                 // Levels pays for progress as well as score: scoring alone would pay a long Endless run more
@@ -17014,7 +16967,6 @@
             }
 
             case 'flappy': {
-                // Award XP based on pipes cleared
                 const flappyScoreVal = performance.score || 0;
                 xpGained = xpTier(flappyScoreVal, [[20, 70], [10, 45], [5, 25], [1, 10]], 3);
                 if (performance.isHighScore) xpGained += 20;
@@ -17023,7 +16975,6 @@
             }
 
             case 'tetris': {
-                // Award XP based on lines cleared and level reached
                 const tetrisLinesVal = performance.lines || 0;
                 const tetrisLevelVal = performance.level || 1;
                 xpGained = xpTier(tetrisLinesVal, [[40, 100], [20, 65], [10, 40], [4, 20], [1, 10]], 3);
@@ -17034,10 +16985,8 @@
             }
 
             case 'reflex': {
-                // Award XP based on reaction time (faster = more XP)
                 const avgTime = performance.avgTime || 999;
                 xpGained = xpTier(avgTime, [[180, 85], [220, 65], [260, 50], [300, 40], [400, 28]], 15, true);
-                // Bonus for zero false starts
                 if (performance.falseStarts === 0) xpGained += 15;
                 else xpGained = Math.max(8, xpGained - (performance.falseStarts * 5));
                 if (performance.isHighScore) xpGained += 20;
@@ -17046,7 +16995,6 @@
             }
 
             case 'aim': {
-                // Award XP based on score and accuracy
                 const aimScoreVal = performance.score || 0;
                 const aimAcc = performance.accuracy || 0;
                 xpGained = xpTier(aimScoreVal, [[400, 100], [300, 80], [250, 65], [200, 50], [150, 38], [100, 25]], 12);
@@ -17115,7 +17063,6 @@
             checkLevelUp();
 
             checkAchievements();
-            // Per-game performance achievements (Snake Charmer, Sharpshooter, etc.)
             checkGameAchievements(gameType, performance);
 
             saveUserXP(userXP);
@@ -17432,7 +17379,6 @@
     let mouseX = 0;
     let mouseY = 0;
 
-    // Modern CSS styles following 2025 trends
     const modernStyles = `
         <style id="attendance-modern-styles">
             @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
@@ -17477,7 +17423,6 @@
                 isolation: isolate;
             }
 
-            /* Left Panel - Snake Game & Quotes */
             .left-panel {
                 width: 400px;
                 display: flex;
@@ -17509,7 +17454,6 @@
                 transform: none !important;
             }
 
-            /* Game Mode OFF — shrink the entire summary widget by 25% */
             #total-time-summary.game-mode-off {
                 width: fit-content;
                 transform: scale(0.9);
@@ -17522,7 +17466,6 @@
                 transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
             }
 
-            /* Center Panel - Main Attendance Content */
             .main-attendance-content {
                 flex: 1;
                 min-width: 0;
@@ -17530,7 +17473,6 @@
                 flex-direction: column;
             }
 
-            /* Right Panel - XP System & Image Box */
             .right-panel {
                 width: 400px;
                 display: flex;
@@ -17687,7 +17629,6 @@
                 animation: warningPulse 1s ease-in-out infinite;
             }
 
-            /* Developer Info & Settings - Bottom Control Bar */
             /* Bottom Control Bar — sits as normal flex child inside main-attendance-content */
             .bottom-control-bar {
                 display: flex;
@@ -17721,7 +17662,6 @@
                 z-index: 1000;
             }
 
-            /* Settings Button */
             .settings-button {
                 background: rgba(255, 255, 255, 0.08);
                 backdrop-filter: blur(12px);
@@ -17781,7 +17721,6 @@
                 transform: scale(1.1);
             }
 
-            /* Focus state for accessibility */
             .pip-button:focus {
                 outline: 2px solid rgba(102, 126, 234, 0.6);
                 outline-offset: 2px;
@@ -18123,7 +18062,6 @@
             .desk-toast { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 5; height: 48px; box-sizing: border-box; padding: 0 6px 0 14px; display: flex; align-items: center; justify-content: space-between; border-radius: 12px; background: var(--att-panel); border: 1px solid var(--att-border); box-shadow: 0 10px 24px rgba(0, 0, 0, .3); font-size: 13px; }
             .desk-toast button { height: 36px; padding: 0 12px; border-radius: 8px; border: 0; background: var(--att-inner); color: var(--att-ink); font: 700 13px 'Sora', system-ui, sans-serif; cursor: pointer; }
 
-            /* Performance optimization for dynamic elements */
             .emoji-display, .progress-fill {
                 will-change: transform;
             }
@@ -18182,7 +18120,6 @@
                 animation: progressShimmer 2s ease-in-out infinite;
             }
 
-            /* Animations */
             @keyframes emojiPulse {
                 0%, 100% { transform: scale(1); }
                 50% { transform: scale(1.1); }
@@ -18324,7 +18261,6 @@
                 }
             }
 
-            /* Settings Modal */
             .settings-modal {
                 position: fixed;
                 top: 50%;
@@ -18352,14 +18288,11 @@
                 max-height: 90vh;
                 overflow-y: auto;
 
-                /* Firefox */
                 scrollbar-width: none;
 
-                /* IE/Edge Legacy */
                 -ms-overflow-style: none;
             }
 
-            /* Chrome, Edge, Safari */
             .settings-modal.active::-webkit-scrollbar {
                 display: none;
             }
@@ -18649,7 +18582,6 @@
                 box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
             }
 
-            /* Responsive Design */
             @media (max-width: 768px) {
 
                 .summary-title {
@@ -18678,7 +18610,6 @@
                     font-size: 0.9rem;
                 }
 
-                /* Adjust button positions for mobile */
                 .settings-button {
                     transform: translateX(-100px);
                     padding: 10px 14px;
@@ -18701,9 +18632,7 @@
                 }
             }
 
-            /* Extra small screens (mobile) */
             @media (max-width: 480px) {
-                /* Make buttons more compact on small screens */
                 .settings-button {
                     transform: translateX(-70px);
                     padding: 8px 12px;
@@ -18731,7 +18660,6 @@
                 }
             }
 
-            /* Dark mode enhancements */
             @media (prefers-color-scheme: dark) {
                 .attendance-summary {
                     background: linear-gradient(135deg, rgba(22, 20, 35, 0.92), rgba(12, 10, 25, 0.88));
@@ -18768,7 +18696,6 @@
                 }
             }
 
-                /* Light mode enhancements */
             @media (prefers-color-scheme: light) {
                 .attendance-summary:not(.retro-theme) {
                     background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(245, 243, 255, 0.88));
@@ -18832,7 +18759,6 @@
                     box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
                 }
 
-                /* Fix glassmorphic containers for light mode */
                 .attendance-summary:not(.retro-theme) .snake-game-container {
                     background: rgba(255, 255, 255, 0.8);
                     border-color: rgba(0, 0, 0, 0.1);
@@ -18967,7 +18893,6 @@
                     inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
             }
 
-            /* Light mode neumorphic overrides --- */
             @media (prefers-color-scheme: light) {
                 .attendance-summary.neumorphic-active {
                     box-shadow:
@@ -19009,7 +18934,6 @@
             /* FLUID GRADIENTS — class-toggled OFF via .no-fluid
                Removes all animated color-flow; makes everything static */
 
-            /* Title: static single color instead of animated gradient text */
             .attendance-summary.no-fluid .summary-title {
                 animation: none !important;
                 background: var(--aurora-1) !important;
@@ -19026,7 +18950,6 @@
                 opacity: 0.5 !important;
             }
 
-            /* Progress bar fill: solid color, no rainbow animation */
             .attendance-summary.no-fluid .progress-fill {
                 animation: none !important;
                 background: var(--aurora-1) !important;
@@ -19036,7 +18959,6 @@
                 display: none !important;
             }
 
-            /* Table header: solid color */
             .attendance-summary.no-fluid .modern-table thead {
                 background: #667eea !important;
             }
@@ -23546,7 +23468,6 @@
                 transform: scale(1.1);
             }
 
-            /* Cyberpunk HUD color pickers */
             .cyber-color-pickers {
                 display: flex;
                 gap: 10px;
@@ -23581,7 +23502,6 @@
             .cyber-color-pickers input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
             .cyber-color-pickers input[type="color"]::-webkit-color-swatch { border: none; border-radius: 5px; }
 
-            /* Cyberpunk background image controls */
             .cyber-bg-controls {
                 display: flex;
                 gap: 8px;
@@ -23625,7 +23545,6 @@
                 cursor: pointer;
             }
 
-            /* Responsive adjustments */
             @media (max-width: 1400px) {
                 .attendance-summary {
                     flex-wrap: wrap;
@@ -24507,7 +24426,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                 // The pool panel follows its settings now and ignores the rest.
                 if (typeof poolOnPrefChange === 'function') poolOnPrefChange(pref);
 
-                // If theme changed, update dependent options visibility
                 if (pref === 'displayTheme') {
                     updateThemeDependentOptions(modal, this.value);
                 }
@@ -24529,7 +24447,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                 }
             });
 
-            // Show/hide retro-futuristic-only options (e.g. Cyberpunk color pickers)
             modal.querySelectorAll('[data-theme-dependent="retro-futuristic"]').forEach(option => {
                 option.style.display = (theme === 'retro-futuristic') ? '' : 'none';
             });
@@ -24558,7 +24475,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
             });
         });
 
-        // Color picker listeners (Cyberpunk HUD customizable colors)
         modal.querySelectorAll('input[type="color"][data-pref]').forEach(picker => {
             picker.addEventListener('input', function() {
                 const pref = this.getAttribute('data-pref');
@@ -24976,12 +24892,10 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
             // Clears every property CYBER_TOKENS could have written, on both the container and
             // documentElement — a leftover has no meaning under Glassmorphic but still beats the stylesheet.
             clearCyberpunkTheme(container);
-            // Remove background image overlay if switching away
             const bgEl = container.querySelector('.cyber-bg-image');
             if (bgEl) bgEl.remove();
         }
 
-        // Apply neumorphic depth (only for glassmorphic theme)
         if (userPreferences.displayTheme === 'glassmorphic') {
             container.style.boxShadow = ''; // clear any old inline override
             if (userPreferences.neumorphicDepth) {
@@ -24993,7 +24907,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
             container.classList.remove('neumorphic-active');
         }
 
-        // Apply fluid gradients (only for glassmorphic theme)
         if (userPreferences.displayTheme === 'glassmorphic') {
             if (userPreferences.fluidGradients) {
                 container.classList.remove('no-fluid');
@@ -25040,7 +24953,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
             }
         });
 
-        // Shrink widget when Game Mode is OFF
         if (gameModeOn) {
             container.classList.remove('game-mode-off');
         } else {
@@ -25054,7 +24966,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                 : 'Game Mode OFF — click to turn on';
         }
 
-        // Sync settings modal toggle if open
         const toggle = document.querySelector('.toggle-switch[data-pref="gameModeHidden"]');
         if (toggle) {
             toggle.classList.toggle('active', gameModeOn);
@@ -25062,7 +24973,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
         }
     }
 
-    // Add parallax effect on mouse move
     function addParallaxEffect(container) {
         container.addEventListener('mousemove', (e) => {
             const rect = container.getBoundingClientRect();
@@ -25104,9 +25014,7 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
 
         calculateTotalTime(totalTimeDiv);
 
-        // Apply preferences after element is in DOM
         if (isNewElement) {
-            // Use setTimeout to ensure DOM is fully updated
             setTimeout(() => { applyPreferences(); applyGameMode(); }, 0);
         }
     }
@@ -25222,11 +25130,9 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                 updateDynamicContent(totalWorkedTime, today, checkInOutList);
             }
 
-            // Always update lastTotalWorkedTime to track state
             lastTotalWorkedTime = totalWorkedTime;
         }
 
-        // Only insert into DOM on first render - don't repeat this operation!
         if (!totalTimeDiv.parentNode) {
             $('.main-attendance-table').before(totalTimeDiv);
         }
@@ -25269,7 +25175,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
         return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     }
 
-    // Additional utility function from original script
     function timeToSeconds(timeString) {
         const parts = timeString.split(':');
         return (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
@@ -25284,7 +25189,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
             return null;
         }
 
-        // Remove existing PiP button if any
         const existingButton = container.querySelector('.pip-button');
         if (existingButton) {
             existingButton.remove();
@@ -25379,7 +25283,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
         for (const c of container.children) c.classList.remove('pip-hidden');
     }
 
-    // Check if game panel should be preserved (games are initialized and active)
     function shouldPreserveGamePanel() {
         return featuresInitialized;
     }
@@ -25566,7 +25469,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                 `;
             }
 
-            // Add ID to the last row's worked time cell if it's the current active session
             const isLastRow = index === checkInOutList.length - 1;
             const isCurrentSession = item.checkOut === 'Current';
             const workedTimeCellId = (isLastRow && isCurrentSession) ? ' id="current-worked-time"' : '';
@@ -25670,9 +25572,7 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
             `<span class="gsb-best" id="${best}">${blank}</span><span class="gsb-trophy">${attIcon('trophy')}</span></button>`;
         const leftPanelHTML = `
             <div class="left-panel">
-                <!-- Multi-Game Container -->
                 <div class="snake-game-container">
-                    <!-- Game Switcher -->
                     <div class="game-switcher">
                         <button id="game-switch-snake" class="game-switch-btn active" onclick="window.switchGame('snake')" title="Snake Game">${attIcon('g-snake')}</button>
                         <button id="game-switch-flappy" class="game-switch-btn" onclick="window.switchGame('flappy')" title="Flappy Bird">${attIcon('g-flappy')}</button>
@@ -25685,7 +25585,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                         <button id="game-switch-prayer" class="game-switch-btn" onclick="window.switchGame('prayer')" title="Prayer Counter">${attIcon('g-tasbih')}</button>
                     </div>
 
-                    <!-- Game Header (Dynamic) -->
                     <div class="snake-game-header">
                         <span id="game-title" class="snake-game-title">${attIcon('g-snake')} Snake</span>
                         <div id="snake-scoreboard" class="snake-scoreboard">
@@ -25727,13 +25626,10 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                         </div>
                     </div>
 
-                    <!-- Snake Canvas -->
                     <canvas id="snake-canvas" class="snake-canvas" width="368" height="368"></canvas>
 
-                    <!-- Flappy Bird Canvas -->
                     <canvas id="flappy-canvas" class="snake-canvas" width="368" height="368" style="display:none;"></canvas>
 
-                    <!-- Tetris Canvas -->
                     <canvas id="tetris-canvas" class="snake-canvas" width="368" height="368" style="display:none;"></canvas>
                     <canvas id="breakout-canvas" class="snake-canvas" width="368" height="368" style="display:none; cursor:none;"></canvas>
                     <!-- 8-Ball Pool: initPoolGame() builds the cards, the table and the footer in here. -->
@@ -25744,7 +25640,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                     <!-- Multi-Game Area (for RefleX and AimTrainer) -->
                     <div id="multi-game-area" class="multi-game-area" style="display: none;"></div>
 
-                    <!-- Prayer Counter Panel -->
                     <div id="prayer-panel" class="prayer-panel" style="display: none;">
                         <div class="prayer-screen">
                             <div class="prayer-label">TASBIH COUNTER</div>
@@ -25755,7 +25650,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                         <button class="prayer-reset-btn" onclick="window.prayerResetBtn()" title="Reset counter" aria-label="Reset counter">${attIcon('reset')}</button>
                     </div>
 
-                    <!-- Game Stats -->
                     <div id="reflex-stats" style="display: none;"></div>
                     <div id="aim-stats" style="display: none;">
                         <div style="display: flex; justify-content: space-around; padding: 8px; font-size: 0.875rem;">
@@ -25766,7 +25660,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                         </div>
                     </div>
 
-                    <!-- Snake Controls -->
                     <div id="snake-controls" class="snake-controls">
                         <button id="snake-mode-btn" class="snake-btn" onclick="window.cycleSnakeModeBtn()" title="Walls are lethal">${attIcon('walled')} Walled</button>
                         <button id="snake-play-btn" class="snake-btn is-primary" onclick="window.snakePlayPause()">${attIcon('play')} Play</button>
@@ -25781,42 +25674,35 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                          One element for all panels: only one game is ever visible. -->
                     <div id="game-lb-overlay" class="game-lb-overlay" style="display:none;"></div>
 
-                    <!-- RefleX Controls -->
                     <div id="reflex-controls" class="snake-controls" style="display: none;">
                         <button class="snake-btn" onclick="window.toggleReflexModeBtn()">${attIcon('swap')} Switch Mode</button>
                         <button id="reflex-play-btn" class="snake-btn is-primary" onclick="window.startReflexGameBtn()">${attIcon('play')} Play</button>
                         <button class="snake-btn" onclick="window.resetReflexGameBtn()">${attIcon('reset')} Reset</button>
                     </div>
 
-                    <!-- AimTrainer Controls -->
                     <div id="aim-controls" class="snake-controls" style="display: none;">
                         <button id="aim-play-btn" class="snake-btn is-primary" onclick="window.startAimGameBtn()">${attIcon('play')} Play</button>
                         <button class="snake-btn" onclick="window.resetAimGameBtn()">${attIcon('reset')} Reset</button>
                     </div>
 
-                    <!-- Flappy Bird Controls -->
                     <div id="flappy-controls" class="snake-controls" style="display: none;">
                         <button class="snake-btn is-primary" onclick="window.startFlappyGameBtn()">${attIcon('play')} Play</button>
                         <button class="snake-btn" onclick="window.resetFlappyGameBtn()">${attIcon('reset')} Reset</button>
                     </div>
 
-                    <!-- Tetris Controls -->
                     <div id="tetris-controls" class="snake-controls" style="display: none;">
                         <button class="snake-btn is-primary" onclick="window.startTetrisGameBtn()">${attIcon('play')} Play</button>
                         <button class="snake-btn" onclick="window.resetTetrisGameBtn()">${attIcon('reset')} Reset</button>
                     </div>
 
-                    <!-- Breakout Controls -->
                     <div id="breakout-controls" class="snake-controls" style="display: none;">
                         <button class="snake-btn is-primary" onclick="window.startBreakoutGameBtn()">${attIcon('play')} Play</button>
                         <button class="snake-btn" onclick="window.resetBreakoutGameBtn()">${attIcon('reset')} Reset</button>
                     </div>
 
-                    <!-- Pool Controls -->
                     <!-- Pool has no controls row: its footer is part of the panel. -->
                     <div id="pool-controls" class="snake-controls" style="display: none;"></div>
 
-                    <!-- Ludo Controls -->
                     <div id="ludo-controls" class="snake-controls" style="display: none;">
                         <button class="snake-btn" id="ludo-mode-btn" onclick="window.cycleLudoModeBtn()">${attIcon('swap')} PvCPU</button>
                         <button class="snake-btn is-primary" onclick="window.startLudoGameBtn()">${attIcon('play')} Play</button>
@@ -25827,7 +25713,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                     <!-- Prayer Counter Controls (empty — interaction is on the panel itself) -->
                     <div id="prayer-controls" class="snake-controls" style="display: none;"></div>
 
-                    <!-- Game Over Overlays -->
                     <div id="snake-game-over" class="snake-game-over">
                         <h3>Game Over!</h3>
                         <p>Final Score: <span class="final-score">0</span></p>
@@ -25836,7 +25721,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                     </div>
                 </div>
 
-                <!-- Results Modals -->
                 <div id="reflex-results"></div>
                 <div id="aim-results"></div>
 
@@ -25941,7 +25825,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
         // A rebuilt right panel starts with an empty desk card; before the first init, initDesk() fills it.
         if (featuresInitialized) renderDesk();
 
-        // Wire emoji click → Game Mode toggle
         const _emojiToggle = totalTimeDiv.querySelector('#game-mode-emoji-toggle');
         if (_emojiToggle) {
             _emojiToggle.addEventListener('click', () => {
@@ -25956,7 +25839,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
             _emojiToggle.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _emojiToggle.click(); } });
         }
 
-        // The control bar, in the header: Settings, About, Float
         const _mainContent = totalTimeDiv.querySelector('.main-attendance-content');
         const _target = _mainContent || totalTimeDiv;
         let _controlBar = _target.querySelector('.bottom-control-bar');
@@ -25972,7 +25854,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
 
         addParallaxEffect(totalTimeDiv);
 
-        // Initialize all new features after DOM is ready (only once)
         if (!featuresInitialized) {
             setTimeout(() => {
                 initSnakeGame();
@@ -25980,16 +25861,13 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                 initDesk();
                 initLeaderboard();
                 checkGamesUnlock();
-                // Pre-load high scores for new games
                 flappyHighScore = loadFlappyHighScore();
                 tetrisHighScore = loadTetrisHighScore();
 
-                // Award XP based on hours worked
                 const hoursWorked = totalWorkedTime / 3600;
                 awardXP(hoursWorked);
 
                 document.addEventListener('keydown', (e) => {
-                    // Only handle shortcuts if not in an input field
                     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
                     if (!gamesUnlocked) return;
 
@@ -26029,7 +25907,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
                 featuresInitialized = true;
             }, 100);
         } else {
-            // Features already initialized, just update XP
             const hoursWorked = totalWorkedTime / 3600;
             awardXP(hoursWorked);
         }
@@ -26178,7 +26055,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
         let lastUpdateTime = 0;
 
         function updateLoop(currentTime) {
-            // Throttle updates to once per second
             if (currentTime - lastUpdateTime >= 1000) {
                 const currentUrl = window.location.href;
                 if (currentUrl === targetUrl) {
@@ -26223,7 +26099,6 @@ ${BIZ_W},${BIZ_W}::before,${BIZ_W}::after,${BIZ_W} *,${BIZ_W} *::before,${BIZ_W}
         startUpdateLoop();
     });
 
-    // Cleanup animation frames when page unloads
     window.addEventListener('beforeunload', () => {
         stopUpdateLoop();
     });

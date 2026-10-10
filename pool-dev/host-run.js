@@ -814,6 +814,9 @@ async function main() {
                 PASS.enrollPlus = p.plus;
                 rina.login = true; rina.loginAt = new Date().toISOString(); rina.displayName = p.name; PASS.enrolled = p.pw;
                 answer(true, 'ok');
+            } else if (event === 'login-rename') {
+                if (p.pw === pwOf(rina.displayName, PASS.current) && p.new_pw === pwOf(p.new_name, PASS.current)) { rina.displayName = p.new_name; rina.loginAt = new Date().toISOString(); PASS.renamed = p; answer(true, 'ok'); }
+                else answer(false, 'wrong_password');
             } else if (event === 'login-change') {
                 if (p.old_pw === pwOf(rina.displayName, PASS.current)) { rina.loginAt = new Date().toISOString(); PASS.changed = p.pw; answer(true, 'ok'); }
                 else answer(false, 'wrong_password');
@@ -879,13 +882,31 @@ async function main() {
             (await ev('window.atcAccountDialog()')) === 'change' && await opened('Change password'));
         await set('acct-old', 'abcdef1'); await set('acct-pw', 'newpass9'); await set('acct-pw2', 'newpass9');
         await click('#acct-modal .rcv-go');
+        PASS.renameCheck = true;
         ok('…a change goes through with the current password', await waitFor("/Password changed/.test(document.getElementById('acct-modal').textContent)", 8000) && PASS.changed === pwOf('Rina R.', 'newpass9'), await status());
         await ev("document.querySelector('#acct-modal .rcv-ok').click()");
 
+        // The login name can change too (it is also the board name), from the Change password screen.
+        PASS.current = 'newpass9';
+        ok('Change password links to "Change login name"', (await ev('window.atcAccountDialog()')) === 'change' && await opened('Change password') && /Change login name/.test(await modalText()));
+        await click('#acct-to-rename');
+        ok('…which asks for the new name and the password', await opened('Change login name') && !!(await ev("!!document.getElementById('acct-name') && document.getElementById('acct-pw').type === 'password'")));
+        await shot('account-rename', '#acct-modal');
+        ok('…in plain words', !jargon(await modalText()), await modalText());
+        await set('acct-name', 'Rina Rahman'); await set('acct-pw', 'not it');
+        await click('#acct-modal .rcv-go');
+        ok('a wrong password is refused plainly', await waitFor("/password isn't right/.test(document.querySelector('#acct-modal .rcv-status').textContent)", 6000), await status());
+        await set('acct-pw', PASS.current);
+        await click('#acct-modal .rcv-go');
+        ok('the right one: "Your login name is now Rina Rahman"', await waitFor("/login name is now Rina Rahman/.test(document.getElementById('acct-modal').textContent)", 8000), await status());
+        ok('…both names\' hashes were sent, never the password', PASS.renamed && PASS.renamed.pw === pwOf('Rina R.', 'newpass9') && PASS.renamed.new_pw === pwOf('Rina Rahman', 'newpass9') && !JSON.stringify(PASS.renamed).includes('newpass9'));
+        await ev("document.querySelector('#acct-modal .rcv-ok').click()");
+        ok('…and the board shows the new name', await waitFor("/Rina Rahman/.test((document.querySelector('#total-time-summary .ws-board-rows') || {}).textContent || '')", 6000));
+
         ok('a player the bot restricted is hidden from the board', !/Cracker/.test(await ev("(document.querySelector('#total-time-summary .ws-board-rows') || {}).textContent || ''")) &&
-            /Rina R\./.test(await ev("(document.querySelector('#total-time-summary .ws-board-rows') || {}).textContent || ''")));
+            /Rina Rahman/.test(await ev("(document.querySelector('#total-time-summary .ws-board-rows') || {}).textContent || ''")));
         ok('the Join box offers "Already on the leaderboard? Log in" (not a recovery code)', /Already on the leaderboard\? Log in/.test(page()) && !/Restore it|recovery code/i.test(await ev("document.getElementById('total-time-summary').textContent")));
-        ok('an old recovery code still restores from the console', /✓ Restored Rina R\./.test(await ev(`window.atcRestore('${CODE}', ${JSON.stringify(CODE_PW)})`)));
+        ok('an old recovery code still restores from the console', /✓ Restored Rina /.test(await ev(`window.atcRestore('${CODE}', ${JSON.stringify(CODE_PW)})`)));
         ok('atcRestoreByClientId is still admin only', (await ev("window.atcRestoreByClientId('acct-1')")) === false);
         GAMES.bot = null;
         GAMES.players = [];

@@ -1568,6 +1568,7 @@
     //   await atcLogin('HANN', 'password')            this computer: Game Mode and your progress
     //   await atcSetPassword('password'[, 'Name'])    joined + unlocked: log in anywhere from now on
     //   await atcChangePassword('old', 'new')
+    //   await atcChangeName('New Name', 'password')    your login name, also your name on the board
     //   await atcAdminResetLogin('HANN')               admin: forget it, so they can set one again
     // Older recovery codes still restore from the console only: await atcRestore('RCV-…', 'password').
     const LOGIN_PW_IT = 100000;
@@ -1717,10 +1718,37 @@
         if (r.timeout) acctWatch(moved, () => showXPNotification('Password changed', 'game', 'f-integrity'));
         return { ok: false, pending: !!r.timeout, message: r.error === 'wrong_password' ? "Your current password isn't right. Check it and try again." : acctProblem(r) };
     }
+    // A new login name, which is also the board name. The password is salted with the name, so
+    // both hashes go: the current name's (proof) and the new one's (what it will check from now on).
+    async function acctRename(newName, password, step) {
+        if (!lbRegistered) return { ok: false, message: 'Log in first.' };
+        newName = acctName(newName);
+        if (newName.length < 2 || newName.length > 20) return { ok: false, message: 'Your login name needs 2 to 20 characters.' };
+        if (typeof password !== 'string' || !password) return { ok: false, message: 'Enter your password.' };
+        const reg = await fetchRegistry(), me = acctMine(reg);
+        if (!reg) return { ok: false, message: ACCT_OFFLINE };
+        if (!me || !me.login) return { ok: false, message: "You don't have a password yet. Use \"Set your password\"; you can pick your name there." };
+        if (newName === me.displayName) return { ok: false, message: 'That is already your login name.' };
+        if ((reg.players || []).some(p => p.clientId !== lbClientId && p.login && acctNameKey(p.displayName) === acctNameKey(newName))) {
+            return { ok: false, message: 'Someone already uses the name "' + newName + '". Pick a different one.' };
+        }
+        const was = me.loginAt;
+        const renamed = r2 => { const m = acctMine(r2); return m && m.displayName === newName && m.loginAt !== was ? m : null; };
+        const finish = m => {
+            lbDisplayName = m.displayName;
+            saveLeaderboardProfile();
+            fetchLeaderboard().then(() => { try { renderMiniBoard(); } catch (_) {} }).catch(() => {});
+        };
+        const r = await botAsk('login-rename', { client_id: lbClientId, name: me.displayName, new_name: newName, pw: await loginPw(me.displayName, password), new_pw: await loginPw(newName, password) }, renamed, step);
+        if (r.value) { finish(r.value); return { ok: true, message: 'Done! Your login name is now ' + newName + '. It is also your name on the board.' }; }
+        if (r.timeout) acctWatch(renamed, m => { finish(m); showXPNotification('Your login name is now ' + newName, 'game', 'f-integrity'); });
+        return { ok: false, pending: !!r.timeout, message: r.error === 'wrong_password' ? "That password isn't right. Check it and try again." : acctProblem(r) };
+    }
     const acctConsole = r => (r.ok ? '✓ ' : '✗ ') + r.message;
     const atcLogin = async (name, password) => acctConsole(await acctLogin(name, password, t => console.log('[Login] ' + t)));
     const atcSetPassword = async (password, name) => acctConsole(await acctSetPassword(password, name, t => console.log('[Login] ' + t)));
     const atcChangePassword = async (oldPassword, newPassword) => acctConsole(await acctChangePassword(oldPassword, newPassword, t => console.log('[Login] ' + t)));
+    const atcChangeName = async (newName, password) => acctConsole(await acctRename(newName, password, t => console.log('[Login] ' + t)));
     async function atcAdminResetLogin(name) {
         if (!name) { console.error('[Admin] usage: atcAdminResetLogin("leaderboard name")'); return false; }
         const r = await _adminDispatch('admin-login-reset', { name });
@@ -1758,7 +1786,7 @@
     }
 
     // ─── The account dialog ─────────────────────────────────────────
-    // One small dialog, plain words: 'login' (Welcome back, with a way to a Plus license key), 'key' (Activate Plus),
+    // One small dialog, plain words: 'login' (Welcome back, with a way to a Plus license key), 'key' (Activate Plus), 'rename',
     // 'set' (Set your password) and 'change' (Change password). With no mode: whatever fits now.
     function acctDialogClose() {
         const o = document.getElementById('acct-modal-overlay'), m = document.getElementById('acct-modal');
@@ -1800,7 +1828,10 @@
                 go: 'Save', after: '' },
             change: { title: 'Change password', lead: 'Your login name is ' + esc(lbDisplayName) + '.',
                 body: field('acct-old', 'Current password', 'password', 'current-password') + field('acct-pw', 'New password', 'password', 'new-password') + field('acct-pw2', 'New password again', 'password', 'new-password'),
-                go: 'Change password', after: '' },
+                go: 'Change password', after: link('acct-to-rename', 'Change login name') },
+            rename: { title: 'Change login name', lead: 'Your login name is also your name on the board. From now on you log in with the new one.',
+                body: field('acct-name', 'New login name', 'text', 'username', lbDisplayName) + field('acct-pw', 'Your password', 'password', 'current-password'),
+                go: 'Save name', after: link('acct-to-change', 'Change password instead') },
         }[mode];
         modal.setAttribute('aria-label', S.title);
         modal.innerHTML = '<div class="achievements-modal-header"><div class="achievements-modal-title">' + S.title + '</div>' +
@@ -1812,6 +1843,8 @@
         modal.querySelector('.achievements-modal-close').onclick = acctDialogClose;
         if ($('acct-to-key')) $('acct-to-key').onclick = () => atcAccountDialog('key');
         if ($('acct-to-login')) $('acct-to-login').onclick = () => atcAccountDialog('login');
+        if ($('acct-to-rename')) $('acct-to-rename').onclick = () => atcAccountDialog('rename');
+        if ($('acct-to-change')) $('acct-to-change').onclick = () => atcAccountDialog('change');
         if ($('acct-rename')) $('acct-rename').onclick = () => { $('acct-name-box').hidden = false; $('acct-name-line').hidden = true; $('acct-name').focus(); };
         const done = (text, then) => {
             modal.querySelector('.rcv-form').outerHTML = '<div class="rcv-done"><p class="rcv-lead"><b>' + esc(text) + '</b></p>' +
@@ -1841,6 +1874,9 @@
                     const r = await acctSetPassword($('acct-pw').value, $('acct-name').value, busy);
                     if (r.ok) done(r.message);
                     else { tell(r.message, r.pending ? '' : 'hot'); if (r.taken) { $('acct-name-box').hidden = false; $('acct-name-line').hidden = true; } }
+                } else if (mode === 'rename') {
+                    const r = await acctRename($('acct-name').value, $('acct-pw').value, busy);
+                    if (r.ok) done(r.message); else tell(r.message, r.pending ? '' : 'hot');
                 } else {
                     const r = await acctChangePassword($('acct-old').value, $('acct-pw').value, busy);
                     if (r.ok) done(r.message); else tell(r.message, r.pending ? '' : 'hot');
@@ -1859,6 +1895,7 @@
     window.atcLogin = atcLogin;
     window.atcSetPassword = atcSetPassword;
     window.atcChangePassword = atcChangePassword;
+    window.atcChangeName = atcChangeName;
     window.atcAdminResetLogin = atcAdminResetLogin;
     window.atcRestore = atcRestore;
     window.atcAdminClearRecovery = atcAdminClearRecovery;

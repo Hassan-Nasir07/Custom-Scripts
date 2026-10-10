@@ -434,6 +434,23 @@ const send = (player, players, opts) => dispatch({ player, build_token: 'tok-now
         ok('a sync after it leaves the account files alone', synced.files['keys.json'] === keyed.files['keys.json'] && synced.files['plus-' + 'b'.repeat(32) + '.json'] === keyed.files['plus-' + 'b'.repeat(32) + '.json']);
         const revoked = await dispatch({ tag: 'b'.repeat(32), admin_key: 'admin', build_token: 'tok-now' }, [stored({})], { event: 'admin-games-revoke', files: keyed.files });
         ok('a revoke marks the file, and the view drops the browser', !revoked.written.gamesUnlock.tags['b'.repeat(32)]);
+
+        // A new login name (also the board name): the password proves it; both names' hashes go.
+        const PW_NEW = pwOf('Hann R', 'pool-shark-7');
+        const ren = (extra, logins) => call('login-rename', Object.assign({ client_id: 'c1', name: 'Hann', new_name: 'Hann R', pw: PW, new_pw: PW_NEW, tag: TAG, rid: RID }, extra), me(), { gist: unlocked, logins: logins || enrolled.logins });
+        r = await ren({ pw: pwOf('Hann', 'nope') });
+        ok('renaming needs the password: a wrong one is refused and counted', r.status(TAG).code === 'wrong_password' && r.logins.logins.hann.fails.length === 1 && !r.logins.logins['hann r']);
+        r = await ren({}, { logins: Object.assign({}, enrolled.logins.logins, { 'hann r': { clientId: 'c2', name: 'Hann R', salt: 'x', hash: 'y', it: 1 } }) });
+        ok('…a name another account holds is refused', r.status(TAG).code === 'taken');
+        const renamed = await ren({});
+        ok('with it, the login moves to the new name and the old one is freed', renamed.status(TAG).ok === true && renamed.logins.logins['hann r'] && renamed.logins.logins['hann r'].clientId === 'c1' && !renamed.logins.logins.hann);
+        ok('…the board shows the new name (the account file), and only that file is written', renamed.player('c1').displayName === 'Hann R' && renamed.patches.filter(p => !p.some(n => /^status-/.test(n))).map(p => p.join()).join() === 'acct-c1.json');
+        const after2 = await call('login', { tag: NEW_TAG, name: 'hann r', pw: PW_NEW }, me(), { gist: unlocked, logins: renamed.logins });
+        ok('…logging in works with the new name', !!after2.written && after2.written.gamesUnlock.grants[NEW_TAG].clientId === 'c1');
+        const oldName = await call('login', { tag: NEW_TAG, rid: RID, name: 'Hann', pw: PW }, me(), { gist: unlocked, logins: renamed.logins });
+        ok('…and no longer with the old one', oldName.status(NEW_TAG).code === 'no_login');
+        const twice = await ren({}, renamed.logins);
+        ok('a rename sent twice (a resend) is done, not a wrong try', twice.status(TAG).ok === true && !twice.logins);
         let thrown = null;
         try { await dispatch({ tag: NEW_TAG, name: 'Hann', pw: PW, build_token: 'tok-now' }, board, { event: 'login', logins: store, env: { LOGIN_GIST_ID: '' } }); } catch (e) { thrown = e; }
         ok('with no LOGIN_GIST_ID configured, logins fail loudly (the run fails)', !!thrown && /LOGIN_GIST_ID/.test(thrown.message));
